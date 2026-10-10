@@ -6,6 +6,7 @@
 #include "parse_harness.hpp"
 
 #include <algorithm>
+#include <cstdio>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -23,7 +24,6 @@ std::vector<fs::path> corpus_files() {
 }
 std::string slurp(const fs::path& p) {
     std::string text;
-    LoadSession s;
     std::FILE* f = std::fopen(p.string().c_str(), "rb");
     REQUIRE(f);
     char buf[4096];

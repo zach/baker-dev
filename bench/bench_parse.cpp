@@ -1,6 +1,7 @@
 // Parse throughput on generated config-style text. Target (spec §7): >= 40 MB/s.
 #include <moira/parse.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <string>

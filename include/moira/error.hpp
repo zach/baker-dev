@@ -82,10 +82,16 @@ namespace detail {
 template <class E>
 [[noreturn]] void throw_bad_expected_access(const E& e) {
 #if MOIRA_EXCEPTIONS
-    if constexpr (std::is_same_v<E, Error>) raise(e);
-#endif
+    if constexpr (std::is_same_v<E, Error>) {
+        raise(e);
+    } else {
+        (void)e;
+        std::abort();
+    }
+#else
     (void)e;
     std::abort();
+#endif
 }
 }  // namespace detail
 #endif
