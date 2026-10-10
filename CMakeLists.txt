@@ -20,7 +20,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Warnings and sanitizers for everything this project builds (not for consumers).
 if(MSVC)
-  add_compile_options(/W4 /permissive- /utf-8)
+  # /Zc:preprocessor: the conforming preprocessor. The traditional one mangles raw string
+  # literals inside macro arguments, such as doctest's CHECK(...).
+  add_compile_options(/W4 /permissive- /utf-8 /Zc:preprocessor)
   add_compile_definitions(_CRT_SECURE_NO_WARNINGS)  # fopen is fine; we check every result
 else()
   add_compile_options(-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wno-sign-conversion)
