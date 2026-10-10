@@ -9,9 +9,31 @@ designer-editable value should cost one line and no ceremony.
 
 ## Status
 
-**M0 — repository skeleton.** There is no usable API yet. This README describes only
-what exists; see `docs/spec.md` for what is planned and `docs/decisions.md` for where
-the implementation deviates from the spec.
+**M1: data representation, parser, preprocessor, printer.** You can read DTA text into
+trees, inspect them with checked accessors, and print them back. Lookup by name, config,
+tweaks, and scripting are later milestones (`docs/spec.md` §10). `docs/decisions.md`
+records where the implementation deviates from the spec.
+
+```cpp
+#include <moira/moira.hpp>
+
+auto menu = moira::read_file("menu.dta");          // or try_read_file(): no exceptions
+for (const moira::Node& item : *menu) {
+    const moira::Array* a = item.try_array();       // raw access; never evaluates
+    if (a && !a->empty()) std::printf("%s\n", moira::to_string(*a).c_str());
+}
+std::string text = moira::to_dta(*menu);            // round-trips through read_string()
+```
+
+What exists:
+
+- `Node` (16 bytes), interned `Symbol`, refcounted `String` and `Array` (one allocation
+  per array, children inline), every array tagged with its source file and line.
+- A parser that never crashes on bad input: every error has a file and line.
+- The preprocessor: `#include`, `#include_opt`, `#merge`, `#ifdef`/`#ifndef`/`#else`/
+  `#endif`, `#define`, `#undef`, `#autorun`, and `[NAME ...]` macros.
+- A pretty-printer whose output parses back to an equal tree.
+- Tests, a hand-written corpus, and a libFuzzer harness (`-DMOIRA_BUILD_FUZZERS=ON`).
 
 ## Building
 
@@ -33,6 +55,16 @@ depends on data), `moira::moira` (both). Build the data layer by itself with
 | `MOIRA_SHIPPING` | `OFF` | Freeze config; compile out dev instrumentation |
 | `MOIRA_NO_EXCEPTIONS` | `OFF` | Non-throwing APIs only |
 | `MOIRA_SANITIZE` | empty | e.g. `address,undefined` |
+| `MOIRA_BUILD_TOOLS` | `ON` when top-level | `moira_parse_corpus` |
+| `MOIRA_BUILD_BENCH` | `OFF` | `moira_bench_parse` |
+| `MOIRA_BUILD_FUZZERS` | `OFF` | `moira_parse_fuzzer` (Clang) |
+
+To check the parser against a local DTA corpus (none is included; see
+`docs/decisions.md` D3):
+
+```sh
+build/moira_parse_corpus --roundtrip path/to/corpus
+```
 
 ## License
 

@@ -31,7 +31,7 @@ comment pointing here so the next person who checks the slide knows why.
 
 *Spec §0, M10.*
 
-4,000 non-test, non-comment lines is tracked and reported (`tools/count_lines.sh`,
+4,000 non-test, non-comment lines is tracked and reported (`tools/count_lines.py`,
 printed in CI per target), not enforced. The full scope — edit-mode write-back, layers,
 telemetry, `check` and its reports, coroutine tasks, binary cache — is expected to exceed
 it. Smallness still matters: every milestone records its line count here, and growth that
@@ -117,3 +117,104 @@ workload Moira doesn't have. Recorded so it isn't reinvented by accident.
   Feature switches become compile definitions on the library targets.
 - doctest 2.4.11 vendored under `third_party/doctest/` (MIT), recorded in
   `THIRD_PARTY.md`.
+
+## D10. Lexical details the spec leaves open
+
+*Spec §1. M1.*
+
+- **Whitespace** is every byte <= 0x20, so stray control characters never break a file.
+  A UTF-8 byte order mark at the start of a file is skipped.
+- **Comments:** `;` to end of line, and `/* ... */`, which starts only at the beginning of
+  a token (so `a/*b` is one symbol). An unterminated block comment is an error.
+- **Strings** have exactly two escapes, `\n` and `\q` (double quote), as in DTA. Every
+  other backslash is literal, so Windows paths need no doubling. Strings may span lines.
+- **Quoted symbols** `'like this'` have no escapes and may span lines. They are never
+  macro-expanded, which makes them the way to write a symbol that collides with a macro.
+- **Integers:** decimal must fit int32, or it is an error. `0x` hex may use all 32 bits
+  and keeps its bit pattern (`0xFFFFFFFF` is -1), because hex is how flags and colors are
+  written. A leading `+` or `-` is allowed on both.
+- **Floats** must fit a float (`1e39` is an error). `inf` and `nan` are symbols.
+- An atom that is not a number (`1e`, `0xZZ`, `1.2.3`, `12abc`) is a symbol, not an error.
+
+## D11. Directive details
+
+*Spec §1. M1.*
+
+- Paths after `#include` / `#merge` may be bare or `"quoted"`; real files use bare paths.
+  They resolve against the including file's directory, then `LoadSession::include_dirs`.
+- Two directives beyond the spec, both from the DTA format: `#include_opt` (missing file is
+  not an error) and `#autorun {cmd}`, whose commands are collected in
+  `LoadSession::autorun` for the host or `moira::script` to run.
+- `#define NAME (body)` defines a macro, but only if the `(` is on the same line as the
+  name; otherwise `#define NAME` is a flag and the array that follows is ordinary data.
+  Macros and flags share one table, so `#ifdef` sees both.
+- `[NAME ...]` defines a macro only at a file's own top level; deeper, `[...]` is a
+  Property. Consequently a Property can never sit at the top level of a parsed tree (it
+  would print back as a macro definition); splicing one there is an error.
+- Conditionals are token-level and may span brackets; they must close in the file that
+  opened them. Unknown directives are errors, except inside a skipped branch.
+- Include cycles, include depth (32), included-file count (4096), nesting depth (256,
+  counting arrays spliced from macros), and total nodes per read (2^26) are all bounded by
+  `ParseLimits`, so an exponential macro or a self-include fails cleanly.
+
+## D12. Array header layout
+
+*Spec §2.* The 24 bytes are: refcount 4, size 4, file Symbol 8, line 4, height 2, flags
+2. `height` (1 + tallest child array) exists so the parser can bound nesting even through
+shared macro arrays, which in turn bounds every recursive walk (destruction, printing,
+equality, merge). `flags` is reserved for M2's sorted-lookup mode.
+
+## D13. Values the printer cannot spell
+
+*Spec §1, round-trip.* A parsed tree always round-trips (fuzzed). Trees built in C++ can
+hold values DTA text has no spelling for; the printer does its best and documents them:
+
+- a symbol that needs quoting and also contains `'`;
+- a string containing a literal backslash followed by `n` or `q`;
+- NaN or infinite floats (printed as `nan` / `inf`, which read back as symbols);
+- Object handles (printed as a quoted symbol `'<object 3:17>'`);
+- a Property node at a root's top level (D11).
+
+The printer also never starts a file with UTF-8 BOM bytes (it adds a leading space): the
+reader skips a BOM there. The fuzzer found that case.
+
+## D14. Type errors from a bare Node have no location yet
+
+*Spec §2.* A Node does not know which array holds it, so `Node::as_int()` on a leaf
+reports the value and types but no file or line. (A mismatched *array* node reports its
+own location.) M2's array-level accessors (`find_int` and friends) add file, line, and
+array path. This is also how the float/int rule reads: an int always reads as a float; a
+float reads as an int only when integral and in range, so `12.75` as an int is an error
+while `12.0` is 12. That reconciles §2's "coerce freely" with its own error example.
+
+## D15. `#merge` details
+
+*D1, spec §4.* Fill-missing merge matches arrays by symbol tag only (D6). Non-array nodes
+in the merged file are ignored; arrays whose first node is not a symbol are appended. Merged
+arrays are rebuilt, never mutated in place, because macro expansion may share them. The
+overwrite policy for Config layers arrives in M3.
+
+## D16. Symbol table locking
+
+*Spec §2.* Interning takes a mutex, so files may be parsed on several threads. Parse
+throughput is about 115 MB/s on the generated benchmark (Release, gcc 13, one thread),
+well above the 40 MB/s target, so there is no reason yet for a lock-free table.
+
+## D17. M1 results
+
+- **Corpus.** Per D3 there is no Harmonix corpus here. The hand-written corpus in
+  `tests/corpus/` parses and round-trips at 100%, and so does every prefix of every
+  file. The real-corpus gate is run locally with
+  `moira_parse_corpus --roundtrip <checkout>`; **not yet run.** Record the result here.
+- **Fuzzing.** `moira_parse_fuzzer` (libFuzzer, ASan+UBSan, seeded from the corpus) checks
+  that every input either fails with a located error or parses and round-trips. It found
+  two bugs, both in BOM handling (`tests/fuzz_regressions/`), and then ran clean for 1.2M
+  execs (the M1 gate). A 10M-exec run (spec §8) is in progress; its result goes here.
+  CI fuzzes for two minutes per push.
+- **No-exceptions build** compiles with `-fno-exceptions` and runs the full suite; CI has
+  a job for it.
+- **Size.** `moira::data` is about 1,920 counted lines after M1, roughly half of the
+  4,000 soft budget (D2). The parser and preprocessor are about 640 of those, `Node` about
+  260. As D2 predicted, the full scope will pass 4,000; candidates for trimming later are
+  the `expected` shim (about 100 lines, gone once C++23 is the floor) and the error-message
+  strings in the parser.
