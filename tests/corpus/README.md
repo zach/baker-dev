@@ -1,0 +1,8 @@
+# Test corpus
+
+Original DTA-style files written for Moira's tests. They exercise the syntax real data
+files use (quoted symbols, macros, conditionals, includes, merges, commands, properties,
+odd whitespace) without containing any third-party content. See docs/decisions.md D3.
+
+Every `.dta` file here must parse, and must round-trip through the printer. The fuzzer
+uses this directory as its seed corpus.
