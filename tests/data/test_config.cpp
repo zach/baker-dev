@@ -144,7 +144,7 @@ TEST_CASE("layers merge, and removing one restores every value") {
     Config cfg({.tweaks = nullptr});
     REQUIRE(cfg.push_layer("default", dir.write("default.dta", kDefault)));
     REQUIRE(cfg.push_layer("app", dir.write("app.dta", kApp)));
-    CHECK(cfg.layers() == std::vector<std::string>{"default", "app", "scratch"});
+    CHECK(strings(cfg.layers()) == std::vector<std::string>{"default", "app", "scratch"});
     CHECK(cfg.get<int>("renderer.screen_size.0") == 1920);
     CHECK(cfg.get<int>("renderer.shadows.resolution") == 4096);
     CHECK(cfg.get<int>("renderer.shadows.enabled") == 1);
@@ -216,7 +216,7 @@ TEST_CASE("source names the layer, file, and line") {
     s = *cfg.source("renderer.screen_size");
     CHECK(s.layer == "scratch");
     CHECK(cfg.get<int>("renderer.screen_size.1") == 600);
-    CHECK(cfg.unsaved() == std::vector<std::string>{"renderer/screen_size"});
+    CHECK(strings(cfg.unsaved()) == std::vector<std::string>{"renderer/screen_size"});
 #endif
 
     CHECK(cfg.source("renderer.nope").error().code() == ErrorCode::NotFound);
@@ -483,7 +483,7 @@ TEST_CASE("write_back_to writes into another layer, adding the key if needed") {
     REQUIRE(cfg.set("box.height", Node(9)));
     REQUIRE(cfg.write_back_to("box.height", "default"));
     CHECK(dir.read("default.dta").find("(height 9))") != std::string::npos);
-    CHECK(cfg.unsaved() == std::vector<std::string>{"box/height"});
+    CHECK(strings(cfg.unsaved()) == std::vector<std::string>{"box/height"});
     CHECK(cfg.get<int>("box.height") == 9);
 }
 
@@ -602,7 +602,7 @@ TEST_CASE("every corpus config value writes back as one line, or is refused with
         CHECK(changed_lines == 1);
         CHECK(cfg.get<int>(path) == 4242);
         const auto unsaved = cfg.unsaved();  // refused paths stay live; this one is saved
-        CHECK(std::find(unsaved.begin(), unsaved.end(), to_string(path)) == unsaved.end());
+        CHECK(std::find(unsaved.begin(), unsaved.end(), Symbol(to_string(path))) == unsaved.end());
         ++written;
     }
     CHECK(written >= 8);

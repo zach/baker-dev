@@ -4,6 +4,9 @@
 
 #include "text.hpp"
 
+#include <optional>
+#include <vector>
+
 namespace moira {
 namespace {
 
@@ -36,6 +39,11 @@ size_t TweakRegistry::size() const noexcept {
 
 // --- TweakBase ---
 
+struct TweakBase::Extra {
+    std::optional<Path> parsed;
+    std::vector<Callback<void()>> on_change;
+};
+
 void TweakBase::attach() {
     registry_->lock();
     next_ = registry_->head_;
@@ -54,11 +62,14 @@ void TweakBase::detach() noexcept {
     if (next_) next_->prev_ = prev_;
     prev_ = next_ = nullptr;
     registry_->unlock();
+    delete extra_;
+    extra_ = nullptr;
 }
 
 const Path& TweakBase::parsed() {
-    if (!parsed_) parsed_ = std::make_unique<Path>(path_);
-    return *parsed_;
+    if (!extra_) extra_ = new Extra();
+    if (!extra_->parsed) extra_->parsed.emplace(path_);
+    return *extra_->parsed;
 }
 
 bool TweakBase::unbind() {
@@ -68,7 +79,7 @@ bool TweakBase::unbind() {
     return true;
 }
 
-bool TweakBase::bind(const Array& root, const std::function<void(const Error&)>& warn) {
+bool TweakBase::bind(const Array& root, const Callback<void(const Error&)>& warn) {
     const Path& path = parsed();
     if constexpr (kShipping) {
         if (meta_.dev_only) return unbind();
@@ -100,13 +111,13 @@ bool TweakBase::bind(const Array& root, const std::function<void(const Error&)>&
 }
 
 void TweakBase::notify() {
-    if (on_change_)
-        for (const auto& f : *on_change_) f();
+    if (extra_)
+        for (const auto& f : extra_->on_change) f();
 }
 
-void TweakBase::on_change(std::function<void()> callback) {
-    if (!on_change_) on_change_ = std::make_unique<std::vector<std::function<void()>>>();
-    on_change_->push_back(std::move(callback));
+void TweakBase::on_change(Callback<void()> callback) {
+    if (!extra_) extra_ = new Extra();
+    extra_->on_change.push_back(std::move(callback));
 }
 
 Expected<void> TweakBase::set_values(std::span<const Node> values) {

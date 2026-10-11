@@ -207,7 +207,7 @@ TEST_CASE("toggling a layer off and on restores every value and source exactly")
     CHECK(back.file == s_width.file);
     CHECK(back.line == s_width.line);
     CHECK(float(width) == 3.0f);
-    CHECK(cfg.layers() == std::vector<std::string>{"default", "experiment", "scratch"});
+    CHECK(strings(cfg.layers()) == std::vector<std::string>{"default", "experiment", "scratch"});
     CHECK(cfg.toggle_layer("nope").error().code() == ErrorCode::NotFound);
 
     // A layer pushed disabled keeps its place but contributes nothing.
@@ -272,7 +272,7 @@ TEST_CASE("set then write_back: one line, comments and note kept, scratch emptie
     Config cfg({.tweaks = nullptr});
     REQUIRE(cfg.push_layer("default", dir.write("default.dta", kBase)));
     REQUIRE(cfg.set("box.width", Node(2.4)));
-    CHECK(cfg.unsaved() == std::vector<std::string>{"box/width"});
+    CHECK(strings(cfg.unsaved()) == std::vector<std::string>{"box/width"});
     const std::string before = dir.read("default.dta");
     auto report = cfg.write_back("box.width");
     REQUIRE(report);
@@ -380,7 +380,8 @@ TEST_CASE("promote writes all entries or none, and reports every refusal") {
     CHECK(r->ok());
     CHECK(r->written.size() == 3);
     CHECK(dir.read("default.dta") == "#include net.dta\n(box (width 3) (depth 4))\n(net2 (x 1))\n");
-    CHECK(cfg.layers() == std::vector<std::string>{"default", "exp", "scratch"});  // exp stays
+    CHECK(strings(cfg.layers()) ==
+          std::vector<std::string>{"default", "exp", "scratch"});  // exp stays
     REQUIRE(cfg.remove_layer("exp"));
     CHECK(cfg.get<int>("box.depth") == 4);
     CHECK(cfg.source("box.depth")->layer == "default");
@@ -480,8 +481,8 @@ TEST_CASE("restore returns every value and source to the snapshot") {
         CHECK(s.file == sources[i].file);
         CHECK(s.line == sources[i].line);
     }
-    CHECK(cfg.layers() == std::vector<std::string>{"default", "exp", "scratch"});
-    CHECK(cfg.unsaved() == std::vector<std::string>{"box/height"});
+    CHECK(strings(cfg.layers()) == std::vector<std::string>{"default", "exp", "scratch"});
+    CHECK(strings(cfg.unsaved()) == std::vector<std::string>{"box/height"});
 }
 
 TEST_CASE("restore never reads disk, and write-back of restored values checks the file") {

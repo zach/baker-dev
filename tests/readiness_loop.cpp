@@ -125,7 +125,8 @@ TEST_CASE("readiness loop: edit, see, tune, save, experiment, and return") {
     CHECK(structurally_equal(*cfg.root(), *before));
     CHECK(float(cadence) == 0.9f);
     CHECK(cfg.source("warden.cadence")->layer == "experiment");
-    CHECK(cfg.layers() == std::vector<std::string>{"default", "local", "experiment", "scratch"});
+    CHECK(strings(cfg.layers()) ==
+          std::vector<std::string>{"default", "local", "experiment", "scratch"});
     CHECK(cfg.last_reload()->trigger == Symbol("restore"));
 
     // 7. Reload telemetry and tweak reads allocate nothing.

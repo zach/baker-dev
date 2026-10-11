@@ -5,6 +5,7 @@
 #include "text.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <optional>
@@ -88,7 +89,8 @@ void make_parents(const std::string& path) {
     }
 }
 
-bool write_disk_file(const std::string& path, std::string_view text) {
+bool write_disk_file(std::string_view where, std::string_view text) {
+    const std::string path(where);
     std::FILE* f = std::fopen(path.c_str(), "wb");
     if (!f) {
         make_parents(path);
@@ -263,24 +265,37 @@ struct ConfigSnapshot::State {
     std::vector<LayerState> layers;
     std::vector<ScratchEntry> scratch;
     bool scratch_enabled = true;
+    mutable std::atomic<uint32_t> refs{1};
 };
+
+ConfigSnapshot::ConfigSnapshot(const ConfigSnapshot& other) noexcept : state_(other.state_) {
+    if (state_) state_->refs.fetch_add(1, std::memory_order_relaxed);
+}
+ConfigSnapshot& ConfigSnapshot::operator=(const ConfigSnapshot& other) noexcept {
+    ConfigSnapshot copy(other);
+    std::swap(state_, copy.state_);
+    return *this;
+}
+ConfigSnapshot::~ConfigSnapshot() {
+    if (state_ && state_->refs.fetch_sub(1, std::memory_order_acq_rel) == 1) delete state_;
+}
 
 struct Config::Impl {
     struct Subscriber {
         ReloadId id;
         Path group;
-        std::function<void()> rebuild;
-        std::function<Reload()> migrate;
+        Callback<void()> rebuild;
+        Callback<Reload()> migrate;
     };
     struct Completion {
         ReloadId id;
-        std::function<void(const ReloadRecord&)> fn;
+        Callback<void(const ReloadRecord&)> fn;
     };
 
     ConfigOptions options;
     LoadSession base;
     Writer writer = write_disk_file;
-    std::function<void(const Error&)> warn;
+    Callback<void(const Error&)> warn;
     std::vector<LayerState> layers;
     std::vector<ScratchEntry> scratch;
     bool scratch_enabled = true;
@@ -589,9 +604,10 @@ struct Config::Impl {
 
     [[nodiscard]] Source source_in(const LayerState& l, const Path& path) const {
         detail::Resolved r;
-        if (detail::resolve(*l.root, path, r) != detail::ResolveStatus::Ok) return {l.name, {}, 0};
+        if (detail::resolve(*l.root, path, r) != detail::ResolveStatus::Ok)
+            return {Symbol(l.name), {}, 0};
         const Array& holder = *r.values.source();
-        return {l.name, holder.file(), holder.line()};
+        return {Symbol(l.name), holder.file(), holder.line()};
     }
 
     // --- Write-back ---
@@ -828,14 +844,15 @@ Expected<WriteReport> Config::Impl::write_into(Config& c, size_t li, const Path&
     WriteReport report;
     if (p->changed) {
         const Source s = source_in(layers[li], path);
-        report.written.push_back({s.file, s.line});
+        const WrittenLine line{s.file, s.line};
+        report.written = List<WrittenLine>(std::span<const WrittenLine>(&line, 1));
     }
     return report;
 }
 
 // --- Construction ---
 
-Config::Config(ConfigOptions options) : root_(Array::make(0)), impl_(std::make_unique<Impl>()) {
+Config::Config(ConfigOptions options) : root_(Array::make(0)), impl_(new Impl()) {
     impl_->options = options;
     if (TweakRegistry* reg = options.tweaks) {
         reg->config_ = this;
@@ -848,6 +865,7 @@ Config::Config(ConfigOptions options) : root_(Array::make(0)), impl_(std::make_u
 Config::~Config() {
     if (TweakRegistry* reg = impl_->options.tweaks; reg && reg->config_ == this)
         reg->config_ = nullptr;
+    delete impl_;
 }
 
 LoadSession& Config::session() noexcept {
@@ -858,7 +876,7 @@ void Config::set_writer(Writer writer) {
     impl_->writer = writer ? std::move(writer) : Writer(write_disk_file);
 }
 
-void Config::set_warning_handler(std::function<void(const Error&)> handler) {
+void Config::set_warning_handler(Callback<void(const Error&)> handler) {
     impl_->warn = std::move(handler);
 }
 
@@ -927,11 +945,11 @@ Expected<void> Config::pop_layer() {
     return {};
 }
 
-std::vector<std::string> Config::layers() const {
-    std::vector<std::string> names;
-    for (const auto& l : impl_->layers) names.push_back(l.name);
+List<Symbol> Config::layers() const {
+    std::vector<Symbol> names;
+    for (const auto& l : impl_->layers) names.emplace_back(l.name);
     names.emplace_back("scratch");
-    return names;
+    return List<Symbol>(names);
 }
 
 Expected<void> Config::set_layer_enabled(std::string_view name, bool enabled) {
@@ -988,7 +1006,7 @@ Error Config::scratch_type_error(const Path& path, const detail::ConvertInfo& in
 Expected<Source> Config::source(const Path& path) const {
     if (!path.valid()) return Unexpected(detail::get_error(*root_, path, nullptr));
     if (path.empty()) return Unexpected(refused("the whole config has no single source"));
-    if (impl_->scratch_entry(path)) return Source{"scratch", {}, 0};
+    if (impl_->scratch_entry(path)) return Source{Symbol("scratch"), {}, 0};
     std::optional<size_t> at = impl_->supplier(path, impl_->layers.size());
     if (!at) {
         // No layer has values there; name the topmost enabled one that has the path.
@@ -1039,14 +1057,14 @@ Expected<bool> Config::reload(const ReloadRequest& request) {
     return true;
 }
 
-Config::ReloadId Config::on_reload(const Path& group, std::function<void()> rebuild,
-                                   std::function<Reload()> migrate) {
+Config::ReloadId Config::on_reload(const Path& group, Callback<void()> rebuild,
+                                   Callback<Reload()> migrate) {
     const ReloadId id = impl_->next_id++;
     impl_->subscribers.push_back({id, group, std::move(rebuild), std::move(migrate)});
     return id;
 }
 
-Config::ReloadId Config::on_reload_complete(std::function<void(const ReloadRecord&)> callback) {
+Config::ReloadId Config::on_reload_complete(Callback<void(const ReloadRecord&)> callback) {
     const ReloadId id = impl_->next_id++;
     impl_->completions.push_back({id, std::move(callback)});
     return id;
@@ -1144,10 +1162,10 @@ Expected<void> Config::clear_scratch(std::string_view path) {
     return {};
 }
 
-std::vector<std::string> Config::unsaved() const {
-    std::vector<std::string> keys;
-    for (const auto& e : impl_->scratch) keys.push_back(e.key);
-    return keys;
+List<Symbol> Config::unsaved() const {
+    std::vector<Symbol> keys;
+    for (const auto& e : impl_->scratch) keys.emplace_back(e.key);
+    return List<Symbol>(keys);
 }
 
 // --- Write-back ---
@@ -1203,21 +1221,24 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
         return disk(p, out);
     };
     LayerState target = impl_->layers[*ti];
-    WriteReport report;
+    std::vector<Error> refusals;
     for (const Leaf& leaf : leaves) {
         auto p = impl_->plan(target, Path(leaf.path), leaf.values, true, vread);
         if (!p) {
-            report.refused.push_back(std::move(p).error());
+            refusals.push_back(std::move(p).error());
             continue;
         }
         if (!p->changed) continue;
         virt[std::string(p->file.str())] = std::move(p->text);
         LoadSession before = *impl_->session_below(impl_->layers, *ti);
         before.set_reader(vread);
-        if (auto r = impl_->read(target, before); !r)
-            report.refused.push_back(std::move(r).error());
+        if (auto r = impl_->read(target, before); !r) refusals.push_back(std::move(r).error());
     }
-    if (!report.ok()) return report;  // nothing written
+    WriteReport report;
+    if (!refusals.empty()) {  // nothing written
+        report.refused = List<Error>(refusals);
+        return report;
+    }
     for (const auto& [file, text] : virt)
         if (!impl_->writer(file, text))
             return Unexpected(
@@ -1237,17 +1258,19 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
     }
     impl_->commit(*this, rec, t);
     impl_->finish(*this, rec, t);
+    std::vector<WrittenLine> written;
     if (!virt.empty())
         for (const Leaf& leaf : leaves) {
             const Source s = impl_->source_in(impl_->layers[*ti], Path(leaf.path));
-            report.written.push_back({s.file, s.line});
+            written.push_back({s.file, s.line});
         }
+    report.written = List<WrittenLine>(written);
     return report;
 }
 
 // --- Layer tooling ---
 
-Expected<std::vector<LayerEffectEntry>> Config::layer_effect(std::string_view layer) const {
+Expected<List<LayerEffectEntry>> Config::layer_effect(std::string_view layer) const {
     const bool is_scratch = layer == "scratch";
     const auto li = impl_->find_layer(layer);
     if (!li && !is_scratch)
@@ -1255,7 +1278,7 @@ Expected<std::vector<LayerEffectEntry>> Config::layer_effect(std::string_view la
             make_error(ErrorCode::NotFound, "no layer named '" + std::string(layer) + "'"));
     const Ref<Array> tree = li ? impl_->layers[*li].root : impl_->scratch_root();
     std::vector<LayerEffectEntry> out;
-    if (!tree) return out;
+    if (!tree) return List<LayerEffectEntry>();
     // The stack without this layer.
     Ref<Array> without = Array::make(0);
     for (size_t i = 0; i < impl_->layers.size(); ++i)
@@ -1267,16 +1290,15 @@ Expected<std::vector<LayerEffectEntry>> Config::layer_effect(std::string_view la
     for (const Leaf& leaf : leaves_of(*tree)) {
         LayerEffectEntry e;
         const Path path(leaf.path);
-        e.path = leaf.path;
+        e.path = Symbol(leaf.path);
         e.value = pack(leaf.values);
-        e.source = is_scratch
-                       ? Source{"scratch", {}, 0}
-                       : Source{std::string(layer), leaf.holder->file(), leaf.holder->line()};
+        e.source = is_scratch ? Source{Symbol("scratch"), {}, 0}
+                              : Source{Symbol(layer), leaf.holder->file(), leaf.holder->line()};
         std::vector<Node> below;
         if (value_nodes(*without, path, below)) e.below = pack(below);
         const bool scratch_has = !is_scratch && impl_->scratch_entry(path);
         if (scratch_has) {
-            e.below_source = Source{"scratch", {}, 0};
+            e.below_source = Source{Symbol("scratch"), {}, 0};
         } else if (auto s = impl_->supplier(path, impl_->layers.size(), li ? *li : SIZE_MAX)) {
             e.below_source = impl_->source_in(impl_->layers[*s], path);
         }
@@ -1286,10 +1308,10 @@ Expected<std::vector<LayerEffectEntry>> Config::layer_effect(std::string_view la
                 e.shadowed = impl_->supplier(path, i + 1, SIZE_MAX) == i;
         out.push_back(std::move(e));
     }
-    return out;
+    return List<LayerEffectEntry>(out);
 }
 
-Expected<std::vector<DiffEntry>> Config::diff(std::string_view a, std::string_view b) const {
+Expected<List<DiffEntry>> Config::diff(std::string_view a, std::string_view b) const {
     auto tree_of = [&](std::string_view name) -> Expected<Ref<Array>> {
         if (name == "scratch") {
             Ref<Array> s = impl_->scratch_root();
@@ -1304,15 +1326,15 @@ Expected<std::vector<DiffEntry>> Config::diff(std::string_view a, std::string_vi
     if (!tb) return Unexpected(std::move(tb).error());
     const std::vector<Leaf> la = leaves_of(**ta), lb = leaves_of(**tb);
     auto source = [](std::string_view layer, const Leaf& l) {
-        return layer == "scratch" ? Source{"scratch", {}, 0}
-                                  : Source{std::string(layer), l.holder->file(), l.holder->line()};
+        return layer == "scratch" ? Source{Symbol("scratch"), {}, 0}
+                                  : Source{Symbol(layer), l.holder->file(), l.holder->line()};
     };
     std::vector<DiffEntry> out;
     for (const Leaf& x : la) {
         const auto y =
             std::find_if(lb.begin(), lb.end(), [&](const Leaf& l) { return l.path == x.path; });
         if (y != lb.end() && same_nodes(x.values, y->values)) continue;
-        DiffEntry d{x.path, pack(x.values), std::nullopt, source(a, x), std::nullopt};
+        DiffEntry d{Symbol(x.path), pack(x.values), std::nullopt, source(a, x), std::nullopt};
         if (y != lb.end()) {
             d.b = pack(y->values);
             d.source_b = source(b, *y);
@@ -1321,19 +1343,20 @@ Expected<std::vector<DiffEntry>> Config::diff(std::string_view a, std::string_vi
     }
     for (const Leaf& y : lb)
         if (std::none_of(la.begin(), la.end(), [&](const Leaf& l) { return l.path == y.path; }))
-            out.push_back({y.path, std::nullopt, pack(y.values), std::nullopt, source(b, y)});
-    return out;
+            out.push_back(
+                {Symbol(y.path), std::nullopt, pack(y.values), std::nullopt, source(b, y)});
+    return List<DiffEntry>(out);
 }
 
 // --- Snapshots ---
 
 ConfigSnapshot Config::snapshot() const {
-    auto state = std::make_shared<ConfigSnapshot::State>();
+    auto* state = new ConfigSnapshot::State();
     state->layers = impl_->layers;
     state->scratch = copy_scratch(impl_->scratch);
     state->scratch_enabled = impl_->scratch_enabled;
     ConfigSnapshot s;
-    s.state_ = std::move(state);
+    s.state_ = state;
     return s;
 }
 

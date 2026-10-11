@@ -9,6 +9,7 @@
 
 #include <moira/array.hpp>
 #include <moira/error.hpp>
+#include <moira/list.hpp>
 #include <moira/path.hpp>
 #include <moira/symbol.hpp>
 #include <moira/text.hpp>
@@ -109,5 +110,12 @@ struct Convert<std::array<T, N>> {
         for (const T& x : v) out.add(x);
     }
 };
+
+// The names in a list of symbols, as strings (Config::layers, Config::unsaved).
+inline std::vector<std::string> strings(const List<Symbol>& symbols) {
+    std::vector<std::string> out;
+    for (Symbol s : symbols) out.emplace_back(s.str());
+    return out;
+}
 
 }  // namespace moira

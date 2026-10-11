@@ -74,15 +74,14 @@
 #include <moira/source_map.hpp>
 #include <moira/tweak.hpp>
 
+#include <moira/callback.hpp>
+#include <moira/list.hpp>
+
 #include <cstddef>
 #include <cstdint>
-#include <functional>
-#include <memory>
 #include <optional>
 #include <span>
-#include <string>
 #include <string_view>
-#include <vector>
 
 namespace moira {
 
@@ -98,8 +97,8 @@ enum class MergePolicy : uint8_t {
 
 // Where a value came from.
 struct Source {
-    std::string layer;  // "scratch" for an unsaved live edit
-    Symbol file;        // empty for a layer with no file (an overlay, scratch)
+    Symbol layer;  // "scratch" for an unsaved live edit
+    Symbol file;   // empty for a layer with no file (an overlay, scratch)
     int32_t line = 0;
 };
 
@@ -145,7 +144,7 @@ struct ReloadRecord {
 // One value a layer sets: a path to a tagged array with values. A value of several nodes,
 // like (screen_size 1920 1080), is an untagged array of them: (1920 1080).
 struct LayerEffectEntry {
-    std::string path;           // dotted, as get<T>() takes it
+    Symbol path;                // dotted, as get<T>() takes it
     Node value;                 // this layer's value
     std::optional<Node> below;  // the stack's value without this layer, if any
     Source source;              // provenance, as source() returns it
@@ -154,7 +153,7 @@ struct LayerEffectEntry {
 };
 
 struct DiffEntry {
-    std::string path;
+    Symbol path;
     std::optional<Node> a, b;  // empty: that layer does not set this path
     std::optional<Source> source_a, source_b;
 };
@@ -165,8 +164,8 @@ struct WrittenLine {
 };
 
 struct WriteReport {
-    std::vector<WrittenLine> written;  // every file and line written
-    std::vector<Error> refused;        // promote(): every refusal; then nothing was written
+    List<WrittenLine> written;  // every file and line written
+    List<Error> refused;        // promote(): every refusal; then nothing was written
     [[nodiscard]] bool ok() const noexcept { return refused.empty(); }
 };
 
@@ -174,18 +173,21 @@ struct WriteReport {
 // reference, not copied), the files' load-time content, and a copy of scratch. Copyable.
 class ConfigSnapshot {
 public:
-    ConfigSnapshot() = default;
+    ConfigSnapshot() noexcept = default;
+    ConfigSnapshot(const ConfigSnapshot& other) noexcept;
+    ConfigSnapshot& operator=(const ConfigSnapshot& other) noexcept;
+    ~ConfigSnapshot();
     [[nodiscard]] bool empty() const noexcept { return !state_; }
 
 private:
     friend class Config;
-    struct State;
-    std::shared_ptr<const State> state_;
+    struct State;  // refcounted; defined in config.cpp
+    State* state_ = nullptr;
 };
 
 class Config {
 public:
-    using Writer = std::function<bool(const std::string& path, std::string_view text)>;
+    using Writer = Callback<bool(std::string_view path, std::string_view text)>;
     using ReloadId = uint32_t;
 
     explicit Config(ConfigOptions options = {});
@@ -204,7 +206,7 @@ public:
     [[nodiscard]] Expected<void> load(std::string_view path) { return push_layer(path, path); }
     [[nodiscard]] Expected<void> merge(std::string_view path) { return push_layer(path, path); }
     // Layer names bottom to top, ending with "scratch".
-    [[nodiscard]] std::vector<std::string> layers() const;
+    [[nodiscard]] List<Symbol> layers() const;
     [[nodiscard]] Expected<void> set_layer_enabled(std::string_view name, bool enabled);
     // Returns the new state.
     [[nodiscard]] Expected<bool> toggle_layer(std::string_view name);
@@ -234,10 +236,10 @@ public:
     // --- Hot reload and telemetry. ---
     // Re-reads changed files; true if anything changed.
     [[nodiscard]] Expected<bool> reload(const ReloadRequest& request = {});
-    ReloadId on_reload(const Path& group, std::function<void()> rebuild,
-                       std::function<Reload()> migrate = {});
+    ReloadId on_reload(const Path& group, Callback<void()> rebuild,
+                       Callback<Reload()> migrate = {});
     // Called after every change with its finished record (not under MOIRA_SHIPPING).
-    ReloadId on_reload_complete(std::function<void(const ReloadRecord&)> callback);
+    ReloadId on_reload_complete(Callback<void(const ReloadRecord&)> callback);
     void remove_on_reload(ReloadId id);
     void set_time_source(TimeSource fn, void* user = nullptr);
     // Allocates the history ring once; 0 turns history off. Default 256.
@@ -250,7 +252,7 @@ public:
     }
     // Called with a located error for each tweak whose value does not convert (the tweak
     // keeps its default) and each bad tweak path. Default: ignored.
-    void set_warning_handler(std::function<void(const Error&)> handler);
+    void set_warning_handler(Callback<void(const Error&)> handler);
     void freeze() noexcept { frozen_ = true; }
     [[nodiscard]] bool frozen() const noexcept { return frozen_; }
 
@@ -271,17 +273,15 @@ public:
     // One path, or all of scratch.
     [[nodiscard]] Expected<void> clear_scratch(std::string_view path = {});
     // Paths in scratch: live edits not yet written back.
-    [[nodiscard]] std::vector<std::string> unsaved() const;
+    [[nodiscard]] List<Symbol> unsaved() const;
 
     [[nodiscard]] Expected<WriteReport> write_back(const Path& path);
     [[nodiscard]] Expected<WriteReport> write_back_to(const Path& path, std::string_view layer);
     // Writes every entry of layer_effect(from) into `to`'s file, or nothing: on any refusal
     // the report lists them all and no file changes. `from` stays in the stack.
     [[nodiscard]] Expected<WriteReport> promote(std::string_view from, std::string_view to);
-    [[nodiscard]] Expected<std::vector<LayerEffectEntry>> layer_effect(
-        std::string_view layer) const;
-    [[nodiscard]] Expected<std::vector<DiffEntry>> diff(std::string_view a,
-                                                        std::string_view b) const;
+    [[nodiscard]] Expected<List<LayerEffectEntry>> layer_effect(std::string_view layer) const;
+    [[nodiscard]] Expected<List<DiffEntry>> diff(std::string_view a, std::string_view b) const;
 
     [[nodiscard]] ConfigSnapshot snapshot() const;
     [[nodiscard]] Expected<void> restore(const ConfigSnapshot& snapshot);
@@ -308,7 +308,7 @@ private:
     uint64_t epoch_ = 0;
     bool frozen_ = false;
     bool scratch_dirty_ = false;  // scratch changed since the last full merge
-    std::unique_ptr<Impl> impl_;
+    Impl* impl_;
 };
 
 }  // namespace moira
