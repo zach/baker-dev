@@ -31,6 +31,8 @@ comment pointing here so the next person who checks the slide knows why.
 
 *Spec §0, M10.*
 
+*Raised to 8,000 by D40.*
+
 4,000 non-test, non-comment lines is tracked and reported (`tools/count_lines.py`,
 printed in CI per target), not enforced. The full scope — edit-mode write-back, layers,
 telemetry, `check` and its reports, coroutine tasks, binary cache — is expected to exceed
@@ -613,6 +615,19 @@ it lets layers change after `freeze()`, for live-ops overlays in a shipped game.
   the spec's 4,000 (soft, D2). The largest parts are `config.cpp` 571 (write-back about
   200; layers, reload, provenance, live edits the rest), `tweak.hpp`/`tweak.cpp` 347,
   `config.hpp` 125, and `merge.cpp` 82. Flagged here and to the project owner, as §0 asks.
-  Six milestones remain. Options, not yet chosen: accept a larger budget, move write-back
-  and edit mode into an optional `moira::edit` library (about 300 lines), or trim
-  elsewhere.
+  Six milestones remain. Resolved by D40: the budget is raised to 8,000.
+
+## D40. The line budget is 8,000
+
+*Deviates from spec §0 (4,000) and M10 ("core stays within the 4,000-line budget").
+Decided by the project owner, 2026-10-11, after M3 crossed 4,000 (D39).*
+
+The goal has moved from the original's minimal core to a more capable library: layers,
+provenance, write-back, and the harness instrumentation of M10 are all beyond what the
+70 KB original did. The soft budget for the core (`moira::data` plus `moira::script`,
+counted by `tools/count_lines.py`) is now 8,000 non-test, non-comment lines. Everything
+else in D2 stands: it is reported in CI, not enforced; each milestone records its count;
+and disproportionate growth is still called out. M10's fallback (move the repetition
+report into a separate tool if the core is over budget) now applies at 8,000. Edit mode and
+write-back stay in the core.
+
