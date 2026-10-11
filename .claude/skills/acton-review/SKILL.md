@@ -8,11 +8,60 @@ description: Review Moira designs, milestone plans, and diffs the way a data-ori
 Moira is being built for a project whose technical director is Mike Acton. His views stand
 in for those of high-end console engine programmers generally. This skill turns those views
 into review questions you can check against Moira's code and plans. Where Moira chooses
-something else, the review makes the choice explicit and costed. It does not make Moira
-conform blindly.
+something else, the review makes the choice explicit and costed. The burden of proof is
+on the choice, not on the reviewer.
 
 Sources and how sure each attribution is: `references/sources.md`. Moira's known gaps
 against this lens: `references/moira-gaps.md`. Read both before a full review.
+
+## Why the line is held (read this first)
+
+*The project owner's account of the role, recorded 2026-10-11. It sets the posture for
+every review.*
+
+From outside, and to anyone without a technical director's combat experience, this stance
+can look narrow-minded, stuck in the past, inflexible, and antagonistic. Do not read it
+that way, and do not argue from that reading.
+
+- **The TD speaks for the player.** On a large game, the technical director acts as a
+  technical product manager, a role game development otherwise lacks. Their first
+  concern is that the game's performance is not sacrificed to technical choices that
+  give the player nothing. Players do not feel an engineer's pleasure in elegant code.
+  They feel a game that is not jerky and not late. (The project owner borrows a line here
+  they credit to Brad Bird: "pain is temporary, film is forever".) The investor's
+  interest follows, but the player's comes first.
+- **The usual threat is not malice but unawareness.** Enthusiastic engineers sometimes
+  defend a costly choice with conventional wisdom about object orientation, garbage
+  collection, exceptions, or RTTI. More often they make the choice without knowing what
+  it costs.
+- **The nightmare is entanglement.** Code is resistant to change. The worst outcome is
+  finding the game dependent on a technology that taxes every frame and is so intertwined
+  it cannot be removed. Holding a hard line early is how a TD prevents that, and it has
+  to be hard.
+- **It is a negotiation, and the TD is supposed to win the important ones.** To the
+  engineer, losing useful capabilities feels like being sent back to the stone age. That
+  is a real cost, and it is worth paying when the player gets the frame back.
+
+**The closer to the core of the game, the more this attitude rules.** The industry's own
+choices show it:
+- Lua won game scripting, odd as it is, because the host controls its heap and its
+  performance (through a custom allocator), unlike interpreters from the
+  devil-may-care world of desktop applications.
+- C++ is the language of choice because you do not pay for what you do not use. Into a
+  carefully curated engine codebase, carelessly introducing the STL, unwinding
+  exceptions, or RTTI goes very badly.
+
+**Moira is at the very heart of a game engine, so it must be thoroughly Acton-compatible.**
+Expect extreme skepticism from any TD evaluating it, and design for that review.
+- A TD who sees that a recommended library depends on, say, Boost will roll their eyes,
+  and the recommender will be teased for it.
+- Moira's answer has to be visible in its build: zero external runtime dependencies
+  (spec §6), every costly feature off or removable by a switch, nothing paid for unless
+  it is used.
+
+So when this skill and an engineer's preference disagree, the default is the skill's. Win
+the exception with numbers, or drop it. And remember why: all of this serves the game and
+the player.
 
 ## The stance, in his terms
 
@@ -194,9 +243,17 @@ Mark each piece of code as one of:
 - **offline**: the build-time bake.
 
 The hard rules below apply to **hot** with full force and to **load** for allocation and
-memory layout. **Tool** code may be ordinary C++. Acton's critics, and many of his peers,
-mainly fault him for applying console-hot-path rules everywhere. Do not make that mistake
-in either direction.
+memory layout. **Tool** code may be ordinary C++ inside, but it is shipped in the same
+library, so it still may not:
+- add a dependency;
+- require exceptions or RTTI;
+- put a heavyweight type (STL containers, `std::function`, `std::string`) into a header
+  that game code must include;
+- add work to a hot path, even when the tool is not in use.
+
+Acton's critics mainly fault him for applying console-hot-path rules to all programs.
+That is a point about other programs: Moira is engine core, and its tool code is only
+relaxed inside these limits.
 
 ### 2. State the transform
 - What is the input data, what is the output, how often does it run, and how much data
@@ -252,6 +309,18 @@ in either direction.
   build time of a translation unit that includes `<moira/object.hpp>` like a benchmark.
 - **Shipping.** Development-only work compiles out under `MOIRA_SHIPPING`
   (`if constexpr (kShipping)`), and the shipping CI job proves it.
+- **Removability.** For any technology a change leans on, ask whether a game could turn
+  it off or replace it later, without rewriting callers. Ask before it spreads, because
+  it cannot be asked after. Moira's existing answers are the model:
+  - `MOIRA_NO_EXCEPTIONS` (every throwing API has a non-throwing twin);
+  - no RTTI;
+  - `MOIRA_ATOMIC_REFCOUNT`;
+  - `MOIRA_SHIPPING`.
+
+  A new dependency on the global heap, the STL in a public signature, or a mandatory
+  callback type is a finding unless it comes with its switch or its funnel.
+- **Dependencies.** None at run time (spec §6). doctest is for tests only. Proposing a
+  third-party runtime library, however good, is a finding by default.
 
 ### 4. Load-path and offline rules
 - Anything computable at bake time belongs in the binary cache (M8): macro expansion,
@@ -331,5 +400,8 @@ names its cost.
   - The data-oriented question is not "script or not", but whether the interpreter is
     kept off the per-entity hot loop and whether its data is baked.
 - **Scope.** Critics (Shamus Young, HN and gamedev.net practitioners) accept the
-  performance argument but reject applying it to every program. For Moira this means:
-  runtime and load paths face the full lens, tool paths face the cost-of-change lens.
+  performance argument but reject applying it to every program. That is fair for
+  business software and editors. It does not soften the lens for Moira, which sits in the
+  engine's core:
+  - runtime and load paths face the full lens;
+  - tool paths face the cost-of-change lens, within the limits in review step 1.
