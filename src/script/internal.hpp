@@ -56,6 +56,8 @@ struct Global {
 [[nodiscard]] std::string signature_text(const detail::Overload& o);
 // "2 arguments", "1 to 2 arguments", "at least 1 argument".
 [[nodiscard]] std::string arity_text(uint32_t min, uint32_t max);
+// Records the current Context's live call frames in `e`, unless it already has a stack.
+void record_stack(Error& e);
 // Registers the functions every Context starts with (builtins.cpp, object.cpp).
 void register_builtins(Context& ctx);
 void register_object_builtins(Context& ctx);
@@ -143,6 +145,7 @@ struct Context::Impl {
     std::vector<const detail::TypeRecord*> types;
     std::vector<std::unique_ptr<ScriptClass>> classes;
     std::vector<ScriptClass*> class_by_name;  // by Symbol::index()
+    const CallFrame* top = nullptr;           // the innermost call in progress
     uint32_t depth = 0;
     uintptr_t stack_base = 0;             // the outermost call's stack address
     uintptr_t stack_budget = 256 * 1024;  // see Context::set_stack_budget

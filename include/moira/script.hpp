@@ -527,6 +527,13 @@ struct CheckReport {
     [[nodiscard]] std::string to_string() const;
 };
 
+// A call in progress, on the C++ stack: the frames of a Context form a list from the
+// innermost call out (Context::top_frame). Read-only, and valid only while the call runs.
+struct CallFrame {
+    const Array* command;  // the call as written: its head, file, and line
+    const CallFrame* parent;
+};
+
 class Context {
 public:
     Context();
@@ -615,6 +622,14 @@ public:
     // thread with a larger stack.
     void set_stack_budget(size_t bytes) noexcept;
 
+    // --- Debugging. ---
+
+    // The innermost call in progress; null when nothing is running. Follow `parent` out.
+    [[nodiscard]] const CallFrame* top_frame() const noexcept;
+    // The calls in progress, innermost first, as an error's stack records them.
+    [[nodiscard]] std::vector<StackEntry> backtrace() const;
+    [[nodiscard]] StackEntry stack_entry(const CallFrame& frame) const;
+
     // --- Notices: things worth saying that are not errors, such as a native function
     // replacing a script one. By default they go to stderr. ---
     using NoticeSink = void (*)(void* user, const Error& notice);
@@ -644,6 +659,11 @@ private:
 
     std::unique_ptr<Impl> impl_;
 };
+
+// The script calls in progress on this thread's current Context (Context::current), one
+// line each, innermost first; empty if there are none. For an assert handler or crash
+// reporter to print beside the C++ stack.
+[[nodiscard]] std::string script_backtrace();
 
 // Walks `tree` without evaluating anything and reports, located, every call to a
 // registered function with the wrong number of arguments for every overload, or a literal

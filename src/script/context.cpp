@@ -33,15 +33,31 @@ std::string quoted(Symbol s) {
 #define MOIRA_COLD [[gnu::noinline, gnu::cold]]
 #endif
 
+}  // namespace
+
+// The stack is recorded where an error is made or first passes a call, with every frame
+// still live; an error that has one keeps it as it unwinds further. Nothing on the
+// successful path pays for it.
+MOIRA_COLD void record_stack(Error& e) {
+    if (!e.stack.empty() || !t_current) return;
+    for (const CallFrame* c = t_current->impl().top; c; c = c->parent)
+        e.stack.push_back(t_current->stack_entry(*c));
+}
+
+namespace {
+
 MOIRA_COLD void locate(Error& e, const Array& at) {
     if (e.file.empty()) {
         e.file = at.file();
         e.line = at.line();
     }
+    record_stack(e);
 }
 
 MOIRA_COLD Expected<Node> fail(const Array& at, ErrorCode code, std::string message) {
-    return Unexpected(make_error(code, std::move(message), at.file(), at.line()));
+    Error e = make_error(code, std::move(message), at.file(), at.line());
+    record_stack(e);
+    return Unexpected(std::move(e));
 }
 
 MOIRA_COLD Expected<Node> bad_head(const Array& command) {
@@ -110,7 +126,7 @@ Expected<Node> evaluate_for_data(const Node& n) {
 }
 
 void stderr_sink(void*, const Error& notice) {
-    std::fprintf(stderr, "%s\n", to_string(notice).c_str());
+    std::fprintf(stderr, "%s\n", describe(notice).c_str());
 }
 
 }  // namespace
@@ -219,14 +235,18 @@ Expected<Node> Context::Impl::call(const Array& command) {
     if (depth == 0) stack_base = at;
     const uintptr_t used = at < stack_base ? stack_base - at : at - stack_base;
     if (depth >= kMaxDepth || used > stack_budget) return too_deep(command, depth, used);
+    // This call joins the frame list for as long as it runs (spec §5, "Debugging").
     struct Frame {
         Impl& impl;
         size_t kept;
+        CallFrame call;
         ~Frame() {
             --impl.depth;
+            impl.top = call.parent;
             if (impl.kept.size() > kept) impl.kept.resize(kept);
         }
-    } frame{*this, kept.size()};
+    } frame{*this, kept.size(), {&command, top}};
+    top = &frame.call;
     ++depth;
     if (!f) return send(target, command);
     if (f->overloads.size() > 1) return invoke_set(name, f->overloads, command, 1, nullptr);
@@ -295,6 +315,7 @@ Expected<Node> Context::Impl::run(std::span<const Node> nodes) {
 
 Context::Context() : impl_(std::make_unique<Impl>(*this)) {
     detail::set_evaluator(&evaluate_for_data);
+    detail::set_stack_recorder(&record_stack);
     if (!t_current) t_current = this;
     impl_->sink = &stderr_sink;
     register_builtins(*this);
@@ -397,6 +418,48 @@ VarRef Context::global(Symbol name, Node initial, std::string_view doc) {
 
 void Context::set_stack_budget(size_t bytes) noexcept {
     impl_->stack_budget = bytes;
+}
+
+// --- Debugging ---
+
+const CallFrame* Context::top_frame() const noexcept {
+    return impl_->top;
+}
+
+StackEntry Context::stack_entry(const CallFrame& frame) const {
+    const Array& c = *frame.command;
+    StackEntry e{{}, {}, c.file(), c.line()};
+    if (c.empty()) return e;
+    const auto head = c[0].try_sym();
+    if (head && has_func(*head)) {
+        e.function = *head;
+        return e;
+    }
+    // An object command: its method, and the object's name if it has one.
+    if (c.size() > 1) e.function = c[1].try_sym().value_or(Symbol());
+    if (head) {
+        e.on = *head;
+    } else if (c[0].type() == Type::Object) {
+        if (const Impl::Slot* s = impl_->slot(c[0].object_handle())) e.on = s->name;
+    }
+    return e;
+}
+
+std::vector<StackEntry> Context::backtrace() const {
+    std::vector<StackEntry> out;
+    for (const CallFrame* c = impl_->top; c; c = c->parent) out.push_back(stack_entry(*c));
+    return out;
+}
+
+std::string script_backtrace() {
+    std::string out;
+    if (const Context* ctx = Context::current())
+        for (const StackEntry& e : ctx->backtrace()) {
+            out += "in ";
+            out += to_string(e);
+            out += '\n';
+        }
+    return out;
 }
 
 void Context::set_notice_sink(NoticeSink sink, void* user) noexcept {

@@ -1096,3 +1096,37 @@ for the core is now 10,000 non-test, non-comment lines. The rest of D2 and D40 s
   +917, `moira::data` +22. That is about 160 lines over the plan's estimate of 780. The
   overrun is mostly property paths, `{new}` for native types, and the reference and
   `check` additions.
+
+## D52. The script call stack
+
+*Spec §5 ("Debugging"); M6 plan, step 1. No open question bears on it.*
+
+- **Frames.** `Impl::call` keeps a `CallFrame` (the command, a parent pointer) in the
+  frame it already had for the depth count, and `Impl::top` points at the innermost one.
+  That is two stores in and one out per call, with no allocation. `ctx.top_frame()` exposes
+  the list read-only, for a debugger to walk.
+- **Errors carry the stack.** `Error` gains `stack`, a vector of `StackEntry` (function,
+  the object's name for a method, file, line), innermost first. It is filled once, on the
+  error path only:
+  - where the evaluator makes an error (`fail`);
+  - where an error first passes a call (`locate`, which every propagating error already
+    went through).
+
+  An error that already has a stack keeps it as it unwinds further. A call that failed
+  before it started (an unknown function, an arity error, too deep) is not on its own
+  stack; its error is located at it.
+- **Exceptions.** The plan was to catch `moira::Exception` around each native thunk.
+  Measured, a `try` there added about 10 ns to every native call, so it is not done.
+  Instead, `moira::data` has a stack-recorder hook (as it has an evaluator hook, D45), and
+  the `Exception` constructor calls it. An exception thrown from a native function records
+  the frames it is thrown through, at the throw, and costs nothing until then.
+- **Rendering.**
+  - `to_string(error)` stays one line.
+  - `describe(error)` adds `  in {bob attack}  (boss.dta:4)` per frame.
+  - `Exception::what()` and the default notice sink use `describe`.
+  - `script_backtrace()` renders the live frames of `Context::current()`.
+  - `ctx.backtrace()` returns them as `StackEntry`s.
+- **Cost.** `{add 1 2}` went from 30 to 34 ns on this container (target 40). About half
+  of that is the two stores and the restore, and half is the larger frame. A nested
+  evaluation inside a native function shares the Context's list, so its error records the
+  outer calls too.

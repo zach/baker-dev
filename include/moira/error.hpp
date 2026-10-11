@@ -8,6 +8,9 @@
 //
 //   moira: 'price' is float, not int  (menu.dta:3, at menu/'bacon and eggs')
 //
+// An error from a script also carries the script call stack it unwound through
+// (Error::stack); describe() renders it, one frame a line, innermost first.
+//
 // Every throwing API has a non-throwing twin returning Expected<T>. Under
 // MOIRA_NO_EXCEPTIONS the throwing forms (and Exception) are compiled out.
 
@@ -19,6 +22,7 @@
 #include <string>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 #if defined(MOIRA_NO_EXCEPTIONS) && MOIRA_NO_EXCEPTIONS
 #define MOIRA_EXCEPTIONS 0
@@ -50,12 +54,22 @@ enum class ErrorCode : uint8_t {
 
 [[nodiscard]] std::string_view error_code_name(ErrorCode code) noexcept;
 
+// One call on the script call stack: {on function ...} written at file:line. `on` is the
+// object a method was sent to, when it has a name; empty for a function.
+struct StackEntry {
+    Symbol function;
+    Symbol on;
+    Symbol file;
+    int32_t line = 0;
+};
+
 struct Error {
     ErrorCode code = ErrorCode::Syntax;
     std::string message;
-    Symbol file;       // empty when unknown
-    int32_t line = 0;  // 0 when unknown
-    std::string path;  // array path, e.g. menu/'bacon and eggs'; empty when unknown
+    Symbol file;                    // empty when unknown
+    int32_t line = 0;               // 0 when unknown
+    std::string path;               // array path, e.g. menu/'bacon and eggs'; empty when unknown
+    std::vector<StackEntry> stack;  // the script calls it unwound through, innermost first
 };
 
 [[nodiscard]] Error make_error(ErrorCode code, std::string message, Symbol file = {},
@@ -63,6 +77,13 @@ struct Error {
 
 // "moira: <message>  (<file>:<line>, at <path>)", omitting whatever is unknown.
 [[nodiscard]] std::string to_string(const Error& error);
+// to_string, then a line per stack entry, innermost first:
+//   moira: '%' by zero  (boss.dta:9)
+//     in {%}  (boss.dta:9)
+//     in {bob attack}  (boss.dta:4)
+[[nodiscard]] std::string describe(const Error& error);
+// "{bob attack}  (boss.dta:4)"
+[[nodiscard]] std::string to_string(const StackEntry& entry);
 
 template <class T>
 using Expected = expected<T, Error>;
@@ -84,6 +105,17 @@ private:
 namespace detail {
 [[noreturn]] void raise(Error error);
 }  // namespace detail
+
+#endif
+
+namespace detail {
+// Set by moira::script: fills in an error's script call stack when an Exception is made, so
+// one thrown from a native function records the calls it is thrown through.
+using StackRecorder = void (*)(Error&);
+void set_stack_recorder(StackRecorder recorder) noexcept;
+}  // namespace detail
+
+#if MOIRA_EXCEPTIONS
 
 #endif
 

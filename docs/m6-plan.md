@@ -7,7 +7,7 @@ they are answered, the decisions go into `docs/decisions.md` (D52 onward) and th
 deleted.
 
 The script call stack does not depend on any open question, so it is built first (step 1
-below) while the questions are open.
+below) while the questions are open. *Done: D52.*
 
 ## Scope
 
@@ -60,10 +60,9 @@ Not in M6:
   file, line), innermost first. When a failed result first leaves a frame, the frames
   still live are copied into it. This is on the error path only. `moira::data` never fills
   it in.
-- **Native exceptions.** A `moira::Exception` thrown by a native function is caught where
-  the thunk is called and turned into an `Error`, so it gets the stack too. Today it is
-  only caught at `try_eval`, after every frame has gone. Other exceptions still pass
-  through untouched.
+- **Native exceptions.** *(Changed in the building: D52.)* A `moira::Exception` thrown by
+  a native function records the stack when it is constructed, through a hook in
+  `moira::data`. Catching it at each thunk instead cost about 10 ns per call.
 - **Rendering.**
   - `to_string(error)` stays the one-line form.
   - `describe(error)` adds one line per frame, innermost first:

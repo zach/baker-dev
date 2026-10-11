@@ -21,7 +21,9 @@ std::string quoted(Symbol s) {
 #endif
 
 MOIRA_COLD Expected<Node> fail(const Array& at, ErrorCode code, std::string message) {
-    return Unexpected(make_error(code, std::move(message), at.file(), at.line()));
+    Error e = make_error(code, std::move(message), at.file(), at.line());
+    record_stack(e);
+    return Unexpected(std::move(e));
 }
 
 // An instance of a script-only class.

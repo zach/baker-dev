@@ -33,6 +33,7 @@ if(MOIRA_BUILD_SCRIPT)
   add_executable(moira_script_tests
     script/test_binding.cpp
     script/test_check.cpp
+    script/test_debug.cpp
     script/test_eval.cpp
     script/test_object.cpp
     support/alloc_counter.cpp)
