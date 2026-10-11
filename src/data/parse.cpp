@@ -626,8 +626,8 @@ void LoadSession::set_reader(Reader reader) {
     reader_ = reader ? std::move(reader) : Reader(detail::read_disk_file);
 }
 
-Expected<Ref<Array>> try_read_string(std::string_view text, std::string_view name,
-                                     LoadSession& session) {
+Expected<Ref<Array>> read_string(std::string_view text, std::string_view name,
+                                 LoadSession& session) {
     const bool top = session.include_stack_.empty();
     if (top) {
         session.nodes_ = 0;
@@ -647,44 +647,22 @@ Expected<Ref<Array>> try_read_string(std::string_view text, std::string_view nam
     return root;
 }
 
-Expected<Ref<Array>> try_read_string(std::string_view text, std::string_view name) {
+Expected<Ref<Array>> read_string(std::string_view text, std::string_view name) {
     LoadSession session;
-    return try_read_string(text, name, session);
+    return read_string(text, name, session);
 }
 
-Expected<Ref<Array>> try_read_file(std::string_view path, LoadSession& session) {
+Expected<Ref<Array>> read_file(std::string_view path, LoadSession& session) {
     const std::string file = detail::normalize_path(path);
     std::string text;
     if (!session.reader_(file, text))
         return Unexpected(make_error(ErrorCode::Io, "cannot read '" + file + "'"));
-    return try_read_string(text, file, session);
+    return read_string(text, file, session);
 }
 
-Expected<Ref<Array>> try_read_file(std::string_view path) {
+Expected<Ref<Array>> read_file(std::string_view path) {
     LoadSession session;
-    return try_read_file(path, session);
+    return read_file(path, session);
 }
-
-#if MOIRA_EXCEPTIONS
-namespace {
-Ref<Array> value_or_raise(Expected<Ref<Array>> r) {
-    if (!r) detail::raise(std::move(r).error());
-    return std::move(*r);
-}
-}  // namespace
-
-Ref<Array> read_file(std::string_view path, LoadSession& session) {
-    return value_or_raise(try_read_file(path, session));
-}
-Ref<Array> read_file(std::string_view path) {
-    return value_or_raise(try_read_file(path));
-}
-Ref<Array> read_string(std::string_view text, std::string_view name, LoadSession& session) {
-    return value_or_raise(try_read_string(text, name, session));
-}
-Ref<Array> read_string(std::string_view text, std::string_view name) {
-    return value_or_raise(try_read_string(text, name));
-}
-#endif
 
 }  // namespace moira

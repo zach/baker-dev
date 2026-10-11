@@ -6,17 +6,19 @@
 #include "text.hpp"
 
 #include <string>
+#include "ok.hpp"
 
 using namespace moira;
+using moira::test::ok;
 
 namespace {
 Ref<Array> parse(std::string_view text) {
-    auto r = try_read_string(text, "t.dta");
+    auto r = read_string(text, "t.dta");
     REQUIRE_MESSAGE(r.has_value(), (r ? std::string() : to_string(r.error())));
     return *r;
 }
 Error parse_error(std::string_view text) {
-    auto r = try_read_string(text, "t.dta");
+    auto r = read_string(text, "t.dta");
     REQUIRE_MESSAGE(!r.has_value(), "expected an error for: " << text);
     return r.error();
 }
@@ -164,16 +166,14 @@ TEST_CASE("errors format with file and line") {
     CHECK(to_string(e) == "moira: integer 0x1FFFFFFFFFFFFFFFF is out of 64-bit range  (t.dta:2)");
 }
 
-#if MOIRA_EXCEPTIONS
-TEST_CASE("throwing twins") {
-    CHECK(to_string(*read_string("(x 1)")) == "((x 1))");
-    CHECK_THROWS_AS((void)read_string("(x"), Exception);
-    CHECK_THROWS_AS((void)read_file("/definitely/not/here.dta"), Exception);
+TEST_CASE("reading text and files") {
+    CHECK(to_string(*ok(read_string("(x 1)"))) == "((x 1))");
+    CHECK_FALSE(read_string("(x"));
+    CHECK_FALSE(read_file("/definitely/not/here.dta"));
 }
-#endif
 
 TEST_CASE("missing file is an io error") {
-    auto r = try_read_file("/definitely/not/here.dta");
+    auto r = read_file("/definitely/not/here.dta");
     REQUIRE_FALSE(r.has_value());
     CHECK(r.error().code == ErrorCode::Io);
 }

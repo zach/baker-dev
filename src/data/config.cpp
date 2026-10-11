@@ -350,7 +350,7 @@ struct Config::Impl {
         });
         auto map = options.edit_mode ? std::make_shared<SourceMap>() : nullptr;
         session->source_map = map.get();
-        auto root = try_read_file(layer.path, *session);
+        auto root = read_file(layer.path, *session);
         session->set_reader(reader);
         session->source_map = nullptr;
         layer.file = deps.empty() ? layer.path : deps.front().path;
@@ -859,8 +859,8 @@ void Config::bind(TweakBase& t) {
 
 // --- Layers ---
 
-Expected<void> Config::try_push_layer(std::string_view name, std::string_view path,
-                                      LayerOptions options) {
+Expected<void> Config::push_layer(std::string_view name, std::string_view path,
+                                  LayerOptions options) {
     if (auto ok = impl_->may_change(*this); !ok) return ok;
     if (name == "scratch" || impl_->find_layer(name))
         return Unexpected(refused("there is already a layer named '" + std::string(name) + "'"));
@@ -875,8 +875,7 @@ Expected<void> Config::try_push_layer(std::string_view name, std::string_view pa
     return {};
 }
 
-Expected<void> Config::try_push_layer(std::string_view name, Ref<Array> overlay,
-                                      LayerOptions options) {
+Expected<void> Config::push_layer(std::string_view name, Ref<Array> overlay, LayerOptions options) {
     if (auto ok = impl_->may_change(*this); !ok) return ok;
     if (!overlay)
         return Unexpected(
@@ -893,7 +892,7 @@ Expected<void> Config::try_push_layer(std::string_view name, Ref<Array> overlay,
     return {};
 }
 
-Expected<void> Config::try_remove_layer(std::string_view name) {
+Expected<void> Config::remove_layer(std::string_view name) {
     if (auto ok = impl_->may_change(*this); !ok) return ok;
     if (name == "scratch")
         return Unexpected(refused("scratch cannot be removed; clear it instead"));
@@ -910,7 +909,7 @@ Expected<void> Config::try_remove_layer(std::string_view name) {
     return {};
 }
 
-Expected<void> Config::try_pop_layer() {
+Expected<void> Config::pop_layer() {
     if (auto ok = impl_->may_change(*this); !ok) return ok;
     if (impl_->layers.empty())
         return Unexpected(make_error(ErrorCode::NotFound, "no layer to pop"));
@@ -926,7 +925,7 @@ std::vector<std::string> Config::layers() const {
     return names;
 }
 
-Expected<void> Config::try_set_layer_enabled(std::string_view name, bool enabled) {
+Expected<void> Config::set_layer_enabled(std::string_view name, bool enabled) {
     if constexpr (kShipping) return Unexpected(shipping("toggling a layer"));
     if (auto ok = impl_->may_change(*this); !ok) return ok;
     bool* flag = nullptr;
@@ -944,9 +943,9 @@ Expected<void> Config::try_set_layer_enabled(std::string_view name, bool enabled
     return {};
 }
 
-Expected<bool> Config::try_toggle_layer(std::string_view name) {
+Expected<bool> Config::toggle_layer(std::string_view name) {
     const bool next = !layer_enabled(name);
-    if (auto r = try_set_layer_enabled(name, next); !r) return Unexpected(std::move(r).error());
+    if (auto r = set_layer_enabled(name, next); !r) return Unexpected(std::move(r).error());
     return next;
 }
 
@@ -977,7 +976,7 @@ Error Config::scratch_type_error(const Path& path, const detail::ConvertInfo& in
                       quoted(path) + " in scratch is not " + std::string(info.name));
 }
 
-Expected<Source> Config::try_source(const Path& path) const {
+Expected<Source> Config::source(const Path& path) const {
     if (!path.valid()) return Unexpected(detail::get_error(*root_, path, nullptr));
     if (path.empty()) return Unexpected(refused("the whole config has no single source"));
     if (impl_->scratch_entry(path)) return Source{"scratch", {}, 0};
@@ -997,7 +996,7 @@ Expected<Source> Config::try_source(const Path& path) const {
 
 // --- Reload and telemetry ---
 
-Expected<bool> Config::try_reload(const ReloadRequest& request) {
+Expected<bool> Config::reload(const ReloadRequest& request) {
     if constexpr (kShipping) return false;
     ReloadRecord rec = impl_->begin(
         request.trigger.empty() ? trigger_name("reload") : request.trigger, request.origin_ns);
@@ -1082,7 +1081,7 @@ std::optional<ReloadRecord> Config::last_reload() const noexcept {
 
 // --- Scratch ---
 
-Expected<void> Config::try_set(const Path& path, std::span<const Node> values) {
+Expected<void> Config::set(const Path& path, std::span<const Node> values) {
     if constexpr (kShipping) return Unexpected(shipping("set()"));
     if (auto ok = impl_->may_change(*this); !ok) return ok;
     if (!path.valid()) return Unexpected(detail::get_error(*root_, path, nullptr));
@@ -1107,7 +1106,7 @@ Expected<void> Config::try_set(const Path& path, std::span<const Node> values) {
     return {};
 }
 
-Expected<void> Config::try_set(std::string_view path, const Node& value) {
+Expected<void> Config::set(std::string_view path, const Node& value) {
     if constexpr (kShipping) return Unexpected(shipping("set()"));
     if (auto ok = impl_->may_change(*this); !ok) return ok;
     // The fast path: a scalar already in scratch changes in place, allocating nothing.
@@ -1119,10 +1118,10 @@ Expected<void> Config::try_set(std::string_view path, const Node& value) {
             return {};
         }
     }
-    return try_set(Path(path), std::span<const Node>(&value, 1));
+    return set(Path(path), std::span<const Node>(&value, 1));
 }
 
-Expected<void> Config::try_clear_scratch(std::string_view path) {
+Expected<void> Config::clear_scratch(std::string_view path) {
     if constexpr (kShipping) return Unexpected(shipping("clear_scratch()"));
     if (auto ok = impl_->may_change(*this); !ok) return ok;
     auto& s = impl_->scratch;
@@ -1144,7 +1143,7 @@ std::vector<std::string> Config::unsaved() const {
 
 // --- Write-back ---
 
-Expected<WriteReport> Config::try_write_back(const Path& path) {
+Expected<WriteReport> Config::write_back(const Path& path) {
     if constexpr (kShipping) return Unexpected(shipping("write-back"));
     if (!path.valid()) return Unexpected(detail::get_error(*root_, path, nullptr));
     std::vector<Node> values;
@@ -1157,7 +1156,7 @@ Expected<WriteReport> Config::try_write_back(const Path& path) {
     return impl_->write_into(*this, *at, path, values, false);
 }
 
-Expected<WriteReport> Config::try_write_back_to(const Path& path, std::string_view layer) {
+Expected<WriteReport> Config::write_back_to(const Path& path, std::string_view layer) {
     if constexpr (kShipping) return Unexpected(shipping("write-back"));
     if (!path.valid()) return Unexpected(detail::get_error(*root_, path, nullptr));
     if (layer == "scratch") return Unexpected(refused("scratch is never written to disk"));
@@ -1171,7 +1170,7 @@ Expected<WriteReport> Config::try_write_back_to(const Path& path, std::string_vi
     return impl_->write_into(*this, *at, path, values, true);
 }
 
-Expected<WriteReport> Config::try_promote(std::string_view from, std::string_view to) {
+Expected<WriteReport> Config::promote(std::string_view from, std::string_view to) {
     if constexpr (kShipping) return Unexpected(shipping("promote()"));
     if (auto ok = impl_->may_change(*this); !ok) return Unexpected(std::move(ok).error());
     if (to == "scratch") return Unexpected(refused("scratch is never written to disk"));
@@ -1239,7 +1238,7 @@ Expected<WriteReport> Config::try_promote(std::string_view from, std::string_vie
 
 // --- Layer tooling ---
 
-Expected<std::vector<LayerEffectEntry>> Config::try_layer_effect(std::string_view layer) const {
+Expected<std::vector<LayerEffectEntry>> Config::layer_effect(std::string_view layer) const {
     const bool is_scratch = layer == "scratch";
     const auto li = impl_->find_layer(layer);
     if (!li && !is_scratch)
@@ -1281,7 +1280,7 @@ Expected<std::vector<LayerEffectEntry>> Config::try_layer_effect(std::string_vie
     return out;
 }
 
-Expected<std::vector<DiffEntry>> Config::try_diff(std::string_view a, std::string_view b) const {
+Expected<std::vector<DiffEntry>> Config::diff(std::string_view a, std::string_view b) const {
     auto tree_of = [&](std::string_view name) -> Expected<Ref<Array>> {
         if (name == "scratch") {
             Ref<Array> s = impl_->scratch_root();
@@ -1329,7 +1328,7 @@ ConfigSnapshot Config::snapshot() const {
     return s;
 }
 
-Expected<void> Config::try_restore(const ConfigSnapshot& snapshot) {
+Expected<void> Config::restore(const ConfigSnapshot& snapshot) {
     if (auto ok = impl_->may_change(*this); !ok) return ok;
     if (snapshot.empty()) return Unexpected(make_error(ErrorCode::NotFound, "empty snapshot"));
     impl_->layers = snapshot.state_->layers;

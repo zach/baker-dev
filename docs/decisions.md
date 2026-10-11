@@ -1255,3 +1255,58 @@ L2) to measure them.
   it into an error naming the task. It never falls back to the heap.
 - The Scheduler steps tasks in a batch. Structural changes made during a step (`{new}`,
   `{delete}`, registration) are queued and applied at a named sync point.
+
+## D59. M5b step 1 results: exceptions and `try_` removed
+
+*Recorded 2026-10-11. Implements D54.*
+
+- **What is gone:**
+  - `Exception`, `detail::raise`, and every throwing form;
+  - `MOIRA_EXCEPTIONS` and `MOIRA_NO_EXCEPTIONS`, and both "no exceptions" CI jobs;
+  - D52's stack-recorder hook.
+
+  Every target builds with `-fno-exceptions` (`/EHs-c-` with `_HAS_EXCEPTIONS=0` on MSVC):
+  the library, tests, examples, tools, and benchmarks. doctest runs in its no-exceptions
+  mode, so a failed `REQUIRE` ends the test binary.
+- **What `try_` means now.** It marks only weak lookups, which return null or an empty
+  optional and build no error:
+  - `Node::try_int`/`try_float`/`try_sym`/`try_str`/`try_array`;
+  - `Array::try_at`, `try_find(tag)`, and `try_get(path)`;
+  - `Context::try_resolve` and `try_get<T>(object)`.
+
+  Everything that returns `Expected` lost the prefix: `read_file`, `eval`, `func`, `add`,
+  `call`, `find<T>`, `find_float`, `get<T>`, `push_layer`, `reload`, `set`, `write_back`,
+  and the rest.
+- **Strong accessors return `Expected`.** `Node::as_int()` and the other `as_X()` and
+  `as<T>()` accessors return `Expected<X>`, with the same located message as before.
+  `as_array()` returns `Expected<const Array*>`. `Context::get<T>(object)` returns
+  `Expected<T*>`. `Array::at(i)` and the reference-returning `Array::find(tag)` and
+  `get(path)` are gone: `try_at`, `try_find`, and `try_get` cover them.
+- **Renamed internally:** the private `Context::add(Symbol, Overload)` became
+  `add_overload`, so `add` is only the public object form.
+- **Tests.** About 700 lines of tests were written against the throwing forms. They were
+  converted, not dropped:
+  - `tests/support/ok.hpp` adds `ok(expected)`, which returns the value or fails the test
+    with `describe(error)`, script stack included;
+  - assertion counts match the previous build within the merged duplicates (673 against
+    674 script assertions, and 75,959 against 75,963 data assertions).
+
+  Five `CHECK_THROWS` checks would have compiled to nothing without exceptions. They now
+  check the returned error.
+- **A latent issue surfaced.** One test called `set` and `write_back` in the shipping
+  build, where both are refused. The throwing form had hidden it. The test now expects
+  the refusal under `MOIRA_SHIPPING`.
+- **Performance, on this container:**
+  - `{add 1 2}` is 32–34 ns, unchanged (target 40, zero allocations).
+  - **`-fno-exceptions` itself slows lookup.** HEAD's own benchmark, built with
+    `MOIRA_NO_EXCEPTIONS=ON`, reads `try_find_float` on a 20-child array at about 17 ns
+    on average and 29 ns for the last key. With exceptions on, the same build reads 17 and
+    24 ns. The new library matches the no-exceptions numbers exactly (17.3 and 28.9 ns
+    with that benchmark file). The cause was not investigated: D57's M8 layout work
+    rewrites this path.
+  - **The rewritten `bench_lookup.cpp` reads about 3 ns slower than HEAD's file** against
+    the same library (20–21 ns average, 31–32 ns last), because of inlining in the
+    benchmark's own translation unit, not the library.
+  - The §7 target (≤ 25 ns, read as the average) is met either way. The last-key row
+    missed 25 ns at HEAD too.
+- **Size.** The core is 6,933 lines, down 329 (D54 estimated −150).

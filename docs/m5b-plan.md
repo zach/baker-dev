@@ -10,7 +10,7 @@ step 1 (`{add 1 2}` at 34 ns, D52).
 
 ## Steps
 
-1. **Remove the throwing forms, and drop `try_` (D54).**
+1. **Remove the throwing forms, and drop `try_` (D54).** *Done: D59.*
    - Delete `Exception`, `raise`, the `MOIRA_EXCEPTIONS` switch, and the D52 recorder hook.
    - Rename every `try_x` to `x`.
    - Convert tests, examples, and benchmarks.

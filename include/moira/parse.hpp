@@ -78,8 +78,8 @@ public:
 
 private:
     friend class detail::Parser;
-    friend Expected<Ref<Array>> try_read_string(std::string_view, std::string_view, LoadSession&);
-    friend Expected<Ref<Array>> try_read_file(std::string_view, LoadSession&);
+    friend Expected<Ref<Array>> read_string(std::string_view, std::string_view, LoadSession&);
+    friend Expected<Ref<Array>> read_file(std::string_view, LoadSession&);
 
     std::unordered_map<Symbol, Ref<Array>> defines_;
     Reader reader_;
@@ -89,20 +89,12 @@ private:
     uint32_t includes_ = 0;
 };
 
-[[nodiscard]] Expected<Ref<Array>> try_read_file(std::string_view path, LoadSession& session);
-[[nodiscard]] Expected<Ref<Array>> try_read_file(std::string_view path);
+[[nodiscard]] Expected<Ref<Array>> read_file(std::string_view path, LoadSession& session);
+[[nodiscard]] Expected<Ref<Array>> read_file(std::string_view path);
 // `name` is used as the file name in errors and as the base for relative includes.
-[[nodiscard]] Expected<Ref<Array>> try_read_string(std::string_view text, std::string_view name,
-                                                   LoadSession& session);
-[[nodiscard]] Expected<Ref<Array>> try_read_string(std::string_view text,
-                                                   std::string_view name = "<string>");
-
-#if MOIRA_EXCEPTIONS
-[[nodiscard]] Ref<Array> read_file(std::string_view path, LoadSession& session);
-[[nodiscard]] Ref<Array> read_file(std::string_view path);
-[[nodiscard]] Ref<Array> read_string(std::string_view text, std::string_view name,
-                                     LoadSession& session);
-[[nodiscard]] Ref<Array> read_string(std::string_view text, std::string_view name = "<string>");
-#endif
+[[nodiscard]] Expected<Ref<Array>> read_string(std::string_view text, std::string_view name,
+                                               LoadSession& session);
+[[nodiscard]] Expected<Ref<Array>> read_string(std::string_view text,
+                                               std::string_view name = "<string>");
 
 }  // namespace moira

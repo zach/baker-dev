@@ -22,8 +22,8 @@
 // default for the small arrays config is made of; sort_for_lookup() switches an array to
 // binary search. Only Symbol tags match (docs/decisions.md D6).
 //
-// Raw versus typed: at(i), operator[], and find() return raw nodes and arrays and never
-// evaluate anything. Typed reads (find_int, find<T>, get<T>, ...) convert values through
+// Raw versus typed: try_at(i), operator[], and try_find() return raw nodes and arrays and
+// never evaluate anything. Typed reads (find_int, find<T>, get<T>, ...) convert values through
 // Convert<T>. A Command or Var value needs moira::script to evaluate it; without that,
 // reading one as a value is a clean error.
 //
@@ -32,14 +32,14 @@
 //
 //   moira: 'price' is float, not int  (menu.dta:3, at menu/'bacon and eggs')
 //
-// A lookup along a Path reports the whole path; a chain of find() calls reports the
-// tag of the array the failing call was made on (an array does not know its parents).
+// A lookup along a Path reports the whole path; a chain of finds reports the tag of the
+// array the failing call was made on (an array does not know its parents).
 //
-// Every throwing form has a try_ twin returning Expected<T> (or, for find() and get()
-// of an array, a pointer that is null when absent). Forms taking a fallback return it
-// only when the key is absent; a value that is present but the wrong type is an error,
-// because silently ignoring a mistyped value is the failure located errors exist to
-// prevent (docs/decisions.md D25).
+// Typed reads return Expected<T> (D54). The try_ forms are weak: try_find() and try_get()
+// return the child array, or null when it is absent, and build no error. Forms taking a
+// fallback return it only when the key is absent; a value that is present but the wrong
+// type is an error, because silently ignoring a mistyped value is the failure located
+// errors exist to prevent (docs/decisions.md D25).
 
 #include <moira/node.hpp>
 #include <moira/path.hpp>
@@ -312,10 +312,6 @@ public:
     [[nodiscard]] uint32_t size() const noexcept { return size_; }
     [[nodiscard]] bool empty() const noexcept { return size_ == 0; }
 
-#if MOIRA_EXCEPTIONS
-    // The raw node at `i`; never evaluates. Throws if `i` is out of range.
-    [[nodiscard]] const Node& at(size_t i) const;
-#endif
     // The raw node at `i`, or null if out of range.
     [[nodiscard]] const Node* try_at(size_t i) const noexcept {
         return i < size_ ? data() + i : nullptr;
@@ -355,72 +351,31 @@ public:
     }
     // The values of the child tagged `tag`, read as T.
     template <class T>
-    [[nodiscard]] Expected<T> try_find(Symbol tag) const;
+    [[nodiscard]] Expected<T> find(Symbol tag) const;
     // As above, or `fallback` if no child has the tag.
     template <class T>
-    [[nodiscard]] Expected<T> try_find(Symbol tag, T fallback) const;
+    [[nodiscard]] Expected<T> find(Symbol tag, T fallback) const;
 
-    [[nodiscard]] Expected<int64_t> try_find_int(Symbol tag) const {
-        return try_find<int64_t>(tag);
-    }
-    [[nodiscard]] Expected<double> try_find_float(Symbol tag) const {
-        return try_find<double>(tag);
-    }
-    [[nodiscard]] Expected<Symbol> try_find_sym(Symbol tag) const { return try_find<Symbol>(tag); }
-    [[nodiscard]] Expected<std::string_view> try_find_str(Symbol tag) const {
-        return try_find<std::string_view>(tag);
-    }
-    // The array that is the first value: (colors (1 0 0)) gives (1 0 0).
-    [[nodiscard]] Expected<const Array*> try_find_array(Symbol tag) const;
-    [[nodiscard]] Expected<int64_t> try_find_int(Symbol tag, int64_t fallback) const {
-        return try_find<int64_t>(tag, fallback);
-    }
-    [[nodiscard]] Expected<double> try_find_float(Symbol tag, double fallback) const {
-        return try_find<double>(tag, fallback);
-    }
-    [[nodiscard]] Expected<Symbol> try_find_sym(Symbol tag, Symbol fallback) const {
-        return try_find<Symbol>(tag, fallback);
-    }
-    [[nodiscard]] Expected<std::string_view> try_find_str(Symbol tag,
-                                                          std::string_view fallback) const {
-        return try_find<std::string_view>(tag, fallback);
-    }
-
-#if MOIRA_EXCEPTIONS
-    [[nodiscard]] const Array& find(Symbol tag) const {
-        if (const Array* a = try_find(tag)) return *a;
-        detail::raise(detail::find_error(*this, tag, nullptr, nullptr));
-    }
-    template <class T>
-    [[nodiscard]] T find(Symbol tag) const {
-        return value_or_raise(try_find<T>(tag));
-    }
-    template <class T>
-    [[nodiscard]] T find(Symbol tag, T fallback) const {
-        return value_or_raise(try_find<T>(tag, std::move(fallback)));
-    }
-    [[nodiscard]] int64_t find_int(Symbol tag) const { return find<int64_t>(tag); }
-    [[nodiscard]] double find_float(Symbol tag) const { return find<double>(tag); }
-    [[nodiscard]] Symbol find_sym(Symbol tag) const { return find<Symbol>(tag); }
-    [[nodiscard]] std::string_view find_str(Symbol tag) const {
+    [[nodiscard]] Expected<int64_t> find_int(Symbol tag) const { return find<int64_t>(tag); }
+    [[nodiscard]] Expected<double> find_float(Symbol tag) const { return find<double>(tag); }
+    [[nodiscard]] Expected<Symbol> find_sym(Symbol tag) const { return find<Symbol>(tag); }
+    [[nodiscard]] Expected<std::string_view> find_str(Symbol tag) const {
         return find<std::string_view>(tag);
     }
-    [[nodiscard]] const Array& find_array(Symbol tag) const {
-        return *value_or_raise(try_find_array(tag));
-    }
-    [[nodiscard]] int64_t find_int(Symbol tag, int64_t fallback) const {
+    // The array that is the first value: (colors (1 0 0)) gives (1 0 0).
+    [[nodiscard]] Expected<const Array*> find_array(Symbol tag) const;
+    [[nodiscard]] Expected<int64_t> find_int(Symbol tag, int64_t fallback) const {
         return find<int64_t>(tag, fallback);
     }
-    [[nodiscard]] double find_float(Symbol tag, double fallback) const {
+    [[nodiscard]] Expected<double> find_float(Symbol tag, double fallback) const {
         return find<double>(tag, fallback);
     }
-    [[nodiscard]] Symbol find_sym(Symbol tag, Symbol fallback) const {
+    [[nodiscard]] Expected<Symbol> find_sym(Symbol tag, Symbol fallback) const {
         return find<Symbol>(tag, fallback);
     }
-    [[nodiscard]] std::string_view find_str(Symbol tag, std::string_view fallback) const {
+    [[nodiscard]] Expected<std::string_view> find_str(Symbol tag, std::string_view fallback) const {
         return find<std::string_view>(tag, fallback);
     }
-#endif
 
     // --- Lookup by path (see path.hpp): root->get<float>("renderer.clear_color.0"). ---
 
@@ -430,25 +385,10 @@ public:
         return detail::resolve(*this, path, r) == detail::ResolveStatus::Ok ? r.array : nullptr;
     }
     template <class T>
-    [[nodiscard]] Expected<T> try_get(const Path& path) const;
+    [[nodiscard]] Expected<T> get(const Path& path) const;
     // As above, or `fallback` if the path leads nowhere. A malformed path is an error.
     template <class T>
-    [[nodiscard]] Expected<T> try_get(const Path& path, T fallback) const;
-
-#if MOIRA_EXCEPTIONS
-    [[nodiscard]] const Array& get(const Path& path) const {
-        if (const Array* a = try_get(path)) return *a;
-        detail::raise(detail::get_error(*this, path, &detail::kArrayInfo));
-    }
-    template <class T>
-    [[nodiscard]] T get(const Path& path) const {
-        return value_or_raise(try_get<T>(path));
-    }
-    template <class T>
-    [[nodiscard]] T get(const Path& path, T fallback) const {
-        return value_or_raise(try_get<T>(path, std::move(fallback)));
-    }
-#endif
+    [[nodiscard]] Expected<T> get(const Path& path, T fallback) const;
 
     // --- Sorted mode. ---
 
@@ -499,14 +439,6 @@ private:
     friend void detail::destroy_counted(const void*, Type) noexcept;
     void compute_height() noexcept;
     [[nodiscard]] const Array* find_sorted(Symbol tag) const noexcept;
-
-#if MOIRA_EXCEPTIONS
-    template <class T>
-    [[nodiscard]] static T value_or_raise(Expected<T>&& e) {
-        if (!e) detail::raise(std::move(e).error());
-        return std::move(*e);
-    }
-#endif
 
     [[nodiscard]] Node* data() noexcept { return reinterpret_cast<Node*>(this + 1); }
     [[nodiscard]] const Node* data() const noexcept {
@@ -658,7 +590,7 @@ void ValueList::add(const T& v) {
 }
 
 template <class T>
-Expected<T> Array::try_find(Symbol tag) const {
+Expected<T> Array::find(Symbol tag) const {
     static constexpr detail::ConvertInfo kInfo = detail::convert_info<T>();
     T out{};
     const Array* a = try_find(tag);
@@ -670,7 +602,7 @@ Expected<T> Array::try_find(Symbol tag) const {
 }
 
 template <class T>
-Expected<T> Array::try_find(Symbol tag, T fallback) const {
+Expected<T> Array::find(Symbol tag, T fallback) const {
     static constexpr detail::ConvertInfo kInfo = detail::convert_info<T>();
     const Array* a = try_find(tag);
     if (!a) return fallback;
@@ -682,7 +614,7 @@ Expected<T> Array::try_find(Symbol tag, T fallback) const {
 }
 
 template <class T>
-Expected<T> Array::try_get(const Path& path) const {
+Expected<T> Array::get(const Path& path) const {
     static constexpr detail::ConvertInfo kInfo = detail::convert_info<T>();
     detail::Resolved r;
     T out{};
@@ -694,7 +626,7 @@ Expected<T> Array::try_get(const Path& path) const {
 }
 
 template <class T>
-Expected<T> Array::try_get(const Path& path, T fallback) const {
+Expected<T> Array::get(const Path& path, T fallback) const {
     static constexpr detail::ConvertInfo kInfo = detail::convert_info<T>();
     detail::Resolved r;
     const auto status = detail::resolve(*this, path, r);

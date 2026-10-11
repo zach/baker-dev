@@ -19,7 +19,7 @@
 namespace {
 
 bool show(moira::Context& ctx, const std::string& line) {
-    auto r = ctx.try_eval(line, "<input>");
+    auto r = ctx.eval(line, "<input>");
     if (!r) {
         std::printf("%s\n", moira::to_string(r.error()).c_str());
         return false;
@@ -33,14 +33,14 @@ bool show(moira::Context& ctx, const std::string& line) {
 
 int main(int argc, char** argv) {
     moira::Context ctx;
-    if (auto f = ctx.try_func("hypot", [](double a, double b) { return std::hypot(a, b); }))
+    if (auto f = ctx.func("hypot", [](double a, double b) { return std::hypot(a, b); }))
         f->doc("Length of the hypotenuse.");
     ctx.global("ans", 0, "The previous result.");
 
     int first = 1;
     if (argc > 2 && std::strcmp(argv[1], "--functions") == 0) {
-        auto tree = moira::try_read_file(argv[2]);
-        if (!tree || !ctx.try_run((*tree)->nodes())) {
+        auto tree = moira::read_file(argv[2]);
+        if (!tree || !ctx.run((*tree)->nodes())) {
             std::printf("cannot load %s\n", argv[2]);
             return 1;
         }

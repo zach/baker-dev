@@ -199,14 +199,14 @@ Expected<Node> Context::Impl::send(ObjectHandle target, const Array& command) {
                         quoted(method) + " takes " +
                             arity_text(method == kGet ? 1 : 2, method == kGet ? 1 : 2) +
                             ", given " + std::to_string(n));
-        auto key = args.try_get<Symbol>(0);
+        auto key = args.get<Symbol>(0);
         if (!key) return Unexpected(std::move(key).error());
         if (method == kGet) {
             if (auto v = get_property(*object, *key, object->params_.get())) return *v;
             return fail(command, ErrorCode::NotFound,
                         class_name(*s) + " has no property or parameter " + quoted(*key));
         }
-        auto value = args.try_eval(1);
+        auto value = args.eval(1);
         if (!value) return value;
         auto r = set_property(*object, *key, *value, command);
         if (!r) return Unexpected(std::move(r).error());
@@ -265,7 +265,7 @@ Expected<Node> Context::Impl::property_path(const Array& path) {
 
 // --- Context ---
 
-Expected<Node> Context::try_add(ObjectBase& object, Symbol name) {
+Expected<Node> Context::add(ObjectBase& object, Symbol name) {
     return impl_->add(object, name, nullptr, false);
 }
 
@@ -289,14 +289,14 @@ void Context::add_type(const detail::TypeRecord& type) {
         impl_->types.push_back(&type);
 }
 
-Expected<Node> Context::try_call(const Node& object, Symbol method, std::span<const Node> args) {
+Expected<Node> Context::call(const Node& object, Symbol method, std::span<const Node> args) {
     std::vector<Node> nodes;
     nodes.reserve(args.size() + 2);
     nodes.push_back(object);
     nodes.emplace_back(method);
     nodes.insert(nodes.end(), args.begin(), args.end());
     const Ref<Array> command = Array::make_from(nodes);
-    return try_eval(Node(command, Type::Command));
+    return eval(Node(command, Type::Command));
 }
 
 Error Context::resolve_error(const Node& object, std::string_view type) const {
@@ -309,17 +309,9 @@ Error Context::resolve_error(const Node& object, std::string_view type) const {
                                            ", not a " + std::string(type));
 }
 
-#if MOIRA_EXCEPTIONS
-Node Context::add(ObjectBase& object, Symbol name) {
-    auto r = try_add(object, name);
-    if (!r) detail::raise(std::move(r).error());
-    return *r;
-}
-#endif
-
 // --- Raw<Var> ---
 
-Expected<void> Raw<Var>::try_store(Node v) const {
+Expected<void> Raw<Var>::store(Node v) const {
     if (cell_) {
         *cell_ = std::move(v);
         return {};
@@ -385,7 +377,7 @@ void register_object_builtins(Context& ctx) {
         }
         return Node(name);
     };
-    if (auto r = ctx.try_func("class", define_class))
+    if (auto r = ctx.func("class", define_class))
         r->doc(
             "`{class Name (method ($params...) body...) ...}`: script handlers. If `Name` is a "
             "bound C++ type, they apply to its objects and are tried before its C++ methods; "
@@ -437,7 +429,7 @@ void register_object_builtins(Context& ctx) {
         }
         return node;
     };
-    if (auto r = ctx.try_func("new", make))
+    if (auto r = ctx.func("new", make))
         r->doc(
             "`{new Class [name] (param value)...}`: creates an object of a script class or of "
             "a default-constructible bound type, owned by the Context, and returns it.");
@@ -457,7 +449,7 @@ void register_object_builtins(Context& ctx) {
         if (owned) delete o;
         return Node();
     };
-    if (auto r = ctx.try_func("delete", destroy))
+    if (auto r = ctx.func("delete", destroy))
         r->doc(
             "`{delete object}`: removes the object (or the object of that name); one `new` "
             "created is destroyed. Its handles go stale.");

@@ -9,7 +9,7 @@
 | 4, one item at a time | `handle_all` broadcast, grouped by type (D53) | M6 |
 | 5, per-array refcounts | removed by arenas per load (D56) | M5b, step 4 |
 | 7, coroutine frames | per-Scheduler pool with a frame budget (D58) | M7 |
-| 8, exceptions | throwing forms removed entirely (D54) | M5b, step 1 |
+| 8, exceptions | throwing forms removed entirely (D54) | **done** (D59) |
 | 9, `Error` size | `Error` becomes a handle (D55) | M5b, step 2 |
 | 11, the STL in public headers | header-only vocabulary types only; EASTL switch inside (D55) | M5b, steps 2–3 |
 
@@ -30,8 +30,8 @@ or accepted as a deviation, record it in `docs/decisions.md` and update this fil
 - Lazy evaluation means no temporary argument lists and no allocation per call. Calls,
   methods, and `get`/`set` are proven allocation-free by `alloc_counter` tests.
 - `Tweak<float>` reads compile to one relaxed load, checked by a codegen test.
-- No RTTI is needed (D49), and `MOIRA_SHIPPING` builds run in CI. (Exceptions are being
-  removed outright: D54.)
+- No RTTI is needed (D49), and `MOIRA_SHIPPING` builds run in CI. (Exceptions are
+  gone entirely: D54, D59.)
 - Object references are salted handles into a flat slot table (D4, D19), not pointers.
 - Every performance decision carries before/after numbers (D47, D51, D52).
 

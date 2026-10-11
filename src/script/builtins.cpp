@@ -101,7 +101,7 @@ Expected<Node> Context::Impl::run_script(const ScriptBody& body, Args& args,
                                          const Node* this_node) {
     const size_t first = kept.size();
     for (size_t i = 0; i < args.size(); ++i) {
-        auto r = args.try_eval(i);
+        auto r = args.eval(i);
         if (!r) return r;
         kept.push_back(std::move(*r));
     }
@@ -125,7 +125,7 @@ bool equal(const Node& a, const Node& b) noexcept {
 
 template <class F>
 void add(Context& ctx, Symbol name, F&& f, std::string_view doc = {}) {
-    auto r = ctx.try_func(name, std::forward<F>(f));
+    auto r = ctx.func(name, std::forward<F>(f));
     if (r && !doc.empty()) r->doc(doc);
 }
 
@@ -136,8 +136,8 @@ void register_builtins(Context& ctx) {
     add(
         ctx, "if",
         [](bool cond, Raw<Node> then, std::optional<Raw<Node>> otherwise) -> Expected<Node> {
-            if (cond) return then.try_eval();
-            if (otherwise) return otherwise->try_eval();
+            if (cond) return then.eval();
+            if (otherwise) return otherwise->eval();
             return Node();
         },
         "`{if cond then [else]}`: evaluates `then` if `cond` is true, else `else` if given "
@@ -145,7 +145,7 @@ void register_builtins(Context& ctx) {
     add(
         ctx, "set",
         [](Raw<Var> place, Node value) -> Expected<Node> {
-            auto r = place.try_store(value);
+            auto r = place.store(value);
             if (!r) return Unexpected(std::move(r).error());
             return value;
         },
@@ -175,7 +175,7 @@ void register_builtins(Context& ctx) {
             }
             Node last;
             for (size_t i = from; i < a.size(); ++i) {
-                auto r = a.try_eval(i);
+                auto r = a.eval(i);
                 if (!r) return r;
                 last = std::move(*r);
             }
@@ -233,7 +233,7 @@ void register_builtins(Context& ctx) {
         ctx, "and",
         [](Args a) -> Expected<bool> {
             for (size_t i = 0; i < a.size(); ++i) {
-                auto v = a.try_get<bool>(i);
+                auto v = a.get<bool>(i);
                 if (!v || !*v) return v;
             }
             return true;
@@ -243,7 +243,7 @@ void register_builtins(Context& ctx) {
         ctx, "or",
         [](Args a) -> Expected<bool> {
             for (size_t i = 0; i < a.size(); ++i) {
-                auto v = a.try_get<bool>(i);
+                auto v = a.get<bool>(i);
                 if (!v || *v) return v;
             }
             return false;

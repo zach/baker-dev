@@ -985,6 +985,8 @@ Style rules, applied uniformly:
   caller's problem, with a `to_string(const Error&)` provided.
 - Exceptions on error paths only, and every throwing API has a non-throwing twin.
   `MOIRA_NO_EXCEPTIONS` compiles the throwing forms out and makes the twins mandatory.
+  *(Superseded by D54: Moira never throws. Every fallible API returns `Expected<T>`,
+  and the `try_` prefix now marks only weak lookups that return null.)*
 - `MOIRA_SHIPPING` makes reload and layer mutation no-ops after initial load, freezes every
   tweak at its loaded value, and applies `dev_only` (§4). Loop telemetry, the edit
   journal, and call statistics are compiled out. Shipping builds should not be

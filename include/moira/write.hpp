@@ -30,11 +30,8 @@ struct WriteOptions {
 // enclosing parentheses. read_string(to_dta(root)) is structurally equal to root.
 [[nodiscard]] std::string to_dta(const Array& root, const WriteOptions& options = {});
 
-[[nodiscard]] Expected<void> try_write_file(std::string_view path, const Array& root,
-                                            const WriteOptions& options = {});
-#if MOIRA_EXCEPTIONS
-void write_file(std::string_view path, const Array& root, const WriteOptions& options = {});
-#endif
+[[nodiscard]] Expected<void> write_file(std::string_view path, const Array& root,
+                                        const WriteOptions& options = {});
 
 namespace detail {
 // At most about `max_chars` of the compact form, ending in "..." if cut. Safe on huge or

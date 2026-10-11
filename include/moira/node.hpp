@@ -18,9 +18,10 @@
 // because it holds pointers (docs/decisions.md D18). as<int32_t>(), as<float>() and other
 // narrower reads are range-checked.
 //
-// Typed accessors (as_int, as_float, ...) are checked: a mismatch throws an Exception
-// (or, for the try_ forms, returns nothing). An int always reads as a float (rounded
-// beyond 2^53); a float reads as an int only if it is integral and in range.
+// Typed accessors (as_int, as_float, ...) return Expected: a mismatch is an Error naming
+// the value and both types. The try_ forms are weak: they return nothing and build no
+// error. An int always reads as a float (rounded beyond 2^53); a float reads as an int
+// only if it is integral and in range.
 
 #include <moira/error.hpp>
 #include <moira/ref.hpp>
@@ -212,51 +213,50 @@ public:
         return (type_ == Type::Symbol) & (p == s.id());
     }
 
-    // --- Checked typed accessors (throwing). ---
-#if MOIRA_EXCEPTIONS
-    [[nodiscard]] int64_t as_int() const {
+    // --- Checked typed accessors. ---
+    [[nodiscard]] Expected<int64_t> as_int() const {
         if (auto v = try_int()) return *v;
-        type_error(Type::Int);
+        return Unexpected(type_error(Type::Int));
     }
-    [[nodiscard]] double as_float() const {
+    [[nodiscard]] Expected<double> as_float() const {
         if (auto v = try_float()) return *v;
-        type_error(Type::Float);
+        return Unexpected(type_error(Type::Float));
     }
-    [[nodiscard]] Symbol as_sym() const {
+    [[nodiscard]] Expected<Symbol> as_sym() const {
         if (type_ == Type::Symbol) return Symbol::from_id(value_.p);
-        type_error(Type::Symbol);
+        return Unexpected(type_error(Type::Symbol));
     }
-    [[nodiscard]] std::string_view as_str() const {
+    [[nodiscard]] Expected<std::string_view> as_str() const {
         if (type_ == Type::String) return string_payload()->view();
-        type_error(Type::String);
+        return Unexpected(type_error(Type::String));
     }
-    [[nodiscard]] const Array& as_array() const {
-        if (type_ == Type::Array) return *static_cast<const Array*>(value_.p);
-        type_error(Type::Array);
+    [[nodiscard]] Expected<const Array*> as_array() const {
+        if (type_ == Type::Array) return static_cast<const Array*>(value_.p);
+        return Unexpected(type_error(Type::Array));
     }
-    // Reads as any integer or floating-point type. Narrower types are range-checked: an
-    // int must fit T, and a float must be within T's finite range (precision may round).
+    // A number read as T, range-checked: as<int32_t>(), as<float>(), ...
     template <class T>
-    [[nodiscard]] T as() const {
+    [[nodiscard]] Expected<T> as() const {
         static_assert(std::is_arithmetic_v<T> && !std::is_same_v<T, bool>,
                       "Node::as<T> supports integer and floating-point types");
         if constexpr (std::is_floating_point_v<T>) {
-            const double v = as_float();
+            auto v = as_float();
+            if (!v) return Unexpected(std::move(v).error());
             if constexpr (sizeof(T) < sizeof(double)) {
-                if (v > static_cast<double>(std::numeric_limits<T>::max()) ||
-                    v < -static_cast<double>(std::numeric_limits<T>::max()))
-                    range_error();
+                if (*v > static_cast<double>(std::numeric_limits<T>::max()) ||
+                    *v < -static_cast<double>(std::numeric_limits<T>::max()))
+                    return Unexpected(range_error());
             }
-            return static_cast<T>(v);
+            return static_cast<T>(*v);
         } else {
-            const int64_t v = as_int();
-            if (!std::in_range<T>(v)) range_error();
-            return static_cast<T>(v);
+            auto v = as_int();
+            if (!v) return Unexpected(std::move(v).error());
+            if (!std::in_range<T>(*v)) return Unexpected(range_error());
+            return static_cast<T>(*v);
         }
     }
-#endif
 
-    // --- Non-throwing mirrors. ---
+    // --- Weak accessors: nothing on a mismatch. ---
     [[nodiscard]] std::optional<int64_t> try_int() const noexcept {
         if (type_ == Type::Int) return value_.i;
         if (type_ == Type::Float) return detail::float_to_int(value_.f);
@@ -326,6 +326,8 @@ private:
             (1u << static_cast<int>(Type::Command)) | (1u << static_cast<int>(Type::Property));
         return ((1u << static_cast<int>(type_)) & kMask) != 0;
     }
+    [[nodiscard]] Error type_error(Type expected) const;
+    [[nodiscard]] Error range_error() const;
     [[nodiscard]] const String* string_payload() const noexcept {
         return static_cast<const String*>(value_.p);
     }
@@ -334,10 +336,6 @@ private:
         value_.p = s;
         detail::retain(detail::count_of(value_.p));
     }
-#if MOIRA_EXCEPTIONS
-    [[noreturn]] void type_error(Type expected) const;
-    [[noreturn]] void range_error() const;
-#endif
 
     union Value {
         int64_t i;

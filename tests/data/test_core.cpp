@@ -98,8 +98,7 @@ TEST_CASE("numeric access coerces only where lossless") {
     CHECK(Node(array(1), Type::Command).array() != nullptr);
 }
 
-#if MOIRA_EXCEPTIONS
-TEST_CASE("checked accessors throw located type errors") {
+TEST_CASE("checked accessors return located type errors") {
     CHECK(Node(12).as_int() == 12);
     CHECK(Node(12).as_float() == 12.0f);
     CHECK(Node(12).as<int64_t>() == 12);
@@ -107,31 +106,22 @@ TEST_CASE("checked accessors throw located type errors") {
     CHECK(Node(2.5).as<float>() == 2.5f);
     CHECK(Node(int64_t{3000000000}).as<int64_t>() == 3000000000);
     CHECK(Node(int64_t{3000000000}).as<uint32_t>() == 3000000000u);
-    CHECK_THROWS_AS((void)Node(int64_t{3000000000}).as<int32_t>(), Exception);
-    CHECK_THROWS_AS((void)Node(1e300).as<float>(), Exception);
+    CHECK(Node(int64_t{3000000000}).as<int32_t>().error().code == ErrorCode::Range);
+    CHECK(Node(1e300).as<float>().error().code == ErrorCode::Range);
     CHECK(Node(1e-300).as<float>() == 0.0f);  // precision may round; only range is checked
     CHECK(Node(200).as<uint8_t>() == 200);
-    CHECK_THROWS_AS((void)Node(300).as<uint8_t>(), Exception);
-    CHECK_THROWS_AS((void)Node(-1).as<uint32_t>(), Exception);
-    CHECK_THROWS_AS((void)Node(12.75f).as_int(), Exception);
-    CHECK_THROWS_AS((void)Node(Symbol("a")).as_str(), Exception);
-    CHECK_THROWS_AS((void)Node(str("a")).as_sym(), Exception);
-    try {
-        (void)Node(12.75f).as_int();
-    } catch (const Exception& e) {
-        CHECK(e.error().code == ErrorCode::Type);
-        CHECK(e.error().message == "12.75 is float, not int");
-    }
+    CHECK_FALSE(Node(300).as<uint8_t>());
+    CHECK_FALSE(Node(-1).as<uint32_t>());
+    CHECK_FALSE(Node(Symbol("a")).as_str());
+    CHECK_FALSE(Node(str("a")).as_sym());
+    const Error e = Node(12.75f).as_int().error();
+    CHECK(e.code == ErrorCode::Type);
+    CHECK(e.message == "12.75 is float, not int");
     auto a = Array::make(1, "where.dta", 12);
-    try {
-        (void)Node(a).as_int();
-    } catch (const Exception& e) {
-        CHECK(std::string(e.what()) == "moira: (0) is array, not int  (where.dta:12)");
-    }
-    CHECK_THROWS_AS((void)a->at(1), Exception);
-    CHECK(a->at(0).as_int() == 0);
+    CHECK(to_string(Node(a).as_int().error()) == "moira: (0) is array, not int  (where.dta:12)");
+    CHECK(a->try_at(1) == nullptr);
+    CHECK(a->try_at(0)->as_int() == 0);
 }
-#endif
 
 TEST_CASE("refcounts follow nodes and arrays") {
     Ref<Array> inner = array(1, 2);

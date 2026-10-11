@@ -69,23 +69,16 @@ public:
     // Argument `i` (from 0, after the name), raw: never evaluated.
     [[nodiscard]] const Node& raw(size_t i) const noexcept { return base_[i]; }
     // Argument `i`, evaluated.
-    [[nodiscard]] Expected<Node> try_eval(size_t i) const;
+    [[nodiscard]] Expected<Node> eval(size_t i) const;
     // Argument `i`, evaluated, then converted through Convert<T>. A string_view stays valid
     // until the function returns.
     template <class T>
-    [[nodiscard]] Expected<T> try_get(size_t i) const;
+    [[nodiscard]] Expected<T> get(size_t i) const;
     // try_get for the binding layer: reads into `out`, or puts the error in `error`.
     template <class T>
     bool read_into(size_t i, T& out, Expected<Node>& error) const;
     // Argument `i`, evaluated, as an array (valid until the function returns).
-    [[nodiscard]] Expected<const Array*> try_array(size_t i) const;
-#if MOIRA_EXCEPTIONS
-    [[nodiscard]] Node eval(size_t i) const { return value(try_eval(i)); }
-    template <class T>
-    [[nodiscard]] T get(size_t i) const {
-        return value(try_get<T>(i));
-    }
-#endif
+    [[nodiscard]] Expected<const Array*> array(size_t i) const;
 
     // The arguments from `i` on.
     [[nodiscard]] Args rest(size_t i) const noexcept;
@@ -119,13 +112,6 @@ private:
     [[nodiscard]] Expected<Node> eval_node(const Node& n) const;
     void keep(Node n) const;
     [[nodiscard]] Error type_error(size_t i, const Node& n, std::string_view want) const;
-#if MOIRA_EXCEPTIONS
-    template <class T>
-    static T value(Expected<T>&& e) {
-        if (!e) detail::raise(std::move(e).error());
-        return std::move(*e);
-    }
-#endif
 
     Context* ctx_;
     const Array* command_;
@@ -149,10 +135,7 @@ public:
     [[nodiscard]] const Node& node() const noexcept { return *node_; }
     [[nodiscard]] const Node& operator*() const noexcept { return *node_; }
     [[nodiscard]] const Node* operator->() const noexcept { return node_; }
-    [[nodiscard]] Expected<Node> try_eval() const;
-#if MOIRA_EXCEPTIONS
-    [[nodiscard]] Node eval() const;
-#endif
+    [[nodiscard]] Expected<Node> eval() const;
 
 private:
     Context* ctx_;
@@ -192,7 +175,7 @@ public:
     // The variable's name; empty for a property.
     [[nodiscard]] Symbol name() const noexcept { return name_; }
     // Stores `v`. Setting a property can fail: no $this, or a value of the wrong type.
-    [[nodiscard]] Expected<void> try_store(Node v) const;
+    [[nodiscard]] Expected<void> store(Node v) const;
     // The variable's value (Int 0 if unset); for a property, its value or Int 0.
     [[nodiscard]] Node load() const;
 
@@ -310,7 +293,7 @@ struct Param<const Array&> {
     static bool match_array(const Node& n, bool) noexcept { return n.type() == Type::Array; }
     static constexpr auto match = &match_array;
     static bool read(const Args& a, size_t i, std::optional<Holder>& out, Expected<Node>& result) {
-        return take(a.try_array(i), out, result);
+        return take(a.array(i), out, result);
     }
     static const Array& pass(const Array* h) noexcept { return *h; }
 };
@@ -544,17 +527,12 @@ public:
     // --- Evaluation. ---
 
     // A Command runs its function, a Var reads its variable, anything else is itself.
-    [[nodiscard]] Expected<Node> try_eval(const Node& node);
+    [[nodiscard]] Expected<Node> eval(const Node& node);
     // Parses `text` and evaluates each top-level node in order, returning the last value
     // (Int 0 if there is none). The entry point for consoles and remote commands.
-    [[nodiscard]] Expected<Node> try_eval(std::string_view text, std::string_view name = "<eval>");
+    [[nodiscard]] Expected<Node> eval(std::string_view text, std::string_view name = "<eval>");
     // Evaluates each node of `nodes` in order and returns the last value: runs a script.
-    [[nodiscard]] Expected<Node> try_run(std::span<const Node> nodes);
-#if MOIRA_EXCEPTIONS
-    Node eval(const Node& node);
-    Node eval(std::string_view text, std::string_view name = "<eval>");
-    Node run(std::span<const Node> nodes);
-#endif
+    [[nodiscard]] Expected<Node> run(std::span<const Node> nodes);
 
     // --- Functions. ---
 
@@ -562,19 +540,12 @@ public:
     // signature (spec §5, "Native function binding"); a registration that would make an
     // overload set ambiguous is an error.
     template <class F>
-    [[nodiscard]] Expected<FuncRef> try_func(Symbol name, F&& f) {
+    [[nodiscard]] Expected<FuncRef> func(Symbol name, F&& f) {
         using Sig = detail::signature_of<F>;
-        return add(name, detail::make_overload<F, typename Sig::result>(
-                             std::forward<F>(f), static_cast<typename Sig::params*>(nullptr)));
+        return add_overload(name,
+                            detail::make_overload<F, typename Sig::result>(
+                                std::forward<F>(f), static_cast<typename Sig::params*>(nullptr)));
     }
-#if MOIRA_EXCEPTIONS
-    template <class F>
-    FuncRef func(Symbol name, F&& f) {
-        auto r = try_func(name, std::forward<F>(f));
-        if (!r) detail::raise(std::move(r).error());
-        return *r;
-    }
-#endif
     [[nodiscard]] bool has_func(Symbol name) const noexcept;
 
     // --- Variables. ---
@@ -589,13 +560,17 @@ public:
     // Adds `object`, named `name` if given, and returns an Object node referring to it. The
     // object removes itself when destroyed. A name must not be a function's or another
     // object's; an object can be in one Context at a time.
-    [[nodiscard]] Expected<Node> try_add(ObjectBase& object, Symbol name = {});
+    [[nodiscard]] Expected<Node> add(ObjectBase& object, Symbol name = {});
     void remove(ObjectBase& object) noexcept;
     // The object `object` (an Object node) refers to; null if it was removed (weak).
     [[nodiscard]] ObjectBase* try_resolve(const Node& object) const noexcept;
     // As try_resolve, and of type T or derived from it.
     template <class T>
     [[nodiscard]] T* try_get(const Node& object) const noexcept;
+    // Strong resolution: as try_get, but an error saying why ("the Person object was
+    // removed", "the object is a Hero, not a Person").
+    template <class T>
+    [[nodiscard]] Expected<T*> get(const Node& object) const;
     // The object named `name`, as an Object node; Int 0 if there is none.
     [[nodiscard]] Node object(Symbol name) const noexcept;
     // Makes T known before any T is added: for {class T ...}, {new T}, and the reference.
@@ -603,18 +578,10 @@ public:
     void add_type();
     // Sends {object method args...}: script handlers, then native methods, then the
     // methods every object has (object.hpp).
-    [[nodiscard]] Expected<Node> try_call(const Node& object, Symbol method,
-                                          std::span<const Node> args = {});
+    [[nodiscard]] Expected<Node> call(const Node& object, Symbol method,
+                                      std::span<const Node> args = {});
     template <class... A>
-    [[nodiscard]] Expected<Node> try_call(const ObjectBase& object, Symbol method, A&&... args);
-#if MOIRA_EXCEPTIONS
-    Node add(ObjectBase& object, Symbol name = {});
-    // Strong resolution: throws if the object was removed or is not a T.
-    template <class T>
-    T& get(const Node& object) const;
-    template <class... A>
-    Node call(const ObjectBase& object, Symbol method, A&&... args);
-#endif
+    [[nodiscard]] Expected<Node> call(const ObjectBase& object, Symbol method, A&&... args);
 
     // Nesting deeper than 1,000 calls, or than `bytes` of stack below the outermost call, is
     // a Limit error rather than a stack overflow. The default, 256 KB, is safe on any common
@@ -653,7 +620,7 @@ public:
     [[nodiscard]] Impl& impl() const noexcept { return *impl_; }
 
 private:
-    [[nodiscard]] Expected<FuncRef> add(Symbol name, detail::Overload overload);
+    [[nodiscard]] Expected<FuncRef> add_overload(Symbol name, detail::Overload overload);
     void add_type(const detail::TypeRecord& type);
     [[nodiscard]] Error resolve_error(const Node& object, std::string_view type) const;
 
@@ -678,12 +645,12 @@ void check(const Array& tree, const Context& ctx, CheckReport& report);
 // The script reference (spec §5): every function with its overloads, tier, status, and
 // documentation, and every documented global, as Markdown.
 [[nodiscard]] std::string reference(const Context& ctx);
-[[nodiscard]] Expected<void> try_write_reference(const Context& ctx, std::string_view path);
+[[nodiscard]] Expected<void> write_reference(const Context& ctx, std::string_view path);
 
 // --- Template definitions. ---
 
 template <class T>
-Expected<T> Args::try_get(size_t i) const {
+Expected<T> Args::get(size_t i) const {
     // The common case: a literal that converts.
     if (i < size_) {
         const Node& n = base_[i];

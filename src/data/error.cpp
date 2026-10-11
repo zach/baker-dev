@@ -1,7 +1,5 @@
 #include <moira/error.hpp>
 
-#include <atomic>
-
 namespace moira {
 
 std::string_view error_code_name(ErrorCode code) noexcept {
@@ -74,26 +72,5 @@ std::string describe(const Error& error) {
     }
     return out;
 }
-
-namespace {
-std::atomic<detail::StackRecorder> g_stack_recorder{nullptr};
-}  // namespace
-
-void detail::set_stack_recorder(StackRecorder recorder) noexcept {
-    g_stack_recorder.store(recorder, std::memory_order_release);
-}
-
-#if MOIRA_EXCEPTIONS
-Exception::Exception(Error error) : error_(std::move(error)) {
-    if (const auto record = g_stack_recorder.load(std::memory_order_acquire)) record(error_);
-    what_ = describe(error_);
-}
-
-namespace detail {
-void raise(Error error) {
-    throw Exception(std::move(error));
-}
-}  // namespace detail
-#endif
 
 }  // namespace moira

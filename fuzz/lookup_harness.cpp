@@ -77,15 +77,15 @@ bool check_lookup(std::string_view data) {
     }
 
     LoadSession s = make_session();
-    auto root = try_read_string(text, "lookup.dta", s);
+    auto root = read_string(text, "lookup.dta", s);
     if (!root) return true;  // check_parse covers parse errors
     const Array& r = **root;
 
     const Array* arr = r.try_get(path);
-    auto as_node = r.try_get<Node>(path);
-    auto as_float = r.try_get<double>(path);
-    auto as_list = r.try_get<std::vector<Symbol>>(path);
-    auto with_fallback = r.try_get<int64_t>(path, 7);
+    auto as_node = r.get<Node>(path);
+    auto as_float = r.get<double>(path);
+    auto as_list = r.get<std::vector<Symbol>>(path);
+    auto with_fallback = r.get<int64_t>(path, 7);
     for (const Error* e :
          {as_node ? nullptr : &as_node.error(), as_float ? nullptr : &as_float.error(),
           as_list ? nullptr : &as_list.error(), with_fallback ? nullptr : &with_fallback.error()})
@@ -95,7 +95,7 @@ bool check_lookup(std::string_view data) {
 
     const Symbol first =
         path.valid() && !path.empty() && !path[0].is_index ? path[0].name : Symbol("x");
-    if (auto e = r.try_find_float(first); !e && !located(e.error())) return false;
+    if (auto e = r.find_float(first); !e && !located(e.error())) return false;
     uint64_t budget = 2000;
     return check_arrays(r, first, budget);
 }

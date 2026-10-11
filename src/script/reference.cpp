@@ -309,7 +309,7 @@ std::string reference(const Context& ctx) {
     return out;
 }
 
-Expected<void> try_write_reference(const Context& ctx, std::string_view path) {
+Expected<void> write_reference(const Context& ctx, std::string_view path) {
     const std::string text = reference(ctx);
     const std::string p(path);
     std::FILE* f = std::fopen(p.c_str(), "wb");

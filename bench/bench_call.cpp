@@ -1,7 +1,7 @@
 // Native call cost. Target (spec §7): a native function call through the binding layer
 // with 2 scalar args <= 40 ns, with zero allocations.
 //
-// Each row evaluates a parsed command node with Context::try_eval, as a game evaluating
+// Each row evaluates a parsed command node with Context::eval, as a game evaluating
 // its data would. The last rows compare the per-Context table that resolves a function
 // name (docs/decisions.md D44) with a hash map, the lookup D5's in-node cache would save.
 #include <moira/object.hpp>
@@ -53,11 +53,11 @@ struct Person : moira::Object<Person> {
 int main() {
     moira::Context ctx;
     Person bob;
-    if (!ctx.try_add(bob, "bob")) return 1;
-    if (!ctx.try_func("add", [](int64_t a, int64_t b) { return a + b; })) return 1;
+    if (!ctx.add(bob, "bob")) return 1;
+    if (!ctx.func("add", [](int64_t a, int64_t b) { return a + b; })) return 1;
     ctx.var("x") = 4;
-    if (!ctx.try_eval("{func add1 ($a) {+ $a 1}}")) return 1;
-    auto tree = moira::try_read_string(
+    if (!ctx.eval("{func add1 ($a) {+ $a 1}}")) return 1;
+    auto tree = moira::read_string(
         "{add 1 2} {+ 1 2} {+ 1.5 2} {add $x 1} $x {if 1 2 3} {add1 1} {add {add 1 2} 3} "
         "{bob grow 0}",
         "bench.dta");
@@ -78,7 +78,7 @@ int main() {
     for (size_t k = 0; k < (*tree)->size(); ++k) {
         const moira::Node& node = (**tree)[k];
         auto call = [&](int) {
-            auto r = ctx.try_eval(opaque(node));
+            auto r = ctx.eval(opaque(node));
             return r ? static_cast<double>(r->try_float().value_or(0)) : -1.0;
         };
         for (int i = 0; i < 100; ++i) call(i);

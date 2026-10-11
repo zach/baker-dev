@@ -26,24 +26,24 @@ struct Files {
         });
     }
     std::string load(const std::string& path) {
-        auto r = try_read_file(path, session);
+        auto r = read_file(path, session);
         REQUIRE_MESSAGE(r.has_value(), (r ? std::string() : to_string(r.error())));
         return to_string(**r);
     }
     Error fail(const std::string& path) {
-        auto r = try_read_file(path, session);
+        auto r = read_file(path, session);
         REQUIRE(!r.has_value());
         return r.error();
     }
 };
 
 std::string text(std::string_view src) {
-    auto r = try_read_string(src, "t.dta");
+    auto r = read_string(src, "t.dta");
     REQUIRE_MESSAGE(r.has_value(), (r ? std::string() : to_string(r.error())));
     return to_string(**r);
 }
 Error error(std::string_view src) {
-    auto r = try_read_string(src, "t.dta");
+    auto r = read_string(src, "t.dta");
     REQUIRE(!r.has_value());
     return r.error();
 }
@@ -60,8 +60,7 @@ TEST_CASE("macros splice their nodes") {
 }
 
 TEST_CASE("macro expansion shares arrays") {
-    auto root =
-        *try_read_string("[HANDLER (hit {fall_down})]\n(object1 HANDLER)\n(object2 HANDLER)");
+    auto root = *read_string("[HANDLER (hit {fall_down})]\n(object1 HANDLER)\n(object2 HANDLER)");
     const Array* h1 = (*(*root)[0].array())[1].array();
     const Array* h2 = (*(*root)[1].array())[1].array();
     CHECK(h1 == h2);
@@ -141,7 +140,7 @@ TEST_CASE("included arrays carry their own file and line") {
     Files fs;
     fs.files["a.dta"] = "#include b.dta";
     fs.files["b.dta"] = "\n\n(from_b)";
-    auto root = *try_read_file("a.dta", fs.session);
+    auto root = *read_file("a.dta", fs.session);
     CHECK((*root)[0].array()->file() == Symbol("b.dta"));
     CHECK((*root)[0].array()->line() == 3);
 }
@@ -240,7 +239,7 @@ TEST_CASE("#merge never mutates shared arrays") {
 
 TEST_CASE("#autorun collects commands") {
     LoadSession s;
-    auto r = try_read_string("(a)\n#autorun {setup 1}\n(b)\n#autorun {setup 2}", "t.dta", s);
+    auto r = read_string("(a)\n#autorun {setup 1}\n(b)\n#autorun {setup 2}", "t.dta", s);
     REQUIRE(r);
     CHECK(to_string(**r) == "((a) (b))");
     REQUIRE(s.autorun.size() == 2);
@@ -257,7 +256,7 @@ TEST_CASE("size limits stop macro blow-ups") {
     for (char c = 'B'; c <= 'Z'; ++c, ++prev)
         src += std::string("[") + c + ' ' + prev + ' ' + prev + "]\n";
     src += "(boom Z)";
-    auto r = try_read_string(src, "bomb.dta", s);
+    auto r = read_string(src, "bomb.dta", s);
     REQUIRE_FALSE(r.has_value());
     CHECK(r.error().code == ErrorCode::Limit);
 
@@ -265,7 +264,7 @@ TEST_CASE("size limits stop macro blow-ups") {
     std::string chain = "[M0 (x)]\n";
     for (int i = 1; i <= 300; ++i)
         chain += "[M" + std::to_string(i) + " (M" + std::to_string(i - 1) + ")]\n";
-    auto deep = try_read_string(chain);
+    auto deep = read_string(chain);
     REQUIRE_FALSE(deep.has_value());
     CHECK(deep.error().code == ErrorCode::Limit);
 }

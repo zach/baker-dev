@@ -323,29 +323,20 @@ T* Context::try_get(const Node& object) const noexcept {
 }
 
 template <class T>
+Expected<T*> Context::get(const Node& object) const {
+    if (T* p = try_get<T>(object)) return p;
+    return Unexpected(resolve_error(object, T::record().name));
+}
+
+template <class T>
 void Context::add_type() {
     add_type(T::record());
 }
 
 template <class... A>
-Expected<Node> Context::try_call(const ObjectBase& object, Symbol method, A&&... args) {
+Expected<Node> Context::call(const ObjectBase& object, Symbol method, A&&... args) {
     const Node nodes[] = {detail::to_node(std::forward<A>(args))..., Node()};
-    return try_call(object.node(), method, std::span<const Node>(nodes, sizeof...(A)));
+    return call(object.node(), method, std::span<const Node>(nodes, sizeof...(A)));
 }
-
-#if MOIRA_EXCEPTIONS
-template <class T>
-T& Context::get(const Node& object) const {
-    if (T* p = try_get<T>(object)) return *p;
-    detail::raise(resolve_error(object, T::record().name));
-}
-
-template <class... A>
-Node Context::call(const ObjectBase& object, Symbol method, A&&... args) {
-    auto r = try_call(object, method, std::forward<A>(args)...);
-    if (!r) detail::raise(std::move(r).error());
-    return std::move(*r);
-}
-#endif
 
 }  // namespace moira

@@ -107,7 +107,7 @@ void TweakBase::on_change(std::function<void()> callback) {
     on_change_->push_back(std::move(callback));
 }
 
-Expected<void> TweakBase::try_set_values(std::span<const Node> values) {
+Expected<void> TweakBase::set_values(std::span<const Node> values) {
     if constexpr (kShipping)
         return Unexpected(
             make_error(ErrorCode::Refused, "live edits are disabled under MOIRA_SHIPPING"));
@@ -119,7 +119,7 @@ Expected<void> TweakBase::try_set_values(std::span<const Node> values) {
             make_error(ErrorCode::Type, "'" + std::string(path_) + "' cannot be set to (" + text +
                                             "), which is not " + std::string(info().name)));
     }
-    if (Config* c = registry_->config()) return c->try_set(parsed(), values);
+    if (Config* c = registry_->config()) return c->set(parsed(), values);
     (void)assign(v, true);
     notify();
     return {};
@@ -130,23 +130,17 @@ Expected<Source> TweakBase::source() const {
     if (!c)
         return Unexpected(
             make_error(ErrorCode::NotFound, "'" + std::string(path_) + "' has no config"));
-    return c->try_source(const_cast<TweakBase*>(this)->parsed());
+    return c->source(const_cast<TweakBase*>(this)->parsed());
 }
 
-Expected<void> TweakBase::try_write_back() {
+Expected<void> TweakBase::write_back() {
     Config* c = registry_->config();
     if (!c)
         return Unexpected(
             make_error(ErrorCode::NotFound, "'" + std::string(path_) + "' has no config"));
-    if (auto r = c->try_write_back(parsed()); !r) return Unexpected(std::move(r).error());
+    if (auto r = c->write_back(parsed()); !r) return Unexpected(std::move(r).error());
     return {};
 }
-
-#if MOIRA_EXCEPTIONS
-void TweakBase::write_back() {
-    if (auto r = try_write_back(); !r) detail::raise(std::move(r).error());
-}
-#endif
 
 // --- Metadata: the data file's, else the code's. ---
 

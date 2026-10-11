@@ -54,7 +54,7 @@ int main() {
     for (int i = 0; i < 20; ++i)
         text += "  (key" + std::to_string(i) + " " + std::to_string(i) + ".5)\n";
     text += ")\n(cfg (renderer (clear_color 0.1 0.2 0.3) (shadows (resolution 2048))))\n";
-    auto root = moira::try_read_string(text, "bench.dta");
+    auto root = moira::read_string(text, "bench.dta");
     if (!root) return 1;
     const moira::Array& obj = *(*root)->try_find("obj");
 
@@ -75,30 +75,28 @@ int main() {
             return static_cast<double>(
                 obj.try_find(opaque(keys[static_cast<size_t>(i % 20)]))->size());
         }));
-#if MOIRA_EXCEPTIONS
     row("find_float, avg", ns_per_call([&](int i) {
-            return obj.find_float(opaque(keys[static_cast<size_t>(i % 20)]));
+            return *obj.find_float(opaque(keys[static_cast<size_t>(i % 20)]));
         }),
         25);
-    row("find_float, last", ns_per_call([&](int) { return obj.find_float(opaque(last)); }), 25);
+    row("find_float, last", ns_per_call([&](int) { return *obj.find_float(opaque(last)); }), 25);
     row("find_float, sorted, avg", ns_per_call([&](int i) {
-            return sorted.find_float(opaque(keys[static_cast<size_t>(i % 20)]));
+            return *sorted.find_float(opaque(keys[static_cast<size_t>(i % 20)]));
         }));
     row("find_float, sorted, last",
-        ns_per_call([&](int) { return sorted.find_float(opaque(last)); }));
+        ns_per_call([&](int) { return *sorted.find_float(opaque(last)); }));
     row("find<float>, avg", ns_per_call([&](int i) {
-            return static_cast<double>(obj.find<float>(opaque(keys[static_cast<size_t>(i % 20)])));
+            return static_cast<double>(*obj.find<float>(opaque(keys[static_cast<size_t>(i % 20)])));
         }));
     row("find_float(\"key19\") (interns each call)",
-        ns_per_call([&](int) { return obj.find_float("key19"); }));
+        ns_per_call([&](int) { return *obj.find_float("key19"); }));
     row("get<int>(Path), 4 segments",
-        ns_per_call([&](int) { return static_cast<double>((*root)->get<int>(opaque(path))); }));
+        ns_per_call([&](int) { return static_cast<double>(*(*root)->get<int>(opaque(path))); }));
     row("get<float>(Path), 4 segments with index",
-        ns_per_call([&](int) { return static_cast<double>((*root)->get<float>(opaque(path2))); }));
+        ns_per_call([&](int) { return static_cast<double>(*(*root)->get<float>(opaque(path2))); }));
     row("get<int>(\"...\") (parses each call)", ns_per_call([&](int) {
-            return static_cast<double>((*root)->get<int>("cfg.renderer.shadows.resolution"));
+            return static_cast<double>(*(*root)->get<int>("cfg.renderer.shadows.resolution"));
         }));
-#endif
     // Where sorted mode starts to pay: a linear scan grows with the array, binary search
     // barely does.
     for (const int n : {50, 200, 1000}) {
@@ -122,12 +120,5 @@ int main() {
         });
         std::printf("try_find, %4d children, avg: linear %7.2f ns, sorted %6.2f ns\n", n, l, s);
     }
-    row("try_find_float, avg", ns_per_call([&](int i) {
-            return *obj.try_find_float(opaque(keys[static_cast<size_t>(i % 20)]));
-        }));
-    row("try_find_float, last",
-        ns_per_call([&](int) { return *obj.try_find_float(opaque(last)); }));
-    row("try_find_float(fallback), absent",
-        ns_per_call([&](int) { return *obj.try_find_float(opaque(absent), 1.0); }));
     return 0;
 }

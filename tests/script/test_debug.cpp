@@ -8,21 +8,23 @@
 
 #include <string>
 #include <vector>
+#include "ok.hpp"
 
 using namespace moira;
+using moira::test::ok;
 
 namespace {
 
 struct Guard : Object<Guard> {
     static void bind(Binder<Guard>& b) {
         b.method("patrol", [](Guard&, Context& ctx, int n) {
-            return ctx.try_eval("{walk " + std::to_string(n) + "}");
+            return ctx.eval("{walk " + std::to_string(n) + "}");
         });
     }
 };
 
 Error eval_error(Context& ctx, std::string_view text) {
-    auto r = ctx.try_eval(text, "boss.dta");
+    auto r = ctx.eval(text, "boss.dta");
     REQUIRE_FALSE(r);
     return r.error();
 }
@@ -74,8 +76,8 @@ TEST_CASE("a call that never starts is not on the stack") {
 TEST_CASE("methods and handlers name their object") {
     Context ctx;
     Guard g;
-    REQUIRE(ctx.try_add(g, "guard"));
-    REQUIRE(ctx.try_eval("{class Guard (alarm ($n) {+ $n nope})}"));
+    REQUIRE(ctx.add(g, "guard"));
+    REQUIRE(ctx.eval("{class Guard (alarm ($n) {+ $n nope})}"));
     const Error e = eval_error(ctx, "{guard alarm 1}");
     REQUIRE(e.stack.size() == 2);
     CHECK(e.stack[0].function == "+");
@@ -84,34 +86,28 @@ TEST_CASE("methods and handlers name their object") {
     CHECK(to_string(e.stack[1]) == "{guard alarm}  (boss.dta:1)");
 }
 
-#if MOIRA_EXCEPTIONS
-TEST_CASE("an exception thrown by a native function records the calls it leaves") {
+TEST_CASE("an error returned by a native function records the calls it leaves") {
     Context ctx;
-    ctx.func("explode", [](int) -> int { detail::raise(make_error(ErrorCode::Refused, "boom")); });
+    ok(ctx.func("explode", [](int) -> Expected<int> {
+        return Unexpected(make_error(ErrorCode::Refused, "boom"));
+    }));
     const Error e = eval_error(ctx, "{func f () {explode 1}}\n{f}");
     CHECK(e.message == "boom");
     REQUIRE(e.stack.size() == 2);
     CHECK(e.stack[0].function == "explode");
     CHECK(e.stack[1].function == "f");
-    // The throwing API's what() carries the stack too.
-    try {
-        (void)ctx.eval("{f}", "boss.dta");
-        FAIL("no exception");
-    } catch (const Exception& x) {
-        CHECK(std::string(x.what()).find("\n  in {f}") != std::string::npos);
-    }
+    CHECK(describe(e).find("\n  in {f}") != std::string::npos);
 }
-#endif
 
 TEST_CASE("script_backtrace renders the live frames from inside a native function") {
     Context ctx;
     std::string seen;
     std::vector<StackEntry> frames;
-    REQUIRE(ctx.try_func("assert_here", [&](Context& c) {
+    REQUIRE(ctx.func("assert_here", [&](Context& c) {
         seen = script_backtrace();
         frames = c.backtrace();
     }));
-    REQUIRE(ctx.try_eval("{func g () {assert_here}}\n{func f () {g}}\n{f}", "ai.dta"));
+    REQUIRE(ctx.eval("{func g () {assert_here}}\n{func f () {g}}\n{f}", "ai.dta"));
     CHECK(seen ==
           "in {assert_here}  (ai.dta:1)\n"
           "in {g}  (ai.dta:2)\n"
@@ -123,8 +119,8 @@ TEST_CASE("script_backtrace renders the live frames from inside a native functio
 TEST_CASE("frames cross a native call back into script") {
     Context ctx;
     Guard g;
-    REQUIRE(ctx.try_add(g, "guard"));
-    REQUIRE(ctx.try_eval("{func walk ($n) {% $n 0}}"));
+    REQUIRE(ctx.add(g, "guard"));
+    REQUIRE(ctx.eval("{func walk ($n) {% $n 0}}"));
     const Error e = eval_error(ctx, "{guard patrol 3}");
     // The inner evaluation shares the frame list, so its error records the outer calls too.
     REQUIRE(e.stack.size() >= 3);
@@ -135,12 +131,12 @@ TEST_CASE("frames cross a native call back into script") {
 
 TEST_CASE("the frame list allocates nothing") {
     Context ctx;
-    REQUIRE(ctx.try_eval("{func add1 ($a) {+ $a 1}}"));
-    auto tree = try_read_string("{add1 {add1 1}}");
+    REQUIRE(ctx.eval("{func add1 ($a) {+ $a 1}}"));
+    auto tree = read_string("{add1 {add1 1}}");
     REQUIRE(tree);
     const Node& call = (**tree)[0];
-    REQUIRE(ctx.try_eval(call));
+    REQUIRE(ctx.eval(call));
     test::AllocationScope scope;
-    for (int i = 0; i < 100; ++i) REQUIRE(ctx.try_eval(call));
+    for (int i = 0; i < 100; ++i) REQUIRE(ctx.eval(call));
     CHECK(scope.count() == 0);
 }

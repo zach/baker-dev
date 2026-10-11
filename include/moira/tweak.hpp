@@ -88,16 +88,13 @@ public:
 
     // The current value as data, for a generic tuning panel (empty if T cannot be written).
     [[nodiscard]] virtual std::vector<Node> values() const = 0;
-    // Sets the value from data, as a panel would; see Tweak<T>::try_set.
-    [[nodiscard]] Expected<void> try_set_values(std::span<const Node> values);
+    // Sets the value from data, as a panel would; see Tweak<T>::set.
+    [[nodiscard]] Expected<void> set_values(std::span<const Node> values);
 
-    // Where the current value came from: layer, file, and line (Config::try_source).
+    // Where the current value came from: layer, file, and line (Config::source).
     [[nodiscard]] Expected<Source> source() const;
-    // Writes the current value back to the file it came from (Config::try_write_back).
-    [[nodiscard]] Expected<void> try_write_back();
-#if MOIRA_EXCEPTIONS
-    void write_back();
-#endif
+    // Writes the current value back to the file it came from (Config::write_back).
+    [[nodiscard]] Expected<void> write_back();
 
     // Called after the value changes, on the thread that changed it.
     void on_change(std::function<void()> callback);
@@ -214,16 +211,11 @@ public:
     // A live edit: through the Config, so it shows in source() as layer "live" and can be
     // written back; without a Config, the value changes directly. Refused under
     // MOIRA_SHIPPING. Needs Convert<T>::to.
-    [[nodiscard]] Expected<void> try_set(const T& v) {
+    [[nodiscard]] Expected<void> set(const T& v) {
         ValueList list;
         Convert<T>::to(v, list);
-        return try_set_values(list.nodes());
+        return set_values(list.nodes());
     }
-#if MOIRA_EXCEPTIONS
-    void set(const T& v) {
-        if (auto r = try_set(v); !r) detail::raise(std::move(r).error());
-    }
-#endif
 
     [[nodiscard]] std::vector<Node> values() const override {
         ValueList list;

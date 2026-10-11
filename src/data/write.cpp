@@ -150,8 +150,7 @@ std::string to_dta(const Array& root, const WriteOptions& options) {
     return out;
 }
 
-Expected<void> try_write_file(std::string_view path, const Array& root,
-                              const WriteOptions& options) {
+Expected<void> write_file(std::string_view path, const Array& root, const WriteOptions& options) {
     const std::string text = to_dta(root, options);
     const std::string p(path);
     std::FILE* f = std::fopen(p.c_str(), "wb");
@@ -161,12 +160,6 @@ Expected<void> try_write_file(std::string_view path, const Array& root,
     if (!ok || !closed) return Unexpected(make_error(ErrorCode::Io, "error writing '" + p + "'"));
     return {};
 }
-
-#if MOIRA_EXCEPTIONS
-void write_file(std::string_view path, const Array& root, const WriteOptions& options) {
-    if (auto r = try_write_file(path, root, options); !r) detail::raise(std::move(r).error());
-}
-#endif
 
 namespace detail {
 std::string preview(const Node& node, size_t max_chars) {

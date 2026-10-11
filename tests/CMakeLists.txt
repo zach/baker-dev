@@ -4,10 +4,8 @@ target_compile_features(moira_doctest_main PUBLIC cxx_std_20)
 # doctest 2.4.11 forward-declares std::basic_ostream, which newer MSVC STLs (14.44+)
 # reject; include the real standard headers instead.
 target_compile_definitions(moira_doctest_main PUBLIC DOCTEST_CONFIG_USE_STD_HEADERS)
-if(MOIRA_NO_EXCEPTIONS)
-  # Keep REQUIRE (it terminates instead of throwing).
-  target_compile_definitions(moira_doctest_main PUBLIC DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS)
-endif()
+# Built without exceptions (D54): REQUIRE terminates instead of throwing.
+target_compile_definitions(moira_doctest_main PUBLIC DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS)
 
 add_executable(moira_data_tests
   data/test_config.cpp

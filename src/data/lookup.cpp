@@ -237,7 +237,7 @@ bool Path::matches(std::string_view text) const noexcept {
 
 // --- Array lookup ---
 
-Expected<const Array*> Array::try_find_array(Symbol tag) const {
+Expected<const Array*> Array::find_array(Symbol tag) const {
     const Array* a = try_find(tag);
     if (a && a->size_ > 1)
         if (const Array* v = a->data()[1].try_array()) return v;

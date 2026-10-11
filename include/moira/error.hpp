@@ -11,24 +11,18 @@
 // An error from a script also carries the script call stack it unwound through
 // (Error::stack); describe() renders it, one frame a line, innermost first.
 //
-// Every throwing API has a non-throwing twin returning Expected<T>. Under
-// MOIRA_NO_EXCEPTIONS the throwing forms (and Exception) are compiled out.
+// Moira never throws (docs/decisions.md D54): every fallible API returns Expected<T>, and the
+// library is built with exceptions disabled.
 
 #include <moira/expected.hpp>
 #include <moira/symbol.hpp>
 
 #include <cstdint>
-#include <exception>
+#include <cstdlib>
 #include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
-
-#if defined(MOIRA_NO_EXCEPTIONS) && MOIRA_NO_EXCEPTIONS
-#define MOIRA_EXCEPTIONS 0
-#else
-#define MOIRA_EXCEPTIONS 1
-#endif
 
 namespace moira {
 
@@ -89,51 +83,12 @@ template <class T>
 using Expected = expected<T, Error>;
 using Unexpected = unexpected<Error>;
 
-#if MOIRA_EXCEPTIONS
-
-class Exception : public std::exception {
-public:
-    explicit Exception(Error error);
-    [[nodiscard]] const Error& error() const noexcept { return error_; }
-    [[nodiscard]] const char* what() const noexcept override { return what_.c_str(); }
-
-private:
-    Error error_;
-    std::string what_;
-};
-
-namespace detail {
-[[noreturn]] void raise(Error error);
-}  // namespace detail
-
-#endif
-
-namespace detail {
-// Set by moira::script: fills in an error's script call stack when an Exception is made, so
-// one thrown from a native function records the calls it is thrown through.
-using StackRecorder = void (*)(Error&);
-void set_stack_recorder(StackRecorder recorder) noexcept;
-}  // namespace detail
-
-#if MOIRA_EXCEPTIONS
-
-#endif
-
 #if !MOIRA_HAS_STD_EXPECTED
 namespace detail {
+// Reading the value of an Expected that holds an error is a bug in the caller: abort.
 template <class E>
-[[noreturn]] void throw_bad_expected_access(const E& e) {
-#if MOIRA_EXCEPTIONS
-    if constexpr (std::is_same_v<E, Error>) {
-        raise(e);
-    } else {
-        (void)e;
-        std::abort();
-    }
-#else
-    (void)e;
+[[noreturn]] void throw_bad_expected_access(const E&) {
     std::abort();
-#endif
 }
 }  // namespace detail
 #endif

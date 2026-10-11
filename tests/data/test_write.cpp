@@ -18,13 +18,13 @@ using namespace moira;
 
 namespace {
 Ref<Array> parse(std::string_view text) {
-    auto r = try_read_string(text, "t.dta");
+    auto r = read_string(text, "t.dta");
     REQUIRE_MESSAGE(r.has_value(), (r ? std::string() : to_string(r.error())));
     return *r;
 }
 void check_round_trip(const Array& root) {
     const std::string printed = to_dta(root);
-    auto again = try_read_string(printed, "printed.dta");
+    auto again = read_string(printed, "printed.dta");
     REQUIRE_MESSAGE(again.has_value(), printed);
     CHECK_MESSAGE(structurally_equal(root, **again), printed);
 }
@@ -154,12 +154,12 @@ TEST_CASE("printing round-trips random trees") {
 TEST_CASE("write_file writes the file form") {
     const auto path = (std::filesystem::temp_directory_path() / "moira_write_test.dta").string();
     auto root = parse("(a 1) (b \"two\")");
-    REQUIRE(try_write_file(path, *root).has_value());
-    auto back = try_read_file(path);
+    REQUIRE(write_file(path, *root).has_value());
+    auto back = read_file(path);
     REQUIRE(back.has_value());
     CHECK(structurally_equal(*root, **back));
     std::remove(path.c_str());
-    CHECK(try_write_file("/definitely/not/a/dir/x.dta", *root).error().code == ErrorCode::Io);
+    CHECK(write_file("/definitely/not/a/dir/x.dta", *root).error().code == ErrorCode::Io);
 }
 
 TEST_CASE("preview is bounded on shared trees") {

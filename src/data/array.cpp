@@ -80,16 +80,6 @@ void Array::set(size_t i, Node node) noexcept {
     data()[i] = std::move(node);
 }
 
-#if MOIRA_EXCEPTIONS
-const Node& Array::at(size_t i) const {
-    if (i < size_) return data()[i];
-    detail::raise(make_error(
-        ErrorCode::Range,
-        "index " + std::to_string(i) + " out of range for array of size " + std::to_string(size_),
-        file_, line_));
-}
-#endif
-
 bool structurally_equal(const Node& a, const Node& b) noexcept {
     if (a.type() != b.type()) return false;
     switch (a.type()) {

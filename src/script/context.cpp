@@ -122,7 +122,7 @@ Expected<Node> evaluate_for_data(const Node& n) {
         return Unexpected(make_error(ErrorCode::NotFound,
                                      "a " + std::string(type_name(n.type())) +
                                          " value needs a current moira::Context on this thread"));
-    return t_current->try_eval(n);
+    return t_current->eval(n);
 }
 
 void stderr_sink(void*, const Error& notice) {
@@ -315,7 +315,6 @@ Expected<Node> Context::Impl::run(std::span<const Node> nodes) {
 
 Context::Context() : impl_(std::make_unique<Impl>(*this)) {
     detail::set_evaluator(&evaluate_for_data);
-    detail::set_stack_recorder(&record_stack);
     if (!t_current) t_current = this;
     impl_->sink = &stderr_sink;
     register_builtins(*this);
@@ -344,56 +343,21 @@ Context* Context::current() noexcept {
     return t_current;
 }
 
-Expected<Node> Context::try_eval(const Node& node) {
+Expected<Node> Context::eval(const Node& node) {
     Scope scope(*this);
-#if MOIRA_EXCEPTIONS
-    try {
-        return impl_->eval(node);
-    } catch (const Exception& e) {
-        return Unexpected(e.error());
-    }
-#else
     return impl_->eval(node);
-#endif
 }
 
-Expected<Node> Context::try_run(std::span<const Node> nodes) {
+Expected<Node> Context::run(std::span<const Node> nodes) {
     Scope scope(*this);
-#if MOIRA_EXCEPTIONS
-    try {
-        return impl_->run(nodes);
-    } catch (const Exception& e) {
-        return Unexpected(e.error());
-    }
-#else
     return impl_->run(nodes);
-#endif
 }
 
-Expected<Node> Context::try_eval(std::string_view text, std::string_view name) {
-    auto tree = try_read_string(text, name);
+Expected<Node> Context::eval(std::string_view text, std::string_view name) {
+    auto tree = read_string(text, name);
     if (!tree) return Unexpected(std::move(tree).error());
-    return try_run((*tree)->nodes());
+    return run((*tree)->nodes());
 }
-
-#if MOIRA_EXCEPTIONS
-namespace {
-Node value_or_raise(Expected<Node>&& r) {
-    if (!r) detail::raise(std::move(r).error());
-    return std::move(*r);
-}
-}  // namespace
-
-Node Context::eval(const Node& node) {
-    return value_or_raise(try_eval(node));
-}
-Node Context::eval(std::string_view text, std::string_view name) {
-    return value_or_raise(try_eval(text, name));
-}
-Node Context::run(std::span<const Node> nodes) {
-    return value_or_raise(try_run(nodes));
-}
-#endif
 
 bool Context::has_func(Symbol name) const noexcept {
     const Function* f = impl_->find(name);
@@ -471,7 +435,7 @@ void Context::notice(Error notice) const {
     if (impl_->sink) impl_->sink(impl_->sink_user, notice);
 }
 
-Expected<FuncRef> Context::add(Symbol name, detail::Overload o) {
+Expected<FuncRef> Context::add_overload(Symbol name, detail::Overload o) {
     auto has_raw = [](const detail::Overload& x) {
         for (const detail::ParamInfo& p : x.params)
             if (p.raw) return true;
@@ -527,14 +491,14 @@ Expected<Node> Args::eval_node(const Node& n) const {
     return r;
 }
 
-Expected<Node> Args::try_eval(size_t i) const {
+Expected<Node> Args::eval(size_t i) const {
     if (i >= size_) return Unexpected(type_error(i, Node(), "value"));
     if (evaluated_) return base_[i];
     return eval_node(base_[i]);
 }
 
-Expected<const Array*> Args::try_array(size_t i) const {
-    auto r = try_eval(i);
+Expected<const Array*> Args::array(size_t i) const {
+    auto r = eval(i);
     if (!r) return Unexpected(std::move(r).error());
     if (r->type() != Type::Array) return Unexpected(type_error(i, *r, "array"));
     const Array* a = r->try_array();
@@ -579,15 +543,9 @@ Expected<Raw<Var>> read_var(const Args& a, size_t i) {
 }
 }  // namespace detail
 
-Expected<Node> Raw<Node>::try_eval() const {
+Expected<Node> Raw<Node>::eval() const {
     return ctx_->impl().eval(*node_);
 }
-
-#if MOIRA_EXCEPTIONS
-Node Raw<Node>::eval() const {
-    return value_or_raise(try_eval());
-}
-#endif
 
 bool VarRef::is_set() const noexcept {
     return !is_unset(*cell_);

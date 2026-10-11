@@ -23,7 +23,7 @@ int main() {
     double best = 1e9;
     for (int rep = 0; rep < 10; ++rep) {
         const auto t0 = std::chrono::steady_clock::now();
-        auto r = moira::try_read_string(text, "bench.dta");
+        auto r = moira::read_string(text, "bench.dta");
         const auto t1 = std::chrono::steady_clock::now();
         if (!r) return 1;
         best = std::min(best, std::chrono::duration<double>(t1 - t0).count());
