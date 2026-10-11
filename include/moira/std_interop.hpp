@@ -7,15 +7,18 @@
 // engine that bans the STL can include them. This header is the exception, by name: it
 // includes the standard containers, and nothing else in Moira includes it.
 
+#include <moira/array.hpp>
 #include <moira/error.hpp>
 #include <moira/path.hpp>
 #include <moira/symbol.hpp>
 #include <moira/text.hpp>
 #include <moira/write.hpp>
 
+#include <array>
 #include <cstddef>
 #include <functional>
 #include <string>
+#include <vector>
 
 template <>
 struct std::hash<moira::Symbol> {
@@ -61,5 +64,50 @@ inline std::string to_dta(const Array& root, const WriteOptions& options = {}) {
     write_dta(root, string_out(out), options);
     return out;
 }
+
+// --- Convert<T> for standard types. ---
+
+template <>
+struct Convert<std::string> {
+    static constexpr std::string_view name = "string";
+    static constexpr bool scalar = true;
+    static bool from(const Values& v, std::string& out) {
+        std::string_view s;
+        if (!Convert<std::string_view>::from(v, s)) return false;
+        out.assign(s);
+        return true;
+    }
+    static void to(const std::string& v, ValueList& out) { out.push(Node(String::make(v))); }
+};
+
+// Every value, each read as T: (tags fast loud blue) as std::vector<Symbol>.
+template <class T>
+struct Convert<std::vector<T>> {
+    static constexpr std::string_view name = "list";
+    static bool from(const Values& v, std::vector<T>& out) {
+        out.assign(v.size(), T{});
+        for (size_t i = 0; i < v.size(); ++i)
+            if (!v.read(i, out[i])) return false;
+        return true;
+    }
+    static void to(const std::vector<T>& v, ValueList& out) {
+        for (const T& x : v) out.add(x);
+    }
+};
+
+// Exactly N values, each read as T: (color 1 0.5 0) as std::array<float, 3>.
+template <class T, size_t N>
+struct Convert<std::array<T, N>> {
+    static constexpr std::string_view name = "fixed-size list";
+    static bool from(const Values& v, std::array<T, N>& out) {
+        if (v.size() != N) return false;
+        for (size_t i = 0; i < N; ++i)
+            if (!v.read(i, out[i])) return false;
+        return true;
+    }
+    static void to(const std::array<T, N>& v, ValueList& out) {
+        for (const T& x : v) out.add(x);
+    }
+};
 
 }  // namespace moira

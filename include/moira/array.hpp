@@ -44,18 +44,14 @@
 #include <moira/node.hpp>
 #include <moira/path.hpp>
 
-#include <array>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
-#include <iterator>
 #include <limits>
 #include <span>
-#include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
-#include <vector>
 
 namespace moira {
 
@@ -92,16 +88,93 @@ private:
 // The write direction, for Config::set and write-back: the values a T becomes. The mirror
 // of Values: a converter's to() appends its values with add(), and add() of a compound
 // element nests it as an array, as Values::read descends into one.
+namespace detail {
+// A growable run of nodes: the first kInline are held inline, so the common short list
+// never allocates.
+class NodeBuffer {
+public:
+    static constexpr uint32_t kInline = 8;
+
+    NodeBuffer() noexcept = default;
+    NodeBuffer(const NodeBuffer& o) { assign(o.nodes()); }
+    NodeBuffer& operator=(const NodeBuffer& o) {
+        if (this != &o) assign(o.nodes());
+        return *this;
+    }
+    NodeBuffer(NodeBuffer&& o) noexcept { take(o); }
+    NodeBuffer& operator=(NodeBuffer&& o) noexcept {
+        if (this != &o) {
+            release();
+            take(o);
+        }
+        return *this;
+    }
+    ~NodeBuffer() { release(); }
+
+    void push(Node n) {
+        if (size_ == cap_) grow();
+        data_[size_++] = std::move(n);
+    }
+    void clear() noexcept {
+        for (uint32_t i = 0; i < size_; ++i) data_[i] = Node();
+        size_ = 0;
+    }
+    void assign(std::span<const Node> nodes) {
+        clear();
+        for (const Node& n : nodes) push(n);
+    }
+    [[nodiscard]] size_t size() const noexcept { return size_; }
+    [[nodiscard]] std::span<const Node> nodes() const noexcept { return {data_, size_}; }
+    [[nodiscard]] std::span<Node> nodes() noexcept { return {data_, size_}; }
+
+private:
+    void grow() {
+        Node* bigger = new Node[size_t{cap_} * 2];
+        for (uint32_t i = 0; i < size_; ++i) bigger[i] = std::move(data_[i]);
+        if (data_ != inline_) delete[] data_;
+        data_ = bigger;
+        cap_ *= 2;
+    }
+    void release() noexcept {
+        if (data_ != inline_)
+            delete[] data_;
+        else
+            clear();
+        data_ = inline_;
+        size_ = 0;
+        cap_ = kInline;
+    }
+    void take(NodeBuffer& o) noexcept {
+        if (o.data_ == o.inline_) {
+            for (uint32_t i = 0; i < o.size_; ++i) inline_[i] = std::move(o.inline_[i]);
+            data_ = inline_;
+        } else {
+            data_ = o.data_;
+            o.data_ = o.inline_;
+        }
+        size_ = o.size_;
+        cap_ = o.cap_;
+        o.size_ = 0;
+        o.cap_ = kInline;
+    }
+
+    Node* data_ = inline_;
+    uint32_t size_ = 0;
+    uint32_t cap_ = kInline;
+    Node inline_[kInline];
+};
+}  // namespace detail
+
 class ValueList {
 public:
     template <class T>
     void add(const T& v);
-    void push(Node n) { nodes_.push_back(std::move(n)); }
-    [[nodiscard]] std::span<const Node> nodes() const noexcept { return nodes_; }
-    [[nodiscard]] std::vector<Node>& nodes() noexcept { return nodes_; }
+    void push(Node n) { nodes_.push(std::move(n)); }
+    [[nodiscard]] std::span<const Node> nodes() const noexcept { return nodes_.nodes(); }
+    [[nodiscard]] std::span<Node> nodes() noexcept { return nodes_.nodes(); }
 
 private:
-    std::vector<Node> nodes_;
+    detail::NodeBuffer nodes_;
 };
 
 // Convert<T>: how a lookup reads a T. Specialize it for your own types:
@@ -214,7 +287,7 @@ void set_evaluator(Evaluator evaluator) noexcept;
 [[nodiscard]] Evaluator evaluator() noexcept;
 
 struct Evaluated {
-    std::vector<Node> nodes;
+    NodeBuffer nodes;
     Values values;
 };
 // `in` with every Command and Var evaluated. False if there is none, or no evaluator.
@@ -255,8 +328,6 @@ public:
     using reference = const Array&;
     using pointer = const Array*;
     using difference_type = std::ptrdiff_t;
-    using iterator_category = std::forward_iterator_tag;
-    using iterator_concept = std::forward_iterator_tag;
 
     SubarrayIterator() = default;
     SubarrayIterator(const Node* p, const Node* end) noexcept : p_(p), end_(end) { skip(); }
@@ -510,19 +581,6 @@ struct Convert<std::string_view> {
     static void to(std::string_view v, ValueList& out) { out.push(Node(String::make(v))); }
 };
 
-template <>
-struct Convert<std::string> {
-    static constexpr std::string_view name = "string";
-    static constexpr bool scalar = true;
-    static bool from(const Values& v, std::string& out) {
-        std::string_view s;
-        if (!Convert<std::string_view>::from(v, s)) return false;
-        out.assign(s);
-        return true;
-    }
-    static void to(const std::string& v, ValueList& out) { out.push(Node(String::make(v))); }
-};
-
 // The first value, raw: never converted or evaluated.
 template <>
 struct Convert<Node> {
@@ -534,36 +592,6 @@ struct Convert<Node> {
         return true;
     }
     static void to(const Node& v, ValueList& out) { out.push(v); }
-};
-
-// Every value, each read as T: (tags fast loud blue) as std::vector<Symbol>.
-template <class T>
-struct Convert<std::vector<T>> {
-    static constexpr std::string_view name = "list";
-    static bool from(const Values& v, std::vector<T>& out) {
-        out.assign(v.size(), T{});
-        for (size_t i = 0; i < v.size(); ++i)
-            if (!v.read(i, out[i])) return false;
-        return true;
-    }
-    static void to(const std::vector<T>& v, ValueList& out) {
-        for (const T& x : v) out.add(x);
-    }
-};
-
-// Exactly N values, each read as T: (color 1 0.5 0) as std::array<float, 3>.
-template <class T, size_t N>
-struct Convert<std::array<T, N>> {
-    static constexpr std::string_view name = "fixed-size list";
-    static bool from(const Values& v, std::array<T, N>& out) {
-        if (v.size() != N) return false;
-        for (size_t i = 0; i < N; ++i)
-            if (!v.read(i, out[i])) return false;
-        return true;
-    }
-    static void to(const std::array<T, N>& v, ValueList& out) {
-        for (const T& x : v) out.add(x);
-    }
 };
 
 // --- Template definitions. ---
@@ -583,7 +611,7 @@ void ValueList::add(const T& v) {
     if constexpr (detail::convert_info<T>().kind == detail::ConvertKind::Compound) {
         ValueList inner;
         Convert<T>::to(v, inner);
-        nodes_.emplace_back(Array::make_from(inner.nodes_));
+        nodes_.push(Node(Array::make_from(inner.nodes())));
     } else {
         Convert<T>::to(v, *this);
     }

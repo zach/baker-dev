@@ -302,14 +302,14 @@ Expected<bool> evaluate_values(const Values& in, Evaluated& out) {
     };
     const Evaluator eval = evaluator();
     if (!eval || std::none_of(in.begin(), in.end(), evaluable)) return false;
-    out.nodes.assign(in.begin(), in.end());
-    for (Node& n : out.nodes) {
+    out.nodes.assign(in.nodes());
+    for (Node& n : out.nodes.nodes()) {
         if (!evaluable(n)) continue;
         auto r = eval(n);
         if (!r) return Unexpected(std::move(r).error());
         n = std::move(*r);
     }
-    out.values = Values(out.nodes, in.source());
+    out.values = Values(out.nodes.nodes(), in.source());
     return true;
 }
 

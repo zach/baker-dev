@@ -223,7 +223,8 @@ public:
                           Convert<T>::to(std::declval<const T&>(), std::declval<ValueList&>());
                       })
             Convert<T>::to(value(), list);
-        return std::move(list.nodes());
+        const auto nodes = list.nodes();
+        return std::vector<Node>(nodes.begin(), nodes.end());
     }
 
 private:
