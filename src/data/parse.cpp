@@ -1,5 +1,6 @@
 #include <moira/parse.hpp>
 
+#include "arena.hpp"
 #include "common/containers.hpp"
 
 #include "merge.hpp"
@@ -270,8 +271,10 @@ namespace detail {
 
 class Parser {
 public:
-    Parser(LoadSession& session, std::string_view text, Symbol file, uint32_t include_depth)
+    Parser(LoadSession& session, Arena& arena, std::string_view text, Symbol file,
+           uint32_t include_depth)
         : s_(session),
+          arena_(arena),
           lex_(text, file),
           file_(file),
           include_depth_(include_depth),
@@ -298,7 +301,7 @@ public:
                 case Tok::Close: ok = close(t); break;
                 case Tok::Int: ok = push(Node(t.i), here(t)); break;
                 case Tok::Float: ok = push(Node(t.f), here(t)); break;
-                case Tok::String: ok = push(Node(String::make(t.text)), here(t)); break;
+                case Tok::String: ok = push(Node(arena_.make_string(t.text)), here(t)); break;
                 case Tok::Symbol: ok = symbol(t); break;
                 case Tok::Var: ok = push(Node::var(Symbol(t.text)), here(t)); break;
                 case Tok::Directive: ok = directive(t); break;
@@ -315,7 +318,7 @@ public:
             const FrameInfo& f = frames_.back();
             return fail(ErrorCode::Syntax, Str(bracket_name(f.open)) + " is never closed", f.line);
         }
-        Ref<Array> root = Array::make_from(scratch_, file_, 1);
+        Ref<Array> root = arena_.make_array(scratch_, file_, 1);
         if (root->height() > s_.limits.max_depth + 1) return too_deep(1);
         if (map_) map_->record(root, {file_, 0, size_, {}}, spans_);
         out = std::move(root);
@@ -432,7 +435,7 @@ private:
             const auto name = kids.empty() ? std::nullopt : kids[0].try_sym();
             if (!name)
                 return fail(ErrorCode::Syntax, "macro definition needs a symbol name", f.line);
-            Ref<Array> body = Array::make_from(kids.subspan(1), file_, f.line);
+            Ref<Array> body = arena_.make_array(kids.subspan(1), file_, f.line);
             record(body, f.start + 1, f.begin, t.end);
             truncate(f.start);
             if (body->height() > s_.limits.max_depth) return too_deep(f.line);
@@ -440,7 +443,7 @@ private:
             return true;
         }
 
-        Ref<Array> arr = Array::make_from(kids, file_, f.line);
+        Ref<Array> arr = arena_.make_array(kids, file_, f.line);
         record(arr, f.start, f.begin, t.end);
         truncate(f.start);
         if (arr->height() > s_.limits.max_depth) return too_deep(f.line);
@@ -518,7 +521,7 @@ private:
             if (!root) return true;  // optional and missing
             if (d == "merge") {
                 merge_into(scratch_, map_ ? &spans_ : nullptr, frames_.back().start, *root, 0,
-                           MergePolicy::FillMissing, map_);
+                           MergePolicy::FillMissing, map_, &arena_);
                 return true;
             }
             for (size_t i = 0; i < root->size(); ++i) {
@@ -600,13 +603,14 @@ private:
 
         ++s_.st_->includes;
         s_.st_->include_stack.push_back(*found);
-        Parser sub(s_, text, Symbol(*found), include_depth_ + 1);
+        Parser sub(s_, arena_, text, Symbol(*found), include_depth_ + 1);
         const bool ok = sub.run(out, *err_);
         s_.st_->include_stack.pop_back();
         return ok;
     }
 
     LoadSession& s_;
+    Arena& arena_;  // the whole load, includes and macro bodies too (D64)
     Lexer lex_;
     Symbol file_;
     uint32_t include_depth_;
@@ -627,9 +631,10 @@ LoadSession::LoadSession() : st_(detail::create<State>(default_allocator())) {}
 LoadSession::LoadSession(const LoadSession& o)
     : limits(o.limits),
       source_map(o.source_map),
+      allocator(o.allocator),
       st_(detail::create<State>(default_allocator(), *o.st_)) {}
 LoadSession::LoadSession(LoadSession&& o) noexcept
-    : limits(o.limits), source_map(o.source_map), st_(o.st_) {
+    : limits(o.limits), source_map(o.source_map), allocator(o.allocator), st_(o.st_) {
     o.st_ = detail::create<State>(
         default_allocator());  // the moved-from session stays usable, and empty
 }
@@ -640,6 +645,7 @@ LoadSession& LoadSession::operator=(const LoadSession& o) {
         st_ = st;
         limits = o.limits;
         source_map = o.source_map;
+        allocator = o.allocator;
     }
     return *this;
 }
@@ -647,6 +653,7 @@ LoadSession& LoadSession::operator=(LoadSession&& o) noexcept {
     std::swap(st_, o.st_);
     limits = o.limits;
     source_map = o.source_map;
+    allocator = o.allocator;
     return *this;
 }
 LoadSession::~LoadSession() {
@@ -702,7 +709,11 @@ Expected<Ref<Array>> read_string(std::string_view text, std::string_view name,
         ~Pop() { stack.pop_back(); }
     } pop{session.st_->include_stack};
 
-    detail::Parser parser(session, text, Symbol(file), 0);
+    // One arena per top-level read; a nested read (an include) has its own parser, not this.
+    // About 4 bytes of tree per byte of text, for the first block.
+    const detail::Arena::Handle arena(detail::Arena::create(
+        session.allocator ? *session.allocator : default_allocator(), text.size() * 4));
+    detail::Parser parser(session, *arena, text, Symbol(file), 0);
     Ref<Array> root;
     Error err;
     if (!parser.run(root, err)) return Unexpected(std::move(err));

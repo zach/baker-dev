@@ -293,7 +293,9 @@ struct Config::Impl {
         Callback<void(const ReloadRecord&)> fn;
     };
 
-    explicit Impl(const Allocator& a) : alloc(a) {}
+    explicit Impl(const Allocator& a) : alloc(a) {
+        base.allocator = &alloc;  // every layer's tree is the Config's (D64)
+    }
 
     const Allocator alloc;  // first: the containers below take it
     ConfigOptions options;

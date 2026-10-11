@@ -1,5 +1,6 @@
 
 #include "merge.hpp"
+#include "arena.hpp"
 #include "common/containers.hpp"
 
 #include <optional>
@@ -28,7 +29,7 @@ bool has_values(const Array& a, size_t first) noexcept {
 // The spec took that for a typo; for #merge it is not, and for Config layers the leaves
 // win. Both policies are here; see docs/decisions.md D1.
 bool merge_into(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const Array& src,
-                size_t src_first, MergePolicy policy, SourceMap* map) {
+                size_t src_first, MergePolicy policy, SourceMap* map, Arena* arena) {
     bool changed = false;
     if (policy == MergePolicy::Overwrite && has_values(src, src_first)) {
         // The incoming values replace the existing ones; tagged children stay to merge.
@@ -72,11 +73,13 @@ bool merge_into(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const 
             merged_spans = known ? Vec<SourceSpan>(known->data(), known->data() + known->size())
                                  : Vec<SourceSpan>(da.size());
         }
-        if (!merge_into(merged, map ? &merged_spans : nullptr, 1, *sa, 1, policy, map)) continue;
+        if (!merge_into(merged, map ? &merged_spans : nullptr, 1, *sa, 1, policy, map, arena))
+            continue;
         // A rebuilt array is located where its values came from.
         const bool from_src = policy == MergePolicy::Overwrite && has_values(*sa, 1);
         const Array& at = from_src ? *sa : da;
-        Ref<Array> rebuilt = Array::make_from(merged, at.file(), at.line());
+        Ref<Array> rebuilt = arena ? arena->make_array(merged, at.file(), at.line())
+                                   : Array::make_from(merged, at.file(), at.line());
         if (map) {
             const SourceSpan* ext = map->extent(da);
             map->record(rebuilt, ext ? *ext : SourceSpan{}, merged_spans);

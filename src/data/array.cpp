@@ -71,7 +71,14 @@ void Array::set(size_t i, Node node) noexcept {
     const uint16_t h = above(child_height(node));
     if (h > height_) height_ = h;
     flags_ = static_cast<uint16_t>(flags_ & ~kSortedForLookup);
-    data()[i] = std::move(node);
+    detail::Owner& owner = detail::owner_of(this);
+    if (owner.kind != detail::kArena) {
+        data()[i] = std::move(node);
+        return;
+    }
+    // Arena nodes count nothing: the old node is dropped as it is, and the arena counts
+    // the new one's owner if it is another (D64).
+    detail::Arena::of(owner).adopt(data() + i, std::move(node), false);
 }
 
 bool structurally_equal(const Node& a, const Node& b) noexcept {

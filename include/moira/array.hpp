@@ -517,6 +517,7 @@ private:
     // checking its size.
     [[nodiscard]] static Array* allocate(uint32_t size, Symbol file, int32_t line);
     friend void detail::free_owner(detail::Owner&) noexcept;
+    friend class detail::Arena;
     void compute_height() noexcept;
     [[nodiscard]] const Array* find_sorted(Symbol tag) const noexcept;
 

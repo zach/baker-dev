@@ -109,6 +109,7 @@ private:
     String(uint32_t block, uint32_t size) noexcept : block_(block), size_(size) {}
     ~String() = default;
     friend void detail::free_owner(detail::Owner&) noexcept;
+    friend class detail::Arena;
 
     uint32_t block_;  // the offset back to the block that holds it
     uint32_t size_;

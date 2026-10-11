@@ -8,6 +8,7 @@ target_compile_definitions(moira_doctest_main PUBLIC DOCTEST_CONFIG_USE_STD_HEAD
 target_compile_definitions(moira_doctest_main PUBLIC DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS)
 
 add_executable(moira_data_tests
+  data/test_arena.cpp
   data/test_config.cpp
   data/test_core.cpp
   data/test_corpus.cpp

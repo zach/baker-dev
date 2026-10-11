@@ -67,6 +67,7 @@ enum OwnerKind : uint32_t { kSoloArray, kSoloString, kArena };
     std::memcpy(&owner, static_cast<const char*>(payload) - offset, sizeof owner);
     return *owner;
 }
+class Arena;
 // Frees an owner whose count reached zero.
 void free_owner(Owner& owner) noexcept;
 inline void retain_payload(const void* payload) noexcept {

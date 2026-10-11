@@ -382,7 +382,9 @@ Expected<Node> Context::run(std::span<const Node> nodes) {
 }
 
 Expected<Node> Context::eval(std::string_view text, std::string_view name) {
-    auto tree = read_string(text, name);
+    LoadSession session;
+    session.allocator = &impl_->alloc;  // the tree is the Context's (D64)
+    auto tree = read_string(text, name, session);
     if (!tree) return Unexpected(std::move(tree).error());
     return run((*tree)->nodes());
 }
