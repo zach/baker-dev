@@ -33,13 +33,9 @@
 
 #include <moira/script.hpp>
 
-#include <algorithm>
-#include <memory>
-#include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
-#include <vector>
 
 namespace moira {
 
@@ -47,47 +43,34 @@ class ObjectBase;
 
 namespace detail {
 
-struct MethodEntry {
-    Symbol name;
-    std::vector<Overload> overloads;
-    std::string doc;
-    Status status = Status::Normal;
-    Symbol replacement;
-    bool inherited = false;
-};
+// What a Context knows about a bound type: built once per type from T::bind. Its layout
+// is private to moira::script (internal.hpp); a binding reaches it through the functions
+// below, called once per type.
+struct TypeRecord;
+struct MethodEntry;
+struct ObjectParams;
 
-struct PropertyEntry {
-    Symbol name;
-    std::string_view type;
-    std::shared_ptr<const void> accessor;
-    Node (*get)(const void* accessor, ObjectBase& self) = nullptr;
-    bool (*set)(const void* accessor, ObjectBase& self, const Node& value) = nullptr;
-    std::string doc;
-};
+[[nodiscard]] TypeRecord* new_type_record(std::string_view name);
+void set_type_name(TypeRecord& type, std::string_view name);
+// Adds an overload to method `name`, replacing an inherited method of that name.
+[[nodiscard]] MethodEntry* add_method(TypeRecord& type, Symbol name, Overload overload);
+void set_method_doc(MethodEntry& method, std::string_view doc);
+void set_method_status(MethodEntry& method, Status status, Symbol replacement);
+using PropertyGet = Node (*)(const void* accessor, ObjectBase& self);
+using PropertySet = bool (*)(const void* accessor, ObjectBase& self, const Node& value);
+void add_property(TypeRecord& type, Symbol name, std::string_view value_type, Shared accessor,
+                  PropertyGet get, PropertySet set, std::string_view doc);
+void inherit(TypeRecord& type, const TypeRecord& base);
+void set_create(TypeRecord& type, ObjectBase* (*create)());
+void finish_type_record(TypeRecord& type);
+// Whether `type` is `other` or derives from it.
+[[nodiscard]] bool type_is(const TypeRecord& type, const TypeRecord* other) noexcept;
+[[nodiscard]] std::string_view type_record_name(const TypeRecord& type) noexcept;
 
-using ObjectParams = std::vector<std::pair<Symbol, Node>>;
-
-// Everything a Context knows about a bound type: built once per type from T::bind.
-struct TypeRecord {
-    std::string name;
-    Symbol symbol;                         // `name`, interned
-    std::vector<const TypeRecord*> bases;  // every ancestor, nearest first
-    std::vector<MethodEntry> methods;      // sorted by symbol identity, for binary search
-    std::vector<PropertyEntry> properties;
-    ObjectBase* (*create)() = nullptr;  // for {new}; null if T is not default-constructible
-    std::string error;                  // a binding mistake, reported when T is first added
-
-    [[nodiscard]] bool is(const TypeRecord* t) const noexcept {
-        return t == this || std::find(bases.begin(), bases.end(), t) != bases.end();
-    }
-    [[nodiscard]] const MethodEntry* method(Symbol name) const noexcept;
-    [[nodiscard]] const PropertyEntry* property(Symbol name) const noexcept;
-    void sort();
-};
-
-// The unqualified name of T, from the compiler's signature of this function: no RTTI.
+// The unqualified name of T, from the compiler's signature of this function: no RTTI. The
+// view points into that signature, which is static.
 template <class T>
-std::string type_name_of() {
+std::string_view type_name_of() {
 #if defined(_MSC_VER)
     std::string_view s = __FUNCSIG__;  // ...type_name_of<struct ns::Person>(void)
     s = s.substr(0, s.rfind(">("));
@@ -101,7 +84,7 @@ std::string type_name_of() {
         if (s.substr(0, prefix.size()) == prefix) s.remove_prefix(prefix.size());
     const size_t scope = s.substr(0, s.find('<')).rfind("::");
     if (scope != std::string_view::npos) s.remove_prefix(scope + 2);
-    return std::string(s);
+    return s;
 }
 
 // The object a method is called on: a parameter that takes no argument.
@@ -122,19 +105,22 @@ struct Param<Self<T>> {
     static Self<T> pass(Self<T> h) noexcept { return h; }
 };
 
-template <class... A>
+template <class L>
 struct DropFirst;
 template <class First, class... Rest>
-struct DropFirst<std::tuple<First, Rest...>> {
-    using type = std::tuple<Rest...>;
+struct DropFirst<TypeList<First, Rest...>> {
+    using type = TypeList<Rest...>;
 };
 
 // A method as a function taking Self<T> first: from a member function pointer, or from a
 // callable whose first parameter is T& (or a base of T).
 template <class T, class R, class F, class... A>
-auto method_wrapper(F f, std::tuple<A...>*) {
+auto method_wrapper(F f, TypeList<A...>*) {
     return [f](Self<T> self, A... a) -> R {
-        return std::invoke(f, *self.object, std::forward<A>(a)...);
+        if constexpr (std::is_member_function_pointer_v<F>)
+            return (self.object->*f)(std::forward<A>(a)...);
+        else
+            return f(*self.object, std::forward<A>(a)...);
     };
 }
 
@@ -149,6 +135,10 @@ public:
     virtual ~ObjectBase();
 
     [[nodiscard]] virtual const detail::TypeRecord& type() const noexcept = 0;
+    // The name scripts use for the object's type: "Person".
+    [[nodiscard]] std::string_view type_name() const noexcept {
+        return detail::type_record_name(type());
+    }
     // An Object node referring to this object, or Int 0 if it is in no Context.
     [[nodiscard]] Node node() const noexcept { return ctx_ ? Node::object(handle_) : Node(); }
     [[nodiscard]] Context* context() const noexcept { return ctx_; }
@@ -158,7 +148,7 @@ private:
     friend struct Context::Impl;
     Context* ctx_ = nullptr;
     ObjectHandle handle_;
-    std::unique_ptr<detail::ObjectParams> params_;  // loose parameters, made on first set
+    detail::ObjectParams* params_ = nullptr;  // loose parameters, made on first set
 };
 
 template <class T>
@@ -180,12 +170,11 @@ class MethodRef {
 public:
     explicit MethodRef(detail::MethodEntry& m) noexcept : m_(&m) {}
     MethodRef& doc(std::string_view text) {
-        m_->doc = text;
+        detail::set_method_doc(*m_, text);
         return *this;
     }
     MethodRef& status(Status status, Symbol replacement = {}) {
-        m_->status = status;
-        m_->replacement = replacement;
+        detail::set_method_status(*m_, status, replacement);
         return *this;
     }
 
@@ -199,7 +188,7 @@ public:
     explicit Binder(detail::TypeRecord& record) noexcept : r_(record) {}
 
     // The name scripts and messages use for T; by default T's unqualified C++ name.
-    void name(std::string_view name) { r_.name = name; }
+    void name(std::string_view name) { detail::set_type_name(r_, name); }
 
     // Binds a member function, or a callable whose first parameter is T& (or a base's).
     // Binding a name again adds an overload, as Context::func does.
@@ -216,39 +205,28 @@ public:
                     static_cast<typename detail::DropFirst<typename Sig::params>::type*>(nullptr));
         }();
         using W = decltype(w);
-        detail::Overload o = detail::make_overload<W, R>(
-            std::move(w), static_cast<typename detail::signature_of<W>::params*>(nullptr));
-        detail::MethodEntry& m = entry(name);
-        auto has_raw = [](const detail::Overload& x) {
-            return std::any_of(x.params.begin(), x.params.end(),
-                               [](const detail::ParamInfo& p) { return p.raw; });
-        };
-        if (!m.overloads.empty() &&
-            (has_raw(o) || std::any_of(m.overloads.begin(), m.overloads.end(), has_raw)))
-            r_.error = "method '" + std::string(name.str()) + "' of " + r_.name +
-                       " takes unevaluated arguments, so it cannot be overloaded";
-        m.overloads.push_back(std::move(o));
-        return MethodRef(m);
+        return MethodRef(*detail::add_method(
+            r_, name,
+            detail::make_overload<W, R>(
+                std::move(w), static_cast<typename detail::signature_of<W>::params*>(nullptr))));
     }
 
     // A data member, read and written through Convert<M>.
     template <class M, class C>
     void property(Symbol name, M C::*member, std::string_view doc = {}) {
         static_assert(std::is_base_of_v<C, T>, "the member must belong to T or a base");
-        detail::PropertyEntry p;
-        p.name = name;
-        p.type = detail::Param<M>::type();
-        p.doc = doc;
-        p.accessor = std::make_shared<M C::*>(member);
-        p.get = [](const void* acc, ObjectBase& self) {
-            auto r = detail::to_result(static_cast<T&>(self).*(*static_cast<M C::*const*>(acc)));
-            return r ? std::move(*r) : Node();
-        };
-        p.set = [](const void* acc, ObjectBase& self, const Node& v) {
-            return Values(std::span<const Node>(&v, 1), nullptr)
-                .read(0, static_cast<T&>(self).*(*static_cast<M C::*const*>(acc)));
-        };
-        add_property(std::move(p));
+        detail::add_property(
+            r_, name, detail::Param<M>::type(), detail::Shared::make<M C::*>(member),
+            [](const void* acc, ObjectBase& self) {
+                auto r =
+                    detail::to_result(static_cast<T&>(self).*(*static_cast<M C::*const*>(acc)));
+                return r ? std::move(*r) : Node();
+            },
+            [](const void* acc, ObjectBase& self, const Node& v) {
+                return Values(std::span<const Node>(&v, 1), nullptr)
+                    .read(0, static_cast<T&>(self).*(*static_cast<M C::*const*>(acc)));
+            },
+            doc);
     }
 
     // Declares that T derives from bound type B. Object<T, B> does this already; naming it
@@ -259,59 +237,25 @@ public:
         inherit(B::record());
     }
 
-    void inherit(const detail::TypeRecord& b) {
-        if (r_.is(&b)) return;
-        r_.bases.push_back(&b);
-        r_.bases.insert(r_.bases.end(), b.bases.begin(), b.bases.end());
-        for (detail::MethodEntry m : b.methods) {
-            if (std::any_of(r_.methods.begin(), r_.methods.end(),
-                            [&](const detail::MethodEntry& x) { return x.name == m.name; }))
-                continue;
-            m.inherited = true;
-            r_.methods.push_back(std::move(m));
-        }
-        for (const detail::PropertyEntry& p : b.properties)
-            if (std::none_of(r_.properties.begin(), r_.properties.end(),
-                             [&](const detail::PropertyEntry& x) { return x.name == p.name; }))
-                r_.properties.push_back(p);
-    }
+    void inherit(const detail::TypeRecord& b) { detail::inherit(r_, b); }
 
 private:
-    detail::MethodEntry& entry(Symbol name) {
-        for (detail::MethodEntry& m : r_.methods)
-            if (m.name == name) {
-                if (m.inherited) m = detail::MethodEntry{name, {}, {}, {}, {}, false};
-                return m;
-            }
-        r_.methods.push_back(detail::MethodEntry{name, {}, {}, {}, {}, false});
-        return r_.methods.back();
-    }
-    void add_property(detail::PropertyEntry p) {
-        for (detail::PropertyEntry& x : r_.properties)
-            if (x.name == p.name) {
-                x = std::move(p);
-                return;
-            }
-        r_.properties.push_back(std::move(p));
-    }
-
     detail::TypeRecord& r_;
 };
 
 template <class T, class Base>
 const detail::TypeRecord& Object<T, Base>::record() {
-    static const detail::TypeRecord r = [] {
-        detail::TypeRecord rec;
-        rec.name = detail::type_name_of<T>();
+    static const detail::TypeRecord* const r = [] {
+        detail::TypeRecord& rec = *detail::new_type_record(detail::type_name_of<T>());
         Binder<T> b(rec);
         if constexpr (!std::is_same_v<Base, ObjectBase>) b.inherit(Base::record());
         if constexpr (requires { T::bind(b); }) T::bind(b);
         if constexpr (std::is_default_constructible_v<T>)
-            rec.create = []() -> ObjectBase* { return new T(); };
-        rec.sort();
-        return rec;
+            detail::set_create(rec, []() -> ObjectBase* { return new T(); });
+        detail::finish_type_record(rec);
+        return &rec;
     }();
-    return r;
+    return *r;
 }
 
 // --- Context templates. ---
@@ -319,13 +263,15 @@ const detail::TypeRecord& Object<T, Base>::record() {
 template <class T>
 T* Context::try_get(const Node& object) const noexcept {
     ObjectBase* o = try_resolve(object);
-    return o && o->type().is(&T::record()) ? static_cast<T*>(o) : nullptr;
+    if (!o) return nullptr;
+    const detail::TypeRecord& t = o->type();
+    return &t == &T::record() || detail::type_is(t, &T::record()) ? static_cast<T*>(o) : nullptr;
 }
 
 template <class T>
 Expected<T*> Context::get(const Node& object) const {
     if (T* p = try_get<T>(object)) return p;
-    return Unexpected(resolve_error(object, T::record().name));
+    return Unexpected(resolve_error(object, detail::type_record_name(T::record())));
 }
 
 template <class T>

@@ -58,3 +58,25 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT MOIRA_SANITIZE AND NOT MOIR
     -DARCH=${CMAKE_SYSTEM_PROCESSOR}
     -P ${CMAKE_CURRENT_SOURCE_DIR}/codegen/check_tweak_read.cmake)
 endif()
+
+# D55: public headers reach only the allowed standard headers (std_*.hpp excepted), and
+# each compiles on its own.
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_FOUND)
+  add_test(NAME moira_header_allowlist
+           COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/check_headers.py)
+endif()
+file(GLOB moira_public_headers CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/include/moira/*.hpp)
+set(moira_header_units)
+foreach(header ${moira_public_headers})
+  get_filename_component(name ${header} NAME_WE)
+  set(unit ${CMAKE_CURRENT_BINARY_DIR}/header_alone/${name}.cpp)
+  file(WRITE ${unit} "#include <moira/${name}.hpp>\n")
+  list(APPEND moira_header_units ${unit})
+endforeach()
+add_library(moira_header_alone OBJECT ${moira_header_units})
+if(MOIRA_BUILD_SCRIPT)
+  target_link_libraries(moira_header_alone PRIVATE moira::script)
+else()
+  target_link_libraries(moira_header_alone PRIVATE moira::data)
+endif()

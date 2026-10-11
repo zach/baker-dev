@@ -18,7 +18,7 @@ step 1 (`{add 1 2}` at 34 ns, D52).
 
    This step is mechanical and shrinks the code. It goes first so later steps touch half
    as much API.
-2. **Standard-library-free public headers, and `Error` as a handle (D55).**
+2. **Standard-library-free public headers, and `Error` as a handle (D55).** *Done: D60.*
    - Turn `Error` into a handle to an error record.
    - Turn callbacks into a function pointer plus `void*`.
    - Move containers, `std::string`, `shared_ptr`, and `std::function` out of public

@@ -2,7 +2,7 @@
 #include <doctest.h>
 #include <moira/parse.hpp>
 #include <moira/script.hpp>
-#include <moira/std_interop.hpp>
+#include <moira/std_script.hpp>
 
 #include <algorithm>
 #include <cstdlib>
@@ -97,7 +97,7 @@ TEST_CASE("the demand report lists unresolved heads and stubs with every call si
     CHECK(report.demand[1].name == Symbol("boss.taunt"));
     CHECK(report.demand[1].stub);
     CHECK(
-        report.to_string() ==
+        to_string(report) ==
         "moira: 'helper' takes 1 argument, given 2  (boss.dta:7)\n"
         "demand: 'boss.find_cover' is not defined, called at boss.dta:3, boss.dta:5, arena.dta:1\n"
         "demand: 'boss.taunt' is a stub, called at boss.dta:3\n");
@@ -117,7 +117,7 @@ TEST_CASE("check over the corpus's scripts, with their functions registered by a
     report = check(**tree, ctx);
     CHECK(report.errors.empty());
     CHECK(report.demand.empty());
-    MESSAGE(report.to_string());
+    MESSAGE(to_string(report));
 }
 
 TEST_CASE("docs/script-reference.md matches the code") {

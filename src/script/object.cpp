@@ -39,7 +39,7 @@ std::optional<Node> get_property(ObjectBase& o, Symbol name, ObjectParams* param
     if (const detail::PropertyEntry* p = o.type().property(name))
         return p->get(p->accessor.get(), o);
     if (params)
-        for (const auto& [k, v] : *params)
+        for (const auto& [k, v] : params->items)
             if (k == name) return v;
     return std::nullopt;
 }
@@ -70,10 +70,98 @@ void TypeRecord::sort() {
     symbol = Symbol(name);
 }
 
+TypeRecord* new_type_record(std::string_view name) {
+    auto* r = new TypeRecord();  // one per bound type, for the life of the program
+    r->name = name;
+    return r;
+}
+
+void set_type_name(TypeRecord& type, std::string_view name) {
+    type.name = name;
+}
+
+MethodEntry* add_method(TypeRecord& r, Symbol name, Overload o) {
+    MethodEntry* m = nullptr;
+    for (MethodEntry& x : r.methods)
+        if (x.name == name) {
+            if (x.inherited) x = MethodEntry{name, {}, {}, {}, {}, false};
+            m = &x;
+            break;
+        }
+    if (!m) {
+        r.methods.push_back(MethodEntry{name, {}, {}, {}, {}, false});
+        m = &r.methods.back();
+    }
+    auto has_raw = [](const Overload& x) {
+        return std::any_of(x.params.begin(), x.params.end(),
+                           [](const ParamInfo& p) { return p.raw; });
+    };
+    if (!m->overloads.empty() &&
+        (has_raw(o) || std::any_of(m->overloads.begin(), m->overloads.end(), has_raw)))
+        r.error = "method '" + std::string(name.str()) + "' of " + r.name +
+                  " takes unevaluated arguments, so it cannot be overloaded";
+    m->overloads.push_back(std::move(o));
+    return m;
+}
+
+void set_method_doc(MethodEntry& m, std::string_view doc) {
+    m.doc = doc;
+}
+
+void set_method_status(MethodEntry& m, Status status, Symbol replacement) {
+    m.status = status;
+    m.replacement = replacement;
+}
+
+void add_property(TypeRecord& r, Symbol name, std::string_view value_type, Shared accessor,
+                  PropertyGet get, PropertySet set, std::string_view doc) {
+    PropertyEntry p{name, value_type, std::move(accessor), get, set, std::string(doc)};
+    for (PropertyEntry& x : r.properties)
+        if (x.name == name) {
+            x = std::move(p);
+            return;
+        }
+    r.properties.push_back(std::move(p));
+}
+
+void inherit(TypeRecord& r, const TypeRecord& b) {
+    if (r.is(&b)) return;
+    r.bases.push_back(&b);
+    r.bases.insert(r.bases.end(), b.bases.begin(), b.bases.end());
+    for (MethodEntry m : b.methods) {
+        if (std::any_of(r.methods.begin(), r.methods.end(),
+                        [&](const MethodEntry& x) { return x.name == m.name; }))
+            continue;
+        m.inherited = true;
+        r.methods.push_back(std::move(m));
+    }
+    for (const PropertyEntry& p : b.properties)
+        if (std::none_of(r.properties.begin(), r.properties.end(),
+                         [&](const PropertyEntry& x) { return x.name == p.name; }))
+            r.properties.push_back(p);
+}
+
+void set_create(TypeRecord& r, ObjectBase* (*create)()) {
+    r.create = create;
+}
+
+void finish_type_record(TypeRecord& r) {
+    r.sort();
+}
+
+bool type_is(const TypeRecord& type, const TypeRecord* other) noexcept {
+    return type.is(other);
+}
+
+std::string_view type_record_name(const TypeRecord& type) noexcept {
+    return type.name;
+}
+
 }  // namespace detail
 
 ObjectBase::~ObjectBase() {
     if (ctx_) ctx_->remove(*this);
+    delete params_;
 }
 
 // --- Impl ---
@@ -201,7 +289,7 @@ Expected<Node> Context::Impl::send(ObjectHandle target, const Array& command) {
         auto key = args.get<Symbol>(0);
         if (!key) return Unexpected(std::move(key).error());
         if (method == kGet) {
-            if (auto v = get_property(*object, *key, object->params_.get())) return *v;
+            if (auto v = get_property(*object, *key, object->params_)) return *v;
             return fail(command, ErrorCode::NotFound,
                         class_name(*s) + " has no property or parameter " + quoted(*key));
         }
@@ -224,13 +312,13 @@ Expected<void> Context::Impl::set_property(ObjectBase& o, Symbol name, const Nod
                                          std::string(moira::type_name(value.type())),
                                      at.file(), at.line()));
     }
-    if (!o.params_) o.params_ = std::make_unique<ObjectParams>();
-    for (auto& [k, v] : *o.params_)
+    if (!o.params_) o.params_ = new ObjectParams();
+    for (auto& [k, v] : o.params_->items)
         if (k == name) {
             v = value;
             return {};
         }
-    o.params_->emplace_back(name, value);
+    o.params_->items.emplace_back(name, value);
     return {};
 }
 
@@ -247,7 +335,7 @@ Expected<Node> Context::Impl::property_path(const Array& path) {
         if (current.type() == Type::Object) {
             Slot* s = slot(current.object_handle());
             if (!s) return fail(path, ErrorCode::NotFound, "[...] reads a removed object");
-            auto v = get_property(*s->object, *name, s->object->params_.get());
+            auto v = get_property(*s->object, *name, s->object->params_);
             if (!v)
                 return fail(path, ErrorCode::NotFound,
                             class_name(*s) + " has no property or parameter " + quoted(*name));

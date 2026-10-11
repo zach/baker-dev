@@ -29,20 +29,19 @@
 // because evaluation never modifies a tree.
 
 #include <moira/array.hpp>
+#include <moira/list.hpp>
 #include <moira/node.hpp>
+#include <moira/text.hpp>
 
+#include <atomic>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
-#include <memory>
 #include <optional>
 #include <span>
-#include <string>
 #include <string_view>
-#include <tuple>
 #include <type_traits>
 #include <utility>
-#include <vector>
 
 namespace moira {
 
@@ -89,7 +88,7 @@ public:
     // The object a method was called on; null for a function.
     [[nodiscard]] ObjectBase* self() const noexcept { return self_; }
     // An error naming this function and located at this call.
-    [[nodiscard]] Error error(std::string message, ErrorCode code = ErrorCode::Type) const;
+    [[nodiscard]] Error error(std::string_view message, ErrorCode code = ErrorCode::Type) const;
 
     // `first` is the index in `command` of the first argument: 1 for {f ...}, 2 for
     // {object method ...}.
@@ -206,16 +205,86 @@ inline constexpr bool is_raw<Raw<T>> = true;
 template <class T>
 inline constexpr bool is_raw<std::optional<Raw<T>>> = true;
 
+// A refcounted, type-erased, immutable object: the callable behind a function. get() is
+// one load, as std::shared_ptr's is.
+class Shared {
+public:
+    Shared() noexcept = default;
+    template <class T, class... A>
+    [[nodiscard]] static Shared make(A&&... a) {
+        auto* box = new Box<T>(std::forward<A>(a)...);
+        Shared s;
+        s.base_ = box;
+        s.object_ = &box->value;
+        return s;
+    }
+    Shared(const Shared& o) noexcept : base_(o.base_), object_(o.object_) {
+        if (base_) base_->refs.fetch_add(1, std::memory_order_relaxed);
+    }
+    Shared(Shared&& o) noexcept : base_(o.base_), object_(o.object_) {
+        o.base_ = nullptr;
+        o.object_ = nullptr;
+    }
+    Shared& operator=(Shared o) noexcept {
+        Base* b = base_;
+        base_ = o.base_;
+        o.base_ = b;
+        const void* p = object_;
+        object_ = o.object_;
+        o.object_ = p;
+        return *this;
+    }
+    ~Shared() {
+        if (base_ && base_->refs.fetch_sub(1, std::memory_order_acq_rel) == 1)
+            base_->destroy(base_);
+    }
+    [[nodiscard]] const void* get() const noexcept { return object_; }
+
+private:
+    struct Base {
+        std::atomic<uint32_t> refs{1};
+        void (*destroy)(Base*);
+    };
+    template <class T>
+    struct Box : Base {
+        template <class... A>
+        explicit Box(A&&... a) : value(std::forward<A>(a)...) {
+            this->destroy = [](Base* b) { delete static_cast<Box*>(b); };
+        }
+        T value;
+    };
+    Base* base_ = nullptr;
+    const void* object_ = nullptr;
+};
+
 // One signature of a function.
 struct Overload {
     using Thunk = Expected<Node> (*)(const void* callable, Args& args);
     Thunk thunk = nullptr;
-    std::shared_ptr<const void> callable;
-    std::vector<ParamInfo> params;  // excluding implicit ones
+    Shared callable;
+    std::span<const ParamInfo> params;  // excluding implicit ones; static, or owned by callable
     std::string_view result;
     uint32_t min_args = 0;
     uint32_t max_args = 0;  // UINT32_MAX: takes the rest
 };
+
+// A list of types, for a signature's parameters.
+template <class... T>
+struct TypeList {};
+
+// Storage for one value per index, as std::tuple would hold them.
+template <size_t I, class T>
+struct Slot {
+    T value;
+};
+template <class Seq, class... T>
+struct Slots;
+template <size_t... I, class... T>
+struct Slots<std::index_sequence<I...>, T...> : Slot<I, T>... {};
+template <size_t I, class T>
+T& slot(Slot<I, T>& s) noexcept {
+    return s.value;
+}
 
 // --- Signature deduction. ---
 
@@ -224,7 +293,7 @@ struct signature_of : signature_of<decltype(&std::remove_cvref_t<F>::operator())
 template <class R, class... A>
 struct signature_of<R (*)(A...)> {
     using result = R;
-    using params = std::tuple<A...>;
+    using params = TypeList<A...>;
 };
 template <class R, class... A>
 struct signature_of<R (*)(A...) noexcept> : signature_of<R (*)(A...)> {};
@@ -245,7 +314,9 @@ bool match_value(const Node& n, bool promote) noexcept {
         return n.type() == Type::Float || (promote && n.type() == Type::Int);
     } else if constexpr (std::is_same_v<T, Symbol>) {
         return n.type() == Type::Symbol;
-    } else if constexpr (std::is_same_v<T, std::string_view> || std::is_same_v<T, std::string>) {
+    } else if constexpr (std::is_same_v<T, std::string_view> || requires(const T& t) {
+                             { t.c_str() } -> std::convertible_to<const char*>;
+                         }) {
         return n.type() == Type::String;
     } else if constexpr (std::is_same_v<T, Node>) {
         return true;
@@ -433,37 +504,55 @@ Expected<Node> invoke(const void* callable, [[maybe_unused]] Args& args,
     // One Expected for the whole call, holding a read error or the result: frames here
     // nest once per script call, so they stay small.
     Expected<Node> result;
-    [[maybe_unused]] std::tuple<std::optional<typename Param<P>::Holder>...> held;
+    [[maybe_unused]] Slots<std::index_sequence<I...>, std::optional<typename Param<P>::Holder>...>
+        held;
     bool ok = true;
     if constexpr (sizeof...(P) > 0) {
         using Index = ArgIndex<P...>;
-        ok = (Param<P>::read(args, Index::of(I), std::get<I>(held), result) && ...);
+        ok = (Param<P>::read(args, Index::of(I), slot<I>(held), result) && ...);
     }
     if (ok) {
         const F& f = *static_cast<const F*>(callable);
         if constexpr (std::is_void_v<R>)
-            std::invoke(f, Param<P>::pass(*std::get<I>(held))...);
+            f(Param<P>::pass(*slot<I>(held))...);
         else
-            result = to_result(std::invoke(f, Param<P>::pass(*std::get<I>(held))...));
+            result = to_result(f(Param<P>::pass(*slot<I>(held))...));
     }
     return result;
 }
 
+// The parameter descriptions of a signature, built at compile time: no allocation.
+template <class... P>
+struct ParamTable {
+    static constexpr size_t kCount = (size_t{Param<P>::kind != ParamKind::Implicit} + ... + 0);
+    struct Storage {
+        ParamInfo items[kCount ? kCount : 1];
+    };
+    static constexpr Storage build() {
+        Storage s{};
+        [[maybe_unused]] size_t i = 0;
+        (
+            [&] {
+                if constexpr (Param<P>::kind != ParamKind::Implicit)
+                    s.items[i++] = {Param<P>::type(), Param<P>::kind, Param<P>::match, is_raw<P>};
+            }(),
+            ...);
+        return s;
+    }
+    static constexpr Storage kStorage = build();
+};
+
 template <class F, class R, class... P>
-Overload make_overload(F&& f, std::tuple<P...>*) {
+Overload make_overload(F&& f, TypeList<P...>*) {
     using Fn = std::remove_cvref_t<F>;
+    using Table = ParamTable<P...>;
     Overload o;
     o.thunk = [](const void* c, Args& a) {
         return invoke<Fn, R, P...>(c, a, std::index_sequence_for<P...>{});
     };
-    o.callable = std::make_shared<const Fn>(std::forward<F>(f));
+    o.callable = Shared::make<Fn>(std::forward<F>(f));
     o.result = result_name<R>();
-    (
-        [&] {
-            if constexpr (Param<P>::kind != ParamKind::Implicit)
-                o.params.push_back({Param<P>::type(), Param<P>::kind, Param<P>::match, is_raw<P>});
-        }(),
-        ...);
+    o.params = std::span<const ParamInfo>(Table::kStorage.items, Table::kCount);
     for (const ParamInfo& p : o.params) {
         if (p.kind == ParamKind::Rest) {
             o.max_args = UINT32_MAX;
@@ -499,16 +588,18 @@ struct CheckReport {
     struct Demand {
         Symbol name;
         bool stub = false;  // a call to a function whose status is Stub; else unresolved
-        std::vector<Site> sites;
+        List<Site> sites;
         Symbol on;  // for a method: the class of the object it was sent to
     };
-    std::vector<Error> errors;
-    std::vector<Demand> demand;  // in order of first appearance
+    List<Error> errors;
+    List<Demand> demand;  // in order of first appearance
 
     [[nodiscard]] bool ok() const noexcept { return errors.empty(); }
-    // Errors first, then the demand report, one line each.
-    [[nodiscard]] std::string to_string() const;
 };
+
+// Writes the report: errors first, then the demand report, one line each.
+// <moira/std_interop.hpp> has to_string(report).
+void write(const CheckReport& report, TextOut out);
 
 // A call in progress, on the C++ stack: the frames of a Context form a list from the
 // innermost call out (Context::top_frame). Read-only, and valid only while the call runs.
@@ -594,7 +685,7 @@ public:
     // The innermost call in progress; null when nothing is running. Follow `parent` out.
     [[nodiscard]] const CallFrame* top_frame() const noexcept;
     // The calls in progress, innermost first, as an error's stack records them.
-    [[nodiscard]] std::vector<StackEntry> backtrace() const;
+    [[nodiscard]] List<StackEntry> backtrace() const;
     [[nodiscard]] StackEntry stack_entry(const CallFrame& frame) const;
 
     // --- Notices: things worth saying that are not errors, such as a native function
@@ -624,13 +715,13 @@ private:
     void add_type(const detail::TypeRecord& type);
     [[nodiscard]] Error resolve_error(const Node& object, std::string_view type) const;
 
-    std::unique_ptr<Impl> impl_;
+    Impl* impl_;
 };
 
-// The script calls in progress on this thread's current Context (Context::current), one
-// line each, innermost first; empty if there are none. For an assert handler or crash
-// reporter to print beside the C++ stack.
-[[nodiscard]] std::string script_backtrace();
+// Writes the script calls in progress on this thread's current Context
+// (Context::current), one line each, innermost first; nothing if there are none. For an
+// assert handler or crash reporter to print beside the C++ stack. Allocates nothing.
+void script_backtrace(TextOut out);
 
 // Walks `tree` without evaluating anything and reports, located, every call to a
 // registered function with the wrong number of arguments for every overload, or a literal
@@ -642,9 +733,10 @@ private:
 void check(const Array& tree, const Context& ctx, CheckReport& report);
 [[nodiscard]] CheckReport check(const Array& tree, const Context& ctx);
 
-// The script reference (spec §5): every function with its overloads, tier, status, and
-// documentation, and every documented global, as Markdown.
-[[nodiscard]] std::string reference(const Context& ctx);
+// Writes the script reference (spec §5): every function with its overloads, tier, status,
+// and documentation, and every documented global, as Markdown. <moira/std_interop.hpp>
+// has reference(ctx) returning a string.
+void reference(const Context& ctx, TextOut out);
 [[nodiscard]] Expected<void> write_reference(const Context& ctx, std::string_view path);
 
 // --- Template definitions. ---

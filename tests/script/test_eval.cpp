@@ -2,7 +2,7 @@
 #include <doctest.h>
 #include <moira/parse.hpp>
 #include <moira/script.hpp>
-#include <moira/std_interop.hpp>
+#include <moira/std_script.hpp>
 
 #include "alloc_counter.hpp"
 

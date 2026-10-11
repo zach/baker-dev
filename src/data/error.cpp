@@ -1,6 +1,7 @@
 #include <moira/error.hpp>
 #include <moira/std_interop.hpp>
 
+#include <charconv>
 #include <string>
 #include <vector>
 
@@ -154,8 +155,10 @@ void write(const StackEntry& entry, TextOut out) {
         out("  (");
         out(entry.file.str());
         if (entry.line > 0) {
-            out(":");
-            out(std::to_string(entry.line));
+            char buf[16];
+            buf[0] = ':';
+            const auto r = std::to_chars(buf + 1, buf + sizeof buf, entry.line);
+            out(std::string_view(buf, static_cast<size_t>(r.ptr - buf)));
         }
         out(")");
     }

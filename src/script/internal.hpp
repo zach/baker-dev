@@ -5,11 +5,56 @@
 #include <moira/object.hpp>
 #include <moira/script.hpp>
 
+#include <algorithm>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace moira {
+
+namespace detail {
+
+struct MethodEntry {
+    Symbol name;
+    std::vector<Overload> overloads;
+    std::string doc;
+    Status status = Status::Normal;
+    Symbol replacement;
+    bool inherited = false;
+};
+
+struct PropertyEntry {
+    Symbol name;
+    std::string_view type;
+    Shared accessor;
+    PropertyGet get = nullptr;
+    PropertySet set = nullptr;
+    std::string doc;
+};
+
+struct ObjectParams {
+    std::vector<std::pair<Symbol, Node>> items;
+};
+
+struct TypeRecord {
+    std::string name;
+    Symbol symbol;                         // `name`, interned
+    std::vector<const TypeRecord*> bases;  // every ancestor, nearest first
+    std::vector<MethodEntry> methods;      // sorted by symbol identity, for binary search
+    std::vector<PropertyEntry> properties;
+    ObjectBase* (*create)() = nullptr;  // for {new}; null if T is not default-constructible
+    std::string error;                  // a binding mistake, reported when T is first added
+
+    [[nodiscard]] bool is(const TypeRecord* t) const noexcept {
+        return t == this || std::find(bases.begin(), bases.end(), t) != bases.end();
+    }
+    [[nodiscard]] const MethodEntry* method(Symbol name) const noexcept;
+    [[nodiscard]] const PropertyEntry* property(Symbol name) const noexcept;
+    void sort();
+};
+
+}  // namespace detail
 
 struct Function : FuncRecord {
     Tier tier = Tier::Native;
@@ -24,6 +69,7 @@ struct Function : FuncRecord {
 // A {func} body: run with the parameters bound.
 struct ScriptBody {
     std::vector<Symbol> params;
+    std::vector<detail::ParamInfo> param_info;  // one "value" per parameter, for Overload
     Ref<Array> definition;
     size_t body = 0;  // index of the first body node in `definition`
 };

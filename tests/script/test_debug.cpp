@@ -3,7 +3,7 @@
 #include <moira/object.hpp>
 #include <moira/parse.hpp>
 #include <moira/script.hpp>
-#include <moira/std_interop.hpp>
+#include <moira/std_script.hpp>
 
 #include "alloc_counter.hpp"
 
@@ -103,7 +103,7 @@ TEST_CASE("an error returned by a native function records the calls it leaves") 
 TEST_CASE("script_backtrace renders the live frames from inside a native function") {
     Context ctx;
     std::string seen;
-    std::vector<StackEntry> frames;
+    List<StackEntry> frames;
     REQUIRE(ctx.func("assert_here", [&](Context& c) {
         seen = script_backtrace();
         frames = c.backtrace();

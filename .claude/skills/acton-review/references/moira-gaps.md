@@ -10,8 +10,8 @@
 | 5, per-array refcounts | removed by arenas per load (D56) | M5b, step 4 |
 | 7, coroutine frames | per-Scheduler pool with a frame budget (D58) | M7 |
 | 8, exceptions | throwing forms removed entirely (D54) | **done** (D59) |
-| 9, `Error` size | `Error` becomes a handle (D55) | M5b, step 2 |
-| 11, the STL in public headers | header-only vocabulary types only; EASTL switch inside (D55) | M5b, steps 2–3 |
+| 9, `Error` size | `Error` becomes a handle (D55) | **done** (D60) |
+| 11, the STL in public headers | header-only vocabulary types only (**done**, D60); EASTL switch inside | M5b, step 3 |
 
 Still open: 6 (objects' vtable and parameters) and 10 (tooling in the core). Update this
 table as work lands.

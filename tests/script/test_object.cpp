@@ -3,7 +3,7 @@
 #include <moira/object.hpp>
 #include <moira/parse.hpp>
 #include <moira/script.hpp>
-#include <moira/std_interop.hpp>
+#include <moira/std_script.hpp>
 
 #include "alloc_counter.hpp"
 
@@ -73,7 +73,7 @@ TEST_CASE("Person::grow runs from script and from C++") {
     Person bob;
     g_mom_calls = 0;
     ok(ctx.add(bob, "bob"));
-    CHECK(bob.type().name == "Person");
+    CHECK(bob.type_name() == "Person");
     CHECK(ok(ctx.eval("{bob grow 10}")).as_float() == 16.0);  // script -> C++
     CHECK(bob.height == 16.0f);
     CHECK(ok(ctx.call(bob, "grow", 1.5)).as_float() == 17.5);  // C++ -> the same dispatch
@@ -264,12 +264,11 @@ TEST_CASE("check knows the methods of named objects and of objects the tree crea
     REQUIRE(report.errors.size() == 1);
     CHECK(to_string(report.errors[0]) == "moira: 'grow' takes 1 argument, given 0  (level.dta:4)");
     REQUIRE(report.demand.size() == 2);
-    CHECK(
-        report.to_string().find("demand: 'fly' on Person is not defined, called at level.dta:5") !=
-        std::string::npos);
-    CHECK(report.to_string().find(
-              "demand: 'dance' on Goblin is not defined, called at level.dta:7") !=
+    CHECK(to_string(report).find("demand: 'fly' on Person is not defined, called at level.dta:5") !=
           std::string::npos);
+    CHECK(
+        to_string(report).find("demand: 'dance' on Goblin is not defined, called at level.dta:7") !=
+        std::string::npos);
 }
 
 TEST_CASE("the reference lists types, their methods and properties, and script classes") {

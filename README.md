@@ -23,6 +23,12 @@ Moira never throws. Every call that can fail returns `Expected<T>` (`std::expect
 the standard library has it) holding the value or a located `Error` (D54). The samples
 below leave most of the checks out.
 
+Its public headers include no standard containers, strings, or `<functional>`: only
+language support and `string_view`/`span`/`optional`/`expected` (D55, D60). Text comes
+out through a `TextOut` sink. A host that uses the STL includes `<moira/std_interop.hpp>`
+and `<moira/std_script.hpp>`, which add `std::string` forms (`to_string`, `to_dta`,
+`reference`), `Convert<>` for standard containers, and `std::hash<Symbol>`.
+
 The one-line constant replacement (`examples/one_line_tweak`):
 
 ```cpp
@@ -68,7 +74,7 @@ const moira::Array* eggs = (*root)->try_get("menu.'bacon and eggs'");   // null 
 auto price = eggs->find_float("price");             // Expected<double>: 12.75
 auto fat   = eggs->find<int>("fat", 0);             // absent: the fallback
 auto same  = (*root)->get<float>("menu.'bacon and eggs'.price");
-std::string text = moira::to_dta(**root);           // round-trips through read_string()
+std::string text = moira::to_dta(**root);           // (std_interop.hpp) reads back equal
 ```
 
 Scripting (`examples/calculator`):

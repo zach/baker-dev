@@ -30,7 +30,9 @@ Expected<Node> define(Args a, bool override) {
         return Unexpected(a.error(std::string("write {") + form + " name ($params...) body...}",
                                   ErrorCode::Syntax));
     const Symbol name = *a.raw(0).try_sym();
-    auto body = std::make_shared<ScriptBody>();
+    detail::Shared holder = detail::Shared::make<ScriptBody>();
+    // Filled here, before any other reference to it exists.
+    auto* body = const_cast<ScriptBody*>(static_cast<const ScriptBody*>(holder.get()));
     if (!parse_params(*a.raw(1).try_array(), *body))
         return Unexpected(
             a.error("parameters of " + quoted(name) + " must be $variables", ErrorCode::Syntax));
@@ -70,10 +72,11 @@ Expected<Node> define(Args a, bool override) {
     detail::Overload o;
     o.thunk = &run_script;
     o.min_args = o.max_args = static_cast<uint32_t>(body->params.size());
-    for (size_t k = 0; k < body->params.size(); ++k)
-        o.params.push_back({"value", detail::ParamKind::Value, nullptr, false});
+    body->param_info.assign(body->params.size(),
+                            detail::ParamInfo{"value", detail::ParamKind::Value, nullptr, false});
+    o.params = body->param_info;
     o.result = "value";
-    o.callable = std::move(body);
+    o.callable = std::move(holder);
     f.tier = Tier::Script;
     f.status = status;
     f.replacement = replacement;

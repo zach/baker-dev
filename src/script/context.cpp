@@ -314,7 +314,7 @@ Expected<Node> Context::Impl::run(std::span<const Node> nodes) {
 
 // --- Context ---
 
-Context::Context() : impl_(std::make_unique<Impl>(*this)) {
+Context::Context() : impl_(new Impl(*this)) {
     detail::set_evaluator(&evaluate_for_data);
     if (!t_current) t_current = this;
     impl_->sink = &stderr_sink;
@@ -330,6 +330,7 @@ Context::~Context() {
         if (s.owned) delete s.object;
     }
     if (t_current == this) t_current = nullptr;
+    delete impl_;
 }
 
 Context::Scope::Scope(Context& ctx) noexcept : previous_(t_current) {
@@ -410,21 +411,19 @@ StackEntry Context::stack_entry(const CallFrame& frame) const {
     return e;
 }
 
-std::vector<StackEntry> Context::backtrace() const {
+List<StackEntry> Context::backtrace() const {
     std::vector<StackEntry> out;
     for (const CallFrame* c = impl_->top; c; c = c->parent) out.push_back(stack_entry(*c));
-    return out;
+    return List<StackEntry>(out);
 }
 
-std::string script_backtrace() {
-    std::string out;
+void script_backtrace(TextOut out) {
     if (const Context* ctx = Context::current())
-        for (const StackEntry& e : ctx->backtrace()) {
-            out += "in ";
-            write(e, string_out(out));
-            out += '\n';
+        for (const CallFrame* c = ctx->top_frame(); c; c = c->parent) {
+            out("in ");
+            write(ctx->stack_entry(*c), out);
+            out("\n");
         }
-    return out;
 }
 
 void Context::set_notice_sink(NoticeSink sink, void* user) noexcept {
@@ -517,8 +516,8 @@ Symbol Args::name() const noexcept {
     return n ? n->try_sym().value_or(Symbol()) : Symbol();
 }
 
-Error Args::error(std::string message, ErrorCode code) const {
-    return make_error(code, std::move(message), command_->file(), command_->line());
+Error Args::error(std::string_view message, ErrorCode code) const {
+    return make_error(code, message, command_->file(), command_->line());
 }
 
 Error Args::type_error(size_t i, const Node& n, std::string_view want) const {

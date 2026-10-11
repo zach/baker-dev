@@ -1310,3 +1310,77 @@ L2) to measure them.
   - The §7 target (≤ 25 ns, read as the average) is met either way. The last-key row
     missed 25 ns at HEAD too.
 - **Size.** The core is 6,933 lines, down 329 (D54 estimated −150).
+
+## D60. M5b step 2 results: public headers without the standard library
+
+*Recorded 2026-10-11. Implements D55, except for its allocator-related parts (step 3).*
+
+- **The rule holds and is enforced.**
+  - Public headers reach only D55's allowed headers. `tools/check_headers.py` (CTest
+    `moira_header_allowlist`) walks each header's include closure and fails on anything
+    else.
+  - A CMake object library compiles every public header on its own.
+  - The count went 81 → 59 → 53 → 51 → 24 → 17 → 0 over sub-steps 2a–2f.
+  - The allow-list also admits the trivial C headers `<cstdlib>`, `<cstring>`,
+    `<cassert>`, and `<climits>`, and `<version>`.
+- **The cost to a game file.** A translation unit that only reads a `Tweak<float>`
+  preprocesses to 35,005 lines instead of 81,222 (the allowed headers alone are 31,434),
+  and compiles at `-O2` in about 0.5 s instead of 1.35 s.
+- **Opt-in interop headers.** Headers named `std_*.hpp` are exempt by name, and nothing
+  else in Moira includes them:
+  - `<moira/std_interop.hpp>` (data): `std::hash<Symbol>`, `Convert<>` for
+    `std::string`/`vector`/`array`, `string_out()`, `to_string()` for nodes, arrays,
+    paths, and stack entries, `to_dta()`, and `strings(List<Symbol>)`;
+  - `<moira/std_script.hpp>` (script): `to_string(CheckReport)`, `reference(ctx)`, and
+    `script_backtrace()` returning strings. It is separate so that `moira::data` never
+    includes a script header.
+- **New small types.** Each is a minimal piece of what the STL would provide, and each
+  is tested:
+  - `TextOut` (`text.hpp`): a function pointer and a context. All text Moira produces is
+    written through it: `write(node)`, `write_dta`, `Path::write`, the check report, the
+    reference, the backtrace, and file readers.
+  - `Callback<Sig>` (`callback.hpp`): an owning, copyable callable for stored host code
+    (`on_reload`, `on_change`, readers, writers, warnings). A capture-free lambda or a
+    function is stored by pointer with no allocation.
+  - `List<T>` (`list.hpp`): a fixed-size owning array for results (`layers()`,
+    `unsaved()`, `layer_effect`, `diff`, `WriteReport`, `CheckReport`, `backtrace()`).
+  - `detail::NodeBuffer`: 8 nodes inline, heap beyond; it backs `ValueList` and evaluated
+    lookups.
+  - `detail::Shared`: an intrusive refcounted holder for a function's callable. `get()` is
+    one load, as `shared_ptr::get()` was.
+- **API changes,** all mechanical for a caller:
+  - `Error` is a handle with accessors (`e.message()`, `e.file()`, ...). `to_string(e)`
+    and `describe(e)` return null-terminated views cached in the error. `Expected<Node>`
+    is 24 bytes.
+  - `LoadSession` is opaque: `add_include_dir()` and `autorun()`. Readers have the
+    signature `bool(std::string_view path, TextOut out)`.
+  - `SourceMap::spans()` and `text()` return `std::optional` views.
+  - `Path` holds up to 16 segments inline; deeper is invalid, and an invalid path keeps
+    the first 64 characters of its text. `to_string(path)` moves to interop.
+  - `Source::layer`, layer names in results, and the paths in `LayerEffectEntry`/
+    `DiffEntry` are `Symbol`s.
+  - `TweakBase::values(ValueList&)` fills instead of returning a vector.
+  - `ObjectBase::type_name()` replaces reading the type record. `TypeRecord` is defined
+    only in `src/`, and `Binder` reaches it through out-of-line functions.
+  - Parameter descriptions are `static constexpr` tables, and a signature's types are a
+    `TypeList` rather than a `std::tuple`.
+  - `script_backtrace(TextOut)` allocates nothing: line numbers are formatted on the
+    stack.
+- **Performance, on this container:**
+  - `{add 1 2}` 33–34 ns, `{add1 1}` 108–112 ns, and `{bob grow 0}` 86–89 ns; all
+    unchanged, with zero allocations.
+  - `find_float` on 20 children: 19–20 ns average.
+  - Parsing a path string in `get<T>("...")` dropped from about 200 ns to 147 ns,
+    because `Path` no longer allocates.
+  - 2c's apparent 3–4 ns slowdown of prebuilt-path lookups disappeared in 2d with no
+    related change, so it was code layout, not `Path`.
+- **Process.** Two slips were caught after a commit, and the local matrix gained
+  configurations so neither recurs:
+  - shipping-only test code broke in 2a;
+  - a GCC `-O3` maybe-uninitialized false positive appeared in 2e.
+
+  The matrix is now debug, release, C++23, shipping, ASan+UBSan, Clang, data-only, and
+  plain refcounts.
+- **Size.** The core is 7,633 lines, up 700 in step 2. The plan estimated +150, without
+  counting the new small types, opaque implementations, or interop headers. With step 1's
+  −329, M5b so far is +371 against the plan's +450 for all four steps. Steps 3–4 remain.

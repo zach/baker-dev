@@ -26,8 +26,20 @@ struct Checker {
         bool stub;
     };
 
+    // What check() accumulates, as growable lists; it becomes the CheckReport at the end.
+    struct DemandBuild {
+        Symbol name;
+        bool stub;
+        std::vector<CheckReport::Site> sites;
+        Symbol on;
+    };
+    struct Build {
+        std::vector<Error> errors;
+        std::vector<DemandBuild> demand;
+    };
+
     Context::Impl& impl;
-    CheckReport& report;
+    Build& report;
     std::unordered_map<Symbol, Defined> defined;
     std::unordered_map<Symbol, std::vector<Symbol>> classes;  // {class} in the tree: handlers
     std::unordered_map<Symbol, Symbol> objects;               // {new Class name} in the tree
@@ -186,11 +198,21 @@ struct Checker {
 }  // namespace
 
 void check(const Array& tree, const Context& ctx, CheckReport& report) {
-    Checker c{ctx.impl(), report, {}, {}, {}, {}};
-    for (size_t i = 0; i < report.demand.size(); ++i)
-        c.demand_index[Checker::key(report.demand[i].name, report.demand[i].on)] = i;
+    // The report accumulates: start from what it holds.
+    Checker::Build b;
+    b.errors.assign(report.errors.begin(), report.errors.end());
+    for (const CheckReport::Demand& d : report.demand)
+        b.demand.push_back({d.name, d.stub, {d.sites.begin(), d.sites.end()}, d.on});
+    Checker c{ctx.impl(), b, {}, {}, {}, {}};
+    for (size_t i = 0; i < b.demand.size(); ++i)
+        c.demand_index[Checker::key(b.demand[i].name, b.demand[i].on)] = i;
     c.collect(tree, false);
     c.walk(tree, false);
+    std::vector<CheckReport::Demand> demand;
+    for (const Checker::DemandBuild& d : b.demand)
+        demand.push_back({d.name, d.stub, List<CheckReport::Site>(d.sites), d.on});
+    report.errors = List<Error>(b.errors);
+    report.demand = List<CheckReport::Demand>(demand);
 }
 
 CheckReport check(const Array& tree, const Context& ctx) {
@@ -199,10 +221,10 @@ CheckReport check(const Array& tree, const Context& ctx) {
     return report;
 }
 
-std::string CheckReport::to_string() const {
+void write(const CheckReport& report, TextOut text) {
     std::string out;
-    for (const Error& e : errors) out += std::string(moira::to_string(e)) + "\n";
-    for (const Demand& d : demand) {
+    for (const Error& e : report.errors) out += std::string(moira::to_string(e)) + "\n";
+    for (const CheckReport::Demand& d : report.demand) {
         out += "demand: " + quoted(d.name);
         if (!d.on.empty()) out += " on " + std::string(d.on.str());
         out += std::string(d.stub ? " is a stub" : " is not defined") + ", called at";
@@ -212,10 +234,11 @@ std::string CheckReport::to_string() const {
         }
         out += "\n";
     }
-    return out;
+    text(out);
 }
 
-std::string reference(const Context& ctx) {
+namespace {
+std::string reference_text(const Context& ctx) {
     const Context::Impl& impl = ctx.impl();
     std::vector<const Function*> fs;
     for (const auto& f : impl.functions)
@@ -310,9 +333,14 @@ std::string reference(const Context& ctx) {
     }
     return out;
 }
+}  // namespace
+
+void reference(const Context& ctx, TextOut out) {
+    out(reference_text(ctx));
+}
 
 Expected<void> write_reference(const Context& ctx, std::string_view path) {
-    const std::string text = reference(ctx);
+    const std::string text = reference_text(ctx);
     const std::string p(path);
     std::FILE* f = std::fopen(p.c_str(), "wb");
     if (!f) return Unexpected(make_error(ErrorCode::Io, "cannot write " + p));
