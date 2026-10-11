@@ -1,5 +1,21 @@
 # Moira under the data-oriented lens: known gaps
 
+**Status, 2026-10-11.** The project owner has decided on most of these:
+
+| Gap | Decision | When |
+|---|---|---|
+| 1, allocator hook | per-Context allocators, an arena per load (D56) | M5b, steps 3–4 |
+| 2, 2b, 3, hot/cold layout, tag lookup, dispatch loads | done with the binary cache (D57) | M8 |
+| 4, one item at a time | `handle_all` broadcast, grouped by type (D53) | M6 |
+| 5, per-array refcounts | removed by arenas per load (D56) | M5b, step 4 |
+| 7, coroutine frames | per-Scheduler pool with a frame budget (D58) | M7 |
+| 8, exceptions | throwing forms removed entirely (D54) | M5b, step 1 |
+| 9, `Error` size | `Error` becomes a handle (D55) | M5b, step 2 |
+| 11, the STL in public headers | header-only vocabulary types only; EASTL switch inside (D55) | M5b, steps 2–3 |
+
+Still open: 6 (objects' vtable and parameters) and 10 (tooling in the core). Update this
+table as work lands.
+
 Audited 2026-10-11 at M6 step 1 (commit `23f4142`). Sizes were measured with GCC 13 on
 x86-64. Each gap names its path class (SKILL.md, review step 1) and what a console
 technical director is likely to ask. None of these is a decision yet. When one is fixed,
@@ -14,7 +30,8 @@ or accepted as a deviation, record it in `docs/decisions.md` and update this fil
 - Lazy evaluation means no temporary argument lists and no allocation per call. Calls,
   methods, and `get`/`set` are proven allocation-free by `alloc_counter` tests.
 - `Tweak<float>` reads compile to one relaxed load, checked by a codegen test.
-- No RTTI is needed (D49), and `MOIRA_NO_EXCEPTIONS` and `MOIRA_SHIPPING` builds run in CI.
+- No RTTI is needed (D49), and `MOIRA_SHIPPING` builds run in CI. (Exceptions are being
+  removed outright: D54.)
 - Object references are salted handles into a flat slot table (D4, D19), not pointers.
 - Every performance decision carries before/after numbers (D47, D51, D52).
 

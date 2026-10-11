@@ -257,8 +257,9 @@ memory layout. **Tool** code may be ordinary C++ inside, but it is shipped in th
 library, so it still may not:
 - add a dependency;
 - require exceptions or RTTI;
-- put a heavyweight type (STL containers, `std::function`, `std::string`) into a header
-  that game code must include;
+- put anything outside D55's allowed list into a public header. The allowed list is the
+  language-support headers plus `string_view`, `span`, and `optional`. Containers,
+  `std::string`, `std::function`, and smart pointers are out;
 - add work to a hot path, even when the tool is not in use.
 
 Acton's critics mainly fault him for applying console-hot-path rules to all programs.
@@ -305,9 +306,10 @@ relaxed inside these limits.
   outside the loop, with the cases split.
 - **Strings.** None on a hot path. Names are `Symbol`s, interned or hashed at load or at
   bake time. A `std::string` built during a call is a finding, except on the error path.
-- **Exceptions and RTTI.** Never needed on a hot path. Everything works under
-  `MOIRA_NO_EXCEPTIONS` (CI has the job) and with no RTTI (D49's `TypeRecord`). A `try`
-  block on the hot path is a finding: D52 measured one at about 10 ns per call.
+- **Exceptions and RTTI.** None, anywhere. Moira has no throwing forms (D54) and builds
+  with exceptions off and no RTTI (D49's `TypeRecord`). Every fallible API returns
+  `Expected`. A `throw`, a `try`, or a `dynamic_cast` in a change is a finding. (D52
+  measured a `try` alone at about 10 ns per call.)
 - **Templates.** Acton's stated cost is compile time and slower code, and his stated
   alternative is generated code. Moira's binding templates remove per-call marshalling
   decisions, which is a real use. Still ask:
@@ -322,8 +324,9 @@ relaxed inside these limits.
 - **Removability.** For any technology a change leans on, ask whether a game could turn
   it off or replace it later, without rewriting callers. Ask before it spreads, because
   it cannot be asked after. Moira's existing answers are the model:
-  - `MOIRA_NO_EXCEPTIONS` (every throwing API has a non-throwing twin);
-  - no RTTI;
+  - no exceptions at all (D54) and no RTTI;
+  - a per-Context allocator and an arena per load (D56);
+  - `MOIRA_USE_EASTL` for internal containers (D55);
   - `MOIRA_ATOMIC_REFCOUNT`;
   - `MOIRA_SHIPPING`.
 
