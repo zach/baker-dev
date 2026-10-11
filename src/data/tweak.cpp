@@ -71,7 +71,9 @@ bool TweakBase::unbind() {
 
 bool TweakBase::bind(const Array& root, const std::function<void(const Error&)>& warn) {
     const Path& path = parsed();
-    if (kShipping && meta_.dev_only) return unbind();
+    if constexpr (kShipping) {
+        if (meta_.dev_only) return unbind();
+    }
     detail::Resolved r;
     const auto status = detail::resolve(root, path, r);
     if (status != detail::ResolveStatus::Ok) {
