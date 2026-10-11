@@ -324,3 +324,136 @@ Re-verified on 2026-10-11 with every configuration passing locally:
 The fuzzer ran 2M execs clean on the new number handling, reaching 1,325 edges.
 `moira::data` is now 2,063 counted lines; vendored fast_float is third-party and not
 counted (D2).
+
+## D25. Lookup API shape
+
+*Spec §3, M2.*
+
+- **`find(tag)` returns `const Array&`**, not a pointer, so chains read
+  `menu.find("eggs").find_float("price")` rather than the spec's `->`. The talk's
+  `FindArray` returned a pointer because it had no exceptions; ours throws on a miss, so a
+  pointer that is never null would only invite needless checks.
+- **`try_find(tag)` returns a nullable `const Array*`**, the spec's "optional-ish" form,
+  rather than `Expected`: it is the zero-cost "is it there?" question and allocates
+  nothing. Every *typed* lookup (`find_int`, `find<T>`, `get<T>`, ...) has a `try_` twin
+  returning `Expected<T>` with a located error, as the spec asks. `try_get(path)` follows
+  `try_find`.
+- **`find_int` returns `int64_t` and `find_float` returns `double`**, as `as_int` and
+  `as_float` do since D18. `find<int32_t>`, `find<float>` and the like narrow with a range
+  check.
+- **Fallback overloads return the fallback only when the key is absent.** A present value
+  of the wrong type is still an error: silently using the default because a designer wrote
+  `(price "12")` is the failure located errors exist to prevent. Because they can throw,
+  the fallback forms are compiled out under `MOIRA_NO_EXCEPTIONS`; the twin is
+  `try_find(tag, fallback)` / `try_get(path, fallback)`, which returns `Expected<T>` with
+  the same semantics. (`try_find<T>(tag).value_or(x)` is the "default on any failure"
+  form, if that is really wanted.)
+- **`find_str` reads String nodes only**, like `as_str`. Symbols and strings stay distinct
+  types everywhere (D6).
+- **Error paths.** A lookup along a `Path` reports the full path walked, matching the
+  spec's example exactly. A chain of `find()` calls reports only the tag of the array the
+  failing call was made on: arrays have no parent links (they are shared by macros, and the
+  header has no room), and a returned handle carrying its ancestry would dangle as soon as
+  someone stored it. The file and line, which locate the value precisely, are always
+  present.
+- **Commands and Vars.** Typed lookups are where M4's implicit evaluation will happen. In
+  M2 a Command or Var value is a clean error saying it needs `moira::script`, which is also
+  the spec's required behavior for a data-only build. Raw access (`find`, `at`,
+  `Convert<Node>`) never evaluates.
+
+## D26. `Convert<T>` is a class template, and reads one way for now
+
+*Spec §5 ("an ADL-findable customization point").*
+
+`Convert<T>` is specialized, like `std::hash` or `fmt::formatter`, rather than found by
+ADL. A converter for a type you do not own (`glm::vec3`) then needs no names added to
+someone else's namespace. The interface is `static bool from(const Values&, T&)` plus an
+optional `name` for error messages; returning `bool` keeps converters short and
+exception-free, and the library builds the located error itself. The reverse direction
+(`T` to `Node`) arrives with M3/M4, which are the first to need it.
+
+`Values` is the run of nodes a lookup found: the values after a tag. Scalars read the
+first value and ignore the rest, which the inline-metadata syntax requires:
+`(width 2 (range 0 10) (step 1))` must read as 2. `Values::read(i, out)` reads one element;
+for compound types an element that is an array reads as its contents, so one `Convert<Vec2>`
+handles `(size 1920 1080)`, `(points (1 2) (3 4))` as `std::vector<Vec2>`, and
+`renderer.points.1`. Scalars never descend, so an array element is never silently read as
+its first number. Built in: all arithmetic types (range-checked), `bool`, `Symbol`,
+`std::string_view`, `std::string`, `Node`, `std::vector<T>`, `std::array<T, N>`.
+
+## D27. Path syntax
+
+*Spec §4 (`cfg.get<float>("renderer.clear_color.0")`).*
+
+`Path` is shared by `Array::get` and M3's `Config::get`. Segments are separated by `.` or
+`/` (errors print paths with `/`, as in the spec's example, so a path copied out of an
+error message works); `'quoted'` segments hold any character but `'`; an all-digit
+segment is an index. A name selects the child array with that tag and continues with its
+values; an index selects the n-th value (0 is the first value after the tag, so
+`clear_color.0` is the red channel), continuing inside it if it is an array. A name applied
+to a leaf finds nothing (absent, not a type error). Malformed text (`a..b`, a trailing
+separator, an unterminated quote) makes an invalid `Path`, and looking one up is a Syntax
+error even with a fallback.
+
+Parsing interns every name, about 150 ns for a four-segment path. Hold a `Path` in a
+static or member for hot lookups (18 ns for the same four segments).
+
+## D28. Sorted mode reorders the array
+
+*Spec §3 ("`sort_for_lookup()` marks an array as sorted by tag").*
+
+The header has two spare bytes, not room for a side index, so sorting reorders the
+children in place: everything that is not a tagged array moves to the front in its
+original order (so a tag in slot 0 stays in slot 0), and tagged arrays follow, stably
+sorted by symbol hash and then text. That order depends only on the text, so printing a
+sorted array is deterministic across runs, and the stable sort keeps duplicate tags in
+order, so `find` still returns the first. `find` then does a `partition_point` (no extra
+storage). `set()` clears the flag; re-tagging a child in place is not detected and is
+documented. Measured crossover is about 50 children: at 20, linear is faster (spec §3's
+"linear is the right default" holds); at 200, sorted is 3x faster; at 1000, 6x.
+
+## D29. Empty arrays carry one placeholder node
+
+*Spec §2 ("one allocation per array, ... sized exactly").*
+
+`find`'s scan reads each child array's first node. To skip the per-child size check, an
+empty array's allocation holds one `Int 0` node past its (zero) size, which is never
+visible and never destroyed. That turns the scan into two branches per child instead of
+six and took the worst case of `find_float` on 20 children from 27 ns to 16 ns (gcc 13).
+The cost is 16 bytes per empty array, which are rare in real data. The M8 binary cache
+must keep the invariant.
+
+## D30. M2 results
+
+*Recorded 2026-10-11, Release, gcc 13 / clang 18, one thread, this container.*
+
+| Benchmark (20-child array, interned keys) | gcc 13 | clang 18 | Target |
+|---|---|---|---|
+| `find_float`, average over the 20 keys | 9.6 ns | 7.2 ns | ≤ 25 ns |
+| `find_float`, 20th key (worst case) | 16.5 ns | 11.0 ns | ≤ 25 ns |
+| `try_find_float`, worst case | 15.8 ns | 11.5 ns | |
+| `find_float("key19")`, interning every call | 31 ns | 26 ns | |
+| `get<int>(Path)`, 4 segments, held `Path` | 18.8 ns | 18.2 ns | |
+| `get<int>("...")`, parsed every call | 149 ns | 147 ns | |
+
+Spec §7's target is met with margin. Calling with a string literal interns on every call
+(a hash and a mutex), which roughly doubles the cost; a hot loop should hold a `Symbol`,
+and M3's `Tweak<T>` makes the question moot for config. Successful lookups make no
+allocations, enforced by a test with a counting `operator new` (`tests/support/`).
+Parse throughput is unchanged at about 127 MB/s.
+
+- **Errors** carry the key, expected and actual types, file, line, and path; failed name
+  lookups suggest the quoted-symbol spelling (D6) or a case variant (D23).
+- **Fuzzing.** A second libFuzzer target, `moira_lookup_fuzzer`, takes a path and DTA
+  text and checks that every typed lookup either succeeds or fails with a located error,
+  that a path prints back as itself, and that sorted and linear `find` agree on every array
+  in the tree. It ran 2.2M execs clean under ASan+UBSan locally; CI runs it for a minute
+  per push, and a unit test runs the same properties over the corpus.
+- **Builds.** Passing locally with warnings as errors: gcc 13 and clang 18 at C++20 and
+  C++23, clang with libc++, data-only, ASan+UBSan, TSan, plain refcounts, shipping, and
+  no-exceptions (gcc and clang). The parse fuzzer re-ran 1.36M execs clean after the
+  empty-array change. MSVC is covered only by CI. Under TSan the allocation-count test
+  reports itself skipped, because TSan's runtime owns `operator new`.
+- **Size.** `moira::data` is 2,718 counted lines, up 387 from M1. Lookup, paths, sorted
+  mode, and their error messages are about 250 of those; the built-in converters most of
+  the rest.

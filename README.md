@@ -9,20 +9,44 @@ designer-editable value should cost one line and no ceremony.
 
 ## Status
 
-**M1: data representation, parser, preprocessor, printer.** You can read DTA text into
-trees, inspect them with checked accessors, and print them back. Lookup by name, config,
-tweaks, and scripting are later milestones (`docs/spec.md` §10). `docs/decisions.md`
-records where the implementation deviates from the spec.
+**M2: lookup.** You can read DTA text into trees, look values up by tag or by path with
+typed, located errors, and print trees back. Config, tweaks, and scripting are later
+milestones (`docs/spec.md` §10). `docs/decisions.md` records where the implementation
+deviates from the spec.
 
 ```cpp
 #include <moira/moira.hpp>
 
-auto menu = moira::read_file("menu.dta");          // or try_read_file(): no exceptions
-for (const moira::Node& item : *menu) {
-    const moira::Array* a = item.try_array();       // raw access; never evaluates
-    if (a && !a->empty()) std::printf("%s\n", moira::to_string(*a).c_str());
-}
-std::string text = moira::to_dta(*menu);            // round-trips through read_string()
+// (menu ('bacon and eggs' (price 12.75) (calories 120)))
+auto root = moira::read_file("menu.dta");          // or try_read_file(): no exceptions
+
+const moira::Array& eggs = root->find("menu").find("bacon and eggs");
+double price = eggs.find_float("price");            // 12.75
+int    fat   = eggs.find<int>("fat", 0);            // absent: the fallback
+float  same  = root->get<float>("menu.'bacon and eggs'.price");
+
+auto cals = eggs.try_find_int("calories");          // Expected<int64_t>, no exceptions
+for (const moira::Array& item : root->find("menu").subarrays()) { /* ... */ }
+
+std::string text = moira::to_dta(*root);            // round-trips through read_string()
+```
+
+A failed lookup says what, where, and how it got there:
+
+```
+moira: 'price' is float, not int  (menu.dta:3, at menu/'bacon and eggs')
+```
+
+Read your own types by specializing `moira::Convert`:
+
+```cpp
+template <> struct moira::Convert<Vec2> {
+    static constexpr std::string_view name = "vec2";
+    static bool from(const moira::Values& v, Vec2& out) {
+        return v.size() == 2 && v.read(0, out.x) && v.read(1, out.y);
+    }
+};
+Vec2 size = root->get<Vec2>("renderer.screen_size");   // (screen_size 1920 1080)
 ```
 
 What exists:
@@ -33,7 +57,12 @@ What exists:
 - The preprocessor: `#include`, `#include_opt`, `#merge`, `#ifdef`/`#ifndef`/`#else`/
   `#endif`, `#define`, `#undef`, `#autorun`, and `[NAME ...]` macros.
 - A pretty-printer whose output parses back to an equal tree.
-- Tests, a hand-written corpus, and a libFuzzer harness (`-DMOIRA_BUILD_FUZZERS=ON`).
+- Lookup: `find`/`try_find` by tag, `find_int`/`find_float`/`find_sym`/`find_str`/
+  `find_array`, fallbacks, `get<T>` by `Path`, `Convert<T>` for your own types (vectors and
+  fixed arrays built in), opt-in `sort_for_lookup()` binary search, and `subarrays()`.
+  `find_float` on a 20-child array takes about 10 ns and never allocates.
+- Tests, a hand-written corpus, benchmarks, and libFuzzer harnesses for parsing and lookup
+  (`-DMOIRA_BUILD_FUZZERS=ON`).
 
 ## Building
 
@@ -56,8 +85,8 @@ depends on data), `moira::moira` (both). Build the data layer by itself with
 | `MOIRA_NO_EXCEPTIONS` | `OFF` | Non-throwing APIs only |
 | `MOIRA_SANITIZE` | empty | e.g. `address,undefined` |
 | `MOIRA_BUILD_TOOLS` | `ON` when top-level | `moira_parse_corpus` |
-| `MOIRA_BUILD_BENCH` | `OFF` | `moira_bench_parse` |
-| `MOIRA_BUILD_FUZZERS` | `OFF` | `moira_parse_fuzzer` (Clang) |
+| `MOIRA_BUILD_BENCH` | `OFF` | `moira_bench_parse`, `moira_bench_lookup` |
+| `MOIRA_BUILD_FUZZERS` | `OFF` | `moira_parse_fuzzer`, `moira_lookup_fuzzer` (Clang) |
 
 Android: clang defaults to C++17. CMake builds get C++20 from the targets; with
 `ndk-build`, add `APP_CPPFLAGS += -std=c++20`.
