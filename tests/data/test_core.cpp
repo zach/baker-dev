@@ -1,6 +1,7 @@
 // Node, Symbol, Ref, String, Array: layout, ownership, and checked access.
 #include <doctest.h>
 #include <moira/array.hpp>
+#include <moira/callback.hpp>
 #include <moira/write.hpp>
 
 #include <string>
@@ -219,4 +220,32 @@ TEST_CASE("Expected is std::expected when the library has it") {
     CHECK(bad.value_or(7) == 7);
     Expected<void> v;
     CHECK(v.has_value());
+}
+
+TEST_CASE("Callback copies, moves, and frees what it holds") {
+    static int alive = 0;
+    struct Counted {
+        int n;
+        explicit Counted(int v) : n(v) { ++alive; }
+        Counted(const Counted& o) : n(o.n) { ++alive; }
+        ~Counted() { --alive; }
+        int operator()(int x) const { return n + x; }
+    };
+    {
+        Callback<int(int)> a = Counted(10);
+        CHECK(alive == 1);
+        CHECK(a(5) == 15);
+        Callback<int(int)> b = a;  // a separate copy
+        CHECK(alive == 2);
+        Callback<int(int)> c = std::move(a);
+        CHECK(alive == 2);
+        CHECK_FALSE(a);
+        CHECK(c(1) == 11);
+        b = nullptr;
+        CHECK(alive == 1);
+        Callback<int(int)> plain = [](int x) { return x * 2; };  // no captures: no allocation
+        CHECK(plain(4) == 8);
+        CHECK(alive == 1);
+    }
+    CHECK(alive == 0);
 }

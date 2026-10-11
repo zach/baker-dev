@@ -14,12 +14,11 @@
 // refuse instead of guessing.
 
 #include <moira/array.hpp>
-#include <moira/std_interop.hpp>  // until LoadSession is opaque (M5b step 2b)
 
 #include <cstdint>
-#include <string>
-#include <unordered_map>
-#include <vector>
+#include <optional>
+#include <span>
+#include <string_view>
 
 namespace moira {
 
@@ -34,28 +33,28 @@ struct SourceSpan {
 
 class SourceMap {
 public:
-    // Where `a`'s nodes are written, or null if `a` was not read through this map (or was
-    // rebuilt by #merge from arrays that were not).
-    [[nodiscard]] const std::vector<SourceSpan>* spans(const Array& a) const;
+    SourceMap();
+    SourceMap(const SourceMap&) = delete;
+    SourceMap& operator=(const SourceMap&) = delete;
+    ~SourceMap();
+
+    // Where `a`'s nodes are written, or nothing if `a` was not read through this map (or
+    // was rebuilt by #merge from arrays that were not).
+    [[nodiscard]] std::optional<std::span<const SourceSpan>> spans(const Array& a) const;
     [[nodiscard]] const SourceSpan* span(const Array& a, size_t i) const;
     // Where `a` itself is written, brackets included; for a file's root, the whole file.
     [[nodiscard]] const SourceSpan* extent(const Array& a) const;
-    // The text of `file` as it was read, or null.
-    [[nodiscard]] const std::string* text(Symbol file) const;
-    [[nodiscard]] bool empty() const noexcept { return arrays_.empty(); }
+    // The text of `file` as it was read, or nothing.
+    [[nodiscard]] std::optional<std::string_view> text(Symbol file) const;
+    [[nodiscard]] bool empty() const noexcept;
 
     // Used by the parser and #merge to fill the table.
-    void record(const Ref<Array>& a, const SourceSpan& extent, std::vector<SourceSpan> spans);
+    void record(const Ref<Array>& a, const SourceSpan& extent, std::span<const SourceSpan> spans);
     void record_text(Symbol file, std::string_view text);
 
 private:
-    struct Entry {
-        Ref<Array> keep;  // keeps the address from being reused while it is a key
-        SourceSpan extent;
-        std::vector<SourceSpan> spans;
-    };
-    std::unordered_map<const Array*, Entry> arrays_;
-    std::unordered_map<Symbol, std::string> texts_;
+    struct Tables;  // defined in source_map.cpp
+    Tables* t_;
 };
 
 }  // namespace moira

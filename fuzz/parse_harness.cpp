@@ -28,7 +28,7 @@ bool spans_hold(const Node& n, const SourceMap& map, std::string_view text, uint
     const Array* a = n.array();
     if (!a || budget == 0) return true;
     --budget;
-    if (const auto* spans = map.spans(*a)) {
+    if (const auto spans = map.spans(*a)) {
         for (size_t i = 0; i < a->size(); ++i) {
             const SourceSpan& sp = (*spans)[i];
             if (sp.file.empty()) continue;
@@ -48,7 +48,7 @@ bool spans_hold(const Node& n, const SourceMap& map, std::string_view text, uint
 
 LoadSession make_session() {
     LoadSession s;
-    s.set_reader([](const std::string&, std::string&) { return false; });
+    s.set_reader([](std::string_view, TextOut) { return false; });
     s.limits.max_depth = 64;
     s.limits.max_nodes = 1u << 16;
     return s;

@@ -1,4 +1,5 @@
 #include <moira/config.hpp>
+#include <moira/std_interop.hpp>
 #include <moira/write.hpp>
 
 #include "text.hpp"
@@ -17,6 +18,12 @@
 
 namespace moira {
 namespace {
+
+// Reads `path` through `reader` into `text`, replacing what it held.
+bool read_into(const LoadSession::Reader& reader, std::string_view path, std::string& text) {
+    text.clear();
+    return reader(path, string_out(text));
+}
 
 // A file a layer was built from (or looked for), as it was when the layer was read.
 struct Dep {
@@ -124,7 +131,7 @@ Node pack(const std::vector<Node>& values) {
     return Node(Array::make_copy(values));
 }
 
-int32_t line_at(const std::string& text, uint32_t offset) {
+int32_t line_at(std::string_view text, uint32_t offset) {
     const auto end = text.begin() + std::min<size_t>(offset, text.size());
     return 1 + static_cast<int32_t>(std::count(text.begin(), end, '\n'));
 }
@@ -338,14 +345,16 @@ struct Config::Impl {
     Expected<void> read(LayerState& layer, const LoadSession& before,
                         uint64_t* read_ns = nullptr) const {
         auto session = std::make_shared<LoadSession>(before);
-        session->autorun.clear();
+        session->clear_autorun();
         std::vector<Dep> deps;
         const LoadSession::Reader reader = before.reader();
-        session->set_reader([&](const std::string& p, std::string& out) {
+        session->set_reader([&](std::string_view p, TextOut out) {
             const uint64_t t0 = read_ns ? now() : 0;
-            const bool ok = reader(p, out);
+            std::string text;
+            const bool ok = read_into(reader, p, text);
             if (read_ns) *read_ns += now() - t0;
-            deps.push_back({p, ok, ok ? hash_text(out) : 0});
+            deps.push_back({std::string(p), ok, ok ? hash_text(text) : 0});
+            if (ok) out(text);
             return ok;
         });
         auto map = options.edit_mode ? std::make_shared<SourceMap>() : nullptr;
@@ -372,7 +381,7 @@ struct Config::Impl {
     bool changed(const LayerState& layer, Symbol& first) const {
         for (const Dep& d : layer.deps) {
             std::string text;
-            const bool ok = base.reader()(d.path, text);
+            const bool ok = read_into(base.reader(), d.path, text);
             if (ok != d.present || (ok && hash_text(text) != d.hash)) {
                 first = Symbol(d.path);
                 return true;
@@ -609,9 +618,9 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
     const SourceMap& map = *layer.map;
     const Symbol main(layer.file);
     auto unchanged = [&](Symbol file) -> std::optional<Error> {
-        const std::string* orig = map.text(file);
+        const auto orig = map.text(file);
         std::string disk;
-        if (!orig || !read_file(std::string(file.str()), disk) || disk != *orig)
+        if (!orig || !read_into(read_file, file.str(), disk) || disk != *orig)
             return refused("'" + std::string(file.str()) +
                                "' has changed since it was read; reload before writing back",
                            file);
@@ -630,7 +639,7 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
         if (!insert) return Unexpected(detail::get_error(*layer.root, path, nullptr));
         if (auto e = no_index(0, main, 0)) return Unexpected(*e);
         std::string disk;
-        if (read_file(layer.file, disk))
+        if (read_into(read_file, layer.file, disk))
             return Unexpected(refused(
                 "'" + layer.file + "' has appeared since it was read; reload before writing back",
                 main));
@@ -645,7 +654,7 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
                 quoted(path) + " is in an array assembled by #merge; edit it where it is defined",
                 parent.file(), parent.line());
         if (!sp->macro.empty()) {
-            const std::string* text = map.text(sp->file);
+            const auto text = map.text(sp->file);
             return refused(quoted(path) + " comes from macro '" + std::string(sp->macro.str()) +
                                "'; edit the macro's definition instead",
                            sp->file, text ? line_at(*text, sp->begin) : 0);
@@ -691,7 +700,7 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
         if (auto e = no_index(missing_from, cur->file(), cur->line())) return Unexpected(*e);
         if (!insert) return Unexpected(detail::get_error(*layer.root, path, nullptr));
         file = main;
-        const std::string* text = map.text(main);
+        const auto text = map.text(main);
         if (!text) return Unexpected(refused("no source text for '" + layer.file + "'", main));
         if (cur == layer.root.get()) {
             // A new top-level form at the end of the file.
@@ -723,7 +732,7 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
                 const size_t line_start = text->rfind('\n', last->begin) + 1;
                 size_t ws = line_start;
                 while (ws < last->begin && ((*text)[ws] == ' ' || (*text)[ws] == '\t')) ++ws;
-                const std::string indent = text->substr(line_start, ws - line_start);
+                const std::string indent(text->substr(line_start, ws - line_start));
                 const size_t line_end = text->find('\n', last->end);
                 const auto at = static_cast<uint32_t>(
                     line_end != std::string::npos && line_end < ext->end - 1 ? line_end
@@ -768,7 +777,7 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
     if (edits.empty()) return Plan{file, {}, false};
 
     if (auto e = unchanged(file)) return Unexpected(*e);
-    std::string text = *map.text(file);
+    std::string text(*map.text(file));
     std::sort(edits.begin(), edits.end(),
               [](const Edit& a, const Edit& b) { return a.begin > b.begin; });
     for (const Edit& e : edits) {
@@ -1186,9 +1195,9 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
     // Plan every entry against the target as each earlier one leaves it, in memory.
     std::unordered_map<std::string, std::string> virt;
     const LoadSession::Reader disk = impl_->base.reader();
-    const LoadSession::Reader vread = [&](const std::string& p, std::string& out) {
-        if (auto it = virt.find(p); it != virt.end()) {
-            out = it->second;
+    const LoadSession::Reader vread = [&](std::string_view p, TextOut out) {
+        if (auto it = virt.find(std::string(p)); it != virt.end()) {
+            out(it->second);
             return true;
         }
         return disk(p, out);

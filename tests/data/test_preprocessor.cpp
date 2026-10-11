@@ -17,11 +17,11 @@ struct Files {
     LoadSession session;
 
     Files() {
-        session.set_reader([this](const std::string& path, std::string& out) {
-            reads.push_back(path);
-            auto it = files.find(path);
+        session.set_reader([this](std::string_view path, TextOut out) {
+            reads.emplace_back(path);
+            auto it = files.find(std::string(path));
             if (it == files.end()) return false;
-            out = it->second;
+            out(it->second);
             return true;
         });
     }
@@ -159,7 +159,8 @@ TEST_CASE("macros and defines persist across files in a session") {
 
 TEST_CASE("include search falls back to include_dirs") {
     Files fs;
-    fs.session.include_dirs = {"shared", "other"};
+    fs.session.add_include_dir("shared");
+    fs.session.add_include_dir("other");
     fs.files["levels/l1.dta"] = "#include common.dta";
     fs.files["other/common.dta"] = "(common)";
     CHECK(fs.load("levels/l1.dta") == "((common))");
@@ -242,9 +243,9 @@ TEST_CASE("#autorun collects commands") {
     auto r = read_string("(a)\n#autorun {setup 1}\n(b)\n#autorun {setup 2}", "t.dta", s);
     REQUIRE(r);
     CHECK(to_string(**r) == "((a) (b))");
-    REQUIRE(s.autorun.size() == 2);
-    CHECK(s.autorun[0].type() == Type::Command);
-    CHECK(to_string(s.autorun[1]) == "{setup 2}");
+    REQUIRE(s.autorun().size() == 2);
+    CHECK(s.autorun()[0].type() == Type::Command);
+    CHECK(to_string(s.autorun()[1]) == "{setup 2}");
     CHECK(error("#autorun (x)").message() == "#autorun needs a {command}");
 }
 

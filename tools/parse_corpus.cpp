@@ -78,8 +78,8 @@ int main(int argc, char** argv) {
     size_t ok = 0, failed = 0, roundtrip_failed = 0;
     for (const Item& item : items) {
         moira::LoadSession session;
-        session.include_dirs = include_dirs;
-        session.include_dirs.push_back(item.root.generic_string());
+        for (const std::string& d : include_dirs) session.add_include_dir(d);
+        session.add_include_dir(item.root.generic_string());
         for (const std::string& d : defines) session.define(moira::Symbol(d));
         auto root = moira::read_file(item.file.generic_string(), session);
         if (!root) {

@@ -64,8 +64,8 @@ TEST_CASE("corpus spot checks") {
     LoadSession ui_session;
     auto ui = read_file(dir + "/ui_menu.dta", ui_session);
     REQUIRE(ui.has_value());
-    REQUIRE(ui_session.autorun.size() == 1);
-    CHECK(to_string(ui_session.autorun[0]) == "{ui register_screen main_menu}");
+    REQUIRE(ui_session.autorun().size() == 1);
+    CHECK(to_string(ui_session.autorun()[0]) == "{ui register_screen main_menu}");
 
     auto odd = read_file(dir + "/odd_tokens.dta");
     REQUIRE(odd.has_value());

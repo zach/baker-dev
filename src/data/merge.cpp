@@ -66,8 +66,9 @@ bool merge_into(std::vector<Node>& dst, std::vector<SourceSpan>* spans, size_t d
         std::vector<Node> merged(da.begin(), da.end());
         std::vector<SourceSpan> merged_spans;
         if (map) {
-            const auto* known = map->spans(da);
-            merged_spans = known ? *known : std::vector<SourceSpan>(da.size());
+            const auto known = map->spans(da);
+            merged_spans = known ? std::vector<SourceSpan>(known->begin(), known->end())
+                                 : std::vector<SourceSpan>(da.size());
         }
         if (!merge_into(merged, map ? &merged_spans : nullptr, 1, *sa, 1, policy, map)) continue;
         // A rebuilt array is located where its values came from.
@@ -76,7 +77,7 @@ bool merge_into(std::vector<Node>& dst, std::vector<SourceSpan>* spans, size_t d
         Ref<Array> rebuilt = Array::make_from(merged, at.file(), at.line());
         if (map) {
             const SourceSpan* ext = map->extent(da);
-            map->record(rebuilt, ext ? *ext : SourceSpan{}, std::move(merged_spans));
+            map->record(rebuilt, ext ? *ext : SourceSpan{}, merged_spans);
         }
         dst[found] = Node(std::move(rebuilt));
         changed = true;
