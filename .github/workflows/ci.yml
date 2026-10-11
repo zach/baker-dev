@@ -68,6 +68,16 @@ jobs:
           cp tests/corpus/*.dta tests/fuzz_regressions/*.bin corpus/
           build/moira_parse_fuzzer -dict=fuzz/dta.dict -max_len=4096 -max_total_time=120 \
             -print_final_stats=1 -artifact_prefix=artifacts/ corpus
+      - name: Fuzz lookups for 1 minute
+        run: |
+          mkdir -p lookup_corpus
+          for f in tests/corpus/*.dta; do
+            for p in "renderer.clear_color.0" "menu.'bacon and eggs'.price" "app/title"; do
+              { echo "$p"; cat "$f"; } > "lookup_corpus/$(basename "$f").$(echo "$p" | md5sum | cut -c1-8)"
+            done
+          done
+          build/moira_lookup_fuzzer -dict=fuzz/dta.dict -max_len=4096 -max_total_time=60 \
+            -print_final_stats=1 -artifact_prefix=artifacts/ lookup_corpus
       - if: failure()
         uses: actions/upload-artifact@v4
         with:

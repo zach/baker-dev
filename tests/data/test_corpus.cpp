@@ -97,3 +97,23 @@ TEST_CASE("every prefix of every corpus file is handled cleanly") {
         }
     }
 }
+
+TEST_CASE("the lookup harness holds on the corpus") {
+    // The fuzzer's lookup properties, over real-shaped files and a spread of paths.
+    const char* const paths[] = {"",
+                                 "renderer.clear_color.0",
+                                 "renderer.shadows",
+                                 "menu.'bacon and eggs'.price",
+                                 "app/title",
+                                 "0.1.2",
+                                 "a..b",
+                                 "'unterminated"};
+    for (const fs::path& p : corpus_files()) {
+        CAPTURE(p.string());
+        const std::string text = slurp(p);
+        for (const char* path : paths) {
+            CAPTURE(path);
+            CHECK(fuzz::check_lookup(std::string(path) + "\n" + text));
+        }
+    }
+}
