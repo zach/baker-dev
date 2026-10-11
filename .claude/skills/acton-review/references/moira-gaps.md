@@ -6,7 +6,7 @@
 |---|---|---|
 | 1, allocator hook | per-Context allocators (D62), an arena per load (D64, D65) | **done** |
 | 2, 2b, 3, hot/cold layout, tag lookup, dispatch loads | done with the binary cache (D57) | M8 |
-| 4, one item at a time | `handle_all` broadcast, grouped by type (D53) | M6 |
+| 4, one item at a time | `handle_all` broadcast, one lookup per run of a type (D53, D66) | **done** |
 | 5, per-array refcounts | one count per load (D64, D65) | **done** |
 | 7, coroutine frames | per-Scheduler pool with a frame budget (D58) | M7 |
 | 8, exceptions | throwing forms removed entirely (D54) | **done** (D59) |

@@ -1673,3 +1673,79 @@ outlives its load keeps its tree alive), choosing D56's named fallback.*
 - **Size.** The core is 8,059 lines, up 267 in step 4 against a plan of +250. M5b as a
   whole is +797 against a plan of ~+450. Steps 2 and 3 added small types and the alias
   layer that the plan did not count (D60, D62).
+
+## D66. M6 results: typed messages, call statistics, and the trace hook
+
+*Recorded 2026-10-11. Implements spec §5's typed messages and debugging aids, with D53's
+answers. The call stack was step 1 (D52). M6 is done, and `docs/m6-plan.md` is deleted.*
+
+- **Typed messages.**
+  - **What a message is.** An aggregate with `static constexpr auto name`.
+    - Its fields are counted by a brace-initialization probe, at most 8; a ninth is a
+      compile error.
+    - They are read by structured binding.
+    - Its identity is the address of `detail::message_key<M>`, an inline variable: no
+      RTTI and no string compare. Across a DLL boundary on Windows each module would have
+      its own address, so a host that sends messages across DLLs must define them in one.
+  - **`b.on<M>(handler)`** records a typed entry and binds a method named `M::name` whose
+    parameters are `M`'s fields, so `{bob hit 20}`, `check`, and the reference see an
+    ordinary method. The reference marks it with the message type.
+  - **`obj.handle(msg)`** returns `Expected<Node>` and follows D50's order:
+    1. a script handler for the name, ruled out with one load from a per-Context bitmap of
+       the names `{class}` handles;
+    2. the typed entry, found by binary search over a few keys and called through one
+       pointer, with no `Node` built;
+    3. a method of that name, through the Context.
+
+    Otherwise it returns a `NotFound` error naming the type and message. `handles<M>()`
+    allocates nothing.
+  - **Inheritance.** Entries are copied when a type's table is built, and a derived type's
+    entry replaces its base's, for the C++ path and the script face alike.
+  - **`handle_all(span, msg)`** looks the handler up once for each run of one type,
+    without sorting or allocating. A span sorted by type pays one search per type, which
+    is D53's "grouped by type" without a buffer. It skips objects that do not handle the
+    message, returns how many did, and stops at the first error.
+- **Call statistics.**
+  - **What is counted.** Each function and each `{class}` handler keeps `calls`,
+    `total_ns`, and `self_ns` in place. Native methods are not counted (their tables are
+    shared between Contexts, D49).
+  - **When.** Outside shipping, calls are always counted: one flag test and one increment
+    per call, 4 instructions by cachegrind.
+  - **Timing** waits for `set_profiling(true)` and reads a `TimeSource`, now in
+    `<moira/clock.hpp>`. Self time subtracts what callees took.
+  - **Reading.** `stats()` sorts by self time, then calls. `reset_stats()` clears the
+    counters, and `hardening_candidates(threshold)` lists the script entries at or above
+    the threshold. Reading allocates; counting and timing do not, which a test checks.
+- **Tracing.** `trace(true)` reports each call to a sink on entry (with depth) and on exit
+  (with its result or error). The default sink prints indented lines to stderr:
+  ```
+  {twice {add 1 2}}  (demo.dta:1)
+    {add 1 2}  (demo.dta:1)
+    -> 3
+    {add $a $a}  (<eval>:1)
+    -> 6
+  -> 6
+  ```
+- **Shipping.** Counting, timing, and tracing are removed by `if constexpr`. `stats()` and
+  `hardening_candidates()` are empty, and the switches do nothing; the tests check this
+  in the shipping job.
+- **Performance,** on this container, against `b4a8166` (messages, before statistics):
+
+  | Row | before | after |
+  |---|---:|---:|
+  | `{add 1 2}` | 27.7–29.6 ns | 26.3–27.7 ns |
+  | `{add1 1}` | 62.0–67.8 ns | 62.4–66.1 ns |
+  | `{add 1 2}` with profiling on | – | 95–101 ns |
+  | `{add 1 2}` tracing to an empty sink | – | 34–36 ns |
+  | `bob.handle(HitMsg{1})` (target 15 ns, 0 allocations) | – | 8.2–9.3 ns |
+  | `handle_all`, 64 objects | – | 424–437 ns (6.7 ns each) |
+  | `ctx.call(bob, "grow", 1.5f)`, for comparison | – | 142–148 ns, 2 allocations |
+
+  Two `steady_clock` reads cost about 70 ns here, which is why D53 put timing behind a
+  switch.
+- **Done-when criteria (spec §10):**
+  - the message benchmark meets §7;
+  - an error four frames deep renders its stack (D52's tests);
+  - statistics add no allocations and compile out under shipping.
+- **Size.** The core is 8,439 of 10,000 lines. M6 after step 1 added about 380 against
+  the plan's ~390 for the same parts.

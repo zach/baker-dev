@@ -154,6 +154,12 @@ What exists:
   a destroyed object a clean error, script handlers attached to C++ types (`{class}`),
   script classes and `{new}`/`{delete}`, `$this`, `[property]` paths, and loose
   per-object parameters.
+- Typed messages: plain aggregates bound with `b.on<M>`, sent with `obj.handle(msg)` in
+  about 9 ns with no allocation, or to many objects with `handle_all`. The same handler
+  answers `{bob hit 20}`, and a script handler `(hit ($points) ...)` answers C++.
+- Debugging: the script call stack in every error (`describe`, `script_backtrace`), call
+  statistics (`stats`, `hardening_candidates`, timing behind `set_profiling`), and a trace
+  hook, all compiled out under `MOIRA_SHIPPING`.
 - Tests, a hand-written corpus, benchmarks, and libFuzzer harnesses for parsing and lookup
   (`-DMOIRA_BUILD_FUZZERS=ON`).
 

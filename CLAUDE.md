@@ -1,7 +1,9 @@
 # Working on Moira
 
-Read `docs/spec.md` for what Moira is, `docs/decisions.md` for every deviation from it,
-and the current milestone plan (`docs/m6-plan.md`) for what is next.
+Read `docs/spec.md` for what Moira is (§10 lists the milestones), `docs/decisions.md` for
+every deviation from it and the results of each step, and the current milestone plan
+(`docs/m<N>-plan.md`) if one exists. M6 is done (D66); M7, tasks, is next and has no plan
+yet: write one first, carrying D58's answers.
 
 ## Rules
 
