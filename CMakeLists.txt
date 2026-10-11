@@ -137,6 +137,8 @@ endif()
 if(MOIRA_BUILD_BENCH)
   add_executable(moira_bench_parse bench/bench_parse.cpp)
   target_link_libraries(moira_bench_parse PRIVATE moira::data)
+  add_executable(moira_bench_lookup bench/bench_lookup.cpp)
+  target_link_libraries(moira_bench_lookup PRIVATE moira::data)
 endif()
 
 if(MOIRA_BUILD_FUZZERS)

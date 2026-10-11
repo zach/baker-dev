@@ -84,6 +84,7 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DMOIRA_BUILD_BENCH=ON -DMOIRA_BUILD_TESTS=OFF
           cmake --build build
           build/moira_bench_parse
+          build/moira_bench_lookup
 
   format:
     runs-on: ubuntu-24.04
