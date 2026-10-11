@@ -744,3 +744,60 @@ Open questions, raised before building (spec §11) and answered by the project o
 - **`set` keeps its multi-value forms** (span and typed overloads) beside
   `set(path, Node)`.
 
+
+## D43. M3b implementation notes and results
+
+*Recorded 2026-10-11.* Choices made while building D42, where the brief left room:
+
+- **"An existing scalar path" means one already in scratch.** The first `set` of a path
+  creates its scratch entry and allocates; every later `set` of that scalar changes the
+  entry in place and allocates nothing, which is the case a slider or console repeats.
+  The fast path updates only the tweaks bound to that path (or to one of its elements),
+  does not advance the epoch, and records no `ReloadRecord`; tool edits would flood the
+  history otherwise.
+- **The stages tile the change.** `end_ns` is the end of the last stage, not a further
+  clock read, so `scan + read + parse + merge + bind + notify == end - start` and a
+  dashboard can stack them. File reads happen inside the parser (includes are found while
+  parsing), so `read_ns` is the time spent in the reader and `parse_ns` the rest.
+- **Triggers.** `reload` by default (or the request's), `layer` for pushes, pops, removals,
+  toggles, and `clear_scratch`, `restore`, and `write_back` for write-back and `promote`,
+  which re-read the files they wrote and time that.
+- **Callbacks on restore** follow D36: a group's callback fires once if its subtree differs
+  from before the restore, and not at all if it does not.
+- **Disabled layers** keep contributing their macros to the layers above, which were parsed
+  with them; toggling re-merges trees and reads no files. Removing a layer still re-reads
+  the layers above (D35).
+- **Write-back reports.** `write_back` and `write_back_to` return a `WriteReport` or a
+  single located refusal; `promote` returns every refusal in `WriteReport::refused` and
+  writes nothing then. Written lines are read from the re-read layer, so they are exact even
+  when several entries landed in one file.
+- **Insertion** puts the entry on a new line indented like the previous sibling when the
+  ancestor spans lines (after the rest of that sibling's line, so a trailing comment stays
+  with it), on the same line when the ancestor is written on one line, and as a new top-level
+  form at the end of the file for the root. The text is the pretty-printer's.
+- **Creating an optional layer's file** needs its directory. The default writer creates
+  missing parent directories (`mkdir` / `_mkdir`), the one place the library creates
+  directories; it still uses no `std::filesystem` (D22). A host writer is unaffected.
+- **Effect and diff values** of several nodes are an untagged array, `(1920 1080)`, and
+  paths are dotted with quoting where needed, so `get<T>(entry.path)` takes them. `promote`
+  accepts `scratch` as its source; nothing is ever written to scratch.
+- **Snapshots** share every layer's trees, source maps, and recorded file contents, and copy
+  scratch's arrays, which are small and change in place.
+- **On-demand `layer_effect`** (D42) measured on the corpus stack (`config_app.dta` and its
+  includes, plus a 200-entry experiment layer), Release, gcc 13: 41 µs for the base layer,
+  65 µs for the experiment, 49 µs for `diff` between them. Tooling-fast; no incremental
+  upkeep needed.
+
+Results:
+
+- Every acceptance item in the brief is a test (`tests/data/test_m3b.cpp`), as is the
+  headless readiness loop (`tests/readiness_loop.cpp`). They include zero allocations for a
+  repeated `set` and for tweak reads, and an equal allocation count for reloads with and
+  without the history ring.
+- **Matrix.** All twelve local configurations pass (gcc and clang at C++20 and C++23,
+  libc++, data-only, ASan+UBSan, TSan, the plain reference-count build, shipping, and
+  no-exceptions on gcc and clang). Two fixes were needed: helpers used only by non-shipping
+  code are marked `[[maybe_unused]]`, for clang's `-Wunneeded-internal-declaration` and
+  gcc's unused-function warning in the shipping build. MSVC is covered by CI.
+- **Size.** `moira::data` is 4,747 counted lines (core 4,759), up 745 in M3b. That is over
+  the 4,000 the brief cites and under the 8,000 budget of D40.

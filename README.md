@@ -9,10 +9,11 @@ designer-editable value should cost one line and no ceremony.
 
 ## Status
 
-**M3: config and tweaks.** You can read DTA text into trees, look values up with typed,
-located errors, stack config files and overlays into layers, hot-reload them, replace
-constants with one-line tweaks, and write values tuned in the running program back into
-their source files. Scripting is a later milestone (`docs/spec.md` §10).
+**M3b: config, tweaks, and the data loop.** You can read DTA text into trees, look values
+up with typed, located errors, stack config files and overlays into layers, hot-reload
+them with every reload timed, replace constants with one-line tweaks, toggle experiment
+layers A/B, snapshot and restore exact states, and write values tuned in the running
+program back into their source files. Scripting is a later milestone (`docs/spec.md` §10).
 `docs/decisions.md` records where the implementation deviates from the spec.
 
 The one-line constant replacement (`examples/one_line_tweak`):
@@ -31,16 +32,22 @@ float w = kBoxWidth;      // one relaxed atomic load
 ```cpp
 moira::Config cfg;                                  // binds every Tweak
 cfg.push_layer("default", "default.dta");
-cfg.push_layer("local", "local.dta");               // per-machine overrides
+cfg.push_layer("local", "local/sam.dta", {.optional = true});   // per user, not checked in
 cfg.push_layer("patch", overlay);                   // a live-ops overlay array
 cfg.remove_layer("patch");                          // rollback
 
 cfg.on_reload("renderer", [&] { renderer.rebuild(); });   // when that group changes
-cfg.reload();                                       // after a file changes on disk
+cfg.reload({.trigger = "watcher"_sym, .origin_ns = saved_at});   // after a file changes
+auto rec = cfg.last_reload();                       // scan, read, parse, merge, bind, notify
 
 moira::Source s = cfg.source("box.width");          // layer, file, and line of the value
-kBoxWidth.set(2.5f);                                // tune it live...
+kBoxWidth.set(2.5f);                                // tune it live (the scratch layer)...
 kBoxWidth.write_back();                             // ...and save it: a one-line diff
+
+cfg.toggle_layer("experiment");                     // A/B
+auto changes = cfg.layer_effect("experiment");      // what a layer actually changes
+cfg.promote("experiment", "default");               // into shared data, all or nothing
+auto snap = cfg.snapshot();                         // ...and later cfg.restore(snap)
 ```
 
 Lookup on a tree:
@@ -75,9 +82,13 @@ What exists:
   fixed arrays built in; see `array.hpp`), opt-in `sort_for_lookup()` binary search, and
   `subarrays()`.
   `find_float` on a 20-child array takes about 10 ns and never allocates.
-- `Config`: named layers merged bottom to top, provenance (`source()`: layer, file, line),
-  hot reload with per-group migrate-or-punt callbacks, live edits, and write-back that
-  replaces only the changed tokens and refuses (with a location) what it cannot edit exactly.
+- `Config`: named layers merged bottom to top (optional and disabled layers, toggles),
+  provenance (`source()`: layer, file, line), hot reload with per-group migrate-or-punt
+  callbacks, reload telemetry in six timed stages with an injectable time source, live
+  edits in a `scratch` layer with an allocation-free fast path, write-back that replaces
+  only the changed tokens (or inserts an entry beside its siblings) and refuses, with a
+  location, what it cannot edit exactly, `layer_effect`, `diff`, `promote`, and snapshots.
+  Patterns are in `docs/cookbook.md`.
 - `Tweak<T>`: one-line tunables with code- or data-side metadata (`range`, `step`, `desc`,
   `note`, `kind`, `group`), `on_change`, and `dev_only` for `MOIRA_SHIPPING`.
 - Edit-mode parsing (`SourceMap`): the byte span of every node, beside an unchanged tree.
