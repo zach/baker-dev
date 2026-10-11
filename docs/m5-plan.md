@@ -3,8 +3,14 @@
 Draft for review before any M5 code. Spec §5 ("Objects", the object parts of "Native
 function binding") and §10 (M5 row) are the requirements. The talk digest (Appendix A)
 fills in the original's `DataObject` and `DataClass`. The open questions at the end change
-the design. Once they are answered, the decisions go into `docs/decisions.md` (D48 onward)
-and this file is deleted.
+the design.
+
+**Answered 2026-10-11.**
+- Q1–Q3: the recommended option.
+- Q4: the budget is raised to 10,000 now (D48).
+
+The decisions move into `docs/decisions.md` (D49 onward) when M5 starts, and this file is
+deleted then.
 
 ## Scope
 

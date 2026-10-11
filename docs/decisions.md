@@ -966,3 +966,17 @@ Results:
   plan's 1,600–1,750 estimate. That leaves 1,797 lines for M5–M8 and M10's core
   instrumentation. As the plan said, this is likely to run out around M8, and each
   milestone will flag it.
+
+## D48. The line budget is 10,000
+
+*Deviates from spec §0 and M10 again; supersedes D40's number. Decided by the project
+owner, 2026-10-11, in the M5 plan (Q4).*
+
+M4 brought the core to 6,203 lines. The M5 estimate (~780) and rough ones for M6–M8 and
+M10's core instrumentation (~1,500) would have exhausted 8,000 during M7. The soft budget
+for the core is now 10,000 non-test, non-comment lines. The rest of D2 and D40 stands:
+- the budget is reported, not enforced;
+- each milestone records its count;
+- disproportionate growth is still called out;
+- M10's fallback (move the repetition report into a separate tool) applies at the new
+  number.
