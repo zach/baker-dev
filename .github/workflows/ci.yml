@@ -15,6 +15,7 @@ jobs:
           - { name: gcc-13 C++20,       os: ubuntu-24.04,  cc: gcc-13,   cxx: g++-13,     std: 20, flags: "" }
           - { name: clang-18 C++20,     os: ubuntu-24.04,  cc: clang-18, cxx: clang++-18, std: 20, flags: "" }
           - { name: clang-18 C++23,     os: ubuntu-24.04,  cc: clang-18, cxx: clang++-18, std: 23, flags: "" }
+          - { name: clang-18 libc++,    os: ubuntu-24.04,  cc: clang-18, cxx: clang++-18, std: 20, flags: "-DCMAKE_CXX_FLAGS=-stdlib=libc++ -DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++", packages: "libc++-18-dev libc++abi-18-dev" }
           - { name: gcc-13 C++23,       os: ubuntu-24.04,  cc: gcc-13,   cxx: g++-13,     std: 23, flags: "" }
           - { name: data only,          os: ubuntu-24.04,  cc: gcc-13,   cxx: g++-13,     std: 20, flags: "-DMOIRA_BUILD_SCRIPT=OFF" }
           - { name: asan+ubsan,         os: ubuntu-24.04,  cc: clang-18, cxx: clang++-18, std: 20, flags: "-DMOIRA_SANITIZE=address,undefined" }
@@ -28,7 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y ninja-build
+        run: sudo apt-get update && sudo apt-get install -y ninja-build ${{ matrix.packages }}
       - if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
       - name: Configure

@@ -18,8 +18,8 @@ struct Token {
     char bracket = 0;     // Open, Close
     bool quoted = false;  // Symbol written as 'text'
     int32_t line = 0;
-    int32_t i = 0;
-    float f = 0;
+    int64_t i = 0;
+    double f = 0;
     std::string_view text;  // symbol, var name, directive name, decoded string
 };
 
@@ -203,10 +203,10 @@ private:
                 return true;
             case NumberKind::IntOutOfRange:
                 return fail(err, ErrorCode::Range,
-                            "integer " + std::string(atom) + " is out of 32-bit range", t.line);
+                            "integer " + std::string(atom) + " is out of 64-bit range", t.line);
             case NumberKind::FloatOutOfRange:
                 return fail(err, ErrorCode::Range,
-                            "float " + std::string(atom) + " is out of float range", t.line);
+                            "float " + std::string(atom) + " is out of double range", t.line);
             case NumberKind::NotNumber: break;
         }
         t.kind = Tok::Symbol;

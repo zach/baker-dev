@@ -53,11 +53,12 @@ void destroy_counted(const void* payload, Type type) noexcept {
         Array::destroy(static_cast<const Array*>(payload));
 }
 
-std::optional<int32_t> float_to_int(float f) noexcept {
-    // NaN fails both comparisons.
-    if (!(f >= -2147483648.0f && f < 2147483648.0f)) return std::nullopt;
-    const auto i = static_cast<int32_t>(f);
-    if (static_cast<float>(i) != f) return std::nullopt;
+std::optional<int64_t> float_to_int(double f) noexcept {
+    // [-2^63, 2^63) are exactly the doubles that convert to int64 without overflow. NaN
+    // fails both comparisons.
+    if (!(f >= -9223372036854775808.0 && f < 9223372036854775808.0)) return std::nullopt;
+    const auto i = static_cast<int64_t>(f);
+    if (static_cast<double>(i) != f) return std::nullopt;
     return i;
 }
 
@@ -76,8 +77,9 @@ void Node::type_error(Type expected) const {
     detail::raise(std::move(e));
 }
 
-void Node::range_error(int32_t v) const {
-    detail::raise(make_error(ErrorCode::Range, std::to_string(v) + " is out of range"));
+void Node::range_error() const {
+    detail::raise(make_error(ErrorCode::Range,
+                             detail::preview(*this) + " is out of range for the requested type"));
 }
 #endif
 

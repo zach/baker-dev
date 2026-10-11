@@ -57,6 +57,10 @@ TEST_CASE("symbol interning is thread-safe") {
 TEST_CASE("node construction and types") {
     CHECK(Node().type() == Type::Int);
     CHECK(Node(7).type() == Type::Int);
+    CHECK(Node(7L).type() == Type::Int);
+    CHECK(Node(7u).type() == Type::Int);
+    CHECK(Node(uint64_t{UINT64_MAX}).try_int() == -1);  // keeps its bit pattern
+    CHECK(Node(INT64_MAX).try_int() == INT64_MAX);
     CHECK(Node(1.5f).type() == Type::Float);
     CHECK(Node(1.5).type() == Type::Float);
     CHECK(Node(Symbol("x")).type() == Type::Symbol);
@@ -68,6 +72,8 @@ TEST_CASE("node construction and types") {
     CHECK(Node::var("v").var_name() == Symbol("v"));
     CHECK(Node::object(ObjectHandle::make(3, 9)).object_handle().index() == 3);
     CHECK(Node::object(ObjectHandle::make(3, 9)).object_handle().salt() == 9);
+    CHECK(ObjectHandle::make(0xFFFFFFFFu, 0x12345678u).index() == 0xFFFFFFFFu);
+    CHECK(ObjectHandle::make(0xFFFFFFFFu, 0x12345678u).salt() == 0x12345678u);
     static const FuncRecord rec{"plus"};
     CHECK(Node::func(&rec).func_record() == &rec);
     CHECK(type_name(Type::Property) == "property");
@@ -77,7 +83,10 @@ TEST_CASE("numeric access coerces only where lossless") {
     CHECK(Node(3).try_float() == 3.0f);
     CHECK(Node(4.0f).try_int() == 4);
     CHECK_FALSE(Node(4.5f).try_int().has_value());
-    CHECK_FALSE(Node(3e9f).try_int().has_value());
+    CHECK(Node(3e9).try_int() == 3000000000);
+    CHECK_FALSE(Node(1e19).try_int().has_value());
+    CHECK_FALSE(Node(-1e19).try_int().has_value());
+    CHECK(Node(9007199254740993LL).try_float() == 9007199254740992.0);  // int reads round past 2^53
     CHECK_FALSE(Node(Symbol("x")).try_int().has_value());
     CHECK_FALSE(Node(Symbol("x")).try_float().has_value());
     CHECK(Node(Symbol("x")).try_sym() == Symbol("x"));
@@ -95,6 +104,12 @@ TEST_CASE("checked accessors throw located type errors") {
     CHECK(Node(12).as_float() == 12.0f);
     CHECK(Node(12).as<int64_t>() == 12);
     CHECK(Node(2.5f).as<double>() == 2.5);
+    CHECK(Node(2.5).as<float>() == 2.5f);
+    CHECK(Node(int64_t{3000000000}).as<int64_t>() == 3000000000);
+    CHECK(Node(int64_t{3000000000}).as<uint32_t>() == 3000000000u);
+    CHECK_THROWS_AS((void)Node(int64_t{3000000000}).as<int32_t>(), Exception);
+    CHECK_THROWS_AS((void)Node(1e300).as<float>(), Exception);
+    CHECK(Node(1e-300).as<float>() == 0.0f);  // precision may round; only range is checked
     CHECK(Node(200).as<uint8_t>() == 200);
     CHECK_THROWS_AS((void)Node(300).as<uint8_t>(), Exception);
     CHECK_THROWS_AS((void)Node(-1).as<uint32_t>(), Exception);

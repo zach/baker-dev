@@ -17,6 +17,8 @@ add_executable(moira_data_tests
   data/test_version.cpp
   data/test_write.cpp)
 target_link_libraries(moira_data_tests PRIVATE moira::data moira_parse_harness moira_doctest_main)
+# White-box tests of internal helpers (text.hpp).
+target_include_directories(moira_data_tests PRIVATE ${PROJECT_SOURCE_DIR}/src/data)
 target_compile_definitions(moira_data_tests PRIVATE
   MOIRA_CORPUS_DIR="${PROJECT_SOURCE_DIR}/tests/corpus"
   MOIRA_FUZZ_REGRESSIONS_DIR="${PROJECT_SOURCE_DIR}/tests/fuzz_regressions")

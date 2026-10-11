@@ -35,11 +35,10 @@ void put_atom(std::string& out, const Node& n) {
             break;
         }
         case Type::Float: {
-            auto r = std::to_chars(buf, buf + sizeof buf, *n.try_float());
-            const std::string_view text(buf, static_cast<size_t>(r.ptr - buf));
+            const std::string text = detail::format_double(*n.try_float());
             out += text;
             // Keep it a float on reparse: 5 must print as 5.0.
-            if (text.find_first_of(".eEni") == std::string_view::npos) out += ".0";
+            if (text.find_first_of(".eEni") == std::string::npos) out += ".0";
             break;
         }
         case Type::Symbol: put_symbol(out, n.try_sym()->str()); break;

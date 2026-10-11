@@ -3,7 +3,10 @@
 #include <moira/parse.hpp>
 #include <moira/write.hpp>
 
+#include "text.hpp"
+
 #include <bit>
+#include <clocale>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -33,8 +36,11 @@ TEST_CASE("atoms print in their reparseable spelling") {
     CHECK(to_string(Node(12.75f)) == "12.75");
     CHECK(to_string(Node(5.0f)) == "5.0");
     CHECK(to_string(Node(-0.0f)) == "-0.0");
-    CHECK(to_string(Node(1e20f)) == "1e+20");
-    CHECK(to_string(Node(0.001f)) == "0.001");
+    CHECK(to_string(Node(1e20)) == "1e+20");
+    CHECK(to_string(Node(0.001)) == "0.001");
+    CHECK(to_string(Node(0.1)) == "0.1");
+    CHECK(to_string(Node(0.1f)) == "0.10000000149011612");  // a float widened exactly
+    CHECK(to_string(Node(int64_t{INT64_MIN})) == "-9223372036854775808");
     CHECK(to_string(Node(Symbol("price"))) == "price");
     CHECK(to_string(Node(Symbol("bacon and eggs"))) == "'bacon and eggs'");
     CHECK(to_string(Node(Symbol(""))) == "''");
@@ -98,10 +104,10 @@ TEST_CASE("printing round-trips random trees") {
     };
     std::function<Node(int)> gen = [&](int depth) -> Node {
         switch (pick(depth > 4 ? 6 : 9)) {
-            case 0: return Node(static_cast<int32_t>(rng()));
+            case 0: return Node(static_cast<int64_t>((uint64_t{rng()} << 32) | rng()));
             case 1: {
-                float f = std::bit_cast<float>(static_cast<uint32_t>(rng()));
-                return std::isfinite(f) ? Node(f) : Node(1.5f);
+                const double f = std::bit_cast<double>((uint64_t{rng()} << 32) | rng());
+                return std::isfinite(f) ? Node(f) : Node(1.5);
             }
             case 2:
             case 3: {
@@ -166,4 +172,48 @@ TEST_CASE("preview is bounded on shared trees") {
     const std::string p = detail::preview((*root)[0], 40);
     CHECK(p.size() == 40);
     CHECK(p.ends_with("..."));
+}
+
+TEST_CASE("both double formatters round-trip exactly") {
+    // format_double uses std::to_chars except on Apple, where format_double_fallback
+    // (shortest %g that reads back) stands in. Both must give back the same bits.
+    auto reads_back = [](std::string text, double v) {
+        if (text.find_first_of(".eEni") == std::string::npos) text += ".0";
+        const detail::Number n = detail::classify_number(text);
+        return n.kind == detail::NumberKind::Float &&
+               std::bit_cast<uint64_t>(n.f) == std::bit_cast<uint64_t>(v);
+    };
+    std::vector<double> values = {0.0,
+                                  -0.0,
+                                  0.1,
+                                  1.0 / 3,
+                                  12.75,
+                                  5.0,
+                                  1e20,
+                                  1e-5,
+                                  4.9e-324,
+                                  1.7976931348623157e308,
+                                  -2.2250738585072014e-308,
+                                  123456789.125};
+    std::mt19937_64 rng(7);
+    while (values.size() < 20000) {
+        const double v = std::bit_cast<double>(rng());
+        if (std::isfinite(v)) values.push_back(v);
+    }
+    for (double v : values) {
+        CAPTURE(v);
+        CHECK(reads_back(detail::format_double(v), v));
+        CHECK(reads_back(detail::format_double_fallback(v), v));
+    }
+    CHECK(detail::format_double_fallback(0.1) == "0.1");
+    CHECK(detail::format_double_fallback(-0.0) == "-0");
+    CHECK(detail::format_double_fallback(1e20) == "1e+20");
+
+    // %g follows the C locale's decimal point; the fallback must normalize it.
+    for (const char* name : {"de_DE.UTF-8", "de_DE.utf8", "fr_FR.UTF-8", "German_Germany.1252"}) {
+        if (!std::setlocale(LC_NUMERIC, name)) continue;
+        CHECK(detail::format_double_fallback(12.75) == "12.75");
+        std::setlocale(LC_NUMERIC, "C");
+        break;
+    }
 }

@@ -65,6 +65,9 @@ add_library(moira_data
   src/data/write.cpp)
 add_library(moira::data ALIAS moira_data)
 moira_configure_library(moira_data)
+# fast_float parses doubles identically on every platform (libc++ only gained double
+# std::from_chars in LLVM 20). Private: it never appears in Moira's headers.
+target_include_directories(moira_data SYSTEM PRIVATE ${PROJECT_SOURCE_DIR}/third_party/fast_float)
 
 # --- moira::script: evaluation, functions, objects, messages, tasks.
 if(MOIRA_BUILD_SCRIPT)

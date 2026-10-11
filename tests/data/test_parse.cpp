@@ -56,27 +56,36 @@ TEST_CASE("integers") {
     CHECK(only(parse("0x1F")).try_int() == 31);
     CHECK(only(parse("0XfF")).try_int() == 255);
     CHECK(only(parse("-0x10")).try_int() == -16);
-    CHECK(only(parse("0xFFFFFFFF")).try_int() == -1);
-    CHECK(only(parse("0x80000000")).try_int() == INT32_MIN);
-    CHECK(only(parse("2147483647")).try_int() == INT32_MAX);
-    CHECK(only(parse("-2147483648")).try_int() == INT32_MIN);
-    CHECK(parse_error("2147483648").code == ErrorCode::Range);
-    CHECK(parse_error("-2147483649").code == ErrorCode::Range);
-    CHECK(parse_error("0x100000000").code == ErrorCode::Range);
+    // Hex denotes its unsigned value (D18): 0xFFFFFFFF is 4294967295, not -1.
+    CHECK(only(parse("0xFFFFFFFF")).try_int() == 4294967295);
+    CHECK(only(parse("0x80000000")).try_int() == 2147483648);
+    CHECK(only(parse("0x7FFFFFFFFFFFFFFF")).try_int() == INT64_MAX);
+    CHECK(only(parse("0x0000000000000000001")).try_int() == 1);
+    CHECK(parse_error("0x8000000000000000").code == ErrorCode::Range);
+    CHECK(parse_error("0xFFFFFFFFFFFFFFFFF").code == ErrorCode::Range);
+    CHECK(only(parse("2147483648")).try_int() == 2147483648);
+    CHECK(only(parse("9223372036854775807")).try_int() == INT64_MAX);
+    CHECK(only(parse("-9223372036854775808")).try_int() == INT64_MIN);
+    CHECK(parse_error("9223372036854775808").code == ErrorCode::Range);
+    CHECK(parse_error("-9223372036854775809").code == ErrorCode::Range);
     CHECK(parse_error("99999999999999999999999").code == ErrorCode::Range);
 }
 
 TEST_CASE("floats") {
     CHECK(only(parse("12.75")).try_float() == 12.75f);
     CHECK(only(parse("1e-3")).type() == Type::Float);
-    CHECK(only(parse("1e-3")).try_float() == 1e-3f);
+    CHECK(only(parse("1e-3")).try_float() == 1e-3);
+    CHECK(only(parse("0.1")).try_float() == 0.1);
+    CHECK(only(parse("1e39")).try_float() == 1e39);
+    CHECK(only(parse("4.9e-324")).try_float() > 0.0);  // subnormals are fine
     CHECK(only(parse(".5")).try_float() == 0.5f);
     CHECK(only(parse("-.5")).try_float() == -0.5f);
     CHECK(only(parse("5.")).try_float() == 5.0f);
     CHECK(only(parse("2.5E2")).try_float() == 250.0f);
-    CHECK(only(parse("-0.0")).float_bits() == 0x80000000u);
-    CHECK(parse_error("1e39").code == ErrorCode::Range);
-    CHECK(parse_error("-1e39").code == ErrorCode::Range);
+    CHECK(only(parse("-0.0")).float_bits() == 0x8000000000000000u);
+    CHECK(parse_error("1e309").code == ErrorCode::Range);
+    CHECK(parse_error("-1e309").code == ErrorCode::Range);
+    CHECK(parse_error("1e-400").code == ErrorCode::Range);  // rounds to zero
 }
 
 TEST_CASE("atoms that are not numbers are symbols") {
@@ -147,10 +156,10 @@ TEST_CASE("nesting is bounded") {
 }
 
 TEST_CASE("errors format with file and line") {
-    Error e = parse_error("(a 1)\n(b 0x1FFFFFFFF)");
+    Error e = parse_error("(a 1)\n(b 0x1FFFFFFFFFFFFFFFF)");
     CHECK(e.file == Symbol("t.dta"));
     CHECK(e.line == 2);
-    CHECK(to_string(e) == "moira: integer 0x1FFFFFFFF is out of 32-bit range  (t.dta:2)");
+    CHECK(to_string(e) == "moira: integer 0x1FFFFFFFFFFFFFFFF is out of 64-bit range  (t.dta:2)");
 }
 
 #if MOIRA_EXCEPTIONS

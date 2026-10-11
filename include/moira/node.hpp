@@ -3,8 +3,8 @@
 // Node: the 16-byte tagged value every Moira tree is made of.
 //
 //   Type      Syntax              Payload
-//   Int       42  -7  0x1F        int32_t
-//   Float     12.75  1e-3         float
+//   Int       42  -7  0x1F        int64_t
+//   Float     12.75  1e-3         double
 //   Symbol    price  'odd sym'    interned Symbol
 //   String    "bacon"             Ref<String>
 //   Array     ( ... )             Ref<Array>
@@ -12,15 +12,15 @@
 //   Property  [ ... ]             Ref<Array>; property-path lookup (moira::script)
 //   Var       $name               variable name; bound to a slot by moira::script
 //   Func      -                   native function record (moira::script)
-//   Object    -                   32-bit salted object handle (moira::script)
+//   Object    -                   64-bit salted object handle (moira::script)
 //
-// Numbers are deliberately 32-bit: it matches the source format and keeps the node at
-// 16 bytes. as<int64_t>() and as<double>() widen on read; storage never widens.
+// Numbers are stored at 64 bits, which costs nothing: the payload is 8 bytes anyway
+// because it holds pointers (docs/decisions.md D18). as<int32_t>(), as<float>() and other
+// narrower reads are range-checked.
 //
 // Typed accessors (as_int, as_float, ...) are checked: a mismatch throws an Exception
-// (or, for the try_ forms, returns nothing). Int and Float coerce into each other where
-// no information is lost: an int always reads as a float, and a float reads as an int
-// only if it is integral and in range.
+// (or, for the try_ forms, returns nothing). An int always reads as a float (rounded
+// beyond 2^53); a float reads as an int only if it is integral and in range.
 
 #include <moira/error.hpp>
 #include <moira/ref.hpp>
@@ -54,20 +54,20 @@ enum class Type : uint8_t {
 
 [[nodiscard]] std::string_view type_name(Type type) noexcept;
 
-// Reference to an object owned by a moira::script Context: 16 bits of table index and 16
-// bits of salt. Opaque to moira::data, which can store, copy, and compare it but never
-// resolve it.
+// Reference to an object owned by a moira::script Context: 32 bits of table index and 32
+// bits of salt, the layout of Unreal's FWeakObjectPtr (docs/decisions.md D19). Opaque to
+// moira::data, which can store, copy, and compare it but never resolve it.
 struct ObjectHandle {
-    uint32_t bits = 0;
+    uint64_t bits = 0;
 
-    [[nodiscard]] static constexpr ObjectHandle make(uint16_t index, uint16_t salt) noexcept {
-        return {static_cast<uint32_t>(index) | (static_cast<uint32_t>(salt) << 16)};
+    [[nodiscard]] static constexpr ObjectHandle make(uint32_t index, uint32_t salt) noexcept {
+        return {static_cast<uint64_t>(index) | (static_cast<uint64_t>(salt) << 32)};
     }
-    [[nodiscard]] constexpr uint16_t index() const noexcept {
-        return static_cast<uint16_t>(bits & 0xFFFFu);
+    [[nodiscard]] constexpr uint32_t index() const noexcept {
+        return static_cast<uint32_t>(bits & 0xFFFFFFFFu);
     }
-    [[nodiscard]] constexpr uint16_t salt() const noexcept {
-        return static_cast<uint16_t>(bits >> 16);
+    [[nodiscard]] constexpr uint32_t salt() const noexcept {
+        return static_cast<uint32_t>(bits >> 32);
     }
     friend constexpr bool operator==(ObjectHandle, ObjectHandle) noexcept = default;
 };
@@ -81,7 +81,7 @@ struct FuncRecord {
 namespace detail {
 // Frees a refcounted payload whose count reached zero.
 void destroy_counted(const void* payload, Type type) noexcept;
-[[nodiscard]] std::optional<int32_t> float_to_int(float f) noexcept;
+[[nodiscard]] std::optional<int64_t> float_to_int(double f) noexcept;
 }  // namespace detail
 
 // Refcounted immutable string, stored in a single allocation.
@@ -118,9 +118,17 @@ private:
 class Node {
 public:
     Node() noexcept : type_(Type::Int) { value_.i = 0; }
-    Node(int32_t v) noexcept : type_(Type::Int) { value_.i = v; }         // NOLINT
-    Node(float v) noexcept : type_(Type::Float) { value_.f = v; }         // NOLINT
-    Node(double v) noexcept : Node(static_cast<float>(v)) {}              // NOLINT
+    // Any integer type. Unsigned values above INT64_MAX keep their bit pattern.
+    template <class T>
+        requires std::is_integral_v<T>
+    Node(T v) noexcept : type_(Type::Int) {  // NOLINT
+        value_.i = static_cast<int64_t>(v);
+    }
+    template <class T>
+        requires std::is_floating_point_v<T>
+    Node(T v) noexcept : type_(Type::Float) {  // NOLINT
+        value_.f = static_cast<double>(v);
+    }
     Node(Symbol s) noexcept : type_(Type::Symbol) { value_.p = s.id(); }  // NOLINT
     Node(const Ref<String>& s) noexcept : Node(s.get()) {}                // NOLINT
     Node(Ref<String>&& s) noexcept : type_(Type::String) {                // NOLINT
@@ -197,11 +205,11 @@ public:
 
     // --- Checked typed accessors (throwing). ---
 #if MOIRA_EXCEPTIONS
-    [[nodiscard]] int32_t as_int() const {
+    [[nodiscard]] int64_t as_int() const {
         if (auto v = try_int()) return *v;
         type_error(Type::Int);
     }
-    [[nodiscard]] float as_float() const {
+    [[nodiscard]] double as_float() const {
         if (auto v = try_float()) return *v;
         type_error(Type::Float);
     }
@@ -217,31 +225,37 @@ public:
         if (type_ == Type::Array) return *static_cast<const Array*>(value_.p);
         type_error(Type::Array);
     }
-    // Widening reads: as<int64_t>(), as<double>(), and narrower integer types with a
-    // range check.
+    // Reads as any integer or floating-point type. Narrower types are range-checked: an
+    // int must fit T, and a float must be within T's finite range (precision may round).
     template <class T>
     [[nodiscard]] T as() const {
         static_assert(std::is_arithmetic_v<T> && !std::is_same_v<T, bool>,
                       "Node::as<T> supports integer and floating-point types");
         if constexpr (std::is_floating_point_v<T>) {
-            return static_cast<T>(as_float());
+            const double v = as_float();
+            if constexpr (sizeof(T) < sizeof(double)) {
+                if (v > static_cast<double>(std::numeric_limits<T>::max()) ||
+                    v < -static_cast<double>(std::numeric_limits<T>::max()))
+                    range_error();
+            }
+            return static_cast<T>(v);
         } else {
-            int32_t v = as_int();
-            if (!std::in_range<T>(v)) range_error(v);
+            const int64_t v = as_int();
+            if (!std::in_range<T>(v)) range_error();
             return static_cast<T>(v);
         }
     }
 #endif
 
     // --- Non-throwing mirrors. ---
-    [[nodiscard]] std::optional<int32_t> try_int() const noexcept {
+    [[nodiscard]] std::optional<int64_t> try_int() const noexcept {
         if (type_ == Type::Int) return value_.i;
         if (type_ == Type::Float) return detail::float_to_int(value_.f);
         return std::nullopt;
     }
-    [[nodiscard]] std::optional<float> try_float() const noexcept {
+    [[nodiscard]] std::optional<double> try_float() const noexcept {
         if (type_ == Type::Float) return value_.f;
-        if (type_ == Type::Int) return static_cast<float>(value_.i);
+        if (type_ == Type::Int) return static_cast<double>(value_.i);
         return std::nullopt;
     }
     [[nodiscard]] std::optional<Symbol> try_sym() const noexcept {
@@ -277,8 +291,8 @@ public:
         return type_ == Type::Func ? static_cast<const FuncRecord*>(value_.p) : nullptr;
     }
     // Bit pattern of a Float node (0 otherwise); for exact comparisons.
-    [[nodiscard]] uint32_t float_bits() const noexcept {
-        return type_ == Type::Float ? std::bit_cast<uint32_t>(value_.f) : 0;
+    [[nodiscard]] uint64_t float_bits() const noexcept {
+        return type_ == Type::Float ? std::bit_cast<uint64_t>(value_.f) : 0;
     }
 
     // 24 spare bits, reserved for moira::script (resolved-handler generation; see
@@ -313,13 +327,13 @@ private:
     }
 #if MOIRA_EXCEPTIONS
     [[noreturn]] void type_error(Type expected) const;
-    [[noreturn]] void range_error(int32_t v) const;
+    [[noreturn]] void range_error() const;
 #endif
 
     union Value {
-        int32_t i;
-        float f;
-        uint32_t u;
+        int64_t i;
+        double f;
+        uint64_t u;
         const void* p;
     } value_;
     Type type_;

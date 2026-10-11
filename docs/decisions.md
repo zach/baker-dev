@@ -130,6 +130,7 @@ workload Moira doesn't have. Recorded so it isn't reinvented by accident.
   other backslash is literal, so Windows paths need no doubling. Strings may span lines.
 - **Quoted symbols** `'like this'` have no escapes and may span lines. They are never
   macro-expanded, which makes them the way to write a symbol that collides with a macro.
+- *Numeric ranges below were widened by D18.*
 - **Integers:** decimal must fit int32, or it is an error. `0x` hex may use all 32 bits
   and keeps its bit pattern (`0xFFFFFFFF` is -1), because hex is how flags and colors are
   written. A leading `+` or `-` is allowed on both.
@@ -219,3 +220,46 @@ well above the 40 MB/s target, so there is no reason yet for a lock-free table.
   260. As D2 predicted, the full scope will pass 4,000; candidates for trimming later are
   the `expected` shim (about 100 lines, gone once C++23 is the floor) and the error-message
   strings in the parser.
+
+## D18. Numbers are stored at 64 bits
+
+*Deviates from spec §1 ("Int/Float are deliberately 32-bit ... do not widen the storage").
+Decided 2026-10-11 after the core-types research (`background/core-types-references.md`).*
+
+Int is stored as `int64_t` and Float as `double`. The spec's reason for 32 bits was node
+size, but on the 64-bit targets Moira requires the payload is 8 bytes anyway because it
+holds pointers, so widening costs nothing; `sizeof(Node)` is still 16. Every reference
+value type examined stores scalars at 64 bits (Lua 5.4, Luau, Godot's Variant, UE5's
+doubles for world positions), and 32-bit floats represent integers exactly only to
+±2^24 and positions to roughly ±32 km.
+
+- **Reads:** `as_int()` returns `int64_t` and `as_float()` returns `double`. `as<T>()`
+  reads any arithmetic type, with a range check for narrower types (`as<int32_t>()`,
+  `as<uint8_t>()`, `as<float>()`). An int reads as a float (rounded beyond 2^53); a float
+  reads as an int only if integral and in range (D14 otherwise unchanged).
+- **Construction:** any integer or floating-point type converts to a Node, so `long`,
+  `int64_t` and `unsigned` no longer collide.
+- **Literals:** decimal integers must fit int64. A hex literal denotes its unsigned
+  value, so `0xFFFFFFFF` is 4294967295 (no longer -1), and hex above
+  `0x7FFFFFFFFFFFFFFF` is an out-of-range error rather than a silent negative. Floats
+  must be finite doubles; literals that overflow or underflow to zero (`1e309`,
+  `1e-400`) are errors, subnormals are fine.
+- **Parsing** uses vendored fast_float everywhere, not `std::from_chars`. libc++ only
+  gained double `from_chars` in LLVM 20, and Apple only ships it for iOS/macOS 26
+  deployment targets (verified against libc++'s `availability.h`), so the previous code did
+  not compile for Android NDK r28 and earlier or for older Apple targets. Using one parser
+  everywhere also makes edge cases (subnormals, out-of-range) identical on every platform.
+- **Printing** uses `std::to_chars` (shortest round-trip) except on Apple, where libc++
+  gates double `to_chars` behind newer deployment targets; there a portable formatter
+  picks the shortest `%g` that reads back exactly and normalizes the locale's decimal
+  point. Both are tested to round-trip 20,000 random doubles. CI gains a libc++ job.
+
+## D19. Object handles are 64-bit
+
+*Deviates from spec §5 (16-bit index + 16-bit salt). Refines D4.*
+
+`ObjectHandle` is a 32-bit table index plus a 32-bit salt, the layout of Unreal's
+`FWeakObjectPtr` (`ObjectIndex` + `ObjectSerialNumber`). 65,536 live objects per context
+is too few for current games, and EnTT's and flecs' defaults are far larger. The handle
+still fits the Node's 8-byte payload, so this costs nothing; moira::script (M5) is its
+first user.
