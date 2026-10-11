@@ -187,6 +187,18 @@ with room to spare, unless M8b's shapes are counted in it, which they are not (s
 
 ## Open questions
 
+**Answered 2026-10-11 (D53):**
+- **Q1, messages.** The recommended option, plus a broadcast `handle_all` that groups by
+  type.
+- **Q2, statistics.** Counts always; timing behind `set_profiling`.
+- **Q3, tracing.** Compiled out under shipping.
+
+The rest of M6 waits for the hygiene work in `docs/m5b-plan.md` (D54–D56). Note that D54
+removes the throwing forms, so `handle` exists only in its `Expected` form, and drops the
+`try_` prefix.
+
+The original options follow, for the record.
+
 **Q1. What does `handle` return, and is an unhandled message an error?**
 - **Recommended.** `try_handle(msg)` returns `Expected<Node>`: the handler's result
   converted as `to_result` does, Int 0 for `void`. An unhandled message is a `NotFound`

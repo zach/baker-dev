@@ -1130,3 +1130,128 @@ for the core is now 10,000 non-test, non-comment lines. The rest of D2 and D40 s
   of that is the two stores and the restore, and half is the larger frame. A nested
   evaluation inside a native function shares the Context's list, so its error records the
   outer calls too.
+
+## D53. M6: messages, statistics, and tracing answers
+
+*M6 plan Q1–Q3, answered by the project owner 2026-10-11 after the `acton-review` lens
+was written.*
+
+- **Q1, messages.** `obj.handle(msg)` returns `Expected<Node>`, and an unhandled message
+  is a `NotFound` error. `obj.handles<M>()` is a cheap check that allocates nothing.
+  - **New:** `handle_all(Span<ObjectBase*>, msg)` broadcasts one message.
+    It groups the objects by type, so the table search and the "is there a script
+    override?" check happen once per type, not once per object ("where there is one,
+    there are many"; no last-minute decisions).
+- **Q2, statistics.** Non-shipping builds always count calls, with one increment beside
+  the function record. Timing is off until `ctx.set_profiling(true)`. All of it compiles
+  out under `MOIRA_SHIPPING`.
+- **Q3, tracing.** Compiled out under `MOIRA_SHIPPING`. The API still compiles and does
+  nothing.
+
+M6's remaining steps (messages, statistics, tracing) wait for the hygiene work in D54–D56
+(`docs/m5b-plan.md`), so they are built on the new API from the start.
+
+## D54. No exceptions, and no `try_` prefix
+
+*Deviates from spec §6 ("every throwing API has a non-throwing twin", `MOIRA_NO_EXCEPTIONS`).
+Decided by the project owner 2026-10-11.*
+
+- **The throwing forms are removed.** Every fallible API returns `Expected<T>`. This
+  removes:
+  - `moira::Exception`;
+  - `detail::raise`;
+  - the `MOIRA_EXCEPTIONS` and `MOIRA_NO_EXCEPTIONS` switches and the CI job for them;
+  - D52's stack-recorder hook, which existed only for exceptions.
+
+  The library builds with exceptions disabled (`-fno-exceptions`, `/EHs-c-`) in every CI
+  job. A game that uses exceptions elsewhere can still link it.
+- **The `try_` prefix goes too.** With one form there is nothing to tell apart, and the
+  one-line API reads better: `ctx.eval`, `ctx.func`, `ctx.add`, `arr.find<T>`, and so on.
+  It is one mechanical rename across the API, tests, examples, and docs. `[[nodiscard]]`
+  on every `Expected` keeps a failure from being dropped silently.
+- **Native functions report failure by returning `Expected`,** as they already could. A
+  C++ exception escaping a native function is now the host's bug; Moira does not catch
+  it.
+- **Why.** A console codebase builds with exceptions off. A library that offers throwing
+  forms invites them into game code, and that is the entanglement the TD guards against
+  (`acton-review`, "Why the line is held"). Having one form also halves the API.
+
+## D55. Public headers are free of the standard library
+
+*Deviates from spec §6's silence on the subject (it requires only no iostream). Decided by
+the project owner 2026-10-11 (gap 11 of `acton-review`).*
+
+- **Public headers may include:**
+  - the language-support headers: `<cstddef>`, `<cstdint>`, `<type_traits>`, `<new>`,
+    `<bit>`, `<atomic>`, `<initializer_list>`, `<compare>`, `<concepts>`, `<utility>`, and
+    `<limits>`;
+  - the header-only, non-allocating standard vocabulary types: `<string_view>`, `<span>`,
+    and `<optional>`;
+  - `<expected>` where D21 chose it.
+
+  That rules out every container, `std::string`, `std::function`, `std::shared_ptr` and
+  `unique_ptr`, `<memory>`, `<functional>`, `<algorithm>`, and `<tuple>`. (The owner first
+  chose Moira-owned vocabulary types, then decided the same day that the std ones are fine:
+  they do not allocate, and reimplementing them buys nothing.)
+- **`Error` becomes a handle.** It is an owning pointer to an error record (code, message,
+  location, path, stack) allocated through the allocator (D56) on the error path only.
+  `Expected<Node>` shrinks from about 120 bytes to 24, which also closes gap 9.
+- **Callbacks** are a function pointer plus `void*`, as `NoticeSink` already is. No
+  `std::function`.
+- **Inside `src/`,** containers go through one internal alias layer (`src/common/containers.hpp`)
+  that maps to the STL by default, or to EASTL with `MOIRA_USE_EASTL=ON`, always with
+  Moira's allocator (D56). This follows the owner's rule: where reimplementing an STL
+  class would otherwise be needed, at least allow EASTL instead
+  (<https://github.com/electronicarts/EASTL>). Naked `std::` containers in `src/` are
+  not allowed.
+- **Checked in CI:** a test compiles each public header alone and fails if it reaches any
+  standard header outside the allowed list. It checks the preprocessor's dependency
+  output, not by eye. An EASTL job builds with `MOIRA_USE_EASTL=ON`.
+  EASTL is fetched for that job only and is not vendored.
+
+## D56. Per-Context allocators, and an arena per load
+
+*Gap 1 of `acton-review`. Decided by the project owner 2026-10-11.*
+
+- **The interface** is a plain struct of function pointers:
+  `struct Allocator { void* (*alloc)(void* user, size_t size, size_t align); void (*free)(void* user, void* p, size_t size); void* user; };`.
+  No virtual calls, and no STL.
+- **Who takes one.** Each `Context` and each `Config` takes one at construction. Every
+  allocation it makes goes through it: tables, script state, error records, and the trees
+  it loads. Process-wide state (the symbol table) uses a default allocator the host can
+  set once, before first use. By default, every allocator is `operator new`.
+- **Trees live in an arena per load.** Each load (a file, a `Config` layer, an `eval`
+  string) allocates its tree from arena blocks taken from the owner's allocator, and the
+  load frees them as a whole.
+  - There is no per-array free and no refcount inside a tree. The tree has one owner,
+    which also closes gap 5 and lines up with M8's load-in-place.
+  - Arrays built after load (`set`, macro expansion, script-built values) go to the
+    owner's scratch arena, which is collected at points the host chooses.
+- **Open, for the plan:** how values that outlive their load (a Node held in a variable,
+  a snapshot, D42) keep their tree alive. Candidates: a per-load refcount, with one count
+  per load rather than per array, or an explicit copy into the scratch arena.
+
+## D57. Hot and cold layout fixes wait for M8
+
+*Gaps 2, 2b, and 3 of `acton-review`. Decided by the project owner 2026-10-11.*
+
+The following are done together with the binary cache, while the tree layout is being
+redesigned anyway:
+- splitting method and function records into hot and cold parts;
+- moving the thunk and callable pointer into the dispatch table;
+- storing a run of contiguous tags beside a tree's children.
+
+M8's plan carries them, along with cold-cache benchmark rows (a working set larger than
+L2) to measure them.
+
+## D58. Task frames come from a pool with a frame budget
+
+*Gap 7 of `acton-review`, for the M7 plan. Decided by the project owner 2026-10-11.*
+
+- M7's coroutine promise type defines `operator new`, which draws from a per-Scheduler
+  pool of fixed-size blocks, taken from the Context's allocator (D56).
+- The frame budget is the block size. A frame's size is known only when it is allocated,
+  so an oversized frame fails at spawn: `get_return_object_on_allocation_failure` turns
+  it into an error naming the task. It never falls back to the heap.
+- The Scheduler steps tasks in a batch. Structural changes made during a step (`{new}`,
+  `{delete}`, registration) are queued and applied at a named sync point.
