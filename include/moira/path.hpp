@@ -13,19 +13,23 @@
 // '/', must be quoted.
 //
 // Parsing interns each name. Build a Path once (a static or a member) for lookups in a
-// hot loop; the string forms of get() parse on every call.
+// hot loop; the string forms of get() parse on every call. A Path holds its segments
+// inline, so building one never allocates; a path deeper than kMaxSegments is invalid
+// (docs/decisions.md D60).
 
 #include <moira/symbol.hpp>
+#include <moira/text.hpp>
 
+#include <cstddef>
 #include <cstdint>
-#include <string>
 #include <string_view>
-#include <vector>
 
 namespace moira {
 
 class Path {
 public:
+    static constexpr size_t kMaxSegments = 16;
+
     struct Segment {
         Symbol name;         // when !is_index
         uint32_t index = 0;  // when is_index
@@ -36,30 +40,37 @@ public:
     Path() = default;
     Path(std::string_view text);                              // NOLINT(google-explicit-constructor)
     Path(const char* text) : Path(std::string_view(text)) {}  // NOLINT
-    Path(const std::string& text) : Path(std::string_view(text)) {}  // NOLINT
 
     // False for malformed text (an empty segment, an unterminated quote, an index beyond
-    // 32 bits). Lookups along an invalid path fail with ErrorCode::Syntax.
+    // 32 bits, more than kMaxSegments segments). Lookups along an invalid path fail with
+    // ErrorCode::Syntax.
     [[nodiscard]] bool valid() const noexcept { return valid_; }
-    [[nodiscard]] size_t size() const noexcept { return segments_.size(); }
-    [[nodiscard]] bool empty() const noexcept { return segments_.empty(); }
+    [[nodiscard]] size_t size() const noexcept { return size_; }
+    [[nodiscard]] bool empty() const noexcept { return size_ == 0; }
     [[nodiscard]] const Segment& operator[](size_t i) const noexcept { return segments_[i]; }
 
-    // The first `count` segments, '/'-separated and quoted where needed, as in errors:
-    // menu/'bacon and eggs'. An invalid path gives the text it was parsed from.
-    [[nodiscard]] std::string to_string(size_t count = SIZE_MAX, char separator = '/') const;
+    // Writes the first `count` segments, '/'-separated and quoted where needed, as in
+    // errors: menu/'bacon and eggs'. An invalid path writes (the start of) the text it was
+    // parsed from. <moira/std_interop.hpp> has to_string(path).
+    void write(TextOut out, size_t count = SIZE_MAX, char separator = '/') const;
 
     // Whether `text` parses to this path; never allocates or interns.
     [[nodiscard]] bool matches(std::string_view text) const noexcept;
     friend bool operator==(const Path& a, const Path& b) noexcept {
-        return a.valid_ == b.valid_ && a.segments_ == b.segments_;
+        if (a.valid_ != b.valid_ || a.size_ != b.size_) return false;
+        for (size_t i = 0; i < a.size_; ++i)
+            if (!(a.segments_[i] == b.segments_[i])) return false;
+        return true;
     }
 
 private:
+    static constexpr size_t kBadText = 64;  // how much of an invalid path's text is kept
     bool parse(std::string_view text);
 
-    std::vector<Segment> segments_;
-    std::string bad_text_;  // only for an invalid path
+    Segment segments_[kMaxSegments];
+    uint32_t size_ = 0;
+    uint32_t bad_size_ = 0;
+    char bad_text_[kBadText] = {};  // only for an invalid path
     bool valid_ = true;
 };
 

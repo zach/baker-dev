@@ -3,6 +3,7 @@
 #include <moira/array.hpp>
 #include <moira/parse.hpp>
 #include <moira/path.hpp>
+#include <moira/std_interop.hpp>
 
 #include <cstdint>
 #include <vector>
@@ -12,14 +13,14 @@ namespace {
 
 LoadSession make_session() {
     LoadSession s;
-    s.set_reader([](const std::string&, std::string&) { return false; });
+    s.set_reader([](std::string_view, TextOut) { return false; });
     s.limits.max_depth = 64;
     s.limits.max_nodes = 1u << 16;
     return s;
 }
 
 bool located(const Error& e) {
-    return !e.message.empty() && e.file == Symbol("lookup.dta") && e.line >= 1;
+    return !e.message().empty() && e.file() == Symbol("lookup.dta") && e.line() >= 1;
 }
 
 // Sorted and linear find must agree on every tag among `a`'s children, and on `extra`.
@@ -64,7 +65,7 @@ bool check_lookup(std::string_view data) {
         bool quotes = false;
         for (size_t i = 0; i < path.size(); ++i)
             quotes |= !path[i].is_index && path[i].name.str().find('\'') != std::string_view::npos;
-        const Path again(path.to_string());
+        const Path again(to_string(path));
         if (!quotes) {
             if (!again.valid() || again.size() != path.size()) return false;
             for (size_t i = 0; i < path.size(); ++i)
@@ -72,30 +73,30 @@ bool check_lookup(std::string_view data) {
                     again[i].name != path[i].name)
                     return false;
         }
-    } else if (path.to_string() != path_text) {
+    } else if (!path_text.starts_with(to_string(path))) {  // an invalid path keeps a prefix
         return false;
     }
 
     LoadSession s = make_session();
-    auto root = try_read_string(text, "lookup.dta", s);
+    auto root = read_string(text, "lookup.dta", s);
     if (!root) return true;  // check_parse covers parse errors
     const Array& r = **root;
 
     const Array* arr = r.try_get(path);
-    auto as_node = r.try_get<Node>(path);
-    auto as_float = r.try_get<double>(path);
-    auto as_list = r.try_get<std::vector<Symbol>>(path);
-    auto with_fallback = r.try_get<int64_t>(path, 7);
+    auto as_node = r.get<Node>(path);
+    auto as_float = r.get<double>(path);
+    auto as_list = r.get<std::vector<Symbol>>(path);
+    auto with_fallback = r.get<int64_t>(path, 7);
     for (const Error* e :
          {as_node ? nullptr : &as_node.error(), as_float ? nullptr : &as_float.error(),
           as_list ? nullptr : &as_list.error(), with_fallback ? nullptr : &with_fallback.error()})
         if (e && !located(*e)) return false;
     if (!path.valid() && (arr || as_node || with_fallback)) return false;
-    if (arr && !as_list && as_list.error().code == ErrorCode::NotFound) return false;
+    if (arr && !as_list && as_list.error().code() == ErrorCode::NotFound) return false;
 
     const Symbol first =
         path.valid() && !path.empty() && !path[0].is_index ? path[0].name : Symbol("x");
-    if (auto e = r.try_find_float(first); !e && !located(e.error())) return false;
+    if (auto e = r.find_float(first); !e && !located(e.error())) return false;
     uint64_t budget = 2000;
     return check_arrays(r, first, budget);
 }

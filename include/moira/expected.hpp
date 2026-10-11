@@ -28,10 +28,9 @@
 #if MOIRA_HAS_STD_EXPECTED
 #include <expected>
 #else
-#include <optional>
+#include <new>
 #include <type_traits>
 #include <utility>
-#include <variant>
 #endif
 
 #include <cstdlib>
@@ -70,55 +69,101 @@ public:
     using value_type = T;
     using error_type = E;
 
-    expected() : v_(std::in_place_index<0>) {}
-    expected(const T& v) : v_(std::in_place_index<0>, v) {}  // NOLINT(google-explicit-constructor)
-    expected(T&& v) : v_(std::in_place_index<0>, std::move(v)) {}  // NOLINT
+    expected() : ok_(true) { new (&v_) T(); }
+    expected(const T& v) : ok_(true) { new (&v_) T(v); }  // NOLINT(google-explicit-constructor)
+    expected(T&& v) : ok_(true) { new (&v_) T(std::move(v)); }  // NOLINT
     template <class G>
-    expected(unexpected<G> u)  // NOLINT(google-explicit-constructor)
-        : v_(std::in_place_index<1>, std::move(u).error()) {}
+    expected(unexpected<G> u) : ok_(false) {  // NOLINT(google-explicit-constructor)
+        new (&e_) E(std::move(u).error());
+    }
+    expected(const expected& o) : ok_(o.ok_) {
+        if (ok_)
+            new (&v_) T(o.v_);
+        else
+            new (&e_) E(o.e_);
+    }
+    expected(expected&& o) noexcept : ok_(o.ok_) {
+        if (ok_)
+            new (&v_) T(std::move(o.v_));
+        else
+            new (&e_) E(std::move(o.e_));
+    }
+    expected& operator=(const expected& o) {
+        if (this != &o) {
+            destroy();
+            ok_ = o.ok_;
+            if (ok_)
+                new (&v_) T(o.v_);
+            else
+                new (&e_) E(o.e_);
+        }
+        return *this;
+    }
+    expected& operator=(expected&& o) noexcept {
+        if (this != &o) {
+            destroy();
+            ok_ = o.ok_;
+            if (ok_)
+                new (&v_) T(std::move(o.v_));
+            else
+                new (&e_) E(std::move(o.e_));
+        }
+        return *this;
+    }
+    ~expected() { destroy(); }
 
-    [[nodiscard]] bool has_value() const noexcept { return v_.index() == 0; }
-    explicit operator bool() const noexcept { return has_value(); }
+    [[nodiscard]] bool has_value() const noexcept { return ok_; }
+    explicit operator bool() const noexcept { return ok_; }
 
-    [[nodiscard]] const T& operator*() const& noexcept { return *std::get_if<0>(&v_); }
-    [[nodiscard]] T& operator*() & noexcept { return *std::get_if<0>(&v_); }
-    [[nodiscard]] T&& operator*() && noexcept { return std::move(*std::get_if<0>(&v_)); }
-    [[nodiscard]] const T* operator->() const noexcept { return std::get_if<0>(&v_); }
-    [[nodiscard]] T* operator->() noexcept { return std::get_if<0>(&v_); }
+    [[nodiscard]] const T& operator*() const& noexcept { return v_; }
+    [[nodiscard]] T& operator*() & noexcept { return v_; }
+    [[nodiscard]] T&& operator*() && noexcept { return std::move(v_); }
+    [[nodiscard]] const T* operator->() const noexcept { return &v_; }
+    [[nodiscard]] T* operator->() noexcept { return &v_; }
 
     [[nodiscard]] const T& value() const& {
         check();
-        return **this;
+        return v_;
     }
     [[nodiscard]] T& value() & {
         check();
-        return **this;
+        return v_;
     }
     [[nodiscard]] T&& value() && {
         check();
-        return std::move(**this);
+        return std::move(v_);
     }
     template <class U>
     [[nodiscard]] T value_or(U&& fallback) const& {
-        return has_value() ? **this : static_cast<T>(std::forward<U>(fallback));
+        return ok_ ? v_ : static_cast<T>(std::forward<U>(fallback));
     }
 
-    [[nodiscard]] const E& error() const& noexcept { return *std::get_if<1>(&v_); }
-    [[nodiscard]] E& error() & noexcept { return *std::get_if<1>(&v_); }
-    [[nodiscard]] E&& error() && noexcept { return std::move(*std::get_if<1>(&v_)); }
+    [[nodiscard]] const E& error() const& noexcept { return e_; }
+    [[nodiscard]] E& error() & noexcept { return e_; }
+    [[nodiscard]] E&& error() && noexcept { return std::move(e_); }
 
     // As std::expected: equal to a value when it holds one that compares equal.
     template <class U>
         requires(!std::is_same_v<std::remove_cvref_t<U>, expected>)
     friend bool operator==(const expected& x, const U& v) {
-        return x.has_value() && *x == v;
+        return x.ok_ && x.v_ == v;
     }
 
 private:
     void check() const {
-        if (!has_value()) detail::throw_bad_expected_access(error());
+        if (!ok_) detail::throw_bad_expected_access(e_);
     }
-    std::variant<T, E> v_;
+    void destroy() noexcept {
+        if (ok_)
+            v_.~T();
+        else
+            e_.~E();
+    }
+    union {
+        T v_;
+        E e_;
+    };
+    bool ok_;
 };
 
 template <class E>
@@ -129,18 +174,19 @@ public:
 
     expected() = default;
     template <class G>
-    expected(unexpected<G> u) : e_(std::move(u).error()) {}  // NOLINT
+    expected(unexpected<G> u) : e_(std::move(u).error()), failed_(true) {}  // NOLINT
 
-    [[nodiscard]] bool has_value() const noexcept { return !e_.has_value(); }
-    explicit operator bool() const noexcept { return has_value(); }
+    [[nodiscard]] bool has_value() const noexcept { return !failed_; }
+    explicit operator bool() const noexcept { return !failed_; }
     void value() const {
-        if (e_) detail::throw_bad_expected_access(*e_);
+        if (failed_) detail::throw_bad_expected_access(e_);
     }
-    [[nodiscard]] const E& error() const& noexcept { return *e_; }
-    [[nodiscard]] E& error() & noexcept { return *e_; }
+    [[nodiscard]] const E& error() const& noexcept { return e_; }
+    [[nodiscard]] E& error() & noexcept { return e_; }
 
 private:
-    std::optional<E> e_;
+    E e_{};  // default-constructed (empty) when there is no error
+    bool failed_ = false;
 };
 
 #endif

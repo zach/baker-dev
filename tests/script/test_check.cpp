@@ -2,19 +2,22 @@
 #include <doctest.h>
 #include <moira/parse.hpp>
 #include <moira/script.hpp>
+#include <moira/std_script.hpp>
 
 #include <algorithm>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include <string>
+#include "ok.hpp"
 
 using namespace moira;
+using moira::test::ok;
 
 namespace {
 
 Ref<Array> parse(std::string_view text, std::string_view name) {
-    auto r = try_read_string(text, name);
+    auto r = read_string(text, name);
     REQUIRE(r);
     return *r;
 }
@@ -24,7 +27,7 @@ Ref<Array> parse(std::string_view text, std::string_view name) {
 TEST_CASE("check catches a wrong-arity call at load, without evaluating anything") {
     Context ctx;
     int runs = 0;
-    REQUIRE(ctx.try_func("spawn", [&](Symbol, int64_t) { return ++runs; }));
+    REQUIRE(ctx.func("spawn", [&](Symbol, int64_t) { return ++runs; }));
     const auto tree = parse(
         "(level\n"
         "  (on_enter {spawn grunt 3})\n"
@@ -43,8 +46,8 @@ TEST_CASE("check catches a wrong-arity call at load, without evaluating anything
 
 TEST_CASE("check skips what it cannot know before running") {
     Context ctx;
-    REQUIRE(ctx.try_func("spawn", [](Symbol, int64_t n) { return n; }));
-    REQUIRE(ctx.try_func("log", [](Args a) { return int64_t(a.size()); }));
+    REQUIRE(ctx.func("spawn", [](Symbol, int64_t n) { return n; }));
+    REQUIRE(ctx.func("log", [](Args a) { return int64_t(a.size()); }));
     const auto tree = parse(
         "{spawn grunt {+ 1 2}}\n"  // a command argument: type unknown until run
         "{spawn grunt $count}\n"   // a variable
@@ -63,11 +66,11 @@ TEST_CASE("check: literal types against overloads, and {set} needs a variable") 
     const auto tree = parse("{+ 1 two}\n{set x 1}\n{not}\n", "bad.dta");
     const CheckReport report = check(*tree, ctx);
     REQUIRE(report.errors.size() == 3);
-    CHECK(report.errors[0].message ==
+    CHECK(report.errors[0].message() ==
           "'+' is given (int symbol); it takes (int int) (float float)");
-    CHECK(report.errors[1].message == "'set' is given (symbol int); it takes ($variable value)");
-    CHECK(report.errors[2].message == "'not' takes 1 argument, given 0");
-    CHECK(report.errors[2].line == 3);
+    CHECK(report.errors[1].message() == "'set' is given (symbol int); it takes ($variable value)");
+    CHECK(report.errors[2].message() == "'not' takes 1 argument, given 0");
+    CHECK(report.errors[2].line() == 3);
 }
 
 TEST_CASE("the demand report lists unresolved heads and stubs with every call site") {
@@ -94,7 +97,7 @@ TEST_CASE("the demand report lists unresolved heads and stubs with every call si
     CHECK(report.demand[1].name == Symbol("boss.taunt"));
     CHECK(report.demand[1].stub);
     CHECK(
-        report.to_string() ==
+        to_string(report) ==
         "moira: 'helper' takes 1 argument, given 2  (boss.dta:7)\n"
         "demand: 'boss.find_cover' is not defined, called at boss.dta:3, boss.dta:5, arena.dta:1\n"
         "demand: 'boss.taunt' is a stub, called at boss.dta:3\n");
@@ -102,7 +105,7 @@ TEST_CASE("the demand report lists unresolved heads and stubs with every call si
 
 TEST_CASE("check over the corpus's scripts, with their functions registered by arity") {
     Context ctx;
-    auto tree = try_read_file(MOIRA_CORPUS_DIR "/scripts.dta");
+    auto tree = read_file(MOIRA_CORPUS_DIR "/scripts.dta");
     REQUIRE(tree);
     CheckReport report = check(**tree, ctx);
     // Everything the fixture calls is reported as demand; nothing is an error yet.
@@ -110,18 +113,18 @@ TEST_CASE("check over the corpus's scripts, with their functions registered by a
     // Stub each demanded head with a variadic native, as a harness growing the vocabulary
     // would; then the report is clean.
     for (const auto& d : report.demand)
-        REQUIRE(ctx.try_func(d.name, [](Args a) { return int64_t(a.size()); }));
+        REQUIRE(ctx.func(d.name, [](Args a) { return int64_t(a.size()); }));
     report = check(**tree, ctx);
     CHECK(report.errors.empty());
     CHECK(report.demand.empty());
-    MESSAGE(report.to_string());
+    MESSAGE(to_string(report));
 }
 
 TEST_CASE("docs/script-reference.md matches the code") {
     Context ctx;
     const std::string generated = reference(ctx);
     const std::string path = MOIRA_SOURCE_DIR "/docs/script-reference.md";
-    if (std::getenv("MOIRA_UPDATE_REFERENCE")) REQUIRE(try_write_reference(ctx, path));
+    if (std::getenv("MOIRA_UPDATE_REFERENCE")) REQUIRE(write_reference(ctx, path));
     std::ifstream in(path, std::ios::binary);
     std::stringstream s;
     s << in.rdbuf();

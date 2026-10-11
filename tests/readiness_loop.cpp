@@ -3,6 +3,7 @@
 // an experiment compared A/B without touching shared files, and a return to an exact state.
 #include <doctest.h>
 #include <moira/config.hpp>
+#include <moira/std_interop.hpp>
 
 #include "alloc_counter.hpp"
 #include "temp_dir.hpp"
@@ -46,8 +47,8 @@ TEST_CASE("readiness loop: edit, see, tune, save, experiment, and return") {
     // 2. A tweak bound to the tunable.
     Tweak<float> cadence{"warden.cadence", 2.0f, {.range = {0.2, 5}}, reg};
     Config cfg({.tweaks = &reg});
-    REQUIRE(cfg.try_push_layer("default", dir.path("default.dta")));
-    REQUIRE(cfg.try_push_layer("local", dir.path("local/designer.dta"), {.optional = true}));
+    REQUIRE(cfg.push_layer("default", dir.path("default.dta")));
+    REQUIRE(cfg.push_layer("local", dir.path("local/designer.dta"), {.optional = true}));
     CHECK(float(cadence) == 1.8f);
     CHECK(cadence.note() == "feels unfair below 1.0 on handheld");
     if (counting) CHECK(read_allocations(cadence) == 0);
@@ -59,7 +60,7 @@ TEST_CASE("readiness loop: edit, see, tune, save, experiment, and return") {
     edited.replace(edited.find("1.8"), 3, "1.5");
     dir.write("default.dta", edited);
     const uint64_t saved_at = clock.t;
-    REQUIRE(cfg.try_reload({.trigger = "test"_sym, .origin_ns = saved_at}) == true);
+    REQUIRE(cfg.reload({.trigger = "test"_sym, .origin_ns = saved_at}) == true);
     CHECK(float(cadence) == 1.5f);
     const auto rec = cfg.last_reload();
     REQUIRE(rec);
@@ -83,25 +84,24 @@ TEST_CASE("readiness loop: edit, see, tune, save, experiment, and return") {
     CHECK(rec->epoch == cfg.epoch());
 
     // 4. Tune in play, then save: a one-line diff with the comment and note intact.
-    REQUIRE(cfg.try_set("warden.cadence", Node(1.25)));
+    REQUIRE(cfg.set("warden.cadence", Node(1.25)));
     CHECK(float(cadence) == 1.25f);
-    CHECK(cfg.try_source("warden.cadence")->layer == "scratch");
-    REQUIRE(cfg.try_write_back("warden.cadence"));
+    CHECK(cfg.source("warden.cadence")->layer == "scratch");
+    REQUIRE(cfg.write_back("warden.cadence"));
     const std::string saved = dir.read("default.dta");
     CHECK(test::diff_lines(edited, saved) ==
           std::vector<std::string>{
               "-   (cadence 1.5 (note \"feels unfair below 1.0 on handheld\"))   ; seconds",
               "+   (cadence 1.25 (note \"feels unfair below 1.0 on handheld\"))   ; seconds"});
     CHECK(cfg.unsaved().empty());
-    const Source source = *cfg.try_source("warden.cadence");
+    const Source source = *cfg.source("warden.cadence");
     CHECK(source.layer == "default");
     CHECK(source.line == 3);
 
     // 5. An experiment layer, compared A/B by toggling, without touching shared files.
-    REQUIRE(
-        cfg.try_push_layer("experiment", dir.write("experiment.dta", "(warden (cadence 0.9))\n")));
+    REQUIRE(cfg.push_layer("experiment", dir.write("experiment.dta", "(warden (cadence 0.9))\n")));
     CHECK(float(cadence) == 0.9f);
-    const auto effect = cfg.try_layer_effect("experiment");
+    const auto effect = cfg.layer_effect("experiment");
     REQUIRE(effect);
     REQUIRE(effect->size() == 1);
     CHECK((*effect)[0].path == "warden.cadence");
@@ -109,23 +109,24 @@ TEST_CASE("readiness loop: edit, see, tune, save, experiment, and return") {
     CHECK((*effect)[0].below->try_float() == 1.25);
     CHECK((*effect)[0].below_source->layer == "default");
     CHECK_FALSE((*effect)[0].shadowed);
-    CHECK(cfg.try_toggle_layer("experiment") == false);
+    CHECK(cfg.toggle_layer("experiment") == false);
     CHECK(float(cadence) == 1.25f);  // variant A
-    CHECK(cfg.try_toggle_layer("experiment") == true);
+    CHECK(cfg.toggle_layer("experiment") == true);
     CHECK(float(cadence) == 0.9f);  // variant B
     CHECK(dir.read("default.dta") == saved);
 
     // 6. Snapshot, disturb the stack, and come back exactly.
     const ConfigSnapshot snap = cfg.snapshot();
     const Ref<Array> before = cfg.root();
-    REQUIRE(cfg.try_toggle_layer("experiment"));
-    REQUIRE(cfg.try_push_layer("patch", dir.write("patch.dta", "(warden (hp 900))\n")));
-    REQUIRE(cfg.try_set("warden.cadence", Node(3.0)));
-    REQUIRE(cfg.try_restore(snap));
+    REQUIRE(cfg.toggle_layer("experiment"));
+    REQUIRE(cfg.push_layer("patch", dir.write("patch.dta", "(warden (hp 900))\n")));
+    REQUIRE(cfg.set("warden.cadence", Node(3.0)));
+    REQUIRE(cfg.restore(snap));
     CHECK(structurally_equal(*cfg.root(), *before));
     CHECK(float(cadence) == 0.9f);
-    CHECK(cfg.try_source("warden.cadence")->layer == "experiment");
-    CHECK(cfg.layers() == std::vector<std::string>{"default", "local", "experiment", "scratch"});
+    CHECK(cfg.source("warden.cadence")->layer == "experiment");
+    CHECK(strings(cfg.layers()) ==
+          std::vector<std::string>{"default", "local", "experiment", "scratch"});
     CHECK(cfg.last_reload()->trigger == Symbol("restore"));
 
     // 7. Reload telemetry and tweak reads allocate nothing.
@@ -133,9 +134,9 @@ TEST_CASE("readiness loop: edit, see, tune, save, experiment, and return") {
         CHECK(read_allocations(cadence) == 0);
         auto reload_allocations = [&](size_t history) {
             cfg.set_reload_history(history);
-            for (int i = 0; i < 4; ++i) (void)cfg.try_reload();
+            for (int i = 0; i < 4; ++i) (void)cfg.reload();
             test::AllocationScope scope;
-            for (int i = 0; i < 16; ++i) (void)cfg.try_reload();
+            for (int i = 0; i < 16; ++i) (void)cfg.reload();
             return scope.count();
         };
         CHECK(reload_allocations(4) == reload_allocations(0));

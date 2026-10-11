@@ -30,7 +30,9 @@ Expected<Node> define(Args a, bool override) {
         return Unexpected(a.error(std::string("write {") + form + " name ($params...) body...}",
                                   ErrorCode::Syntax));
     const Symbol name = *a.raw(0).try_sym();
-    auto body = std::make_shared<ScriptBody>();
+    detail::Shared holder = detail::Shared::make<ScriptBody>();
+    // Filled here, before any other reference to it exists.
+    auto* body = const_cast<ScriptBody*>(static_cast<const ScriptBody*>(holder.get()));
     if (!parse_params(*a.raw(1).try_array(), *body))
         return Unexpected(
             a.error("parameters of " + quoted(name) + " must be $variables", ErrorCode::Syntax));
@@ -70,10 +72,11 @@ Expected<Node> define(Args a, bool override) {
     detail::Overload o;
     o.thunk = &run_script;
     o.min_args = o.max_args = static_cast<uint32_t>(body->params.size());
-    for (size_t k = 0; k < body->params.size(); ++k)
-        o.params.push_back({"value", detail::ParamKind::Value, nullptr, false});
+    body->param_info.assign(body->params.size(),
+                            detail::ParamInfo{"value", detail::ParamKind::Value, nullptr, false});
+    o.params = body->param_info;
     o.result = "value";
-    o.callable = std::move(body);
+    o.callable = std::move(holder);
     f.tier = Tier::Script;
     f.status = status;
     f.replacement = replacement;
@@ -101,7 +104,7 @@ Expected<Node> Context::Impl::run_script(const ScriptBody& body, Args& args,
                                          const Node* this_node) {
     const size_t first = kept.size();
     for (size_t i = 0; i < args.size(); ++i) {
-        auto r = args.try_eval(i);
+        auto r = args.eval(i);
         if (!r) return r;
         kept.push_back(std::move(*r));
     }
@@ -125,7 +128,7 @@ bool equal(const Node& a, const Node& b) noexcept {
 
 template <class F>
 void add(Context& ctx, Symbol name, F&& f, std::string_view doc = {}) {
-    auto r = ctx.try_func(name, std::forward<F>(f));
+    auto r = ctx.func(name, std::forward<F>(f));
     if (r && !doc.empty()) r->doc(doc);
 }
 
@@ -136,8 +139,8 @@ void register_builtins(Context& ctx) {
     add(
         ctx, "if",
         [](bool cond, Raw<Node> then, std::optional<Raw<Node>> otherwise) -> Expected<Node> {
-            if (cond) return then.try_eval();
-            if (otherwise) return otherwise->try_eval();
+            if (cond) return then.eval();
+            if (otherwise) return otherwise->eval();
             return Node();
         },
         "`{if cond then [else]}`: evaluates `then` if `cond` is true, else `else` if given "
@@ -145,7 +148,7 @@ void register_builtins(Context& ctx) {
     add(
         ctx, "set",
         [](Raw<Var> place, Node value) -> Expected<Node> {
-            auto r = place.try_store(value);
+            auto r = place.store(value);
             if (!r) return Unexpected(std::move(r).error());
             return value;
         },
@@ -175,7 +178,7 @@ void register_builtins(Context& ctx) {
             }
             Node last;
             for (size_t i = from; i < a.size(); ++i) {
-                auto r = a.try_eval(i);
+                auto r = a.eval(i);
                 if (!r) return r;
                 last = std::move(*r);
             }
@@ -233,7 +236,7 @@ void register_builtins(Context& ctx) {
         ctx, "and",
         [](Args a) -> Expected<bool> {
             for (size_t i = 0; i < a.size(); ++i) {
-                auto v = a.try_get<bool>(i);
+                auto v = a.get<bool>(i);
                 if (!v || !*v) return v;
             }
             return true;
@@ -243,7 +246,7 @@ void register_builtins(Context& ctx) {
         ctx, "or",
         [](Args a) -> Expected<bool> {
             for (size_t i = 0; i < a.size(); ++i) {
-                auto v = a.try_get<bool>(i);
+                auto v = a.get<bool>(i);
                 if (!v || *v) return v;
             }
             return false;

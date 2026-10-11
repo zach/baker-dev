@@ -42,8 +42,8 @@ int main(int argc, char** argv) {
     show();  // the default: no config yet
 
     moira::Config cfg;
-    if (auto r = cfg.try_load(path); !r) {
-        std::fprintf(stderr, "%s\n", moira::to_string(r.error()).c_str());
+    if (auto r = cfg.load(path); !r) {
+        std::fprintf(stderr, "%s\n", moira::to_string(r.error()).data());
         return 1;
     }
     std::printf("after loading:  ");
@@ -55,8 +55,8 @@ int main(int argc, char** argv) {
     });
     while (watch) {
         std::this_thread::sleep_for(std::chrono::milliseconds(250));
-        if (auto r = cfg.try_reload(); !r)
-            std::fprintf(stderr, "%s\n", moira::to_string(r.error()).c_str());
+        if (auto r = cfg.reload(); !r)
+            std::fprintf(stderr, "%s\n", moira::to_string(r.error()).data());
     }
     return 0;
 }

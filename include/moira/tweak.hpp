@@ -35,14 +35,13 @@
 #include <moira/array.hpp>
 #include <moira/path.hpp>
 
+#include <moira/callback.hpp>
+
 #include <atomic>
-#include <functional>
-#include <memory>
 #include <span>
 #include <string_view>
 #include <type_traits>
 #include <utility>
-#include <vector>
 
 namespace moira {
 
@@ -86,21 +85,19 @@ public:
     [[nodiscard]] std::string_view kind() const;
     [[nodiscard]] std::string_view group() const;
 
-    // The current value as data, for a generic tuning panel (empty if T cannot be written).
-    [[nodiscard]] virtual std::vector<Node> values() const = 0;
-    // Sets the value from data, as a panel would; see Tweak<T>::try_set.
-    [[nodiscard]] Expected<void> try_set_values(std::span<const Node> values);
+    // Appends the current value as data to `out`, for a generic tuning panel (nothing if T
+    // cannot be written).
+    virtual void values(ValueList& out) const = 0;
+    // Sets the value from data, as a panel would; see Tweak<T>::set.
+    [[nodiscard]] Expected<void> set_values(std::span<const Node> values);
 
-    // Where the current value came from: layer, file, and line (Config::try_source).
+    // Where the current value came from: layer, file, and line (Config::source).
     [[nodiscard]] Expected<Source> source() const;
-    // Writes the current value back to the file it came from (Config::try_write_back).
-    [[nodiscard]] Expected<void> try_write_back();
-#if MOIRA_EXCEPTIONS
-    void write_back();
-#endif
+    // Writes the current value back to the file it came from (Config::write_back).
+    [[nodiscard]] Expected<void> write_back();
 
     // Called after the value changes, on the thread that changed it.
-    void on_change(std::function<void()> callback);
+    void on_change(Callback<void()> callback);
 
 protected:
     TweakBase(const char* path, const TweakMeta& meta, TweakRegistry& registry) noexcept
@@ -123,7 +120,7 @@ private:
 
     // Rebinds against `root` (a Config's merged tree); true if the value changed. Reports
     // a value that does not convert through `warn`.
-    bool bind(const Array& root, const std::function<void(const Error&)>& warn);
+    bool bind(const Array& root, const Callback<void(const Error&)>& warn);
     bool unbind();
     void notify();
     const Path& parsed();
@@ -134,12 +131,12 @@ private:
     TweakRegistry* registry_;
     TweakBase* prev_ = nullptr;
     TweakBase* next_ = nullptr;
-    // Created on first use, not at registration: even an empty std::vector or
-    // std::string allocates in MSVC's debug library, and registration allocates nothing.
-    std::unique_ptr<Path> parsed_;
+    // Made on first use, not at registration, so registering allocates nothing; freed by
+    // detach(). Their types are defined in tweak.cpp.
+    struct Extra;
+    Extra* extra_ = nullptr;
     Ref<Array> bound_;                // the array holding the value; null when unbound
     uint32_t first_ = 0, count_ = 0;  // the value's nodes within bound_
-    std::unique_ptr<std::vector<std::function<void()>>> on_change_;
 };
 
 // The set of live tweaks, as an intrusive list: adding one allocates nothing. The global
@@ -214,24 +211,17 @@ public:
     // A live edit: through the Config, so it shows in source() as layer "live" and can be
     // written back; without a Config, the value changes directly. Refused under
     // MOIRA_SHIPPING. Needs Convert<T>::to.
-    [[nodiscard]] Expected<void> try_set(const T& v) {
+    [[nodiscard]] Expected<void> set(const T& v) {
         ValueList list;
         Convert<T>::to(v, list);
-        return try_set_values(list.nodes());
+        return set_values(list.nodes());
     }
-#if MOIRA_EXCEPTIONS
-    void set(const T& v) {
-        if (auto r = try_set(v); !r) detail::raise(std::move(r).error());
-    }
-#endif
 
-    [[nodiscard]] std::vector<Node> values() const override {
-        ValueList list;
+    void values(ValueList& out) const override {
         if constexpr (requires {
                           Convert<T>::to(std::declval<const T&>(), std::declval<ValueList&>());
                       })
-            Convert<T>::to(value(), list);
-        return std::move(list.nodes());
+            Convert<T>::to(value(), out);
     }
 
 private:

@@ -10,8 +10,8 @@
 #include <moira/array.hpp>
 #include <moira/error.hpp>
 #include <moira/node.hpp>
+#include <moira/text.hpp>
 
-#include <string>
 #include <string_view>
 
 namespace moira {
@@ -21,25 +21,17 @@ struct WriteOptions {
     int width = 80;  // arrays that fit within this many columns stay on one line
 };
 
-// Compact single-line form of a node: (price 12.75).
-[[nodiscard]] std::string to_string(const Node& node);
-// Compact single-line form of an array, with parentheses.
-[[nodiscard]] std::string to_string(const Array& array);
+// Writes the compact single-line form of a node: (price 12.75).
+void write(const Node& node, TextOut out);
+// Writes the compact single-line form of an array, with parentheses.
+void write(const Array& array, TextOut out);
 
-// File form of a root array: each top-level node on its own line, pretty-printed, no
-// enclosing parentheses. read_string(to_dta(root)) is structurally equal to root.
-[[nodiscard]] std::string to_dta(const Array& root, const WriteOptions& options = {});
+// Writes the file form of a root array: each top-level node on its own line,
+// pretty-printed, no enclosing parentheses. Reading it back gives a structurally equal
+// tree. <moira/std_interop.hpp> has to_string(node) and to_dta(root), returning strings.
+void write_dta(const Array& root, TextOut out, const WriteOptions& options = {});
 
-[[nodiscard]] Expected<void> try_write_file(std::string_view path, const Array& root,
-                                            const WriteOptions& options = {});
-#if MOIRA_EXCEPTIONS
-void write_file(std::string_view path, const Array& root, const WriteOptions& options = {});
-#endif
-
-namespace detail {
-// At most about `max_chars` of the compact form, ending in "..." if cut. Safe on huge or
-// heavily shared trees; for error messages.
-[[nodiscard]] std::string preview(const Node& node, size_t max_chars = 40);
-}  // namespace detail
+[[nodiscard]] Expected<void> write_file(std::string_view path, const Array& root,
+                                        const WriteOptions& options = {});
 
 }  // namespace moira

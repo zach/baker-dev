@@ -2,6 +2,11 @@
 #include <moira/tweak.hpp>
 #include <moira/write.hpp>
 
+#include "text.hpp"
+
+#include <optional>
+#include <vector>
+
 namespace moira {
 namespace {
 
@@ -34,6 +39,11 @@ size_t TweakRegistry::size() const noexcept {
 
 // --- TweakBase ---
 
+struct TweakBase::Extra {
+    std::optional<Path> parsed;
+    std::vector<Callback<void()>> on_change;
+};
+
 void TweakBase::attach() {
     registry_->lock();
     next_ = registry_->head_;
@@ -52,11 +62,14 @@ void TweakBase::detach() noexcept {
     if (next_) next_->prev_ = prev_;
     prev_ = next_ = nullptr;
     registry_->unlock();
+    delete extra_;
+    extra_ = nullptr;
 }
 
 const Path& TweakBase::parsed() {
-    if (!parsed_) parsed_ = std::make_unique<Path>(path_);
-    return *parsed_;
+    if (!extra_) extra_ = new Extra();
+    if (!extra_->parsed) extra_->parsed.emplace(path_);
+    return *extra_->parsed;
 }
 
 bool TweakBase::unbind() {
@@ -66,7 +79,7 @@ bool TweakBase::unbind() {
     return true;
 }
 
-bool TweakBase::bind(const Array& root, const std::function<void(const Error&)>& warn) {
+bool TweakBase::bind(const Array& root, const Callback<void(const Error&)>& warn) {
     const Path& path = parsed();
     if constexpr (kShipping) {
         if (meta_.dev_only) return unbind();
@@ -98,16 +111,16 @@ bool TweakBase::bind(const Array& root, const std::function<void(const Error&)>&
 }
 
 void TweakBase::notify() {
-    if (on_change_)
-        for (const auto& f : *on_change_) f();
+    if (extra_)
+        for (const auto& f : extra_->on_change) f();
 }
 
-void TweakBase::on_change(std::function<void()> callback) {
-    if (!on_change_) on_change_ = std::make_unique<std::vector<std::function<void()>>>();
-    on_change_->push_back(std::move(callback));
+void TweakBase::on_change(Callback<void()> callback) {
+    if (!extra_) extra_ = new Extra();
+    extra_->on_change.push_back(std::move(callback));
 }
 
-Expected<void> TweakBase::try_set_values(std::span<const Node> values) {
+Expected<void> TweakBase::set_values(std::span<const Node> values) {
     if constexpr (kShipping)
         return Unexpected(
             make_error(ErrorCode::Refused, "live edits are disabled under MOIRA_SHIPPING"));
@@ -119,7 +132,7 @@ Expected<void> TweakBase::try_set_values(std::span<const Node> values) {
             make_error(ErrorCode::Type, "'" + std::string(path_) + "' cannot be set to (" + text +
                                             "), which is not " + std::string(info().name)));
     }
-    if (Config* c = registry_->config()) return c->try_set(parsed(), values);
+    if (Config* c = registry_->config()) return c->set(parsed(), values);
     (void)assign(v, true);
     notify();
     return {};
@@ -130,23 +143,17 @@ Expected<Source> TweakBase::source() const {
     if (!c)
         return Unexpected(
             make_error(ErrorCode::NotFound, "'" + std::string(path_) + "' has no config"));
-    return c->try_source(const_cast<TweakBase*>(this)->parsed());
+    return c->source(const_cast<TweakBase*>(this)->parsed());
 }
 
-Expected<void> TweakBase::try_write_back() {
+Expected<void> TweakBase::write_back() {
     Config* c = registry_->config();
     if (!c)
         return Unexpected(
             make_error(ErrorCode::NotFound, "'" + std::string(path_) + "' has no config"));
-    if (auto r = c->try_write_back(parsed()); !r) return Unexpected(std::move(r).error());
+    if (auto r = c->write_back(parsed()); !r) return Unexpected(std::move(r).error());
     return {};
 }
-
-#if MOIRA_EXCEPTIONS
-void TweakBase::write_back() {
-    if (auto r = try_write_back(); !r) detail::raise(std::move(r).error());
-}
-#endif
 
 // --- Metadata: the data file's, else the code's. ---
 

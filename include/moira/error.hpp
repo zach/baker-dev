@@ -8,23 +8,23 @@
 //
 //   moira: 'price' is float, not int  (menu.dta:3, at menu/'bacon and eggs')
 //
-// Every throwing API has a non-throwing twin returning Expected<T>. Under
-// MOIRA_NO_EXCEPTIONS the throwing forms (and Exception) are compiled out.
+// An error from a script also carries the script call stack it unwound through
+// (Error::stack); describe() renders it, one frame a line, innermost first.
+//
+// Moira never throws (docs/decisions.md D54): every fallible API returns Expected<T>, and the
+// library is built with exceptions disabled.
 
 #include <moira/expected.hpp>
 #include <moira/symbol.hpp>
 
+#include <moira/text.hpp>
+
 #include <cstdint>
-#include <exception>
-#include <string>
+#include <cstdlib>
+#include <span>
+#include <string_view>
 #include <type_traits>
 #include <utility>
-
-#if defined(MOIRA_NO_EXCEPTIONS) && MOIRA_NO_EXCEPTIONS
-#define MOIRA_EXCEPTIONS 0
-#else
-#define MOIRA_EXCEPTIONS 1
-#endif
 
 namespace moira {
 
@@ -50,58 +50,79 @@ enum class ErrorCode : uint8_t {
 
 [[nodiscard]] std::string_view error_code_name(ErrorCode code) noexcept;
 
-struct Error {
-    ErrorCode code = ErrorCode::Syntax;
-    std::string message;
-    Symbol file;       // empty when unknown
-    int32_t line = 0;  // 0 when unknown
-    std::string path;  // array path, e.g. menu/'bacon and eggs'; empty when unknown
+// One call on the script call stack: {on function ...} written at file:line. `on` is the
+// object a method was sent to, when it has a name; empty for a function.
+struct StackEntry {
+    Symbol function;
+    Symbol on;
+    Symbol file;
+    int32_t line = 0;
 };
 
-[[nodiscard]] Error make_error(ErrorCode code, std::string message, Symbol file = {},
+namespace detail {
+struct ErrorRecord;
+}
+
+// An error is a handle to a record allocated on the error path only, so Expected<T> costs
+// what T costs plus a pointer (docs/decisions.md D55). It copies like a value: a copy is
+// a separate record. A default-constructed Error is empty and means "no error".
+class Error {
+public:
+    Error() noexcept = default;
+    Error(ErrorCode code, std::string_view message, Symbol file = {}, int32_t line = 0);
+    Error(const Error& other);
+    Error(Error&& other) noexcept : r_(other.r_) { other.r_ = nullptr; }
+    Error& operator=(const Error& other);
+    Error& operator=(Error&& other) noexcept;
+    ~Error();
+
+    [[nodiscard]] bool empty() const noexcept { return r_ == nullptr; }
+    [[nodiscard]] ErrorCode code() const noexcept;
+    [[nodiscard]] std::string_view message() const noexcept;
+    [[nodiscard]] Symbol file() const noexcept;   // empty when unknown
+    [[nodiscard]] int32_t line() const noexcept;  // 0 when unknown
+    // The array path, e.g. menu/'bacon and eggs'; empty when unknown.
+    [[nodiscard]] std::string_view path() const noexcept;
+    // The script calls it unwound through, innermost first.
+    [[nodiscard]] std::span<const StackEntry> stack() const noexcept;
+
+    // Changing an error, as it is located on the way out.
+    void set_message(std::string_view message);
+    void set_location(Symbol file, int32_t line);
+    void set_path(std::string_view path);
+    void push_stack(const StackEntry& entry);
+
+private:
+    friend std::string_view to_string(const Error& error);
+    friend std::string_view describe(const Error& error);
+    detail::ErrorRecord* r_ = nullptr;
+};
+
+[[nodiscard]] Error make_error(ErrorCode code, std::string_view message, Symbol file = {},
                                int32_t line = 0);
 
-// "moira: <message>  (<file>:<line>, at <path>)", omitting whatever is unknown.
-[[nodiscard]] std::string to_string(const Error& error);
+// "moira: <message>  (<file>:<line>, at <path>)", omitting whatever is unknown. The text is
+// kept in the error and null-terminated; the view is valid while the error lives and is
+// not changed.
+[[nodiscard]] std::string_view to_string(const Error& error);
+// to_string, then a line per stack entry, innermost first:
+//   moira: '%' by zero  (boss.dta:9)
+//     in {%}  (boss.dta:9)
+//     in {bob attack}  (boss.dta:4)
+[[nodiscard]] std::string_view describe(const Error& error);
+// Writes "{bob attack}  (boss.dta:4)".
+void write(const StackEntry& entry, TextOut out);
 
 template <class T>
 using Expected = expected<T, Error>;
 using Unexpected = unexpected<Error>;
 
-#if MOIRA_EXCEPTIONS
-
-class Exception : public std::exception {
-public:
-    explicit Exception(Error error);
-    [[nodiscard]] const Error& error() const noexcept { return error_; }
-    [[nodiscard]] const char* what() const noexcept override { return what_.c_str(); }
-
-private:
-    Error error_;
-    std::string what_;
-};
-
-namespace detail {
-[[noreturn]] void raise(Error error);
-}  // namespace detail
-
-#endif
-
 #if !MOIRA_HAS_STD_EXPECTED
 namespace detail {
+// Reading the value of an Expected that holds an error is a bug in the caller: abort.
 template <class E>
-[[noreturn]] void throw_bad_expected_access(const E& e) {
-#if MOIRA_EXCEPTIONS
-    if constexpr (std::is_same_v<E, Error>) {
-        raise(e);
-    } else {
-        (void)e;
-        std::abort();
-    }
-#else
-    (void)e;
+[[noreturn]] void throw_bad_expected_access(const E&) {
     std::abort();
-#endif
 }
 }  // namespace detail
 #endif

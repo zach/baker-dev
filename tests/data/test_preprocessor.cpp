@@ -1,6 +1,7 @@
 // Directives and macros: include, merge, conditionals, defines, autorun.
 #include <doctest.h>
 #include <moira/parse.hpp>
+#include <moira/std_interop.hpp>
 #include <moira/write.hpp>
 
 #include <map>
@@ -17,33 +18,33 @@ struct Files {
     LoadSession session;
 
     Files() {
-        session.set_reader([this](const std::string& path, std::string& out) {
-            reads.push_back(path);
-            auto it = files.find(path);
+        session.set_reader([this](std::string_view path, TextOut out) {
+            reads.emplace_back(path);
+            auto it = files.find(std::string(path));
             if (it == files.end()) return false;
-            out = it->second;
+            out(it->second);
             return true;
         });
     }
     std::string load(const std::string& path) {
-        auto r = try_read_file(path, session);
+        auto r = read_file(path, session);
         REQUIRE_MESSAGE(r.has_value(), (r ? std::string() : to_string(r.error())));
         return to_string(**r);
     }
     Error fail(const std::string& path) {
-        auto r = try_read_file(path, session);
+        auto r = read_file(path, session);
         REQUIRE(!r.has_value());
         return r.error();
     }
 };
 
 std::string text(std::string_view src) {
-    auto r = try_read_string(src, "t.dta");
+    auto r = read_string(src, "t.dta");
     REQUIRE_MESSAGE(r.has_value(), (r ? std::string() : to_string(r.error())));
     return to_string(**r);
 }
 Error error(std::string_view src) {
-    auto r = try_read_string(src, "t.dta");
+    auto r = read_string(src, "t.dta");
     REQUIRE(!r.has_value());
     return r.error();
 }
@@ -60,8 +61,7 @@ TEST_CASE("macros splice their nodes") {
 }
 
 TEST_CASE("macro expansion shares arrays") {
-    auto root =
-        *try_read_string("[HANDLER (hit {fall_down})]\n(object1 HANDLER)\n(object2 HANDLER)");
+    auto root = *read_string("[HANDLER (hit {fall_down})]\n(object1 HANDLER)\n(object2 HANDLER)");
     const Array* h1 = (*(*root)[0].array())[1].array();
     const Array* h2 = (*(*root)[1].array())[1].array();
     CHECK(h1 == h2);
@@ -71,10 +71,10 @@ TEST_CASE("macro expansion shares arrays") {
 TEST_CASE("[ ] defines a macro only at a file's top level") {
     CHECK(text("(a [b c])") == "((a [b c]))");
     CHECK(text("[M [p q]]\n(a M)") == "((a [p q]))");
-    CHECK(error("[1 2]").message == "macro definition needs a symbol name");
-    CHECK(error("[]").message == "macro definition needs a symbol name");
+    CHECK(error("[1 2]").message() == "macro definition needs a symbol name");
+    CHECK(error("[]").message() == "macro definition needs a symbol name");
     // A spliced property at top level would print back as a macro definition.
-    CHECK(error("[M [p q]]\nM").code == ErrorCode::Syntax);
+    CHECK(error("[M [p q]]\nM").code() == ErrorCode::Syntax);
 }
 
 TEST_CASE("#define and #undef") {
@@ -84,9 +84,9 @@ TEST_CASE("#define and #undef") {
     // The body must start on the same line; otherwise the define is a flag.
     CHECK(text("#define FLAG\n(next 1)") == "((next 1))");
     CHECK(text("#define X (1)\n#undef X\n(a X)") == "((a X))");
-    CHECK(error("#define").code == ErrorCode::Directive);
-    CHECK(error("#define (a)").message == "#define needs a name");
-    CHECK(error("#undef 5").message == "#undef needs a name");
+    CHECK(error("#define").code() == ErrorCode::Directive);
+    CHECK(error("#define (a)").message() == "#define needs a name");
+    CHECK(error("#undef 5").message() == "#undef needs a name");
 }
 
 TEST_CASE("conditionals") {
@@ -107,21 +107,21 @@ TEST_CASE("conditionals") {
     // The name of #ifdef is never macro-expanded.
     CHECK(text("[A B]\n#ifdef A (a) #endif") == "((a))");
 
-    CHECK(error("#else").message == "#else without #ifdef");
-    CHECK(error("#endif").message == "#endif without #ifdef");
+    CHECK(error("#else").message() == "#else without #ifdef");
+    CHECK(error("#endif").message() == "#endif without #ifdef");
     Error e = error("(a)\n#ifdef X\n(b)");
-    CHECK(e.message == "#ifdef has no matching #endif");
-    CHECK(e.line == 2);
-    CHECK(error("#ifdef X #else #else #endif").message == "second #else for one #ifdef");
-    CHECK(error("#ifdef (a) #endif").message == "#ifdef needs a name");
+    CHECK(e.message() == "#ifdef has no matching #endif");
+    CHECK(e.line() == 2);
+    CHECK(error("#ifdef X #else #else #endif").message() == "second #else for one #ifdef");
+    CHECK(error("#ifdef (a) #endif").message() == "#ifdef needs a name");
 }
 
 TEST_CASE("unknown directives are errors") {
     Error e = error("(a)\n#bogus x");
-    CHECK(e.message == "unknown directive '#bogus'");
-    CHECK(e.code == ErrorCode::Directive);
-    CHECK(e.line == 2);
-    CHECK(error("#").message == "unknown directive '#'");
+    CHECK(e.message() == "unknown directive '#bogus'");
+    CHECK(e.code() == ErrorCode::Directive);
+    CHECK(e.line() == 2);
+    CHECK(error("#").message() == "unknown directive '#'");
 }
 
 TEST_CASE("#include splices files, relative to the including file") {
@@ -141,7 +141,7 @@ TEST_CASE("included arrays carry their own file and line") {
     Files fs;
     fs.files["a.dta"] = "#include b.dta";
     fs.files["b.dta"] = "\n\n(from_b)";
-    auto root = *try_read_file("a.dta", fs.session);
+    auto root = *read_file("a.dta", fs.session);
     CHECK((*root)[0].array()->file() == Symbol("b.dta"));
     CHECK((*root)[0].array()->line() == 3);
 }
@@ -160,7 +160,8 @@ TEST_CASE("macros and defines persist across files in a session") {
 
 TEST_CASE("include search falls back to include_dirs") {
     Files fs;
-    fs.session.include_dirs = {"shared", "other"};
+    fs.session.add_include_dir("shared");
+    fs.session.add_include_dir("other");
     fs.files["levels/l1.dta"] = "#include common.dta";
     fs.files["other/common.dta"] = "(common)";
     CHECK(fs.load("levels/l1.dta") == "((common))");
@@ -172,28 +173,28 @@ TEST_CASE("include errors") {
     Files fs;
     fs.files["a.dta"] = "(a)\n#include missing.dta";
     Error e = fs.fail("a.dta");
-    CHECK(e.code == ErrorCode::Io);
-    CHECK(e.message == "cannot read included file 'missing.dta'");
-    CHECK(e.file == Symbol("a.dta"));
-    CHECK(e.line == 2);
+    CHECK(e.code() == ErrorCode::Io);
+    CHECK(e.message() == "cannot read included file 'missing.dta'");
+    CHECK(e.file() == Symbol("a.dta"));
+    CHECK(e.line() == 2);
 
     fs.files["opt.dta"] = "(a)\n#include_opt missing.dta\n(b)";
     CHECK(fs.load("opt.dta") == "((a) (b))");
 
     fs.files["self.dta"] = "#include self.dta";
-    CHECK(fs.fail("self.dta").message == "'self.dta' includes itself");
+    CHECK(fs.fail("self.dta").message() == "'self.dta' includes itself");
     fs.files["x.dta"] = "#include y.dta";
     fs.files["y.dta"] = "#include x.dta";
-    CHECK(fs.fail("x.dta").code == ErrorCode::Directive);
+    CHECK(fs.fail("x.dta").code() == ErrorCode::Directive);
 
     fs.files["bad_inner.dta"] = "#include broken.dta";
     fs.files["broken.dta"] = "\n(oops";
     e = fs.fail("bad_inner.dta");
-    CHECK(e.file == Symbol("broken.dta"));
-    CHECK(e.line == 2);
+    CHECK(e.file() == Symbol("broken.dta"));
+    CHECK(e.line() == 2);
 
     fs.files["noarg.dta"] = "#include (x)";
-    CHECK(fs.fail("noarg.dta").message == "#include needs a file path");
+    CHECK(fs.fail("noarg.dta").message() == "#include needs a file path");
 
     // An include-only-once loop that is not a cycle still hits the include budget.
     fs.session.limits.max_includes = 10;
@@ -203,7 +204,7 @@ TEST_CASE("include errors") {
         "#include leaf.dta\n#include leaf.dta\n#include leaf.dta\n"
         "#include leaf.dta\n#include leaf.dta";
     fs.files["leaf.dta"] = "(leaf)";
-    CHECK(fs.fail("many.dta").code == ErrorCode::Limit);
+    CHECK(fs.fail("many.dta").code() == ErrorCode::Limit);
 }
 
 TEST_CASE("#merge keeps existing values and adds missing ones") {
@@ -240,13 +241,13 @@ TEST_CASE("#merge never mutates shared arrays") {
 
 TEST_CASE("#autorun collects commands") {
     LoadSession s;
-    auto r = try_read_string("(a)\n#autorun {setup 1}\n(b)\n#autorun {setup 2}", "t.dta", s);
+    auto r = read_string("(a)\n#autorun {setup 1}\n(b)\n#autorun {setup 2}", "t.dta", s);
     REQUIRE(r);
     CHECK(to_string(**r) == "((a) (b))");
-    REQUIRE(s.autorun.size() == 2);
-    CHECK(s.autorun[0].type() == Type::Command);
-    CHECK(to_string(s.autorun[1]) == "{setup 2}");
-    CHECK(error("#autorun (x)").message == "#autorun needs a {command}");
+    REQUIRE(s.autorun().size() == 2);
+    CHECK(s.autorun()[0].type() == Type::Command);
+    CHECK(to_string(s.autorun()[1]) == "{setup 2}");
+    CHECK(error("#autorun (x)").message() == "#autorun needs a {command}");
 }
 
 TEST_CASE("size limits stop macro blow-ups") {
@@ -257,15 +258,15 @@ TEST_CASE("size limits stop macro blow-ups") {
     for (char c = 'B'; c <= 'Z'; ++c, ++prev)
         src += std::string("[") + c + ' ' + prev + ' ' + prev + "]\n";
     src += "(boom Z)";
-    auto r = try_read_string(src, "bomb.dta", s);
+    auto r = read_string(src, "bomb.dta", s);
     REQUIRE_FALSE(r.has_value());
-    CHECK(r.error().code == ErrorCode::Limit);
+    CHECK(r.error().code() == ErrorCode::Limit);
 
     // Shared-array chains stay small in memory but their height is still bounded.
     std::string chain = "[M0 (x)]\n";
     for (int i = 1; i <= 300; ++i)
         chain += "[M" + std::to_string(i) + " (M" + std::to_string(i - 1) + ")]\n";
-    auto deep = try_read_string(chain);
+    auto deep = read_string(chain);
     REQUIRE_FALSE(deep.has_value());
-    CHECK(deep.error().code == ErrorCode::Limit);
+    CHECK(deep.error().code() == ErrorCode::Limit);
 }

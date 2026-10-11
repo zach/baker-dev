@@ -5,11 +5,56 @@
 #include <moira/object.hpp>
 #include <moira/script.hpp>
 
+#include <algorithm>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace moira {
+
+namespace detail {
+
+struct MethodEntry {
+    Symbol name;
+    std::vector<Overload> overloads;
+    std::string doc;
+    Status status = Status::Normal;
+    Symbol replacement;
+    bool inherited = false;
+};
+
+struct PropertyEntry {
+    Symbol name;
+    std::string_view type;
+    Shared accessor;
+    PropertyGet get = nullptr;
+    PropertySet set = nullptr;
+    std::string doc;
+};
+
+struct ObjectParams {
+    std::vector<std::pair<Symbol, Node>> items;
+};
+
+struct TypeRecord {
+    std::string name;
+    Symbol symbol;                         // `name`, interned
+    std::vector<const TypeRecord*> bases;  // every ancestor, nearest first
+    std::vector<MethodEntry> methods;      // sorted by symbol identity, for binary search
+    std::vector<PropertyEntry> properties;
+    ObjectBase* (*create)() = nullptr;  // for {new}; null if T is not default-constructible
+    std::string error;                  // a binding mistake, reported when T is first added
+
+    [[nodiscard]] bool is(const TypeRecord* t) const noexcept {
+        return t == this || std::find(bases.begin(), bases.end(), t) != bases.end();
+    }
+    [[nodiscard]] const MethodEntry* method(Symbol name) const noexcept;
+    [[nodiscard]] const PropertyEntry* property(Symbol name) const noexcept;
+    void sort();
+};
+
+}  // namespace detail
 
 struct Function : FuncRecord {
     Tier tier = Tier::Native;
@@ -24,6 +69,7 @@ struct Function : FuncRecord {
 // A {func} body: run with the parameters bound.
 struct ScriptBody {
     std::vector<Symbol> params;
+    std::vector<detail::ParamInfo> param_info;  // one "value" per parameter, for Overload
     Ref<Array> definition;
     size_t body = 0;  // index of the first body node in `definition`
 };
@@ -56,6 +102,8 @@ struct Global {
 [[nodiscard]] std::string signature_text(const detail::Overload& o);
 // "2 arguments", "1 to 2 arguments", "at least 1 argument".
 [[nodiscard]] std::string arity_text(uint32_t min, uint32_t max);
+// Records the current Context's live call frames in `e`, unless it already has a stack.
+void record_stack(Error& e);
 // Registers the functions every Context starts with (builtins.cpp, object.cpp).
 void register_builtins(Context& ctx);
 void register_object_builtins(Context& ctx);
@@ -143,6 +191,7 @@ struct Context::Impl {
     std::vector<const detail::TypeRecord*> types;
     std::vector<std::unique_ptr<ScriptClass>> classes;
     std::vector<ScriptClass*> class_by_name;  // by Symbol::index()
+    const CallFrame* top = nullptr;           // the innermost call in progress
     uint32_t depth = 0;
     uintptr_t stack_base = 0;             // the outermost call's stack address
     uintptr_t stack_budget = 256 * 1024;  // see Context::set_stack_budget

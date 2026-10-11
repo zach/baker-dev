@@ -19,6 +19,16 @@ from C++), and `moira::check` finds bad calls before anything runs. Messages and
 later milestones (`docs/spec.md` §10).
 `docs/decisions.md` records where the implementation deviates from the spec.
 
+Moira never throws. Every call that can fail returns `Expected<T>` (`std::expected` where
+the standard library has it) holding the value or a located `Error` (D54). The samples
+below leave most of the checks out.
+
+Its public headers include no standard containers, strings, or `<functional>`: only
+language support and `string_view`/`span`/`optional`/`expected` (D55, D60). Text comes
+out through a `TextOut` sink. A host that uses the STL includes `<moira/std_interop.hpp>`
+and `<moira/std_script.hpp>`, which add `std::string` forms (`to_string`, `to_dta`,
+`reference`), `Convert<>` for standard containers, and `std::hash<Symbol>`.
+
 The one-line constant replacement (`examples/one_line_tweak`):
 
 ```cpp
@@ -43,7 +53,7 @@ cfg.on_reload("renderer", [&] { renderer.rebuild(); });   // when that group cha
 cfg.reload({.trigger = "watcher"_sym, .origin_ns = saved_at});   // after a file changes
 auto rec = cfg.last_reload();                       // scan, read, parse, merge, bind, notify
 
-moira::Source s = cfg.source("box.width");          // layer, file, and line of the value
+auto s = cfg.source("box.width");                   // layer, file, and line of the value
 kBoxWidth.set(2.5f);                                // tune it live (the scratch layer)...
 kBoxWidth.write_back();                             // ...and save it: a one-line diff
 
@@ -57,13 +67,14 @@ Lookup on a tree:
 
 ```cpp
 // (menu ('bacon and eggs' (price 12.75) (calories 120)))
-auto root = moira::read_file("menu.dta");          // or try_read_file(): no exceptions
+auto root = moira::read_file("menu.dta");          // Expected<Ref<Array>>
+if (!root) return report(root.error());
 
-const moira::Array& eggs = root->find("menu").find("bacon and eggs");
-double price = eggs.find_float("price");            // 12.75
-int    fat   = eggs.find<int>("fat", 0);            // absent: the fallback
-float  same  = root->get<float>("menu.'bacon and eggs'.price");
-std::string text = moira::to_dta(*root);            // round-trips through read_string()
+const moira::Array* eggs = (*root)->try_get("menu.'bacon and eggs'");   // null if absent
+auto price = eggs->find_float("price");             // Expected<double>: 12.75
+auto fat   = eggs->find<int>("fat", 0);             // absent: the fallback
+auto same  = (*root)->get<float>("menu.'bacon and eggs'.price");
+std::string text = moira::to_dta(**root);           // (std_interop.hpp) reads back equal
 ```
 
 Scripting (`examples/calculator`):
@@ -76,7 +87,7 @@ ctx.eval("{func square ($x) {* $x $x}}");           // a script function
 ctx.var("difficulty") = 3;
 
 // (enemy (hp {* 100 $difficulty}))
-int hp = enemy.find_int("hp");                      // 300: typed lookups evaluate
+auto hp = enemy.find_int("hp");                     // 300: typed lookups evaluate
 auto report = moira::check(*tree, ctx);             // wrong arity, found without running
 ```
 
@@ -116,10 +127,10 @@ What exists:
 - The preprocessor: `#include`, `#include_opt`, `#merge`, `#ifdef`/`#ifndef`/`#else`/
   `#endif`, `#define`, `#undef`, `#autorun`, and `[NAME ...]` macros.
 - A pretty-printer whose output parses back to an equal tree.
-- Lookup: `find`/`try_find` by tag, `find_int`/`find_float`/`find_sym`/`find_str`/
-  `find_array`, fallbacks, `get<T>` by `Path`, `Convert<T>` for your own types (vectors and
-  fixed arrays built in; see `array.hpp`), opt-in `sort_for_lookup()` binary search, and
-  `subarrays()`.
+- Lookup: `try_find` (the child array, or null) and `find<T>` by tag, `find_int`/
+  `find_float`/`find_sym`/`find_str`/`find_array`, fallbacks, `get<T>` by `Path`,
+  `Convert<T>` for your own types (vectors and fixed arrays built in; see `array.hpp`),
+  opt-in `sort_for_lookup()` binary search, and `subarrays()`.
   `find_float` on a 20-child array takes about 10 ns and never allocates.
 - `Config`: named layers merged bottom to top (optional and disabled layers, toggles),
   provenance (`source()`: layer, file, line), hot reload with per-group migrate-or-punt
@@ -163,7 +174,6 @@ depends on data), `moira::moira` (both). Build the data layer by itself with
 | `MOIRA_BUILD_TESTS` | `ON` when top-level | Build the test suite |
 | `MOIRA_ATOMIC_REFCOUNT` | `ON` | Atomic refcounts; `OFF` for single-threaded programs |
 | `MOIRA_SHIPPING` | `OFF` | Reload and live edits inert; `dev_only` tweaks keep defaults |
-| `MOIRA_NO_EXCEPTIONS` | `OFF` | Non-throwing APIs only |
 | `MOIRA_SANITIZE` | empty | e.g. `address,undefined` |
 | `MOIRA_BUILD_TOOLS` | `ON` when top-level | `moira_parse_corpus` |
 | `MOIRA_BUILD_EXAMPLES` | `ON` when top-level | `examples/` (run by CTest) |

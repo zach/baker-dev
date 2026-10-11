@@ -8,7 +8,15 @@
 #include <string>
 #include <string_view>
 
+namespace moira {
+class Node;
+}
+
 namespace moira::detail {
+
+// At most about `max_chars` of the compact form of `node`, ending in "..." if cut. Safe on
+// huge or heavily shared trees; for error messages (write.cpp).
+[[nodiscard]] std::string preview(const Node& node, size_t max_chars = 40);
 
 // Bytes that end an atom. Every byte <= 0x20 is whitespace.
 [[nodiscard]] constexpr bool is_atom_end(unsigned char c) noexcept {

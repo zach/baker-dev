@@ -3,9 +3,14 @@
 #include "merge.hpp"
 #include "text.hpp"
 
+#include <moira/std_interop.hpp>
+
 #include <cstdio>
 #include <cstring>
+#include <string>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace moira {
 namespace detail {
@@ -232,19 +237,39 @@ private:
     Token peeked_;
 };
 
-bool read_disk_file(const std::string& path, std::string& out) {
-    std::FILE* f = std::fopen(path.c_str(), "rb");
+bool read_disk_file(std::string_view path, TextOut out) {
+    std::FILE* f = std::fopen(std::string(path).c_str(), "rb");
     if (!f) return false;
-    out.clear();
     char buf[65536];
     size_t got = 0;
-    while ((got = std::fread(buf, 1, sizeof buf, f)) > 0) out.append(buf, got);
+    while ((got = std::fread(buf, 1, sizeof buf, f)) > 0) out(std::string_view(buf, got));
     const bool ok = std::ferror(f) == 0;
     std::fclose(f);
     return ok;
 }
 
 }  // namespace
+
+// Reads `path` through `reader` into `text`, replacing what it held.
+bool read_with(const LoadSession::Reader& reader, std::string_view path, std::string& text) {
+    text.clear();
+    return reader(path, string_out(text));
+}
+
+}  // namespace detail
+
+struct LoadSession::State {
+    std::unordered_map<Symbol, Ref<Array>> defines;
+    Reader reader = detail::read_disk_file;
+    std::vector<std::string> include_dirs;
+    std::vector<Node> autorun;
+    // Per top-level read.
+    std::vector<std::string> include_stack;
+    uint64_t nodes = 0;
+    uint32_t includes = 0;
+};
+
+namespace detail {
 
 class Parser {
 public:
@@ -296,7 +321,7 @@ public:
         }
         Ref<Array> root = Array::make_from(scratch_, file_, 1);
         if (root->height() > s_.limits.max_depth + 1) return too_deep(1);
-        if (map_) map_->record(root, {file_, 0, size_, {}}, std::move(spans_));
+        if (map_) map_->record(root, {file_, 0, size_, {}}, spans_);
         out = std::move(root);
         return true;
     }
@@ -336,7 +361,7 @@ private:
 
     // Edit mode keeps spans_ parallel to scratch_.
     bool push(Node n, const SourceSpan& span = {}) {
-        if (++s_.nodes_ > s_.limits.max_nodes)
+        if (++s_.st_->nodes > s_.limits.max_nodes)
             return fail(ErrorCode::Limit,
                         "more than " + std::to_string(s_.limits.max_nodes) + " nodes", line_);
         if (frames_.back().kind == Frame::Root && n.type() == Type::Property)
@@ -355,16 +380,15 @@ private:
     // Records `arr` (made from the nodes from `start`) and its span, for edit mode.
     void record(const Ref<Array>& arr, size_t start, uint32_t begin, uint32_t end) {
         if (!map_) return;
-        map_->record(
-            arr, {file_, begin, end, {}},
-            std::vector<SourceSpan>(spans_.begin() + static_cast<ptrdiff_t>(start), spans_.end()));
+        map_->record(arr, {file_, begin, end, {}},
+                     std::span<const SourceSpan>(spans_).subspan(start));
     }
 
     bool symbol(const Token& t) {
         const Symbol sym(t.text);
         const FrameInfo& f = frames_.back();
         const bool naming_macro = f.kind == Frame::MacroDef && scratch_.size() == f.start;
-        if (!t.quoted && !naming_macro && !s_.defines_.empty()) {
+        if (!t.quoted && !naming_macro && !s_.st_->defines.empty()) {
             if (const Array* body = s_.macro(sym)) {
                 const SourceSpan from{file_, t.begin, t.end, sym};
                 for (const Node& n : *body)
@@ -428,7 +452,7 @@ private:
         switch (f.kind) {
             case Frame::DefineBody: s_.define(f.name, std::move(arr)); return true;
             case Frame::Autorun:
-                s_.autorun.emplace_back(std::move(arr), Type::Command);
+                s_.st_->autorun.emplace_back(std::move(arr), Type::Command);
                 return true;
             case Frame::Command: return push(Node(std::move(arr), Type::Command), span);
             case Frame::Property: return push(Node(std::move(arr), Type::Property), span);
@@ -551,7 +575,7 @@ private:
             return fail(
                 ErrorCode::Limit,
                 "includes nested deeper than " + std::to_string(s_.limits.max_include_depth), line);
-        if (s_.includes_ >= s_.limits.max_includes)
+        if (s_.st_->includes >= s_.limits.max_includes)
             return fail(ErrorCode::Limit,
                         "more than " + std::to_string(s_.limits.max_includes) + " included files",
                         line);
@@ -561,13 +585,13 @@ private:
             candidates.push_back(normalize_path(path));
         } else {
             candidates.push_back(normalize_path(join_path(parent_path(file_.str()), path)));
-            for (const std::string& dir : s_.include_dirs)
+            for (const std::string& dir : s_.st_->include_dirs)
                 candidates.push_back(normalize_path(join_path(dir, path)));
         }
         std::string text;
         const std::string* found = nullptr;
         for (const std::string& c : candidates) {
-            if (s_.reader_(c, text)) {
+            if (read_with(s_.st_->reader, c, text)) {
                 found = &c;
                 break;
             }
@@ -576,15 +600,15 @@ private:
             if (optional) return true;
             return fail(ErrorCode::Io, "cannot read included file '" + path + "'", line);
         }
-        for (const std::string& open_file : s_.include_stack_)
+        for (const std::string& open_file : s_.st_->include_stack)
             if (open_file == *found)
                 return fail(ErrorCode::Directive, "'" + path + "' includes itself", line);
 
-        ++s_.includes_;
-        s_.include_stack_.push_back(*found);
+        ++s_.st_->includes;
+        s_.st_->include_stack.push_back(*found);
         Parser sub(s_, text, Symbol(*found), include_depth_ + 1);
         const bool ok = sub.run(out, *err_);
-        s_.include_stack_.pop_back();
+        s_.st_->include_stack.pop_back();
         return ok;
     }
 
@@ -604,41 +628,81 @@ private:
 
 }  // namespace detail
 
-LoadSession::LoadSession() : reader_(detail::read_disk_file) {}
+LoadSession::LoadSession() : st_(new State()) {}
+LoadSession::LoadSession(const LoadSession& o)
+    : limits(o.limits), source_map(o.source_map), st_(new State(*o.st_)) {}
+LoadSession::LoadSession(LoadSession&& o) noexcept
+    : limits(o.limits), source_map(o.source_map), st_(o.st_) {
+    o.st_ = new State();  // the moved-from session stays usable, and empty
+}
+LoadSession& LoadSession::operator=(const LoadSession& o) {
+    if (this != &o) {
+        State* st = new State(*o.st_);
+        delete st_;
+        st_ = st;
+        limits = o.limits;
+        source_map = o.source_map;
+    }
+    return *this;
+}
+LoadSession& LoadSession::operator=(LoadSession&& o) noexcept {
+    std::swap(st_, o.st_);
+    limits = o.limits;
+    source_map = o.source_map;
+    return *this;
+}
+LoadSession::~LoadSession() {
+    delete st_;
+}
 
 void LoadSession::define(Symbol name) {
-    defines_[name] = nullptr;
+    st_->defines[name] = nullptr;
 }
 void LoadSession::define(Symbol name, Ref<Array> body) {
-    defines_[name] = std::move(body);
+    st_->defines[name] = std::move(body);
 }
 void LoadSession::undefine(Symbol name) {
-    defines_.erase(name);
+    st_->defines.erase(name);
 }
 bool LoadSession::is_defined(Symbol name) const {
-    return defines_.count(name) != 0;
+    return st_->defines.count(name) != 0;
 }
 const Array* LoadSession::macro(Symbol name) const {
-    auto it = defines_.find(name);
-    return it == defines_.end() ? nullptr : it->second.get();
+    auto it = st_->defines.find(name);
+    return it == st_->defines.end() ? nullptr : it->second.get();
 }
 void LoadSession::set_reader(Reader reader) {
-    reader_ = reader ? std::move(reader) : Reader(detail::read_disk_file);
+    st_->reader = reader ? std::move(reader) : Reader(detail::read_disk_file);
+}
+const LoadSession::Reader& LoadSession::reader() const noexcept {
+    return st_->reader;
+}
+void LoadSession::add_include_dir(std::string_view dir) {
+    st_->include_dirs.emplace_back(dir);
+}
+void LoadSession::clear_include_dirs() {
+    st_->include_dirs.clear();
+}
+std::span<const Node> LoadSession::autorun() const noexcept {
+    return st_->autorun;
+}
+void LoadSession::clear_autorun() {
+    st_->autorun.clear();
 }
 
-Expected<Ref<Array>> try_read_string(std::string_view text, std::string_view name,
-                                     LoadSession& session) {
-    const bool top = session.include_stack_.empty();
+Expected<Ref<Array>> read_string(std::string_view text, std::string_view name,
+                                 LoadSession& session) {
+    const bool top = session.st_->include_stack.empty();
     if (top) {
-        session.nodes_ = 0;
-        session.includes_ = 0;
+        session.st_->nodes = 0;
+        session.st_->includes = 0;
     }
     const std::string file = detail::normalize_path(name);
-    session.include_stack_.push_back(file);
+    session.st_->include_stack.push_back(file);
     struct Pop {
         std::vector<std::string>& stack;
         ~Pop() { stack.pop_back(); }
-    } pop{session.include_stack_};
+    } pop{session.st_->include_stack};
 
     detail::Parser parser(session, text, Symbol(file), 0);
     Ref<Array> root;
@@ -647,44 +711,22 @@ Expected<Ref<Array>> try_read_string(std::string_view text, std::string_view nam
     return root;
 }
 
-Expected<Ref<Array>> try_read_string(std::string_view text, std::string_view name) {
+Expected<Ref<Array>> read_string(std::string_view text, std::string_view name) {
     LoadSession session;
-    return try_read_string(text, name, session);
+    return read_string(text, name, session);
 }
 
-Expected<Ref<Array>> try_read_file(std::string_view path, LoadSession& session) {
+Expected<Ref<Array>> read_file(std::string_view path, LoadSession& session) {
     const std::string file = detail::normalize_path(path);
     std::string text;
-    if (!session.reader_(file, text))
+    if (!detail::read_with(session.st_->reader, file, text))
         return Unexpected(make_error(ErrorCode::Io, "cannot read '" + file + "'"));
-    return try_read_string(text, file, session);
+    return read_string(text, file, session);
 }
 
-Expected<Ref<Array>> try_read_file(std::string_view path) {
+Expected<Ref<Array>> read_file(std::string_view path) {
     LoadSession session;
-    return try_read_file(path, session);
+    return read_file(path, session);
 }
-
-#if MOIRA_EXCEPTIONS
-namespace {
-Ref<Array> value_or_raise(Expected<Ref<Array>> r) {
-    if (!r) detail::raise(std::move(r).error());
-    return std::move(*r);
-}
-}  // namespace
-
-Ref<Array> read_file(std::string_view path, LoadSession& session) {
-    return value_or_raise(try_read_file(path, session));
-}
-Ref<Array> read_file(std::string_view path) {
-    return value_or_raise(try_read_file(path));
-}
-Ref<Array> read_string(std::string_view text, std::string_view name, LoadSession& session) {
-    return value_or_raise(try_read_string(text, name, session));
-}
-Ref<Array> read_string(std::string_view text, std::string_view name) {
-    return value_or_raise(try_read_string(text, name));
-}
-#endif
 
 }  // namespace moira

@@ -1,22 +1,25 @@
 // Lexing and parsing: tokens, bounds checks, nesting, and located errors.
 #include <doctest.h>
 #include <moira/parse.hpp>
+#include <moira/std_interop.hpp>
 #include <moira/write.hpp>
 
 #include "text.hpp"
 
 #include <string>
+#include "ok.hpp"
 
 using namespace moira;
+using moira::test::ok;
 
 namespace {
 Ref<Array> parse(std::string_view text) {
-    auto r = try_read_string(text, "t.dta");
+    auto r = read_string(text, "t.dta");
     REQUIRE_MESSAGE(r.has_value(), (r ? std::string() : to_string(r.error())));
     return *r;
 }
 Error parse_error(std::string_view text) {
-    auto r = try_read_string(text, "t.dta");
+    auto r = read_string(text, "t.dta");
     REQUIRE_MESSAGE(!r.has_value(), "expected an error for: " << text);
     return r.error();
 }
@@ -63,14 +66,14 @@ TEST_CASE("integers") {
     CHECK(only(parse("0x80000000")).try_int() == 2147483648);
     CHECK(only(parse("0x7FFFFFFFFFFFFFFF")).try_int() == INT64_MAX);
     CHECK(only(parse("0x0000000000000000001")).try_int() == 1);
-    CHECK(parse_error("0x8000000000000000").code == ErrorCode::Range);
-    CHECK(parse_error("0xFFFFFFFFFFFFFFFFF").code == ErrorCode::Range);
+    CHECK(parse_error("0x8000000000000000").code() == ErrorCode::Range);
+    CHECK(parse_error("0xFFFFFFFFFFFFFFFFF").code() == ErrorCode::Range);
     CHECK(only(parse("2147483648")).try_int() == 2147483648);
     CHECK(only(parse("9223372036854775807")).try_int() == INT64_MAX);
     CHECK(only(parse("-9223372036854775808")).try_int() == INT64_MIN);
-    CHECK(parse_error("9223372036854775808").code == ErrorCode::Range);
-    CHECK(parse_error("-9223372036854775809").code == ErrorCode::Range);
-    CHECK(parse_error("99999999999999999999999").code == ErrorCode::Range);
+    CHECK(parse_error("9223372036854775808").code() == ErrorCode::Range);
+    CHECK(parse_error("-9223372036854775809").code() == ErrorCode::Range);
+    CHECK(parse_error("99999999999999999999999").code() == ErrorCode::Range);
 }
 
 TEST_CASE("floats") {
@@ -85,9 +88,9 @@ TEST_CASE("floats") {
     CHECK(only(parse("5.")).try_float() == 5.0f);
     CHECK(only(parse("2.5E2")).try_float() == 250.0f);
     CHECK(only(parse("-0.0")).float_bits() == 0x8000000000000000u);
-    CHECK(parse_error("1e309").code == ErrorCode::Range);
-    CHECK(parse_error("-1e309").code == ErrorCode::Range);
-    CHECK(parse_error("1e-400").code == ErrorCode::Range);  // rounds to zero
+    CHECK(parse_error("1e309").code() == ErrorCode::Range);
+    CHECK(parse_error("-1e309").code() == ErrorCode::Range);
+    CHECK(parse_error("1e-400").code() == ErrorCode::Range);  // rounds to zero
 }
 
 TEST_CASE("atoms that are not numbers are symbols") {
@@ -111,9 +114,9 @@ TEST_CASE("quoted symbols, strings, and variables") {
     CHECK(only(parse(R"("end\")")).try_str() == "end\\");
     CHECK(only(parse("\"two\nlines\"")).try_str() == "two\nlines");
     CHECK(only(parse("$game_time")).var_name() == Symbol("game_time"));
-    CHECK(parse_error("$").code == ErrorCode::Syntax);
-    CHECK(parse_error("\"open").message == "unterminated string");
-    CHECK(parse_error("'open").code == ErrorCode::Syntax);
+    CHECK(parse_error("$").code() == ErrorCode::Syntax);
+    CHECK(parse_error("\"open").message() == "unterminated string");
+    CHECK(parse_error("'open").code() == ErrorCode::Syntax);
 }
 
 TEST_CASE("comments and whitespace") {
@@ -121,7 +124,7 @@ TEST_CASE("comments and whitespace") {
     REQUIRE(root->size() == 2);
     CHECK(to_string(*root) == "((a 1) (b))");
     CHECK((*root)[1].array()->line() == 4);
-    CHECK(parse_error("(a) /* never closed\n\n").line == 1);
+    CHECK(parse_error("(a) /* never closed\n\n").line() == 1);
     CHECK(to_string(*parse("\xEF\xBB\xBF(bom)")) == "((bom))");
     auto crlf = parse("(a)\r\n(b)\r\n\r\n(c)");
     CHECK((*crlf)[2].array()->line() == 4);
@@ -138,13 +141,13 @@ TEST_CASE("brackets") {
     CHECK(to_string(*parse("() {} (())")) == "(() {} (()))");
 
     Error e = parse_error("(a\n(b\n)");
-    CHECK(e.message == "'(' is never closed");
-    CHECK(e.line == 1);
+    CHECK(e.message() == "'(' is never closed");
+    CHECK(e.line() == 1);
     e = parse_error("(a\n {b)\n");
-    CHECK(e.message == "'{' from line 2 is closed by ')'");
-    CHECK(e.line == 2);
-    CHECK(parse_error("(a))").message == "unexpected ')'");
-    CHECK(parse_error("]").message == "unexpected ']'");
+    CHECK(e.message() == "'{' from line 2 is closed by ')'");
+    CHECK(e.line() == 2);
+    CHECK(parse_error("(a))").message() == "unexpected ')'");
+    CHECK(parse_error("]").message() == "unexpected ']'");
 }
 
 TEST_CASE("nesting is bounded") {
@@ -152,30 +155,28 @@ TEST_CASE("nesting is bounded") {
     ok += std::string(256, ')');
     deep += std::string(257, ')');
     CHECK(parse(ok)->height() == 257);
-    CHECK(parse_error(deep).code == ErrorCode::Limit);
+    CHECK(parse_error(deep).code() == ErrorCode::Limit);
     // An unterminated pathological input fails fast rather than recursing.
-    CHECK(parse_error(std::string(100000, '(')).code == ErrorCode::Limit);
+    CHECK(parse_error(std::string(100000, '(')).code() == ErrorCode::Limit);
 }
 
 TEST_CASE("errors format with file and line") {
     Error e = parse_error("(a 1)\n(b 0x1FFFFFFFFFFFFFFFF)");
-    CHECK(e.file == Symbol("t.dta"));
-    CHECK(e.line == 2);
+    CHECK(e.file() == Symbol("t.dta"));
+    CHECK(e.line() == 2);
     CHECK(to_string(e) == "moira: integer 0x1FFFFFFFFFFFFFFFF is out of 64-bit range  (t.dta:2)");
 }
 
-#if MOIRA_EXCEPTIONS
-TEST_CASE("throwing twins") {
-    CHECK(to_string(*read_string("(x 1)")) == "((x 1))");
-    CHECK_THROWS_AS((void)read_string("(x"), Exception);
-    CHECK_THROWS_AS((void)read_file("/definitely/not/here.dta"), Exception);
+TEST_CASE("reading text and files") {
+    CHECK(to_string(*ok(read_string("(x 1)"))) == "((x 1))");
+    CHECK_FALSE(read_string("(x"));
+    CHECK_FALSE(read_file("/definitely/not/here.dta"));
 }
-#endif
 
 TEST_CASE("missing file is an io error") {
-    auto r = try_read_file("/definitely/not/here.dta");
+    auto r = read_file("/definitely/not/here.dta");
     REQUIRE_FALSE(r.has_value());
-    CHECK(r.error().code == ErrorCode::Io);
+    CHECK(r.error().code() == ErrorCode::Io);
 }
 
 TEST_CASE("include paths are handled lexically") {

@@ -1,4 +1,5 @@
 #include <doctest.h>
+#include <moira/std_interop.hpp>
 #include <moira/version.hpp>
 
 #include <string>

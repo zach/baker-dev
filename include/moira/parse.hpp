@@ -29,12 +29,12 @@
 #include <moira/error.hpp>
 #include <moira/source_map.hpp>
 
+#include <moira/callback.hpp>
+#include <moira/text.hpp>
+
 #include <cstdint>
-#include <functional>
-#include <string>
+#include <span>
 #include <string_view>
-#include <unordered_map>
-#include <vector>
 
 namespace moira {
 
@@ -50,13 +50,20 @@ struct ParseLimits {
 };
 
 // State shared by all files read through it. Macros and defines persist from one file to
-// the next, as in the original; a fresh session starts empty.
+// the next, as in the original; a fresh session starts empty. Copying a session copies
+// its defines, macros, include directories, reader, and limits.
 class LoadSession {
 public:
-    // Reads the whole file at `path` into `out`; returns false if it cannot.
-    using Reader = std::function<bool(const std::string& path, std::string& out)>;
+    // Writes the whole file at `path` to `out` and returns true, or returns false if it
+    // cannot read it.
+    using Reader = Callback<bool(std::string_view path, TextOut out)>;
 
     LoadSession();
+    LoadSession(const LoadSession& other);
+    LoadSession(LoadSession&& other) noexcept;
+    LoadSession& operator=(const LoadSession& other);
+    LoadSession& operator=(LoadSession&& other) noexcept;
+    ~LoadSession();
 
     void define(Symbol name);                   // a flag, for #ifdef
     void define(Symbol name, Ref<Array> body);  // a macro; null body means a flag
@@ -65,44 +72,38 @@ public:
     [[nodiscard]] const Array* macro(Symbol name) const;  // null unless a macro
 
     // Replaces file access (default: the local filesystem), e.g. to serve files from
-    // memory or a socket.
+    // memory or a socket. A null reader restores the default.
     void set_reader(Reader reader);
-    [[nodiscard]] const Reader& reader() const noexcept { return reader_; }
+    [[nodiscard]] const Reader& reader() const noexcept;
 
-    std::vector<std::string> include_dirs;  // searched after the including file's directory
+    // Searched, in order, after the including file's directory.
+    void add_include_dir(std::string_view dir);
+    void clear_include_dirs();
+    // #autorun commands, in load order.
+    [[nodiscard]] std::span<const Node> autorun() const noexcept;
+    void clear_autorun();
+
     ParseLimits limits;
-    std::vector<Node> autorun;  // #autorun commands, in load order
     // Set for an edit-mode parse: records source text and node spans (source_map.hpp).
     // Null (the default) is a gameplay parse, which keeps only the tree.
     SourceMap* source_map = nullptr;
 
+    struct State;  // defined in parse.cpp
+
 private:
     friend class detail::Parser;
-    friend Expected<Ref<Array>> try_read_string(std::string_view, std::string_view, LoadSession&);
-    friend Expected<Ref<Array>> try_read_file(std::string_view, LoadSession&);
+    friend Expected<Ref<Array>> read_string(std::string_view, std::string_view, LoadSession&);
+    friend Expected<Ref<Array>> read_file(std::string_view, LoadSession&);
 
-    std::unordered_map<Symbol, Ref<Array>> defines_;
-    Reader reader_;
-    // Per top-level read.
-    std::vector<std::string> include_stack_;
-    uint64_t nodes_ = 0;
-    uint32_t includes_ = 0;
+    State* st_;
 };
 
-[[nodiscard]] Expected<Ref<Array>> try_read_file(std::string_view path, LoadSession& session);
-[[nodiscard]] Expected<Ref<Array>> try_read_file(std::string_view path);
+[[nodiscard]] Expected<Ref<Array>> read_file(std::string_view path, LoadSession& session);
+[[nodiscard]] Expected<Ref<Array>> read_file(std::string_view path);
 // `name` is used as the file name in errors and as the base for relative includes.
-[[nodiscard]] Expected<Ref<Array>> try_read_string(std::string_view text, std::string_view name,
-                                                   LoadSession& session);
-[[nodiscard]] Expected<Ref<Array>> try_read_string(std::string_view text,
-                                                   std::string_view name = "<string>");
-
-#if MOIRA_EXCEPTIONS
-[[nodiscard]] Ref<Array> read_file(std::string_view path, LoadSession& session);
-[[nodiscard]] Ref<Array> read_file(std::string_view path);
-[[nodiscard]] Ref<Array> read_string(std::string_view text, std::string_view name,
-                                     LoadSession& session);
-[[nodiscard]] Ref<Array> read_string(std::string_view text, std::string_view name = "<string>");
-#endif
+[[nodiscard]] Expected<Ref<Array>> read_string(std::string_view text, std::string_view name,
+                                               LoadSession& session);
+[[nodiscard]] Expected<Ref<Array>> read_string(std::string_view text,
+                                               std::string_view name = "<string>");
 
 }  // namespace moira

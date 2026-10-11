@@ -1096,3 +1096,291 @@ for the core is now 10,000 non-test, non-comment lines. The rest of D2 and D40 s
   +917, `moira::data` +22. That is about 160 lines over the plan's estimate of 780. The
   overrun is mostly property paths, `{new}` for native types, and the reference and
   `check` additions.
+
+## D52. The script call stack
+
+*Spec §5 ("Debugging"); M6 plan, step 1. No open question bears on it.*
+
+- **Frames.** `Impl::call` keeps a `CallFrame` (the command, a parent pointer) in the
+  frame it already had for the depth count, and `Impl::top` points at the innermost one.
+  That is two stores in and one out per call, with no allocation. `ctx.top_frame()` exposes
+  the list read-only, for a debugger to walk.
+- **Errors carry the stack.** `Error` gains `stack`, a vector of `StackEntry` (function,
+  the object's name for a method, file, line), innermost first. It is filled once, on the
+  error path only:
+  - where the evaluator makes an error (`fail`);
+  - where an error first passes a call (`locate`, which every propagating error already
+    went through).
+
+  An error that already has a stack keeps it as it unwinds further. A call that failed
+  before it started (an unknown function, an arity error, too deep) is not on its own
+  stack; its error is located at it.
+- **Exceptions.** The plan was to catch `moira::Exception` around each native thunk.
+  Measured, a `try` there added about 10 ns to every native call, so it is not done.
+  Instead, `moira::data` has a stack-recorder hook (as it has an evaluator hook, D45), and
+  the `Exception` constructor calls it. An exception thrown from a native function records
+  the frames it is thrown through, at the throw, and costs nothing until then.
+- **Rendering.**
+  - `to_string(error)` stays one line.
+  - `describe(error)` adds `  in {bob attack}  (boss.dta:4)` per frame.
+  - `Exception::what()` and the default notice sink use `describe`.
+  - `script_backtrace()` renders the live frames of `Context::current()`.
+  - `ctx.backtrace()` returns them as `StackEntry`s.
+- **Cost.** `{add 1 2}` went from 30 to 34 ns on this container (target 40). About half
+  of that is the two stores and the restore, and half is the larger frame. A nested
+  evaluation inside a native function shares the Context's list, so its error records the
+  outer calls too.
+
+## D53. M6: messages, statistics, and tracing answers
+
+*M6 plan Q1–Q3, answered by the project owner 2026-10-11 after the `acton-review` lens
+was written.*
+
+- **Q1, messages.** `obj.handle(msg)` returns `Expected<Node>`, and an unhandled message
+  is a `NotFound` error. `obj.handles<M>()` is a cheap check that allocates nothing.
+  - **New:** `handle_all(Span<ObjectBase*>, msg)` broadcasts one message.
+    It groups the objects by type, so the table search and the "is there a script
+    override?" check happen once per type, not once per object ("where there is one,
+    there are many"; no last-minute decisions).
+- **Q2, statistics.** Non-shipping builds always count calls, with one increment beside
+  the function record. Timing is off until `ctx.set_profiling(true)`. All of it compiles
+  out under `MOIRA_SHIPPING`.
+- **Q3, tracing.** Compiled out under `MOIRA_SHIPPING`. The API still compiles and does
+  nothing.
+
+M6's remaining steps (messages, statistics, tracing) wait for the hygiene work in D54–D56
+(`docs/m5b-plan.md`), so they are built on the new API from the start.
+
+## D54. No exceptions, and no `try_` prefix
+
+*Deviates from spec §6 ("every throwing API has a non-throwing twin", `MOIRA_NO_EXCEPTIONS`).
+Decided by the project owner 2026-10-11.*
+
+- **The throwing forms are removed.** Every fallible API returns `Expected<T>`. This
+  removes:
+  - `moira::Exception`;
+  - `detail::raise`;
+  - the `MOIRA_EXCEPTIONS` and `MOIRA_NO_EXCEPTIONS` switches and the CI job for them;
+  - D52's stack-recorder hook, which existed only for exceptions.
+
+  The library builds with exceptions disabled (`-fno-exceptions`, `/EHs-c-`) in every CI
+  job. A game that uses exceptions elsewhere can still link it.
+- **The `try_` prefix goes too.** With one form there is nothing to tell apart, and the
+  one-line API reads better: `ctx.eval`, `ctx.func`, `ctx.add`, `arr.find<T>`, and so on.
+  It is one mechanical rename across the API, tests, examples, and docs. `[[nodiscard]]`
+  on every `Expected` keeps a failure from being dropped silently.
+- **Native functions report failure by returning `Expected`,** as they already could. A
+  C++ exception escaping a native function is now the host's bug; Moira does not catch
+  it.
+- **Why.** A console codebase builds with exceptions off. A library that offers throwing
+  forms invites them into game code, and that is the entanglement the TD guards against
+  (`acton-review`, "Why the line is held"). Having one form also halves the API.
+
+## D55. Public headers are free of the standard library
+
+*Deviates from spec §6's silence on the subject (it requires only no iostream). Decided by
+the project owner 2026-10-11 (gap 11 of `acton-review`).*
+
+- **Public headers may include:**
+  - the language-support headers: `<cstddef>`, `<cstdint>`, `<type_traits>`, `<new>`,
+    `<bit>`, `<atomic>`, `<initializer_list>`, `<compare>`, `<concepts>`, `<utility>`, and
+    `<limits>`;
+  - the header-only, non-allocating standard vocabulary types: `<string_view>`, `<span>`,
+    and `<optional>`;
+  - `<expected>` where D21 chose it.
+
+  That rules out every container, `std::string`, `std::function`, `std::shared_ptr` and
+  `unique_ptr`, `<memory>`, `<functional>`, `<algorithm>`, and `<tuple>`. (The owner first
+  chose Moira-owned vocabulary types, then decided the same day that the std ones are fine:
+  they do not allocate, and reimplementing them buys nothing.)
+- **`Error` becomes a handle.** It is an owning pointer to an error record (code, message,
+  location, path, stack) allocated through the allocator (D56) on the error path only.
+  `Expected<Node>` shrinks from about 120 bytes to 24, which also closes gap 9.
+- **Callbacks** are a function pointer plus `void*`, as `NoticeSink` already is. No
+  `std::function`.
+- **Inside `src/`,** containers go through one internal alias layer (`src/common/containers.hpp`)
+  that maps to the STL by default, or to EASTL with `MOIRA_USE_EASTL=ON`, always with
+  Moira's allocator (D56). This follows the owner's rule: where reimplementing an STL
+  class would otherwise be needed, at least allow EASTL instead
+  (<https://github.com/electronicarts/EASTL>). Naked `std::` containers in `src/` are
+  not allowed.
+- **Checked in CI:** a test compiles each public header alone and fails if it reaches any
+  standard header outside the allowed list. It checks the preprocessor's dependency
+  output, not by eye. An EASTL job builds with `MOIRA_USE_EASTL=ON`.
+  EASTL is fetched for that job only and is not vendored.
+
+## D56. Per-Context allocators, and an arena per load
+
+*Gap 1 of `acton-review`. Decided by the project owner 2026-10-11.*
+
+- **The interface** is a plain struct of function pointers:
+  `struct Allocator { void* (*alloc)(void* user, size_t size, size_t align); void (*free)(void* user, void* p, size_t size); void* user; };`.
+  No virtual calls, and no STL.
+- **Who takes one.** Each `Context` and each `Config` takes one at construction. Every
+  allocation it makes goes through it: tables, script state, error records, and the trees
+  it loads. Process-wide state (the symbol table) uses a default allocator the host can
+  set once, before first use. By default, every allocator is `operator new`.
+- **Trees live in an arena per load.** Each load (a file, a `Config` layer, an `eval`
+  string) allocates its tree from arena blocks taken from the owner's allocator, and the
+  load frees them as a whole.
+  - There is no per-array free and no refcount inside a tree. The tree has one owner,
+    which also closes gap 5 and lines up with M8's load-in-place.
+  - Arrays built after load (`set`, macro expansion, script-built values) go to the
+    owner's scratch arena, which is collected at points the host chooses.
+- **Open, for the plan:** how values that outlive their load (a Node held in a variable,
+  a snapshot, D42) keep their tree alive. Candidates: a per-load refcount, with one count
+  per load rather than per array, or an explicit copy into the scratch arena.
+
+## D57. Hot and cold layout fixes wait for M8
+
+*Gaps 2, 2b, and 3 of `acton-review`. Decided by the project owner 2026-10-11.*
+
+The following are done together with the binary cache, while the tree layout is being
+redesigned anyway:
+- splitting method and function records into hot and cold parts;
+- moving the thunk and callable pointer into the dispatch table;
+- storing a run of contiguous tags beside a tree's children.
+
+M8's plan carries them, along with cold-cache benchmark rows (a working set larger than
+L2) to measure them.
+
+## D58. Task frames come from a pool with a frame budget
+
+*Gap 7 of `acton-review`, for the M7 plan. Decided by the project owner 2026-10-11.*
+
+- M7's coroutine promise type defines `operator new`, which draws from a per-Scheduler
+  pool of fixed-size blocks, taken from the Context's allocator (D56).
+- The frame budget is the block size. A frame's size is known only when it is allocated,
+  so an oversized frame fails at spawn: `get_return_object_on_allocation_failure` turns
+  it into an error naming the task. It never falls back to the heap.
+- The Scheduler steps tasks in a batch. Structural changes made during a step (`{new}`,
+  `{delete}`, registration) are queued and applied at a named sync point.
+
+## D59. M5b step 1 results: exceptions and `try_` removed
+
+*Recorded 2026-10-11. Implements D54.*
+
+- **What is gone:**
+  - `Exception`, `detail::raise`, and every throwing form;
+  - `MOIRA_EXCEPTIONS` and `MOIRA_NO_EXCEPTIONS`, and both "no exceptions" CI jobs;
+  - D52's stack-recorder hook.
+
+  Every target builds with `-fno-exceptions` (`/EHs-c-` with `_HAS_EXCEPTIONS=0` on MSVC):
+  the library, tests, examples, tools, and benchmarks. doctest runs in its no-exceptions
+  mode, so a failed `REQUIRE` ends the test binary.
+- **What `try_` means now.** It marks only weak lookups, which return null or an empty
+  optional and build no error:
+  - `Node::try_int`/`try_float`/`try_sym`/`try_str`/`try_array`;
+  - `Array::try_at`, `try_find(tag)`, and `try_get(path)`;
+  - `Context::try_resolve` and `try_get<T>(object)`.
+
+  Everything that returns `Expected` lost the prefix: `read_file`, `eval`, `func`, `add`,
+  `call`, `find<T>`, `find_float`, `get<T>`, `push_layer`, `reload`, `set`, `write_back`,
+  and the rest.
+- **Strong accessors return `Expected`.** `Node::as_int()` and the other `as_X()` and
+  `as<T>()` accessors return `Expected<X>`, with the same located message as before.
+  `as_array()` returns `Expected<const Array*>`. `Context::get<T>(object)` returns
+  `Expected<T*>`. `Array::at(i)` and the reference-returning `Array::find(tag)` and
+  `get(path)` are gone: `try_at`, `try_find`, and `try_get` cover them.
+- **Renamed internally:** the private `Context::add(Symbol, Overload)` became
+  `add_overload`, so `add` is only the public object form.
+- **Tests.** About 700 lines of tests were written against the throwing forms. They were
+  converted, not dropped:
+  - `tests/support/ok.hpp` adds `ok(expected)`, which returns the value or fails the test
+    with `describe(error)`, script stack included;
+  - assertion counts match the previous build within the merged duplicates (673 against
+    674 script assertions, and 75,959 against 75,963 data assertions).
+
+  Five `CHECK_THROWS` checks would have compiled to nothing without exceptions. They now
+  check the returned error.
+- **A latent issue surfaced.** One test called `set` and `write_back` in the shipping
+  build, where both are refused. The throwing form had hidden it. The test now expects
+  the refusal under `MOIRA_SHIPPING`.
+- **Performance, on this container:**
+  - `{add 1 2}` is 32–34 ns, unchanged (target 40, zero allocations).
+  - **`-fno-exceptions` itself slows lookup.** HEAD's own benchmark, built with
+    `MOIRA_NO_EXCEPTIONS=ON`, reads `try_find_float` on a 20-child array at about 17 ns
+    on average and 29 ns for the last key. With exceptions on, the same build reads 17 and
+    24 ns. The new library matches the no-exceptions numbers exactly (17.3 and 28.9 ns
+    with that benchmark file). The cause was not investigated: D57's M8 layout work
+    rewrites this path.
+  - **The rewritten `bench_lookup.cpp` reads about 3 ns slower than HEAD's file** against
+    the same library (20–21 ns average, 31–32 ns last), because of inlining in the
+    benchmark's own translation unit, not the library.
+  - The §7 target (≤ 25 ns, read as the average) is met either way. The last-key row
+    missed 25 ns at HEAD too.
+- **Size.** The core is 6,933 lines, down 329 (D54 estimated −150).
+
+## D60. M5b step 2 results: public headers without the standard library
+
+*Recorded 2026-10-11. Implements D55, except for its allocator-related parts (step 3).*
+
+- **The rule holds and is enforced.**
+  - Public headers reach only D55's allowed headers. `tools/check_headers.py` (CTest
+    `moira_header_allowlist`) walks each header's include closure and fails on anything
+    else.
+  - A CMake object library compiles every public header on its own.
+  - The count went 81 → 59 → 53 → 51 → 24 → 17 → 0 over sub-steps 2a–2f.
+  - The allow-list also admits the trivial C headers `<cstdlib>`, `<cstring>`,
+    `<cassert>`, and `<climits>`, and `<version>`.
+- **The cost to a game file.** A translation unit that only reads a `Tweak<float>`
+  preprocesses to 35,005 lines instead of 81,222 (the allowed headers alone are 31,434),
+  and compiles at `-O2` in about 0.5 s instead of 1.35 s.
+- **Opt-in interop headers.** Headers named `std_*.hpp` are exempt by name, and nothing
+  else in Moira includes them:
+  - `<moira/std_interop.hpp>` (data): `std::hash<Symbol>`, `Convert<>` for
+    `std::string`/`vector`/`array`, `string_out()`, `to_string()` for nodes, arrays,
+    paths, and stack entries, `to_dta()`, and `strings(List<Symbol>)`;
+  - `<moira/std_script.hpp>` (script): `to_string(CheckReport)`, `reference(ctx)`, and
+    `script_backtrace()` returning strings. It is separate so that `moira::data` never
+    includes a script header.
+- **New small types.** Each is a minimal piece of what the STL would provide, and each
+  is tested:
+  - `TextOut` (`text.hpp`): a function pointer and a context. All text Moira produces is
+    written through it: `write(node)`, `write_dta`, `Path::write`, the check report, the
+    reference, the backtrace, and file readers.
+  - `Callback<Sig>` (`callback.hpp`): an owning, copyable callable for stored host code
+    (`on_reload`, `on_change`, readers, writers, warnings). A capture-free lambda or a
+    function is stored by pointer with no allocation.
+  - `List<T>` (`list.hpp`): a fixed-size owning array for results (`layers()`,
+    `unsaved()`, `layer_effect`, `diff`, `WriteReport`, `CheckReport`, `backtrace()`).
+  - `detail::NodeBuffer`: 8 nodes inline, heap beyond; it backs `ValueList` and evaluated
+    lookups.
+  - `detail::Shared`: an intrusive refcounted holder for a function's callable. `get()` is
+    one load, as `shared_ptr::get()` was.
+- **API changes,** all mechanical for a caller:
+  - `Error` is a handle with accessors (`e.message()`, `e.file()`, ...). `to_string(e)`
+    and `describe(e)` return null-terminated views cached in the error. `Expected<Node>`
+    is 24 bytes.
+  - `LoadSession` is opaque: `add_include_dir()` and `autorun()`. Readers have the
+    signature `bool(std::string_view path, TextOut out)`.
+  - `SourceMap::spans()` and `text()` return `std::optional` views.
+  - `Path` holds up to 16 segments inline; deeper is invalid, and an invalid path keeps
+    the first 64 characters of its text. `to_string(path)` moves to interop.
+  - `Source::layer`, layer names in results, and the paths in `LayerEffectEntry`/
+    `DiffEntry` are `Symbol`s.
+  - `TweakBase::values(ValueList&)` fills instead of returning a vector.
+  - `ObjectBase::type_name()` replaces reading the type record. `TypeRecord` is defined
+    only in `src/`, and `Binder` reaches it through out-of-line functions.
+  - Parameter descriptions are `static constexpr` tables, and a signature's types are a
+    `TypeList` rather than a `std::tuple`.
+  - `script_backtrace(TextOut)` allocates nothing: line numbers are formatted on the
+    stack.
+- **Performance, on this container:**
+  - `{add 1 2}` 33–34 ns, `{add1 1}` 108–112 ns, and `{bob grow 0}` 86–89 ns; all
+    unchanged, with zero allocations.
+  - `find_float` on 20 children: 19–20 ns average.
+  - Parsing a path string in `get<T>("...")` dropped from about 200 ns to 147 ns,
+    because `Path` no longer allocates.
+  - 2c's apparent 3–4 ns slowdown of prebuilt-path lookups disappeared in 2d with no
+    related change, so it was code layout, not `Path`.
+- **Process.** Two slips were caught after a commit, and the local matrix gained
+  configurations so neither recurs:
+  - shipping-only test code broke in 2a;
+  - a GCC `-O3` maybe-uninitialized false positive appeared in 2e.
+
+  The matrix is now debug, release, C++23, shipping, ASan+UBSan, Clang, data-only, and
+  plain refcounts.
+- **Size.** The core is 7,633 lines, up 700 in step 2. The plan estimated +150, without
+  counting the new small types, opaque implementations, or interop headers. With step 1's
+  −329, M5b so far is +371 against the plan's +450 for all four steps. Steps 3–4 remain.

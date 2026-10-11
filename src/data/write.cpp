@@ -120,13 +120,13 @@ void put_pretty(std::string& out, const Node& n, size_t indent, const WriteOptio
 
 }  // namespace
 
-std::string to_string(const Node& node) {
+void write(const Node& node, TextOut text) {
     std::string out;
     put_flat(out, node, SIZE_MAX);
-    return out;
+    text(out);
 }
 
-std::string to_string(const Array& array) {
+void write(const Array& array, TextOut text) {
     std::string out = "(";
     bool first = true;
     for (const Node& c : array) {
@@ -135,10 +135,11 @@ std::string to_string(const Array& array) {
         put_flat(out, c, SIZE_MAX);
     }
     out += ')';
-    return out;
+    text(out);
 }
 
-std::string to_dta(const Array& root, const WriteOptions& options) {
+namespace {
+std::string dta_text(const Array& root, const WriteOptions& options) {
     std::string out;
     for (const Node& n : root) {
         put_pretty(out, n, 0, options);
@@ -149,10 +150,14 @@ std::string to_dta(const Array& root, const WriteOptions& options) {
     if (out.starts_with("\xEF\xBB\xBF")) out.insert(out.begin(), ' ');
     return out;
 }
+}  // namespace
 
-Expected<void> try_write_file(std::string_view path, const Array& root,
-                              const WriteOptions& options) {
-    const std::string text = to_dta(root, options);
+void write_dta(const Array& root, TextOut out, const WriteOptions& options) {
+    out(dta_text(root, options));
+}
+
+Expected<void> write_file(std::string_view path, const Array& root, const WriteOptions& options) {
+    const std::string text = dta_text(root, options);
     const std::string p(path);
     std::FILE* f = std::fopen(p.c_str(), "wb");
     if (!f) return Unexpected(make_error(ErrorCode::Io, "cannot open '" + p + "' for writing"));
@@ -161,12 +166,6 @@ Expected<void> try_write_file(std::string_view path, const Array& root,
     if (!ok || !closed) return Unexpected(make_error(ErrorCode::Io, "error writing '" + p + "'"));
     return {};
 }
-
-#if MOIRA_EXCEPTIONS
-void write_file(std::string_view path, const Array& root, const WriteOptions& options) {
-    if (auto r = try_write_file(path, root, options); !r) detail::raise(std::move(r).error());
-}
-#endif
 
 namespace detail {
 std::string preview(const Node& node, size_t max_chars) {

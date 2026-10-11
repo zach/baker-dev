@@ -1,6 +1,7 @@
 // The corpus in tests/corpus: every file parses, round-trips, and survives truncation.
 #include <doctest.h>
 #include <moira/parse.hpp>
+#include <moira/std_interop.hpp>
 #include <moira/write.hpp>
 
 #include "parse_harness.hpp"
@@ -40,10 +41,10 @@ TEST_CASE("every corpus file parses and round-trips") {
     for (const fs::path& p : files) {
         CAPTURE(p.string());
         LoadSession session;
-        auto root = try_read_file(p.generic_string(), session);
+        auto root = read_file(p.generic_string(), session);
         REQUIRE_MESSAGE(root.has_value(), (root ? std::string() : to_string(root.error())));
         const std::string printed = to_dta(**root);
-        auto again = try_read_string(printed, "printed.dta");
+        auto again = read_string(printed, "printed.dta");
         REQUIRE_MESSAGE(again.has_value(), printed);
         CHECK(structurally_equal(**root, **again));
     }
@@ -52,7 +53,7 @@ TEST_CASE("every corpus file parses and round-trips") {
 TEST_CASE("corpus spot checks") {
     const std::string dir = MOIRA_CORPUS_DIR;
     LoadSession s;
-    auto app = try_read_file(dir + "/config_app.dta", s);
+    auto app = read_file(dir + "/config_app.dta", s);
     REQUIRE(app.has_value());
     // config_app sets screen_size and merges the defaults in afterwards.
     CHECK(to_string((*app)->nodes()[0])
@@ -62,12 +63,12 @@ TEST_CASE("corpus spot checks") {
           "(audio (channels 32) (master_volume 0.8) (sample_rate 48000))");
 
     LoadSession ui_session;
-    auto ui = try_read_file(dir + "/ui_menu.dta", ui_session);
+    auto ui = read_file(dir + "/ui_menu.dta", ui_session);
     REQUIRE(ui.has_value());
-    REQUIRE(ui_session.autorun.size() == 1);
-    CHECK(to_string(ui_session.autorun[0]) == "{ui register_screen main_menu}");
+    REQUIRE(ui_session.autorun().size() == 1);
+    CHECK(to_string(ui_session.autorun()[0]) == "{ui register_screen main_menu}");
 
-    auto odd = try_read_file(dir + "/odd_tokens.dta");
+    auto odd = read_file(dir + "/odd_tokens.dta");
     REQUIRE(odd.has_value());
     const Array& crlf = *(*odd)->nodes()[0].array();
     CHECK(crlf.line() == 2);

@@ -21,7 +21,9 @@ std::string quoted(Symbol s) {
 #endif
 
 MOIRA_COLD Expected<Node> fail(const Array& at, ErrorCode code, std::string message) {
-    return Unexpected(make_error(code, std::move(message), at.file(), at.line()));
+    Error e = make_error(code, std::move(message), at.file(), at.line());
+    record_stack(e);
+    return Unexpected(std::move(e));
 }
 
 // An instance of a script-only class.
@@ -37,7 +39,7 @@ std::optional<Node> get_property(ObjectBase& o, Symbol name, ObjectParams* param
     if (const detail::PropertyEntry* p = o.type().property(name))
         return p->get(p->accessor.get(), o);
     if (params)
-        for (const auto& [k, v] : *params)
+        for (const auto& [k, v] : params->items)
             if (k == name) return v;
     return std::nullopt;
 }
@@ -68,10 +70,98 @@ void TypeRecord::sort() {
     symbol = Symbol(name);
 }
 
+TypeRecord* new_type_record(std::string_view name) {
+    auto* r = new TypeRecord();  // one per bound type, for the life of the program
+    r->name = name;
+    return r;
+}
+
+void set_type_name(TypeRecord& type, std::string_view name) {
+    type.name = name;
+}
+
+MethodEntry* add_method(TypeRecord& r, Symbol name, Overload o) {
+    MethodEntry* m = nullptr;
+    for (MethodEntry& x : r.methods)
+        if (x.name == name) {
+            if (x.inherited) x = MethodEntry{name, {}, {}, {}, {}, false};
+            m = &x;
+            break;
+        }
+    if (!m) {
+        r.methods.push_back(MethodEntry{name, {}, {}, {}, {}, false});
+        m = &r.methods.back();
+    }
+    auto has_raw = [](const Overload& x) {
+        return std::any_of(x.params.begin(), x.params.end(),
+                           [](const ParamInfo& p) { return p.raw; });
+    };
+    if (!m->overloads.empty() &&
+        (has_raw(o) || std::any_of(m->overloads.begin(), m->overloads.end(), has_raw)))
+        r.error = "method '" + std::string(name.str()) + "' of " + r.name +
+                  " takes unevaluated arguments, so it cannot be overloaded";
+    m->overloads.push_back(std::move(o));
+    return m;
+}
+
+void set_method_doc(MethodEntry& m, std::string_view doc) {
+    m.doc = doc;
+}
+
+void set_method_status(MethodEntry& m, Status status, Symbol replacement) {
+    m.status = status;
+    m.replacement = replacement;
+}
+
+void add_property(TypeRecord& r, Symbol name, std::string_view value_type, Shared accessor,
+                  PropertyGet get, PropertySet set, std::string_view doc) {
+    PropertyEntry p{name, value_type, std::move(accessor), get, set, std::string(doc)};
+    for (PropertyEntry& x : r.properties)
+        if (x.name == name) {
+            x = std::move(p);
+            return;
+        }
+    r.properties.push_back(std::move(p));
+}
+
+void inherit(TypeRecord& r, const TypeRecord& b) {
+    if (r.is(&b)) return;
+    r.bases.push_back(&b);
+    r.bases.insert(r.bases.end(), b.bases.begin(), b.bases.end());
+    for (MethodEntry m : b.methods) {
+        if (std::any_of(r.methods.begin(), r.methods.end(),
+                        [&](const MethodEntry& x) { return x.name == m.name; }))
+            continue;
+        m.inherited = true;
+        r.methods.push_back(std::move(m));
+    }
+    for (const PropertyEntry& p : b.properties)
+        if (std::none_of(r.properties.begin(), r.properties.end(),
+                         [&](const PropertyEntry& x) { return x.name == p.name; }))
+            r.properties.push_back(p);
+}
+
+void set_create(TypeRecord& r, ObjectBase* (*create)()) {
+    r.create = create;
+}
+
+void finish_type_record(TypeRecord& r) {
+    r.sort();
+}
+
+bool type_is(const TypeRecord& type, const TypeRecord* other) noexcept {
+    return type.is(other);
+}
+
+std::string_view type_record_name(const TypeRecord& type) noexcept {
+    return type.name;
+}
+
 }  // namespace detail
 
 ObjectBase::~ObjectBase() {
     if (ctx_) ctx_->remove(*this);
+    delete params_;
 }
 
 // --- Impl ---
@@ -174,9 +264,8 @@ Expected<Node> Context::Impl::send(ObjectHandle target, const Array& command) {
         Args args(self, command, command.begin() + 2, n, 0, false, 2, object);
         const Node this_node = Node::object(target);
         Expected<Node> r = run_script(handler->body, args, &this_node);
-        if (!r && r.error().file.empty()) {
-            r.error().file = command.file();
-            r.error().line = command.line();
+        if (!r && r.error().file().empty()) {
+            r.error().set_location(command.file(), command.line());
         }
         return r;
     }
@@ -197,14 +286,14 @@ Expected<Node> Context::Impl::send(ObjectHandle target, const Array& command) {
                         quoted(method) + " takes " +
                             arity_text(method == kGet ? 1 : 2, method == kGet ? 1 : 2) +
                             ", given " + std::to_string(n));
-        auto key = args.try_get<Symbol>(0);
+        auto key = args.get<Symbol>(0);
         if (!key) return Unexpected(std::move(key).error());
         if (method == kGet) {
-            if (auto v = get_property(*object, *key, object->params_.get())) return *v;
+            if (auto v = get_property(*object, *key, object->params_)) return *v;
             return fail(command, ErrorCode::NotFound,
                         class_name(*s) + " has no property or parameter " + quoted(*key));
         }
-        auto value = args.try_eval(1);
+        auto value = args.eval(1);
         if (!value) return value;
         auto r = set_property(*object, *key, *value, command);
         if (!r) return Unexpected(std::move(r).error());
@@ -223,13 +312,13 @@ Expected<void> Context::Impl::set_property(ObjectBase& o, Symbol name, const Nod
                                          std::string(moira::type_name(value.type())),
                                      at.file(), at.line()));
     }
-    if (!o.params_) o.params_ = std::make_unique<ObjectParams>();
-    for (auto& [k, v] : *o.params_)
+    if (!o.params_) o.params_ = new ObjectParams();
+    for (auto& [k, v] : o.params_->items)
         if (k == name) {
             v = value;
             return {};
         }
-    o.params_->emplace_back(name, value);
+    o.params_->items.emplace_back(name, value);
     return {};
 }
 
@@ -246,7 +335,7 @@ Expected<Node> Context::Impl::property_path(const Array& path) {
         if (current.type() == Type::Object) {
             Slot* s = slot(current.object_handle());
             if (!s) return fail(path, ErrorCode::NotFound, "[...] reads a removed object");
-            auto v = get_property(*s->object, *name, s->object->params_.get());
+            auto v = get_property(*s->object, *name, s->object->params_);
             if (!v)
                 return fail(path, ErrorCode::NotFound,
                             class_name(*s) + " has no property or parameter " + quoted(*name));
@@ -263,7 +352,7 @@ Expected<Node> Context::Impl::property_path(const Array& path) {
 
 // --- Context ---
 
-Expected<Node> Context::try_add(ObjectBase& object, Symbol name) {
+Expected<Node> Context::add(ObjectBase& object, Symbol name) {
     return impl_->add(object, name, nullptr, false);
 }
 
@@ -287,14 +376,14 @@ void Context::add_type(const detail::TypeRecord& type) {
         impl_->types.push_back(&type);
 }
 
-Expected<Node> Context::try_call(const Node& object, Symbol method, std::span<const Node> args) {
+Expected<Node> Context::call(const Node& object, Symbol method, std::span<const Node> args) {
     std::vector<Node> nodes;
     nodes.reserve(args.size() + 2);
     nodes.push_back(object);
     nodes.emplace_back(method);
     nodes.insert(nodes.end(), args.begin(), args.end());
     const Ref<Array> command = Array::make_from(nodes);
-    return try_eval(Node(command, Type::Command));
+    return eval(Node(command, Type::Command));
 }
 
 Error Context::resolve_error(const Node& object, std::string_view type) const {
@@ -307,17 +396,9 @@ Error Context::resolve_error(const Node& object, std::string_view type) const {
                                            ", not a " + std::string(type));
 }
 
-#if MOIRA_EXCEPTIONS
-Node Context::add(ObjectBase& object, Symbol name) {
-    auto r = try_add(object, name);
-    if (!r) detail::raise(std::move(r).error());
-    return *r;
-}
-#endif
-
 // --- Raw<Var> ---
 
-Expected<void> Raw<Var>::try_store(Node v) const {
+Expected<void> Raw<Var>::store(Node v) const {
     if (cell_) {
         *cell_ = std::move(v);
         return {};
@@ -383,7 +464,7 @@ void register_object_builtins(Context& ctx) {
         }
         return Node(name);
     };
-    if (auto r = ctx.try_func("class", define_class))
+    if (auto r = ctx.func("class", define_class))
         r->doc(
             "`{class Name (method ($params...) body...) ...}`: script handlers. If `Name` is a "
             "bound C++ type, they apply to its objects and are tried before its C++ methods; "
@@ -415,7 +496,8 @@ void register_object_builtins(Context& ctx) {
         Symbol name;
         if (a.size() > 1 && a.raw(1).type() == Type::Symbol) name = *a.raw(i++).try_sym();
         auto node = impl.add(*object, name, script, true);
-        if (!node) return Unexpected(a.error(std::move(node).error().message, ErrorCode::Refused));
+        if (!node)
+            return Unexpected(a.error(std::string(node.error().message()), ErrorCode::Refused));
         owner.release();
         for (; i < a.size(); ++i) {
             const Array* p = a.raw(i).try_array();
@@ -435,7 +517,7 @@ void register_object_builtins(Context& ctx) {
         }
         return node;
     };
-    if (auto r = ctx.try_func("new", make))
+    if (auto r = ctx.func("new", make))
         r->doc(
             "`{new Class [name] (param value)...}`: creates an object of a script class or of "
             "a default-constructible bound type, owned by the Context, and returns it.");
@@ -455,7 +537,7 @@ void register_object_builtins(Context& ctx) {
         if (owned) delete o;
         return Node();
     };
-    if (auto r = ctx.try_func("delete", destroy))
+    if (auto r = ctx.func("delete", destroy))
         r->doc(
             "`{delete object}`: removes the object (or the object of that name); one `new` "
             "created is destroyed. Its handles go stale.");

@@ -9,6 +9,7 @@
 // under. Exits 1 if any file fails.
 
 #include <moira/parse.hpp>
+#include <moira/std_interop.hpp>
 #include <moira/write.hpp>
 
 #include <algorithm>
@@ -78,14 +79,14 @@ int main(int argc, char** argv) {
     size_t ok = 0, failed = 0, roundtrip_failed = 0;
     for (const Item& item : items) {
         moira::LoadSession session;
-        session.include_dirs = include_dirs;
-        session.include_dirs.push_back(item.root.generic_string());
+        for (const std::string& d : include_dirs) session.add_include_dir(d);
+        session.add_include_dir(item.root.generic_string());
         for (const std::string& d : defines) session.define(moira::Symbol(d));
-        auto root = moira::try_read_file(item.file.generic_string(), session);
+        auto root = moira::read_file(item.file.generic_string(), session);
         if (!root) {
             ++failed;
             std::printf("FAIL %s\n     %s\n", item.file.generic_string().c_str(),
-                        moira::to_string(root.error()).c_str());
+                        moira::to_string(root.error()).data());
             continue;
         }
         ++ok;
@@ -94,7 +95,7 @@ int main(int argc, char** argv) {
         bool small = true;
         for (const moira::Node& n : **root) small = small && fits(n, budget);
         if (!small) continue;
-        auto again = moira::try_read_string(moira::to_dta(**root), "printed.dta");
+        auto again = moira::read_string(moira::to_dta(**root), "printed.dta");
         if (!again || !moira::structurally_equal(**root, **again)) {
             ++roundtrip_failed;
             std::printf("ROUNDTRIP %s\n", item.file.generic_string().c_str());

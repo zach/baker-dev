@@ -2,6 +2,7 @@
 #include "internal.hpp"
 
 #include <moira/parse.hpp>
+#include <moira/std_interop.hpp>
 
 #include <cstdio>
 #if defined(_MSC_VER)
@@ -33,15 +34,30 @@ std::string quoted(Symbol s) {
 #define MOIRA_COLD [[gnu::noinline, gnu::cold]]
 #endif
 
+}  // namespace
+
+// The stack is recorded where an error is made or first passes a call, with every frame
+// still live; an error that has one keeps it as it unwinds further. Nothing on the
+// successful path pays for it.
+MOIRA_COLD void record_stack(Error& e) {
+    if (!e.stack().empty() || !t_current) return;
+    for (const CallFrame* c = t_current->impl().top; c; c = c->parent)
+        e.push_stack(t_current->stack_entry(*c));
+}
+
+namespace {
+
 MOIRA_COLD void locate(Error& e, const Array& at) {
-    if (e.file.empty()) {
-        e.file = at.file();
-        e.line = at.line();
+    if (e.file().empty()) {
+        e.set_location(at.file(), at.line());
     }
+    record_stack(e);
 }
 
 MOIRA_COLD Expected<Node> fail(const Array& at, ErrorCode code, std::string message) {
-    return Unexpected(make_error(code, std::move(message), at.file(), at.line()));
+    Error e = make_error(code, std::move(message), at.file(), at.line());
+    record_stack(e);
+    return Unexpected(std::move(e));
 }
 
 MOIRA_COLD Expected<Node> bad_head(const Array& command) {
@@ -106,11 +122,12 @@ Expected<Node> evaluate_for_data(const Node& n) {
         return Unexpected(make_error(ErrorCode::NotFound,
                                      "a " + std::string(type_name(n.type())) +
                                          " value needs a current moira::Context on this thread"));
-    return t_current->try_eval(n);
+    return t_current->eval(n);
 }
 
 void stderr_sink(void*, const Error& notice) {
-    std::fprintf(stderr, "%s\n", to_string(notice).c_str());
+    const std::string_view text = describe(notice);
+    std::fprintf(stderr, "%.*s\n", static_cast<int>(text.size()), text.data());
 }
 
 }  // namespace
@@ -219,14 +236,18 @@ Expected<Node> Context::Impl::call(const Array& command) {
     if (depth == 0) stack_base = at;
     const uintptr_t used = at < stack_base ? stack_base - at : at - stack_base;
     if (depth >= kMaxDepth || used > stack_budget) return too_deep(command, depth, used);
+    // This call joins the frame list for as long as it runs (spec §5, "Debugging").
     struct Frame {
         Impl& impl;
         size_t kept;
+        CallFrame call;
         ~Frame() {
             --impl.depth;
+            impl.top = call.parent;
             if (impl.kept.size() > kept) impl.kept.resize(kept);
         }
-    } frame{*this, kept.size()};
+    } frame{*this, kept.size(), {&command, top}};
+    top = &frame.call;
     ++depth;
     if (!f) return send(target, command);
     if (f->overloads.size() > 1) return invoke_set(name, f->overloads, command, 1, nullptr);
@@ -293,7 +314,7 @@ Expected<Node> Context::Impl::run(std::span<const Node> nodes) {
 
 // --- Context ---
 
-Context::Context() : impl_(std::make_unique<Impl>(*this)) {
+Context::Context() : impl_(new Impl(*this)) {
     detail::set_evaluator(&evaluate_for_data);
     if (!t_current) t_current = this;
     impl_->sink = &stderr_sink;
@@ -309,6 +330,7 @@ Context::~Context() {
         if (s.owned) delete s.object;
     }
     if (t_current == this) t_current = nullptr;
+    delete impl_;
 }
 
 Context::Scope::Scope(Context& ctx) noexcept : previous_(t_current) {
@@ -323,56 +345,21 @@ Context* Context::current() noexcept {
     return t_current;
 }
 
-Expected<Node> Context::try_eval(const Node& node) {
+Expected<Node> Context::eval(const Node& node) {
     Scope scope(*this);
-#if MOIRA_EXCEPTIONS
-    try {
-        return impl_->eval(node);
-    } catch (const Exception& e) {
-        return Unexpected(e.error());
-    }
-#else
     return impl_->eval(node);
-#endif
 }
 
-Expected<Node> Context::try_run(std::span<const Node> nodes) {
+Expected<Node> Context::run(std::span<const Node> nodes) {
     Scope scope(*this);
-#if MOIRA_EXCEPTIONS
-    try {
-        return impl_->run(nodes);
-    } catch (const Exception& e) {
-        return Unexpected(e.error());
-    }
-#else
     return impl_->run(nodes);
-#endif
 }
 
-Expected<Node> Context::try_eval(std::string_view text, std::string_view name) {
-    auto tree = try_read_string(text, name);
+Expected<Node> Context::eval(std::string_view text, std::string_view name) {
+    auto tree = read_string(text, name);
     if (!tree) return Unexpected(std::move(tree).error());
-    return try_run((*tree)->nodes());
+    return run((*tree)->nodes());
 }
-
-#if MOIRA_EXCEPTIONS
-namespace {
-Node value_or_raise(Expected<Node>&& r) {
-    if (!r) detail::raise(std::move(r).error());
-    return std::move(*r);
-}
-}  // namespace
-
-Node Context::eval(const Node& node) {
-    return value_or_raise(try_eval(node));
-}
-Node Context::eval(std::string_view text, std::string_view name) {
-    return value_or_raise(try_eval(text, name));
-}
-Node Context::run(std::span<const Node> nodes) {
-    return value_or_raise(try_run(nodes));
-}
-#endif
 
 bool Context::has_func(Symbol name) const noexcept {
     const Function* f = impl_->find(name);
@@ -399,6 +386,46 @@ void Context::set_stack_budget(size_t bytes) noexcept {
     impl_->stack_budget = bytes;
 }
 
+// --- Debugging ---
+
+const CallFrame* Context::top_frame() const noexcept {
+    return impl_->top;
+}
+
+StackEntry Context::stack_entry(const CallFrame& frame) const {
+    const Array& c = *frame.command;
+    StackEntry e{{}, {}, c.file(), c.line()};
+    if (c.empty()) return e;
+    const auto head = c[0].try_sym();
+    if (head && has_func(*head)) {
+        e.function = *head;
+        return e;
+    }
+    // An object command: its method, and the object's name if it has one.
+    if (c.size() > 1) e.function = c[1].try_sym().value_or(Symbol());
+    if (head) {
+        e.on = *head;
+    } else if (c[0].type() == Type::Object) {
+        if (const Impl::Slot* s = impl_->slot(c[0].object_handle())) e.on = s->name;
+    }
+    return e;
+}
+
+List<StackEntry> Context::backtrace() const {
+    std::vector<StackEntry> out;
+    for (const CallFrame* c = impl_->top; c; c = c->parent) out.push_back(stack_entry(*c));
+    return List<StackEntry>(out);
+}
+
+void script_backtrace(TextOut out) {
+    if (const Context* ctx = Context::current())
+        for (const CallFrame* c = ctx->top_frame(); c; c = c->parent) {
+            out("in ");
+            write(ctx->stack_entry(*c), out);
+            out("\n");
+        }
+}
+
 void Context::set_notice_sink(NoticeSink sink, void* user) noexcept {
     impl_->sink = sink;
     impl_->sink_user = user;
@@ -408,7 +435,7 @@ void Context::notice(Error notice) const {
     if (impl_->sink) impl_->sink(impl_->sink_user, notice);
 }
 
-Expected<FuncRef> Context::add(Symbol name, detail::Overload o) {
+Expected<FuncRef> Context::add_overload(Symbol name, detail::Overload o) {
     auto has_raw = [](const detail::Overload& x) {
         for (const detail::ParamInfo& p : x.params)
             if (p.raw) return true;
@@ -421,8 +448,8 @@ Expected<FuncRef> Context::add(Symbol name, detail::Overload o) {
                              "native " + quoted(name) + " replaces the script definition", f.file,
                              f.line);
         if (n < o.min_args || n > o.max_args)
-            e.message += "; the script took " + arity_text(n, n) + ", the native takes " +
-                         arity_text(o.min_args, o.max_args);
+            e.set_message(std::string(e.message()) + "; the script took " + arity_text(n, n) +
+                          ", the native takes " + arity_text(o.min_args, o.max_args));
         notice(std::move(e));
         f.overloads.clear();
         f.status = Status::Normal;
@@ -464,14 +491,14 @@ Expected<Node> Args::eval_node(const Node& n) const {
     return r;
 }
 
-Expected<Node> Args::try_eval(size_t i) const {
+Expected<Node> Args::eval(size_t i) const {
     if (i >= size_) return Unexpected(type_error(i, Node(), "value"));
     if (evaluated_) return base_[i];
     return eval_node(base_[i]);
 }
 
-Expected<const Array*> Args::try_array(size_t i) const {
-    auto r = try_eval(i);
+Expected<const Array*> Args::array(size_t i) const {
+    auto r = eval(i);
     if (!r) return Unexpected(std::move(r).error());
     if (r->type() != Type::Array) return Unexpected(type_error(i, *r, "array"));
     const Array* a = r->try_array();
@@ -489,8 +516,8 @@ Symbol Args::name() const noexcept {
     return n ? n->try_sym().value_or(Symbol()) : Symbol();
 }
 
-Error Args::error(std::string message, ErrorCode code) const {
-    return make_error(code, std::move(message), command_->file(), command_->line());
+Error Args::error(std::string_view message, ErrorCode code) const {
+    return make_error(code, message, command_->file(), command_->line());
 }
 
 Error Args::type_error(size_t i, const Node& n, std::string_view want) const {
@@ -516,15 +543,9 @@ Expected<Raw<Var>> read_var(const Args& a, size_t i) {
 }
 }  // namespace detail
 
-Expected<Node> Raw<Node>::try_eval() const {
+Expected<Node> Raw<Node>::eval() const {
     return ctx_->impl().eval(*node_);
 }
-
-#if MOIRA_EXCEPTIONS
-Node Raw<Node>::eval() const {
-    return value_or_raise(try_eval());
-}
-#endif
 
 bool VarRef::is_set() const noexcept {
     return !is_unset(*cell_);

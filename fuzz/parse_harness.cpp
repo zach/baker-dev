@@ -2,6 +2,7 @@
 
 #include <moira/parse.hpp>
 #include <moira/source_map.hpp>
+#include <moira/std_interop.hpp>
 #include <moira/write.hpp>
 
 #include <algorithm>
@@ -28,7 +29,7 @@ bool spans_hold(const Node& n, const SourceMap& map, std::string_view text, uint
     const Array* a = n.array();
     if (!a || budget == 0) return true;
     --budget;
-    if (const auto* spans = map.spans(*a)) {
+    if (const auto spans = map.spans(*a)) {
         for (size_t i = 0; i < a->size(); ++i) {
             const SourceSpan& sp = (*spans)[i];
             if (sp.file.empty()) continue;
@@ -36,7 +37,7 @@ bool spans_hold(const Node& n, const SourceMap& map, std::string_view text, uint
             if (!sp.literal() || (*a)[i].array()) continue;
             // A leading space, so a token starting with BOM bytes is not read as a BOM.
             const std::string token = " " + std::string(text.substr(sp.begin, sp.end - sp.begin));
-            auto alone = try_read_string(token, "token.dta");
+            auto alone = read_string(token, "token.dta");
             if (!alone || (*alone)->size() != 1 || !structurally_equal((**alone)[0], (*a)[i]))
                 return false;
         }
@@ -48,7 +49,7 @@ bool spans_hold(const Node& n, const SourceMap& map, std::string_view text, uint
 
 LoadSession make_session() {
     LoadSession s;
-    s.set_reader([](const std::string&, std::string&) { return false; });
+    s.set_reader([](std::string_view, TextOut) { return false; });
     s.limits.max_depth = 64;
     s.limits.max_nodes = 1u << 16;
     return s;
@@ -58,11 +59,12 @@ LoadSession make_session() {
 
 bool check_parse(std::string_view data) {
     LoadSession s = make_session();
-    auto first = try_read_string(data, "fuzz.dta", s);
+    auto first = read_string(data, "fuzz.dta", s);
     if (!first) {
         const Error& e = first.error();
         const auto lines = 1 + std::count(data.begin(), data.end(), '\n');
-        return !e.message.empty() && e.file == Symbol("fuzz.dta") && e.line >= 1 && e.line <= lines;
+        return !e.message().empty() && e.file() == Symbol("fuzz.dta") && e.line() >= 1 &&
+               e.line() <= lines;
     }
     uint64_t budget = 100000;
     for (const Node& n : **first)
@@ -72,14 +74,14 @@ bool check_parse(std::string_view data) {
     LoadSession edit = make_session();
     SourceMap map;
     edit.source_map = &map;
-    auto edited = try_read_string(data, "fuzz.dta", edit);
+    auto edited = read_string(data, "fuzz.dta", edit);
     if (!edited || !structurally_equal(**first, **edited)) return false;
     uint64_t span_budget = 2000;
     if (!spans_hold(Node(*edited), map, data, span_budget)) return false;
 
     const std::string printed = to_dta(**first);
     LoadSession s2 = make_session();
-    auto second = try_read_string(printed, "printed.dta", s2);
+    auto second = read_string(printed, "printed.dta", s2);
     return second && structurally_equal(**first, **second);
 }
 

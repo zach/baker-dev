@@ -2,6 +2,8 @@
 #include <moira/node.hpp>
 #include <moira/write.hpp>
 
+#include "text.hpp"
+
 #include <cstdlib>
 #include <cstring>
 #include <new>
@@ -64,23 +66,19 @@ std::optional<int64_t> float_to_int(double f) noexcept {
 
 }  // namespace detail
 
-#if MOIRA_EXCEPTIONS
-void Node::type_error(Type expected) const {
+Error Node::type_error(Type expected) const {
     const std::string text = detail::preview(*this);
-    const auto* a = array();
     Error e = make_error(ErrorCode::Type, text + " is " + std::string(type_name(type_)) + ", not " +
                                               std::string(type_name(expected)));
-    if (a) {
-        e.file = a->file();
-        e.line = a->line();
+    if (const auto* a = array()) {
+        e.set_location(a->file(), a->line());
     }
-    detail::raise(std::move(e));
+    return e;
 }
 
-void Node::range_error() const {
-    detail::raise(make_error(ErrorCode::Range,
-                             detail::preview(*this) + " is out of range for the requested type"));
+Error Node::range_error() const {
+    return make_error(ErrorCode::Range,
+                      detail::preview(*this) + " is out of range for the requested type");
 }
-#endif
 
 }  // namespace moira

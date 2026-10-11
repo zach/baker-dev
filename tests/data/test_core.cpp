@@ -1,6 +1,8 @@
 // Node, Symbol, Ref, String, Array: layout, ownership, and checked access.
 #include <doctest.h>
 #include <moira/array.hpp>
+#include <moira/callback.hpp>
+#include <moira/std_interop.hpp>
 #include <moira/write.hpp>
 
 #include <string>
@@ -98,8 +100,7 @@ TEST_CASE("numeric access coerces only where lossless") {
     CHECK(Node(array(1), Type::Command).array() != nullptr);
 }
 
-#if MOIRA_EXCEPTIONS
-TEST_CASE("checked accessors throw located type errors") {
+TEST_CASE("checked accessors return located type errors") {
     CHECK(Node(12).as_int() == 12);
     CHECK(Node(12).as_float() == 12.0f);
     CHECK(Node(12).as<int64_t>() == 12);
@@ -107,31 +108,22 @@ TEST_CASE("checked accessors throw located type errors") {
     CHECK(Node(2.5).as<float>() == 2.5f);
     CHECK(Node(int64_t{3000000000}).as<int64_t>() == 3000000000);
     CHECK(Node(int64_t{3000000000}).as<uint32_t>() == 3000000000u);
-    CHECK_THROWS_AS((void)Node(int64_t{3000000000}).as<int32_t>(), Exception);
-    CHECK_THROWS_AS((void)Node(1e300).as<float>(), Exception);
+    CHECK(Node(int64_t{3000000000}).as<int32_t>().error().code() == ErrorCode::Range);
+    CHECK(Node(1e300).as<float>().error().code() == ErrorCode::Range);
     CHECK(Node(1e-300).as<float>() == 0.0f);  // precision may round; only range is checked
     CHECK(Node(200).as<uint8_t>() == 200);
-    CHECK_THROWS_AS((void)Node(300).as<uint8_t>(), Exception);
-    CHECK_THROWS_AS((void)Node(-1).as<uint32_t>(), Exception);
-    CHECK_THROWS_AS((void)Node(12.75f).as_int(), Exception);
-    CHECK_THROWS_AS((void)Node(Symbol("a")).as_str(), Exception);
-    CHECK_THROWS_AS((void)Node(str("a")).as_sym(), Exception);
-    try {
-        (void)Node(12.75f).as_int();
-    } catch (const Exception& e) {
-        CHECK(e.error().code == ErrorCode::Type);
-        CHECK(e.error().message == "12.75 is float, not int");
-    }
+    CHECK_FALSE(Node(300).as<uint8_t>());
+    CHECK_FALSE(Node(-1).as<uint32_t>());
+    CHECK_FALSE(Node(Symbol("a")).as_str());
+    CHECK_FALSE(Node(str("a")).as_sym());
+    const Error e = Node(12.75f).as_int().error();
+    CHECK(e.code() == ErrorCode::Type);
+    CHECK(e.message() == "12.75 is float, not int");
     auto a = Array::make(1, "where.dta", 12);
-    try {
-        (void)Node(a).as_int();
-    } catch (const Exception& e) {
-        CHECK(std::string(e.what()) == "moira: (0) is array, not int  (where.dta:12)");
-    }
-    CHECK_THROWS_AS((void)a->at(1), Exception);
-    CHECK(a->at(0).as_int() == 0);
+    CHECK(to_string(Node(a).as_int().error()) == "moira: (0) is array, not int  (where.dta:12)");
+    CHECK(a->try_at(1) == nullptr);
+    CHECK(a->try_at(0)->as_int() == 0);
 }
-#endif
 
 TEST_CASE("refcounts follow nodes and arrays") {
     Ref<Array> inner = array(1, 2);
@@ -225,8 +217,36 @@ TEST_CASE("Expected is std::expected when the library has it") {
     CHECK(ok.has_value());
     CHECK(*ok == 3);
     CHECK_FALSE(bad.has_value());
-    CHECK(bad.error().message == "nope");
+    CHECK(bad.error().message() == "nope");
     CHECK(bad.value_or(7) == 7);
     Expected<void> v;
     CHECK(v.has_value());
+}
+
+TEST_CASE("Callback copies, moves, and frees what it holds") {
+    static int alive = 0;
+    struct Counted {
+        int n;
+        explicit Counted(int v) : n(v) { ++alive; }
+        Counted(const Counted& o) : n(o.n) { ++alive; }
+        ~Counted() { --alive; }
+        int operator()(int x) const { return n + x; }
+    };
+    {
+        Callback<int(int)> a = Counted(10);
+        CHECK(alive == 1);
+        CHECK(a(5) == 15);
+        Callback<int(int)> b = a;  // a separate copy
+        CHECK(alive == 2);
+        Callback<int(int)> c = std::move(a);
+        CHECK(alive == 2);
+        CHECK_FALSE(a);
+        CHECK(c(1) == 11);
+        b = nullptr;
+        CHECK(alive == 1);
+        Callback<int(int)> plain = [](int x) { return x * 2; };  // no captures: no allocation
+        CHECK(plain(4) == 8);
+        CHECK(alive == 1);
+    }
+    CHECK(alive == 0);
 }
