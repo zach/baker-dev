@@ -87,6 +87,7 @@ endfunction()
 add_library(moira_data
   src/data/array.cpp
   src/data/error.cpp
+  src/data/lookup.cpp
   src/data/node.cpp
   src/data/parse.cpp
   src/data/symbol.cpp

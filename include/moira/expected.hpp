@@ -107,6 +107,13 @@ public:
     [[nodiscard]] E& error() & noexcept { return *std::get_if<1>(&v_); }
     [[nodiscard]] E&& error() && noexcept { return std::move(*std::get_if<1>(&v_)); }
 
+    // As std::expected: equal to a value when it holds one that compares equal.
+    template <class U>
+        requires(!std::is_same_v<std::remove_cvref_t<U>, expected>)
+    friend bool operator==(const expected& x, const U& v) {
+        return x.has_value() && *x == v;
+    }
+
 private:
     void check() const {
         if (!has_value()) detail::throw_bad_expected_access(error());

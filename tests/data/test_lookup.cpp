@@ -1,0 +1,439 @@
+// Lookup: find by tag, typed reads, fallbacks, paths, Convert<T>, sorted mode, errors.
+#include <doctest.h>
+#include <moira/array.hpp>
+#include <moira/parse.hpp>
+#include <moira/path.hpp>
+#include <moira/write.hpp>
+
+#include "alloc_counter.hpp"
+
+#include <array>
+#include <cstdint>
+#include <random>
+#include <ranges>
+#include <string>
+#include <vector>
+
+using namespace moira;
+
+namespace {
+
+const char* const kMenu =
+    "(menu\n"
+    "  ('bacon and eggs'\n"
+    "    (price 12.75)\n"
+    "    (calories 120)\n"
+    "    (tags hot savory))\n"
+    "  ('fruit and cereal'\n"
+    "    (price 11.75)\n"
+    "    (calories 12)\n"
+    "    (on_order {print \"yum\"})\n"
+    "    (count $n)))\n";
+
+Ref<Array> menu_root() {
+    auto r = try_read_string(kMenu, "menu.dta");
+    REQUIRE(r);
+    return *r;
+}
+
+template <class T>
+Error error_of(const Expected<T>& e) {
+    REQUIRE_FALSE(e.has_value());
+    return e.error();
+}
+
+struct Vec2 {
+    float x = 0, y = 0;
+};
+
+}  // namespace
+
+template <>
+struct moira::Convert<Vec2> {
+    static constexpr std::string_view name = "vec2";
+    static bool from(const Values& v, Vec2& out) {
+        return v.size() == 2 && v.read(0, out.x) && v.read(1, out.y);
+    }
+};
+
+TEST_CASE("find returns the first child array with the tag") {
+    auto root = menu_root();
+    const Array* menu = root->try_find("menu");
+    REQUIRE(menu);
+    const Array* eggs = menu->try_find("bacon and eggs");
+    REQUIRE(eggs);
+    CHECK(eggs->line() == 2);
+    CHECK(menu->try_find("waffles") == nullptr);
+    // Only arrays tagged with a symbol match: not commands, not strings, not values.
+    auto a = array("x", array(str("k"), 1), Node(array("k", 2), Type::Command), "k");
+    CHECK(a->try_find("k") == nullptr);
+    auto dup = array("x", array("k", 1), array("k", 2));
+    CHECK(dup->try_find("k")->values()[0].try_int() == 1);
+    CHECK(Array::make(0)->try_find("k") == nullptr);
+    CHECK(array("x", Array::make(0))->try_find("k") == nullptr);
+}
+
+TEST_CASE("typed finds read the value after the tag") {
+    auto root = menu_root();
+    const Array& eggs = *root->try_find("menu")->try_find("bacon and eggs");
+    CHECK(eggs.try_find_float("price") == 12.75);
+    CHECK(eggs.try_find_int("calories") == 120);
+    CHECK(eggs.try_find_float("calories") == 120.0);  // an int reads as a float
+    CHECK(eggs.try_find_sym("tags") == Symbol("hot"));
+    CHECK(eggs.try_find<float>("price") == 12.75f);
+    CHECK(eggs.try_find<int32_t>("calories") == 120);
+    CHECK(eggs.try_find<uint8_t>("calories") == 120);
+    CHECK(eggs.try_find<std::vector<Symbol>>("tags") ==
+          std::vector<Symbol>{Symbol("hot"), Symbol("savory")});
+
+    auto t = array("t", array("name", str("Bob")), array("flag", 1), array("off", 0),
+                   array("list", array(1, 2)), array("width", 2, array("range", 0, 10)),
+                   array("big", 300), array("whole", 3.0));
+    CHECK(t->try_find_str("name") == "Bob");
+    CHECK(t->try_find<std::string>("name") == "Bob");
+    CHECK(t->try_find<bool>("flag") == true);
+    CHECK(t->try_find<bool>("off") == false);
+    REQUIRE(t->try_find_array("list"));
+    CHECK(to_string(**t->try_find_array("list")) == "(1 2)");
+    CHECK(t->try_find_int("width") == 2);  // trailing metadata is ignored
+    CHECK(t->try_find_int("whole") == 3);  // an integral float reads as an int
+    CHECK(t->try_find<Node>("big")->try_int() == 300);
+    CHECK_FALSE(t->try_find<uint8_t>("big"));
+    CHECK(t->try_find<uint16_t>("big") == 300);
+}
+
+TEST_CASE("fallbacks apply only when the key is absent") {
+    auto root = menu_root();
+    const Array& eggs = *root->try_find("menu")->try_find("bacon and eggs");
+    CHECK(eggs.try_find_int("fat", 7) == 7);
+    CHECK(eggs.try_find_float("price", 1.0) == 12.75);
+    CHECK(eggs.try_find_sym("size", "large") == Symbol("large"));
+    CHECK(eggs.try_find_str("note", "none") == "none");
+    CHECK(eggs.try_find<int32_t>("fat", -1) == -1);
+    // Present but the wrong type: an error, not the fallback.
+    CHECK(error_of(eggs.try_find_int("price", 0)).code == ErrorCode::Type);
+    CHECK(error_of(eggs.try_find_str("tags", "x")).code == ErrorCode::Type);
+
+    CHECK(root->try_get<int>("menu.'bacon and eggs'.fat", 3) == 3);
+    CHECK(root->try_get<int>("menu.waffles.price", 3) == 3);
+    CHECK(root->try_get<int>("menu.'bacon and eggs'.price.4", 3) == 3);
+    CHECK(root->try_get<double>("menu.'bacon and eggs'.price", 0.0) == 12.75);
+    CHECK(error_of(root->try_get<int>("menu.'bacon and eggs'.price", 0)).code == ErrorCode::Type);
+    CHECK(error_of(root->try_get<int>("menu..price", 0)).code == ErrorCode::Syntax);
+}
+
+TEST_CASE("errors carry key, types, location, and path") {
+    auto root = menu_root();
+    const Array& menu = *root->try_find("menu");
+    const Array& eggs = *menu.try_find("bacon and eggs");
+
+    // The spec's example, through a path: the whole path is known.
+    Error e = error_of(root->try_get<int>("menu.'bacon and eggs'.price"));
+    CHECK(e.code == ErrorCode::Type);
+    CHECK(to_string(e) ==
+          "moira: 'price' is float, not int  (menu.dta:3, at menu/'bacon and eggs')");
+
+    // Through a chain of finds, only the array's own tag is known.
+    e = error_of(eggs.try_find_int("price"));
+    CHECK(to_string(e) == "moira: 'price' is float, not int  (menu.dta:3, at 'bacon and eggs')");
+
+    e = error_of(eggs.try_find_int("fat"));
+    CHECK(e.code == ErrorCode::NotFound);
+    CHECK(to_string(e) == "moira: 'fat' not found  (menu.dta:2, at 'bacon and eggs')");
+
+    e = error_of(root->try_get<double>("menu.waffles.price"));
+    CHECK(to_string(e) == "moira: 'waffles' not found  (menu.dta:1, at menu)");
+
+    e = error_of(eggs.try_find_sym("price"));
+    CHECK(e.message == "'price' is float, not symbol");
+    e = error_of(eggs.try_find_str("tags"));
+    CHECK(e.message == "'tags' is symbol, not string");
+    e = error_of(eggs.try_find_array("price"));
+    CHECK(e.message == "'price' is float, not array");
+    e = error_of(eggs.try_find<uint8_t>("price"));
+    CHECK(e.message == "'price' is float, not int");
+    CHECK(eggs.try_find<int8_t>("calories") == 120);
+    e = error_of(array("t", array("calories", 300))->try_find<int8_t>("calories"));
+    CHECK(e.code == ErrorCode::Range);
+    CHECK(e.message == "'calories' value 300 is out of range for int8");
+    e = error_of(eggs.try_find<float>("tags"));
+    CHECK(e.message == "'tags' is symbol, not float");
+    e = error_of(eggs.try_find<Vec2>("tags"));
+    CHECK(e.message == "'tags' (hot savory) does not read as vec2");
+    CHECK(e.line == 5);
+
+    auto empty = array("t", array("nothing"));
+    CHECK(error_of(empty->try_find_int("nothing")).message == "'nothing' has no value");
+}
+
+TEST_CASE("commands and variables need moira::script to be read as values") {
+    auto root = menu_root();
+    const Array& fruit = *root->try_get("menu.'fruit and cereal'");
+    Error e = error_of(fruit.try_find_str("on_order"));
+    CHECK(e.message == "'on_order' is a command; reading it as a value needs moira::script");
+    CHECK(e.line == 9);
+    e = error_of(fruit.try_find_int("count"));
+    CHECK(e.message == "'count' is a var; reading it as a value needs moira::script");
+    // Raw access never evaluates.
+    CHECK(fruit.try_find("on_order")->values()[0].type() == Type::Command);
+    CHECK(fruit.try_find<Node>("count")->type() == Type::Var);
+}
+
+TEST_CASE("failed lookups suggest the likely mistake") {
+    auto r = try_read_string("(menu\n (\"bacon and eggs\" (price 1))\n (Price 2)\n (calories 3))",
+                             "m.dta");
+    REQUIRE(r);
+    const Array& menu = *(*r)->try_find("menu");
+    Error e = error_of(menu.try_find_float("bacon and eggs"));
+    CHECK(e.message ==
+          "'bacon and eggs' not found; \"bacon and eggs\" at line 2 is a string, but keys are "
+          "symbols: write 'bacon and eggs'");
+    e = error_of(menu.try_find_float("price"));
+    CHECK(e.message == "'price' not found; did you mean 'Price'?");
+    e = error_of((*r)->try_get<float>("menu.CALORIES"));
+    CHECK(e.message == "'CALORIES' not found; did you mean 'calories'?");
+}
+
+TEST_CASE("paths parse names, quoted names, and indexes") {
+    Path p("renderer.clear_color.0");
+    REQUIRE(p.valid());
+    REQUIRE(p.size() == 3);
+    CHECK(p[0].name == Symbol("renderer"));
+    CHECK(p[2].is_index);
+    CHECK(p[2].index == 0);
+    CHECK(p.to_string() == "renderer/clear_color/0");
+    CHECK(p.to_string(1) == "renderer");
+
+    Path q("menu/'bacon and eggs'/price");
+    REQUIRE(q.valid());
+    CHECK(q[1].name == Symbol("bacon and eggs"));
+    CHECK(q.to_string() == "menu/'bacon and eggs'/price");
+    CHECK(Path("'a.b'.'7'.c").to_string() == "'a.b'/'7'/c");
+    CHECK(Path("'a.b'")[0].name == Symbol("a.b"));
+    CHECK(Path("'7'")[0].name == Symbol("7"));
+    CHECK_FALSE(Path("'7'")[0].is_index);
+    CHECK(Path("x.-1")[1].name == Symbol("-1"));
+
+    CHECK(Path("").valid());
+    CHECK(Path("").empty());
+    for (const char* bad : {".", "a.", ".a", "a..b", "a/", "'a", "'a'b", "a.99999999999"}) {
+        CAPTURE(bad);
+        Path b(bad);
+        CHECK_FALSE(b.valid());
+        CHECK(b.to_string() == bad);
+    }
+    auto root = menu_root();
+    Error e = error_of(root->try_get<int>("menu..price"));
+    CHECK(e.code == ErrorCode::Syntax);
+    CHECK(e.message == "malformed path 'menu..price'");
+    CHECK(root->try_get("menu..price") == nullptr);
+}
+
+TEST_CASE("paths walk names and indexes") {
+    auto r = try_read_string(
+        "(renderer (clear_color 0.1 0.2 0.3) (screen_size 1920 1080)\n"
+        "  (points (1 2) (3 4)) (nested (inner (x 5))))",
+        "cfg.dta");
+    REQUIRE(r);
+    const Array& root = **r;
+    CHECK(root.try_get<double>("renderer.clear_color.0") == 0.1);
+    CHECK(root.try_get<double>("renderer.clear_color.2") == 0.3);
+    CHECK(root.try_get<double>("renderer.clear_color") == 0.1);  // a scalar reads the first value
+    CHECK(root.try_get<std::array<float, 3>>("renderer.clear_color") ==
+          std::array<float, 3>{0.1f, 0.2f, 0.3f});
+    CHECK_FALSE(root.try_get<std::array<float, 2>>("renderer.clear_color"));
+    auto size = root.try_get<Vec2>("renderer.screen_size");
+    REQUIRE(size);
+    CHECK(size->x == 1920);
+    CHECK(size->y == 1080);
+    auto second = root.try_get<Vec2>("renderer.points.1");
+    REQUIRE(second);
+    CHECK(second->x == 3);
+    auto all = root.try_get<std::vector<Vec2>>("renderer.points");
+    REQUIRE(all);
+    CHECK(all->size() == 2);
+    CHECK(root.try_get<int>("renderer.nested.inner.x") == 5);
+    CHECK(root.try_get<int>("renderer/nested/inner/x") == 5);
+
+    // The array forms.
+    CHECK(root.try_get("renderer.nested")->line() == 2);
+    CHECK(root.try_get("") == &root);
+    CHECK(to_string(*root.try_get("renderer.points.0")) == "(1 2)");
+    CHECK(root.try_get("renderer.clear_color.0") == nullptr);  // a leaf, not an array
+
+    Error e = error_of(root.try_get<double>("renderer.clear_color.3"));
+    CHECK(e.code == ErrorCode::NotFound);
+    CHECK(to_string(e) ==
+          "moira: element 3 is out of range (3 values)  (cfg.dta:1, at renderer/clear_color)");
+    e = error_of(root.try_get<Symbol>("renderer.clear_color.1"));
+    CHECK(to_string(e) ==
+          "moira: element 1 is float, not symbol  (cfg.dta:1, at renderer/clear_color)");
+    e = error_of(root.try_get<int>("renderer.clear_color.0.x"));
+    CHECK(e.code == ErrorCode::NotFound);
+    CHECK(e.path == "renderer/clear_color/0");
+    e = error_of(root.try_get<Vec2>("renderer.points"));
+    CHECK(e.message == "'points' ((1 2) (3 4)) does not read as vec2");
+}
+
+TEST_CASE("Values::read descends into arrays") {
+    auto a = array("v", array(1, 2), 3);
+    Values v = a->values();
+    Vec2 p;
+    CHECK(v.read(0, p));
+    CHECK(p.y == 2);
+    int i = 0;
+    CHECK(v.read(1, i));
+    CHECK(i == 3);
+    CHECK_FALSE(v.read(2, i));
+    CHECK_FALSE(v.read(0, i));
+    CHECK(v.source() == a.get());
+}
+
+TEST_CASE("sort_for_lookup keeps find's answers and slot 0") {
+    auto a = array("root", 1, array("b", 1), array("a", 2), "loose", array("b", 3),
+                   array(str("s"), 4), array("c", 5));
+    std::vector<std::pair<std::string, const Array*>> before;
+    for (const char* t : {"a", "b", "c", "d", "root"}) before.emplace_back(t, a->try_find(t));
+    a->sort_for_lookup();
+    CHECK(a->sorted_for_lookup());
+    CHECK((*a)[0].is("root"));
+    CHECK((*a)[1].try_int() == 1);
+    CHECK((*a)[2].is("loose"));
+    for (const auto& [t, found] : before) {
+        CAPTURE(t);
+        CHECK(a->try_find(Symbol(t)) == found);
+    }
+    CHECK(a->try_find_int("b") == 1);  // duplicates keep their order
+    a->set(1, 7);
+    CHECK_FALSE(a->sorted_for_lookup());
+
+    auto empty = Array::make(0);
+    empty->sort_for_lookup();
+    CHECK(empty->try_find("x") == nullptr);
+}
+
+TEST_CASE("sorted and linear find agree on random arrays") {
+    std::mt19937 rng(1234);
+    std::vector<Symbol> names;
+    for (int i = 0; i < 40; ++i) names.emplace_back("key" + std::to_string(i));
+    for (int round = 0; round < 300; ++round) {
+        const auto n = static_cast<size_t>(rng() % 30);
+        std::vector<Node> nodes;
+        for (size_t i = 0; i < n; ++i) {
+            const Symbol tag = names[rng() % names.size()];
+            switch (rng() % 4) {
+                case 0: nodes.emplace_back(tag); break;
+                case 1: nodes.emplace_back(static_cast<int64_t>(i)); break;
+                default: nodes.emplace_back(array(tag, static_cast<int64_t>(i))); break;
+            }
+        }
+        auto linear = Array::make_copy(nodes);
+        auto sorted = Array::make_copy(nodes);
+        sorted->sort_for_lookup();
+        for (Symbol s : names) {
+            const Array* l = linear->try_find(s);
+            const Array* r = sorted->try_find(s);
+            REQUIRE((l == nullptr) == (r == nullptr));
+            if (l) CHECK(l == r);  // the same (shared) child array
+        }
+    }
+}
+
+TEST_CASE("subarrays is a forward range of the child arrays") {
+    static_assert(std::ranges::forward_range<Subarrays>);
+    auto a = array("x", 1, array("a"), Node(array("c"), Type::Command), array("b"), "y");
+    std::vector<std::string> tags;
+    for (const Array& sub : a->subarrays()) tags.emplace_back(sub[0].try_sym()->str());
+    CHECK(tags == std::vector<std::string>{"a", "b"});
+    CHECK(std::ranges::distance(a->subarrays()) == 2);
+    CHECK(std::ranges::distance(Array::make(0)->subarrays()) == 0);
+}
+
+TEST_CASE("lookups that succeed do not allocate") {
+    if (!test::counting_allocations()) {
+        MESSAGE("allocation counting is unavailable in this build (ThreadSanitizer)");
+        return;
+    }
+    auto root = menu_root();
+    const Array& eggs = *root->try_get("menu.'bacon and eggs'");
+    const Symbol price("price"), calories("calories"), tags("tags");
+    const Path path("menu.'bacon and eggs'.price");
+    auto sorted = array("s", array("a", 1), array("b", 2), array("c", 3));
+    sorted->sort_for_lookup();
+    double sum = 0;
+    test::AllocationScope scope;
+    for (int i = 0; i < 100; ++i) {
+        sum += *eggs.try_find_float(price);
+        sum += static_cast<double>(*eggs.try_find_int(calories));
+        sum += static_cast<double>(eggs.try_find_sym(tags)->str().size());
+        sum += *eggs.try_find<float>(price);
+        sum += static_cast<double>(*eggs.try_find_int(Symbol(), 1));  // absent: the fallback
+        sum += *root->try_get<double>(path);
+        sum += static_cast<double>(*sorted->try_find_int("b"));
+#if MOIRA_EXCEPTIONS
+        sum += eggs.find_float(price);
+        sum += root->get<float>(path);
+#endif
+    }
+    CHECK(scope.count() == 0);
+    CHECK(sum > 0);
+}
+
+#if MOIRA_EXCEPTIONS
+TEST_CASE("throwing forms") {
+    auto root = menu_root();
+    const Array& menu = root->find("menu");
+    const Array& eggs = menu.find("bacon and eggs");
+    CHECK(eggs.find_float("price") == 12.75);
+    CHECK(eggs.find_int("calories") == 120);
+    CHECK(eggs.find_sym("tags") == Symbol("hot"));
+    CHECK(eggs.find<int>("calories") == 120);
+    CHECK(eggs.find_int("fat", 4) == 4);
+    CHECK(eggs.find_float("fat", 0.5) == 0.5);
+    CHECK(eggs.find_sym("fat", "none") == Symbol("none"));
+    CHECK(eggs.find_str("fat", "none") == "none");
+    CHECK(eggs.find("fat", 2.5) == 2.5);
+    CHECK(root->get<float>("menu.'bacon and eggs'.price") == 12.75f);
+    CHECK(root->get<int>("menu.'bacon and eggs'.fat", 9) == 9);
+    CHECK(&root->get("menu") == &menu);
+
+    auto t = array("t", array("name", str("Bob")), array("list", array(1, 2)));
+    CHECK(t->find_str("name") == "Bob");
+    CHECK(t->find_array("list").size() == 2);
+
+    try {
+        (void)eggs.find_int("price");
+        FAIL("expected an exception");
+    } catch (const Exception& ex) {
+        CHECK(ex.error().code == ErrorCode::Type);
+        CHECK(std::string(ex.what()) ==
+              "moira: 'price' is float, not int  (menu.dta:3, at 'bacon and eggs')");
+    }
+    CHECK_THROWS_AS((void)menu.find("waffles"), Exception);
+    CHECK_THROWS_AS((void)eggs.find_int("price", 0), Exception);  // present, wrong type
+    CHECK_THROWS_AS((void)root->get<int>("menu.'bacon and eggs'.price"), Exception);
+    CHECK_THROWS_AS((void)root->get("menu.'bacon and eggs'.price.0"), Exception);
+    CHECK_THROWS_AS((void)root->get<int>("a..b", 0), Exception);
+    CHECK_THROWS_AS((void)t->find_array("name"), Exception);
+}
+#endif
+
+TEST_CASE("the corpus config reads through lookups") {
+    LoadSession s;
+    auto app = try_read_file(std::string(MOIRA_CORPUS_DIR) + "/config_app.dta", s);
+    REQUIRE(app);
+    const Array& cfg = **app;
+    CHECK(cfg.try_get<Vec2>("renderer.screen_size")->x == 1920);  // the app's override
+    CHECK(cfg.try_get<int>("renderer.shadows.resolution") == 4096);
+    CHECK(cfg.try_get<int>("renderer.shadows.cascades") == 3);  // merged from the defaults
+    CHECK(cfg.try_get<bool>("renderer.vsync") == true);         // TRUE is a macro for 1
+    CHECK(cfg.try_get<double>("audio.master_volume") == 0.8);
+    CHECK(cfg.try_get<int>("audio.channels") == 32);
+    CHECK(cfg.try_get<std::string>("app.title") == "Corpus Demo");
+    CHECK(cfg.try_get<int>("app.max_players") == 4);
+    CHECK(cfg.try_get<double>("input.deadzone") == 0.15);
+    Error e = error_of(cfg.try_get<int>("input.deadzone"));
+    CHECK(e.file.str().ends_with("config_default.dta"));
+    CHECK(e.line == 15);
+    CHECK(e.path == "input");
+}

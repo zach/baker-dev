@@ -29,6 +29,7 @@
 #include <bit>
 #include <cassert>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <optional>
 #include <string_view>
@@ -201,6 +202,14 @@ public:
     }
     [[nodiscard]] bool is_number() const noexcept {
         return type_ == Type::Int || type_ == Type::Float;
+    }
+    // True if this is the symbol `s`: one pointer comparison, as lookup by tag needs.
+    [[nodiscard]] bool is(Symbol s) const noexcept {
+        // '&', not '&&': both sides are cheap, and one branch scans faster than two. The
+        // pointer is copied out as bytes, which is defined whatever the node's type.
+        const void* p;
+        std::memcpy(&p, &value_, sizeof p);
+        return (type_ == Type::Symbol) & (p == s.id());
     }
 
     // --- Checked typed accessors (throwing). ---

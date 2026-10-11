@@ -7,18 +7,243 @@
 // contiguous. Every array remembers the file and line it was parsed from; that is what
 // lets errors and provenance point at the source.
 //
-// at(i) returns the raw node. Typed lookup (find_int, find_float, ...) arrives in M2.
+// Lookup. An array whose first node is a symbol is keyed by that symbol, its tag, and
+// the nodes after the tag are its values:
+//
+//   (menu
+//     ('bacon and eggs' (price 12.75) (calories 120)))
+//
+//   const moira::Array& menu = root->find("menu");          // child tagged menu
+//   double price = menu.find("bacon and eggs").find_float("price");   // 12.75
+//   float  same  = root->get<float>("menu.'bacon and eggs'.price");   // by path
+//   int    cals  = root->get<int>("menu.'bacon and eggs'.fat", 0);    // absent: 0
+//
+// find() scans the direct children with one pointer comparison each, which is the right
+// default for the small arrays config is made of; sort_for_lookup() switches an array to
+// binary search. Only Symbol tags match (docs/decisions.md D6).
+//
+// Raw versus typed: at(i), operator[], and find() return raw nodes and arrays and never
+// evaluate anything. Typed reads (find_int, find<T>, get<T>, ...) convert values through
+// Convert<T>. A Command or Var value needs moira::script to evaluate it; without that,
+// reading one as a value is a clean error.
+//
+// Errors name the key, the expected and actual types, the source file and line, and the
+// array path that led there:
+//
+//   moira: 'price' is float, not int  (menu.dta:3, at menu/'bacon and eggs')
+//
+// A lookup along a Path reports the whole path; a chain of find() calls reports the
+// tag of the array the failing call was made on (an array does not know its parents).
+//
+// Every throwing form has a try_ twin returning Expected<T> (or, for find() and get()
+// of an array, a pointer that is null when absent). Forms taking a fallback return it
+// only when the key is absent; a value that is present but the wrong type is an error,
+// because silently ignoring a mistyped value is the failure located errors exist to
+// prevent (docs/decisions.md D25).
 
 #include <moira/node.hpp>
+#include <moira/path.hpp>
 
+#include <array>
 #include <cassert>
+#include <cstddef>
 #include <cstdint>
+#include <iterator>
+#include <limits>
 #include <span>
+#include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace moira {
+
+class Array;
+
+// A run of nodes a lookup found, with the array they came from (for error locations):
+// the values after a tag, or the contents of an array an index selected.
+class Values {
+public:
+    constexpr Values() noexcept = default;
+    constexpr Values(std::span<const Node> nodes, const Array* source) noexcept
+        : nodes_(nodes), source_(source) {}
+
+    [[nodiscard]] size_t size() const noexcept { return nodes_.size(); }
+    [[nodiscard]] bool empty() const noexcept { return nodes_.empty(); }
+    [[nodiscard]] const Node& operator[](size_t i) const noexcept { return nodes_[i]; }
+    [[nodiscard]] const Node* begin() const noexcept { return nodes_.data(); }
+    [[nodiscard]] const Node* end() const noexcept { return nodes_.data() + nodes_.size(); }
+    [[nodiscard]] std::span<const Node> nodes() const noexcept { return nodes_; }
+    [[nodiscard]] const Array* source() const noexcept { return source_; }
+
+    // Reads node `i` as T into `out`. For a compound T (not a number, bool, symbol, or
+    // string), a node that is an array reads as its contents, so a Convert<Vec2> can read
+    // (1 2) whether it is the whole value or one element of a list. False if `i` is out of
+    // range or the node does not convert.
+    template <class T>
+    [[nodiscard]] bool read(size_t i, T& out) const;
+
+private:
+    std::span<const Node> nodes_;
+    const Array* source_ = nullptr;
+};
+
+// Convert<T>: how a lookup reads a T. Specialize it for your own types:
+//
+//   template <> struct moira::Convert<Vec2> {
+//       static constexpr std::string_view name = "vec2";   // optional; used in errors
+//       static bool from(const moira::Values& v, Vec2& out) {
+//           return v.size() >= 2 && v.read(0, out.x) && v.read(1, out.y);
+//       }
+//   };
+//
+//   Vec2 size = cfg_root->get<Vec2>("renderer.screen_size");   // (screen_size 1920 1080)
+//
+// from() returns false if the values do not form a T; the lookup turns that into a
+// located error. It sees raw nodes and should read them through Values::read. Built in:
+// every integer and floating-point type (range-checked), bool (any integral number),
+// Symbol, std::string_view and std::string (String nodes), Node (the first value, raw),
+// std::vector<T>, and std::array<T, N>. Scalars read the first value and ignore the rest,
+// so (width 2 (range 0 10)) reads as 2. T must be default-constructible.
+//
+// A class template rather than an ADL function, so a type you do not own (glm::vec3) can
+// be given a converter without adding names to its namespace (docs/decisions.md D26).
+template <class T>
+struct Convert;
+
+namespace detail {
+
+// How a lookup failure is described.
+enum class ConvertKind : uint8_t {
+    Int,       // integer target: a float value may be non-integral, a number out of range
+    Float,     // floating-point target: a number may be out of range
+    Scalar,    // decided by one node's type (symbol, string, bool, array)
+    Compound,  // anything else: described by its values
+};
+struct ConvertInfo {
+    std::string_view name;
+    ConvertKind kind;
+};
+
+template <class T>
+[[nodiscard]] constexpr std::string_view number_name() noexcept {
+    constexpr bool s = std::is_signed_v<T>;
+    if constexpr (std::is_floating_point_v<T>) {
+        return sizeof(T) < sizeof(double) ? "float32" : "float";
+    } else if constexpr (sizeof(T) == 1) {
+        return s ? "int8" : "uint8";
+    } else if constexpr (sizeof(T) == 2) {
+        return s ? "int16" : "uint16";
+    } else if constexpr (sizeof(T) == 4) {
+        return s ? "int32" : "uint32";
+    } else {
+        return s ? "int" : "uint64";
+    }
+}
+
+template <class T>
+[[nodiscard]] constexpr ConvertInfo convert_info() noexcept {
+    if constexpr (std::is_arithmetic_v<T> && !std::is_same_v<T, bool>) {
+        return {number_name<T>(),
+                std::is_floating_point_v<T> ? ConvertKind::Float : ConvertKind::Int};
+    } else if constexpr (requires { Convert<T>::scalar; }) {
+        return {Convert<T>::name, ConvertKind::Scalar};
+    } else if constexpr (requires { std::string_view(Convert<T>::name); }) {
+        return {Convert<T>::name, ConvertKind::Compound};
+    } else {
+        return {"the requested type", ConvertKind::Compound};
+    }
+}
+
+// Reads a number into any arithmetic type, range-checked (as Node::as<T>).
+template <class T>
+[[nodiscard]] bool read_number(const Node& n, T& out) noexcept {
+    if constexpr (std::is_floating_point_v<T>) {
+        const auto v = n.try_float();
+        if (!v) return false;
+        if constexpr (sizeof(T) < sizeof(double)) {
+            constexpr auto kMax = static_cast<double>(std::numeric_limits<T>::max());
+            if (*v > kMax || *v < -kMax) return false;
+        }
+        out = static_cast<T>(*v);
+    } else {
+        const auto v = n.try_int();
+        if (!v || !std::in_range<T>(*v)) return false;
+        out = static_cast<T>(*v);
+    }
+    return true;
+}
+
+// Out-of-line error builders (src/data/lookup.cpp); only reached when a lookup fails.
+
+// find(tag) on `container` failed: `found` is null if no child has the tag, otherwise
+// its values did not convert as `info` describes (null `info`: no conversion was asked).
+[[nodiscard]] Error find_error(const Array& container, Symbol tag, const Array* found,
+                               const ConvertInfo* info);
+
+struct Resolved {
+    Values values;
+    const Array* array = nullptr;  // the array the path ends on; null if it ends on a leaf
+};
+enum class ResolveStatus : uint8_t { Ok, Missing, Malformed };
+[[nodiscard]] ResolveStatus resolve(const Array& root, const Path& path, Resolved& out) noexcept;
+// get(path) on `root` failed; re-walks the path to say where and why.
+[[nodiscard]] Error get_error(const Array& root, const Path& path, const ConvertInfo* info);
+
+inline constexpr ConvertInfo kArrayInfo{"array", ConvertKind::Scalar};
+
+}  // namespace detail
+
+// Iterates the children of an array that are Arrays (not Commands or Properties).
+class SubarrayIterator {
+public:
+    using value_type = Array;
+    using reference = const Array&;
+    using pointer = const Array*;
+    using difference_type = std::ptrdiff_t;
+    using iterator_category = std::forward_iterator_tag;
+    using iterator_concept = std::forward_iterator_tag;
+
+    SubarrayIterator() = default;
+    SubarrayIterator(const Node* p, const Node* end) noexcept : p_(p), end_(end) { skip(); }
+
+    reference operator*() const noexcept { return *p_->try_array(); }
+    pointer operator->() const noexcept { return p_->try_array(); }
+    SubarrayIterator& operator++() noexcept {
+        ++p_;
+        skip();
+        return *this;
+    }
+    SubarrayIterator operator++(int) noexcept {
+        SubarrayIterator old = *this;
+        ++*this;
+        return old;
+    }
+    friend bool operator==(const SubarrayIterator& a, const SubarrayIterator& b) noexcept {
+        return a.p_ == b.p_;
+    }
+
+private:
+    void skip() noexcept {
+        while (p_ != end_ && p_->type() != Type::Array) ++p_;
+    }
+    const Node* p_ = nullptr;
+    const Node* end_ = nullptr;
+};
+
+// A forward range over an array's subarrays: for (const Array& item : menu.subarrays()).
+class Subarrays {
+public:
+    Subarrays() = default;
+    Subarrays(const Node* begin, const Node* end) noexcept : begin_(begin), end_(end) {}
+    [[nodiscard]] SubarrayIterator begin() const noexcept { return {begin_, end_}; }
+    [[nodiscard]] SubarrayIterator end() const noexcept { return {end_, end_}; }
+
+private:
+    const Node* begin_ = nullptr;
+    const Node* end_ = nullptr;
+};
 
 class Array {
 public:
@@ -51,10 +276,140 @@ public:
     [[nodiscard]] const Node* begin() const noexcept { return data(); }
     [[nodiscard]] const Node* end() const noexcept { return data() + size_; }
     [[nodiscard]] std::span<const Node> nodes() const noexcept { return {data(), size_}; }
+    [[nodiscard]] Subarrays subarrays() const noexcept { return {begin(), end()}; }
+
+    // The nodes after the first: a tagged array's values.
+    [[nodiscard]] Values values() const noexcept {
+        return {size_ ? nodes().subspan(1) : std::span<const Node>(), this};
+    }
 
     // Replaces the node at `i` (must be in range). Arrays may be shared, e.g. by macro
-    // expansion, so the change is visible through every reference.
+    // expansion, so the change is visible through every reference. Clears sorted mode.
     void set(size_t i, Node node) noexcept;
+
+    // --- Lookup by tag: the first direct child that is an Array tagged `tag`. ---
+
+    // The child array tagged `tag`, or null.
+    [[nodiscard]] const Array* try_find(Symbol tag) const noexcept {
+        if (flags_ & kSortedForLookup) return find_sorted(tag);
+        for (const Node& n : nodes()) {
+            if (n.type() != Type::Array) continue;
+            // data()[0] is readable even in an empty array (see allocate()).
+            const Array* a = n.try_array();
+            if (a->data()[0].is(tag)) return a;
+        }
+        return nullptr;
+    }
+    // The values of the child tagged `tag`, read as T.
+    template <class T>
+    [[nodiscard]] Expected<T> try_find(Symbol tag) const;
+    // As above, or `fallback` if no child has the tag.
+    template <class T>
+    [[nodiscard]] Expected<T> try_find(Symbol tag, T fallback) const;
+
+    [[nodiscard]] Expected<int64_t> try_find_int(Symbol tag) const {
+        return try_find<int64_t>(tag);
+    }
+    [[nodiscard]] Expected<double> try_find_float(Symbol tag) const {
+        return try_find<double>(tag);
+    }
+    [[nodiscard]] Expected<Symbol> try_find_sym(Symbol tag) const { return try_find<Symbol>(tag); }
+    [[nodiscard]] Expected<std::string_view> try_find_str(Symbol tag) const {
+        return try_find<std::string_view>(tag);
+    }
+    // The array that is the first value: (colors (1 0 0)) gives (1 0 0).
+    [[nodiscard]] Expected<const Array*> try_find_array(Symbol tag) const;
+    [[nodiscard]] Expected<int64_t> try_find_int(Symbol tag, int64_t fallback) const {
+        return try_find<int64_t>(tag, fallback);
+    }
+    [[nodiscard]] Expected<double> try_find_float(Symbol tag, double fallback) const {
+        return try_find<double>(tag, fallback);
+    }
+    [[nodiscard]] Expected<Symbol> try_find_sym(Symbol tag, Symbol fallback) const {
+        return try_find<Symbol>(tag, fallback);
+    }
+    [[nodiscard]] Expected<std::string_view> try_find_str(Symbol tag,
+                                                          std::string_view fallback) const {
+        return try_find<std::string_view>(tag, fallback);
+    }
+
+#if MOIRA_EXCEPTIONS
+    [[nodiscard]] const Array& find(Symbol tag) const {
+        if (const Array* a = try_find(tag)) return *a;
+        detail::raise(detail::find_error(*this, tag, nullptr, nullptr));
+    }
+    template <class T>
+    [[nodiscard]] T find(Symbol tag) const {
+        return value_or_raise(try_find<T>(tag));
+    }
+    template <class T>
+    [[nodiscard]] T find(Symbol tag, T fallback) const {
+        return value_or_raise(try_find<T>(tag, std::move(fallback)));
+    }
+    [[nodiscard]] int64_t find_int(Symbol tag) const { return find<int64_t>(tag); }
+    [[nodiscard]] double find_float(Symbol tag) const { return find<double>(tag); }
+    [[nodiscard]] Symbol find_sym(Symbol tag) const { return find<Symbol>(tag); }
+    [[nodiscard]] std::string_view find_str(Symbol tag) const {
+        return find<std::string_view>(tag);
+    }
+    [[nodiscard]] const Array& find_array(Symbol tag) const {
+        return *value_or_raise(try_find_array(tag));
+    }
+    [[nodiscard]] int64_t find_int(Symbol tag, int64_t fallback) const {
+        return find<int64_t>(tag, fallback);
+    }
+    [[nodiscard]] double find_float(Symbol tag, double fallback) const {
+        return find<double>(tag, fallback);
+    }
+    [[nodiscard]] Symbol find_sym(Symbol tag, Symbol fallback) const {
+        return find<Symbol>(tag, fallback);
+    }
+    [[nodiscard]] std::string_view find_str(Symbol tag, std::string_view fallback) const {
+        return find<std::string_view>(tag, fallback);
+    }
+#endif
+
+    // --- Lookup by path (see path.hpp): root->get<float>("renderer.clear_color.0"). ---
+
+    // The array the path ends on, or null.
+    [[nodiscard]] const Array* try_get(const Path& path) const noexcept {
+        detail::Resolved r;
+        return detail::resolve(*this, path, r) == detail::ResolveStatus::Ok ? r.array : nullptr;
+    }
+    template <class T>
+    [[nodiscard]] Expected<T> try_get(const Path& path) const;
+    // As above, or `fallback` if the path leads nowhere. A malformed path is an error.
+    template <class T>
+    [[nodiscard]] Expected<T> try_get(const Path& path, T fallback) const;
+
+#if MOIRA_EXCEPTIONS
+    [[nodiscard]] const Array& get(const Path& path) const {
+        if (const Array* a = try_get(path)) return *a;
+        detail::raise(detail::get_error(*this, path, &detail::kArrayInfo));
+    }
+    template <class T>
+    [[nodiscard]] T get(const Path& path) const {
+        return value_or_raise(try_get<T>(path));
+    }
+    template <class T>
+    [[nodiscard]] T get(const Path& path, T fallback) const {
+        return value_or_raise(try_get<T>(path, std::move(fallback)));
+    }
+#endif
+
+    // --- Sorted mode. ---
+
+    // Reorders the children so find() can binary-search: children that are not tagged
+    // arrays move to the front in their original order (so a tag in slot 0 stays there),
+    // and tagged arrays follow, sorted by tag hash and then text (an order that does not
+    // depend on the run). Duplicate tags keep their order, so find() still returns the
+    // first. Opt-in and never automatic: it changes at(i) and printing order, and every
+    // array sharing this one (through a macro) sees the change. set() turns it off;
+    // re-tagging a child in place is not detected, so sort again after doing that.
+    void sort_for_lookup();
+    [[nodiscard]] bool sorted_for_lookup() const noexcept {
+        return (flags_ & kSortedForLookup) != 0;
+    }
 
     [[nodiscard]] Symbol file() const noexcept { return file_; }
     [[nodiscard]] int32_t line() const noexcept { return line_; }
@@ -77,15 +432,28 @@ public:
     Array& operator=(const Array&) = delete;
 
 private:
+    static constexpr uint16_t kSortedForLookup = 1;
+
     Array(uint32_t size, Symbol file, int32_t line) noexcept
         : refs_(1), size_(size), file_(file), line_(line) {}
     ~Array() = default;
 
-    // Storage for `size` nodes, not yet constructed.
+    // Storage for `size` nodes, not yet constructed. An empty array still gets one slot,
+    // holding Int 0, so try_find() can read every child's first node without first
+    // checking its size.
     [[nodiscard]] static Array* allocate(uint32_t size, Symbol file, int32_t line);
     static void destroy(const Array* a) noexcept;
     friend void detail::destroy_counted(const void*, Type) noexcept;
     void compute_height() noexcept;
+    [[nodiscard]] const Array* find_sorted(Symbol tag) const noexcept;
+
+#if MOIRA_EXCEPTIONS
+    template <class T>
+    [[nodiscard]] static T value_or_raise(Expected<T>&& e) {
+        if (!e) detail::raise(std::move(e).error());
+        return std::move(*e);
+    }
+#endif
 
     [[nodiscard]] Node* data() noexcept { return reinterpret_cast<Node*>(this + 1); }
     [[nodiscard]] const Node* data() const noexcept {
@@ -97,11 +465,156 @@ private:
     Symbol file_;
     int32_t line_;
     uint16_t height_ = 1;
-    uint16_t flags_ = 0;  // reserved (sorted-for-lookup mode, M2)
+    uint16_t flags_ = 0;  // kSortedForLookup
     // Node nodes[size_] follows.
 };
 
 static_assert(sizeof(Array) == 24, "Array header must stay 24 bytes");
+
+// --- Built-in converters. ---
+
+template <class T>
+    requires(std::is_arithmetic_v<T> && !std::is_same_v<T, bool>)
+struct Convert<T> {
+    static bool from(const Values& v, T& out) noexcept {
+        return !v.empty() && detail::read_number(v[0], out);
+    }
+};
+
+template <>
+struct Convert<bool> {
+    static constexpr std::string_view name = "bool";
+    static constexpr bool scalar = true;
+    static bool from(const Values& v, bool& out) noexcept {
+        if (v.empty()) return false;
+        const auto i = v[0].try_int();
+        if (i) out = *i != 0;
+        return i.has_value();
+    }
+};
+
+template <>
+struct Convert<Symbol> {
+    static constexpr std::string_view name = "symbol";
+    static constexpr bool scalar = true;
+    static bool from(const Values& v, Symbol& out) noexcept {
+        if (v.empty() || v[0].type() != Type::Symbol) return false;
+        out = *v[0].try_sym();
+        return true;
+    }
+};
+
+// Views into the String node, valid while the array holding it is alive.
+template <>
+struct Convert<std::string_view> {
+    static constexpr std::string_view name = "string";
+    static constexpr bool scalar = true;
+    static bool from(const Values& v, std::string_view& out) noexcept {
+        if (v.empty() || v[0].type() != Type::String) return false;
+        out = v[0].string()->view();
+        return true;
+    }
+};
+
+template <>
+struct Convert<std::string> {
+    static constexpr std::string_view name = "string";
+    static constexpr bool scalar = true;
+    static bool from(const Values& v, std::string& out) {
+        std::string_view s;
+        if (!Convert<std::string_view>::from(v, s)) return false;
+        out.assign(s);
+        return true;
+    }
+};
+
+// The first value, raw: never converted or evaluated.
+template <>
+struct Convert<Node> {
+    static constexpr std::string_view name = "value";
+    static bool from(const Values& v, Node& out) noexcept {
+        if (v.empty()) return false;
+        out = v[0];
+        return true;
+    }
+};
+
+// Every value, each read as T: (tags fast loud blue) as std::vector<Symbol>.
+template <class T>
+struct Convert<std::vector<T>> {
+    static constexpr std::string_view name = "list";
+    static bool from(const Values& v, std::vector<T>& out) {
+        out.assign(v.size(), T{});
+        for (size_t i = 0; i < v.size(); ++i)
+            if (!v.read(i, out[i])) return false;
+        return true;
+    }
+};
+
+// Exactly N values, each read as T: (color 1 0.5 0) as std::array<float, 3>.
+template <class T, size_t N>
+struct Convert<std::array<T, N>> {
+    static constexpr std::string_view name = "fixed-size list";
+    static bool from(const Values& v, std::array<T, N>& out) {
+        if (v.size() != N) return false;
+        for (size_t i = 0; i < N; ++i)
+            if (!v.read(i, out[i])) return false;
+        return true;
+    }
+};
+
+// --- Template definitions. ---
+
+template <class T>
+bool Values::read(size_t i, T& out) const {
+    if (i >= nodes_.size()) return false;
+    if constexpr (detail::convert_info<T>().kind == detail::ConvertKind::Compound) {
+        if (const Array* a = nodes_[i].try_array())
+            return Convert<T>::from(Values(a->nodes(), a), out);
+    }
+    return Convert<T>::from(Values(nodes_.subspan(i, 1), source_), out);
+}
+
+template <class T>
+Expected<T> Array::try_find(Symbol tag) const {
+    static constexpr detail::ConvertInfo kInfo = detail::convert_info<T>();
+    T out{};
+    const Array* a = try_find(tag);
+    if (a && Convert<T>::from(a->values(), out)) return out;
+    return Unexpected(detail::find_error(*this, tag, a, &kInfo));
+}
+
+template <class T>
+Expected<T> Array::try_find(Symbol tag, T fallback) const {
+    static constexpr detail::ConvertInfo kInfo = detail::convert_info<T>();
+    const Array* a = try_find(tag);
+    if (!a) return fallback;
+    T out{};
+    if (Convert<T>::from(a->values(), out)) return out;
+    return Unexpected(detail::find_error(*this, tag, a, &kInfo));
+}
+
+template <class T>
+Expected<T> Array::try_get(const Path& path) const {
+    static constexpr detail::ConvertInfo kInfo = detail::convert_info<T>();
+    detail::Resolved r;
+    T out{};
+    if (detail::resolve(*this, path, r) == detail::ResolveStatus::Ok &&
+        Convert<T>::from(r.values, out))
+        return out;
+    return Unexpected(detail::get_error(*this, path, &kInfo));
+}
+
+template <class T>
+Expected<T> Array::try_get(const Path& path, T fallback) const {
+    static constexpr detail::ConvertInfo kInfo = detail::convert_info<T>();
+    detail::Resolved r;
+    const auto status = detail::resolve(*this, path, r);
+    if (status == detail::ResolveStatus::Missing) return fallback;
+    T out{};
+    if (status == detail::ResolveStatus::Ok && Convert<T>::from(r.values, out)) return out;
+    return Unexpected(detail::get_error(*this, path, &kInfo));
+}
 
 // Deep comparison of type and value, ignoring source locations and Node::aux().
 // Floats compare by bit pattern. Strings compare by content; arrays recursively.

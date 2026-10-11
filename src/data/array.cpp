@@ -21,9 +21,11 @@ uint16_t above(uint16_t h) noexcept {
 }  // namespace
 
 Array* Array::allocate(uint32_t size, Symbol file, int32_t line) {
-    const size_t bytes = sizeof(Array) + static_cast<size_t>(size) * sizeof(Node);
-    void* mem = ::operator new(bytes);
-    return new (mem) Array(size, file, line);
+    const size_t slots = size ? size : 1;
+    void* mem = ::operator new(sizeof(Array) + slots * sizeof(Node));
+    auto* a = new (mem) Array(size, file, line);
+    if (size == 0) new (a->data()) Node();  // Int 0 owns nothing, so it is never destroyed
+    return a;
 }
 
 Ref<Array> Array::make(uint32_t size, Symbol file, int32_t line) {
@@ -74,6 +76,7 @@ void Array::set(size_t i, Node node) noexcept {
     assert(i < size_);
     const uint16_t h = above(child_height(node));
     if (h > height_) height_ = h;
+    flags_ = static_cast<uint16_t>(flags_ & ~kSortedForLookup);
     data()[i] = std::move(node);
 }
 
