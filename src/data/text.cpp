@@ -103,6 +103,13 @@ bool is_bare_symbol(std::string_view s) noexcept {
     return classify_number(s).kind == NumberKind::NotNumber;
 }
 
+void append_path_name(std::string& out, std::string_view name) {
+    const bool bare = is_bare_symbol(name) && name.find_first_of("./") == std::string_view::npos;
+    if (!bare) out += '\'';
+    out += name;
+    if (!bare) out += '\'';
+}
+
 std::string format_double_fallback(double v) {
     if (std::isnan(v)) return "nan";
     if (std::isinf(v)) return v < 0 ? "-inf" : "inf";

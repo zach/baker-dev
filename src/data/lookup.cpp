@@ -30,11 +30,7 @@ bool tag_less(Symbol a, Symbol b) noexcept {
 
 // A path segment as text: bare where it reads back as one, otherwise 'quoted'.
 void append_name(std::string& out, Symbol s) {
-    const std::string_view t = s.str();
-    const bool bare = detail::is_bare_symbol(t) && t.find_first_of("./") == std::string_view::npos;
-    if (!bare) out += '\'';
-    out += t;
-    if (!bare) out += '\'';
+    detail::append_path_name(out, s.str());
 }
 
 std::string quoted(Symbol s) {
@@ -187,17 +183,55 @@ bool Path::parse(std::string_view text) {
     return true;
 }
 
-std::string Path::to_string(size_t count) const {
+std::string Path::to_string(size_t count, char separator) const {
     if (!valid_) return bad_text_;
     std::string out;
     for (size_t i = 0; i < segments_.size() && i < count; ++i) {
-        if (i) out += '/';
+        if (i) out += separator;
         if (segments_[i].is_index)
             out += std::to_string(segments_[i].index);
         else
             append_name(out, segments_[i].name);
     }
     return out;
+}
+
+bool Path::matches(std::string_view text) const noexcept {
+    if (!valid_) return false;
+    size_t i = 0, k = 0;
+    const size_t n = text.size();
+    while (i < n) {
+        if (k == segments_.size()) return false;
+        const Segment& seg = segments_[k++];
+        std::string_view name;
+        bool quoted_name = false;
+        if (text[i] == '\'') {
+            const size_t close = text.find('\'', i + 1);
+            if (close == std::string_view::npos) return false;
+            name = text.substr(i + 1, close - i - 1);
+            quoted_name = true;
+            i = close + 1;
+        } else {
+            size_t j = i;
+            while (j < n && text[j] != '.' && text[j] != '/') ++j;
+            name = text.substr(i, j - i);
+            if (name.empty()) return false;
+            i = j;
+        }
+        const bool digits = !quoted_name && std::all_of(name.begin(), name.end(), [](char c) {
+            return c >= '0' && c <= '9';
+        });
+        if (digits) {
+            uint32_t index = 0;
+            const auto r = std::from_chars(name.data(), name.data() + name.size(), index);
+            if (r.ec != std::errc() || !seg.is_index || seg.index != index) return false;
+        } else if (seg.is_index || seg.name.str() != name) {
+            return false;
+        }
+        if (i == n) break;
+        if ((text[i] != '.' && text[i] != '/') || ++i == n) return false;
+    }
+    return k == segments_.size();
 }
 
 // --- Array lookup ---

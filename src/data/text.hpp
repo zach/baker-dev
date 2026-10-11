@@ -32,6 +32,10 @@ struct Number {
 // True if `s` reads back as this symbol when written bare (unquoted).
 [[nodiscard]] bool is_bare_symbol(std::string_view s) noexcept;
 
+// Appends a path segment naming `name`: bare where a Path reads it back as that name,
+// otherwise 'quoted'.
+void append_path_name(std::string& out, std::string_view name);
+
 // Shortest text that reads back as exactly `v` (by classify_number), such as "12.75",
 // "5", "1e+20" or "-0". NaN and infinities print as nan/inf/-inf. The caller adds ".0"
 // where needed to keep integral values floats.

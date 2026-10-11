@@ -30,6 +30,7 @@ public:
         Symbol name;         // when !is_index
         uint32_t index = 0;  // when is_index
         bool is_index = false;
+        friend bool operator==(const Segment&, const Segment&) noexcept = default;
     };
 
     Path() = default;
@@ -46,7 +47,13 @@ public:
 
     // The first `count` segments, '/'-separated and quoted where needed, as in errors:
     // menu/'bacon and eggs'. An invalid path gives the text it was parsed from.
-    [[nodiscard]] std::string to_string(size_t count = SIZE_MAX) const;
+    [[nodiscard]] std::string to_string(size_t count = SIZE_MAX, char separator = '/') const;
+
+    // Whether `text` parses to this path; never allocates or interns.
+    [[nodiscard]] bool matches(std::string_view text) const noexcept;
+    friend bool operator==(const Path& a, const Path& b) noexcept {
+        return a.valid_ == b.valid_ && a.segments_ == b.segments_;
+    }
 
 private:
     bool parse(std::string_view text);
