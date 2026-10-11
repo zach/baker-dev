@@ -89,6 +89,18 @@ A parameter in [brackets] is optional, `unevaluated` is passed as written, and
 
 *Native.* True if every argument is; stops at the first false one.
 
+### `class`
+
+- `{class values...}` → value
+
+*Native.* `{class Name (method ($params...) body...) ...}`: script handlers. If `Name` is a bound C++ type, they apply to its objects and are tried before its C++ methods; otherwise `Name` is a script class for `new`. In a handler, `$this` is the object and `[name]` its property or parameter.
+
+### `delete`
+
+- `{delete value}` → value
+
+*Native.* `{delete object}`: removes the object (or the object of that name); one `new` created is destroyed. Its handles go stale.
+
 ### `do`
 
 - `{do values...}` → value
@@ -106,6 +118,12 @@ A parameter in [brackets] is optional, `unevaluated` is passed as written, and
 - `{if bool unevaluated [unevaluated]}` → value
 
 *Native.* `{if cond then [else]}`: evaluates `then` if `cond` is true, else `else` if given (else 0). Only the branch taken is evaluated.
+
+### `new`
+
+- `{new values...}` → value
+
+*Native.* `{new Class [name] (param value)...}`: creates an object of a script class or of a default-constructible bound type, owned by the Context, and returns it.
 
 ### `not`
 
@@ -129,4 +147,4 @@ A parameter in [brackets] is optional, `unevaluated` is passed as written, and
 
 - `{set $variable value}` → value
 
-*Native.* `{set $var value}`: sets a variable and returns the value.
+*Native.* `{set $var value}` or, in a method, `{set [property] value}`: stores the value and returns it.

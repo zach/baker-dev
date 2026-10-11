@@ -44,7 +44,7 @@ MOIRA_COLD Expected<Node> fail(const Array& at, ErrorCode code, std::string mess
 MOIRA_COLD Expected<Node> bad_head(const Array& command) {
     if (command.empty()) return fail(command, ErrorCode::Syntax, "empty command {}");
     return fail(command, ErrorCode::Type,
-                "a command starts with a function name, not a " +
+                "a command starts with a function or an object, not a " +
                     std::string(type_name(command[0].type())));
 }
 
@@ -58,23 +58,31 @@ MOIRA_COLD Expected<Node> too_deep(const Array& command, uint32_t depth, uintptr
                     std::to_string(used / 1024) + " KB of stack)");
 }
 
-MOIRA_COLD Expected<Node> bad_arity(const Array& command, Symbol name, const detail::Overload& o) {
+MOIRA_COLD Expected<Node> bad_arity(const Array& command, Symbol name, const detail::Overload& o,
+                                    size_t n) {
     return fail(command, ErrorCode::Type,
                 quoted(name) + " takes " + arity_text(o.min_args, o.max_args) + ", given " +
-                    std::to_string(command.size() - 1));
+                    std::to_string(n));
 }
 
-MOIRA_COLD Expected<Node> no_overload(const Array& command, const Function& f, const Node* values,
-                                      size_t n) {
+MOIRA_COLD Expected<Node> no_overload(const Array& command, Symbol name,
+                                      const std::vector<detail::Overload>& overloads,
+                                      const Node* values, size_t n) {
     std::string given;
     for (size_t i = 0; i < n; ++i) {
         if (i) given += ' ';
         given += type_name(values[i].type());
     }
     std::string have;
-    for (const detail::Overload& o : f.overloads) have += " " + signature_text(o);
+    for (const detail::Overload& o : overloads) have += " " + signature_text(o);
     return fail(command, ErrorCode::Type,
-                "no overload of " + quoted(f.name) + " takes (" + given + "); it has" + have);
+                "no overload of " + quoted(name) + " takes (" + given + "); it has" + have);
+}
+
+MOIRA_COLD Expected<Node> not_object(const Array& command, const Node& head) {
+    return fail(command, ErrorCode::Type,
+                "a command starts with a function or an object, not a " +
+                    std::string(type_name(head.type())));
 }
 
 MOIRA_COLD Expected<Node> not_set(Symbol name) {
@@ -163,17 +171,40 @@ Expected<Node> Context::Impl::eval(const Node& n) {
             if (c && !is_unset(*c)) return *c;
             return not_set(n.var_name());
         }
-        case Type::Property:
-            return fail(*n.array(), ErrorCode::Type, "[...] property access is not supported yet");
+        case Type::Property: return property_path(*n.array());
         default: return n;
     }
 }
 
 Expected<Node> Context::Impl::call(const Array& command) {
-    if (command.empty() || command[0].type() != Type::Symbol) return bad_head(command);
-    const Symbol name = *command[0].try_sym();
-    const Function* f = find(name);
-    if (!f || f->overloads.empty()) return not_function(command, name);
+    if (command.empty()) return bad_head(command);
+    // The head names a function, or is an object: named, an Object node, or a command or
+    // variable that evaluates to one (spec §5, "Object commands evaluate slot 0").
+    const Node& head = command[0];
+    const Function* f = nullptr;
+    ObjectHandle target;
+    Symbol name;
+    if (head.type() == Type::Symbol) {
+        name = *head.try_sym();
+        f = find(name);
+        if (!f || f->overloads.empty()) {
+            f = nullptr;
+            target = named(name);
+            if (!target.bits) return not_function(command, name);
+        }
+    } else if (head.type() == Type::Object) {
+        target = head.object_handle();
+    } else if (head.type() == Type::Command || head.type() == Type::Var) {
+        Expected<Node> r = eval(head);
+        if (!r) {
+            locate(r.error(), command);
+            return r;
+        }
+        if (r->type() != Type::Object) return not_object(command, *r);
+        target = r->object_handle();
+    } else {
+        return bad_head(command);
+    }
     // Deep recursion is an error, not a crash: at most kMaxDepth calls, and at most
     // stack_budget bytes of stack below the outermost one (a debug build's frames are large).
     const char here = 0;
@@ -190,23 +221,34 @@ Expected<Node> Context::Impl::call(const Array& command) {
         }
     } frame{*this, kept.size()};
     ++depth;
-    if (f->overloads.size() > 1) return call_overloaded(*f, command);
+    if (!f) return send(target, command);
+    if (f->overloads.size() > 1) return invoke_set(name, f->overloads, command, 1, nullptr);
+    // One overload: the common case, kept inline.
     const detail::Overload& o = f->overloads[0];
     const size_t n = command.size() - 1;
-    if (n < o.min_args || n > o.max_args) return bad_arity(command, name, o);
+    if (n < o.min_args || n > o.max_args) return bad_arity(command, name, o, n);
     Args args(self, command, command.begin() + 1, n, 0, false);
     return invoke(o, args, command);
 }
 
-// An overload set evaluates every argument first, then picks the first overload whose
+// One overload is called directly, its arguments evaluated only as it reads them. An
+// overload set evaluates every argument first, then picks the first overload whose
 // parameter types fit: exactly, then with Int read as Float.
-Expected<Node> Context::Impl::call_overloaded(const Function& f, const Array& command) {
-    const size_t n = command.size() - 1;
+Expected<Node> Context::Impl::invoke_set(Symbol name,
+                                         const std::vector<detail::Overload>& overloads,
+                                         const Array& command, size_t first, ObjectBase* object) {
+    const size_t n = command.size() - first;
+    if (overloads.size() == 1) {
+        const detail::Overload& o = overloads[0];
+        if (n < o.min_args || n > o.max_args) return bad_arity(command, name, o, n);
+        Args args(self, command, command.begin() + first, n, 0, false, first, object);
+        return invoke(o, args, command);
+    }
     Node small[8];
     std::unique_ptr<Node[]> large;
     Node* values = n <= 8 ? small : (large = std::make_unique<Node[]>(n)).get();
     for (size_t i = 0; i < n; ++i) {
-        auto r = eval(command[i + 1]);
+        auto r = eval(command[i + first]);
         if (!r) {
             locate(r.error(), command);
             return r;
@@ -223,13 +265,13 @@ Expected<Node> Context::Impl::call_overloaded(const Function& f, const Array& co
         return true;
     };
     for (const bool promote : {false, true}) {
-        for (const detail::Overload& o : f.overloads) {
+        for (const detail::Overload& o : overloads) {
             if (!fits(o, promote)) continue;
-            Args args(self, command, values, n, 0, true);
+            Args args(self, command, values, n, 0, true, first, object);
             return invoke(o, args, command);
         }
     }
-    return no_overload(command, f, values, n);
+    return no_overload(command, name, overloads, values, n);
 }
 
 Expected<Node> Context::Impl::run(std::span<const Node> nodes) {
@@ -249,9 +291,16 @@ Context::Context() : impl_(std::make_unique<Impl>(*this)) {
     if (!t_current) t_current = this;
     impl_->sink = &stderr_sink;
     register_builtins(*this);
+    register_object_builtins(*this);
 }
 
 Context::~Context() {
+    // Objects the Context created are deleted; the others just forget it.
+    for (Impl::Slot& s : impl_->slots) {
+        if (!s.object) continue;
+        s.object->ctx_ = nullptr;
+        if (s.owned) delete s.object;
+    }
     if (t_current == this) t_current = nullptr;
 }
 
@@ -425,11 +474,12 @@ Expected<const Array*> Args::try_array(size_t i) const {
 
 Args Args::rest(size_t i) const noexcept {
     const size_t k = i < size_ ? i : size_;
-    return Args(*ctx_, *command_, base_ + k, size_ - k, offset_ + k, evaluated_);
+    return Args(*ctx_, *command_, base_ + k, size_ - k, offset_ + k, evaluated_, first_, self_);
 }
 
 Symbol Args::name() const noexcept {
-    return command_->empty() ? Symbol() : (*command_)[0].try_sym().value_or(Symbol());
+    const Node* n = command_->try_at(first_ - 1u);
+    return n ? n->try_sym().value_or(Symbol()) : Symbol();
 }
 
 Error Args::error(std::string message, ErrorCode code) const {
@@ -451,6 +501,7 @@ void Args::keep(Node n) const {
 namespace detail {
 Expected<Raw<Var>> read_var(const Args& a, size_t i) {
     const Node& n = a.raw(i);
+    if (n.type() == Type::Property) return Raw<Var>(a.context(), *n.array());
     if (n.type() != Type::Var)
         return Unexpected(a.error("argument " + std::to_string(i + 1) + " of " + quoted(a.name()) +
                                   " must be a $variable, not " + std::string(type_name(n.type()))));

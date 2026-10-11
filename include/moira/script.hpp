@@ -47,6 +47,10 @@
 namespace moira {
 
 class Context;
+class ObjectBase;
+namespace detail {
+struct TypeRecord;
+}
 
 // Where a function comes from (spec §5, "One namespace, three tiers"). Macros are expanded
 // by the reader before evaluation, so no function record is ever a macro.
@@ -87,17 +91,24 @@ public:
     [[nodiscard]] Args rest(size_t i) const noexcept;
     [[nodiscard]] const Array& command() const noexcept { return *command_; }
     [[nodiscard]] Context& context() const noexcept { return *ctx_; }
+    // The function's name, or a method's.
     [[nodiscard]] Symbol name() const noexcept;
+    // The object a method was called on; null for a function.
+    [[nodiscard]] ObjectBase* self() const noexcept { return self_; }
     // An error naming this function and located at this call.
     [[nodiscard]] Error error(std::string message, ErrorCode code = ErrorCode::Type) const;
 
+    // `first` is the index in `command` of the first argument: 1 for {f ...}, 2 for
+    // {object method ...}.
     Args(Context& ctx, const Array& command, const Node* base, size_t size, size_t offset,
-         bool evaluated) noexcept
+         bool evaluated, size_t first = 1, ObjectBase* self = nullptr) noexcept
         : ctx_(&ctx),
           command_(&command),
           base_(base),
+          self_(self),
           size_(static_cast<uint32_t>(size)),
           offset_(static_cast<uint32_t>(offset)),
+          first_(static_cast<uint8_t>(first)),
           evaluated_(evaluated) {}
 
 private:
@@ -119,9 +130,11 @@ private:
     Context* ctx_;
     const Array* command_;
     const Node* base_;
+    ObjectBase* self_;
     uint32_t size_;
     uint32_t offset_;  // index of base_[0] among all the arguments, for messages
-    bool evaluated_;   // base_ holds values already evaluated (an overload set's arguments)
+    uint8_t first_;
+    bool evaluated_;  // base_ holds values already evaluated (an overload set's arguments)
 };
 
 // A parameter that is not evaluated before the call. Raw<Node> is the argument as
@@ -169,18 +182,31 @@ private:
 
 struct Var {};  // tag for Raw<Var>
 
+// A place to store a value: a $variable, or a [property] of $this (in a method).
 template <>
-class Raw<Var> : public VarRef {
+class Raw<Var> {
 public:
-    using VarRef::VarRef;
-    using VarRef::operator=;
-    void store(Node v) noexcept { *this = std::move(v); }
-    [[nodiscard]] const Node& load() const noexcept { return value(); }
+    Raw(Node* cell, Symbol name) noexcept : cell_(cell), name_(name) {}
+    Raw(Context& ctx, const Array& property) noexcept : ctx_(&ctx), property_(&property) {}
+    [[nodiscard]] bool is_property() const noexcept { return property_ != nullptr; }
+    // The variable's name; empty for a property.
+    [[nodiscard]] Symbol name() const noexcept { return name_; }
+    // Stores `v`. Setting a property can fail: no $this, or a value of the wrong type.
+    [[nodiscard]] Expected<void> try_store(Node v) const;
+    // The variable's value (Int 0 if unset); for a property, its value or Int 0.
+    [[nodiscard]] Node load() const;
+
+private:
+    Node* cell_ = nullptr;
+    Symbol name_;
+    Context* ctx_ = nullptr;
+    const Array* property_ = nullptr;
 };
 
 namespace detail {
 
-enum class ParamKind : uint8_t { Value, Raw, Optional, Rest, Context };
+// Implicit: a parameter that takes no argument (Context&, the object of a method).
+enum class ParamKind : uint8_t { Value, Raw, Optional, Rest, Implicit };
 
 struct ParamInfo {
     std::string_view type;  // for the reference and messages
@@ -202,7 +228,7 @@ struct Overload {
     using Thunk = Expected<Node> (*)(const void* callable, Args& args);
     Thunk thunk = nullptr;
     std::shared_ptr<const void> callable;
-    std::vector<ParamInfo> params;  // excluding Context&
+    std::vector<ParamInfo> params;  // excluding implicit ones
     std::string_view result;
     uint32_t min_args = 0;
     uint32_t max_args = 0;  // UINT32_MAX: takes the rest
@@ -306,7 +332,9 @@ struct Param<Raw<Var>> {
     using Holder = Raw<Var>;
     static constexpr ParamKind kind = ParamKind::Raw;
     static constexpr std::string_view type() { return "$variable"; }
-    static bool match_var(const Node& n, bool) noexcept { return n.type() == Type::Var; }
+    static bool match_var(const Node& n, bool) noexcept {
+        return n.type() == Type::Var || n.type() == Type::Property;
+    }
     static constexpr auto match = &match_var;
     static bool read(const Args& a, size_t i, std::optional<Holder>& out, Expected<Node>& result) {
         return take(read_var(a, i), out, result);
@@ -346,7 +374,7 @@ struct Param<Args> {
 template <>
 struct Param<Context&> {
     using Holder = Context*;
-    static constexpr ParamKind kind = ParamKind::Context;
+    static constexpr ParamKind kind = ParamKind::Implicit;
     static constexpr std::string_view type() { return ""; }
     static constexpr bool (*match)(const Node&, bool) noexcept = nullptr;
     static bool read(const Args& a, size_t, std::optional<Holder>& out, Expected<Node>&) {
@@ -409,7 +437,7 @@ constexpr std::string_view result_name() {
 template <class... P>
 struct ArgIndex {
     static constexpr size_t of(size_t k) {
-        constexpr bool takes[] = {(Param<P>::kind != ParamKind::Context)..., false};
+        constexpr bool takes[] = {(Param<P>::kind != ParamKind::Implicit)..., false};
         size_t n = 0;
         for (size_t j = 0; j < k; ++j) n += takes[j] ? 1 : 0;
         return n;
@@ -449,7 +477,7 @@ Overload make_overload(F&& f, std::tuple<P...>*) {
     o.result = result_name<R>();
     (
         [&] {
-            if constexpr (Param<P>::kind != ParamKind::Context)
+            if constexpr (Param<P>::kind != ParamKind::Implicit)
                 o.params.push_back({Param<P>::type(), Param<P>::kind, Param<P>::match, is_raw<P>});
         }(),
         ...);
@@ -489,6 +517,7 @@ struct CheckReport {
         Symbol name;
         bool stub = false;  // a call to a function whose status is Stub; else unresolved
         std::vector<Site> sites;
+        Symbol on;  // for a method: the class of the object it was sent to
     };
     std::vector<Error> errors;
     std::vector<Demand> demand;  // in order of first appearance
@@ -548,6 +577,38 @@ public:
     // A documented global: sets `name` to `initial` and lists it in the reference.
     VarRef global(Symbol name, Node initial, std::string_view doc = {});
 
+    // --- Objects (object.hpp: Object<T>, Binder<T>). ---
+
+    // Adds `object`, named `name` if given, and returns an Object node referring to it. The
+    // object removes itself when destroyed. A name must not be a function's or another
+    // object's; an object can be in one Context at a time.
+    [[nodiscard]] Expected<Node> try_add(ObjectBase& object, Symbol name = {});
+    void remove(ObjectBase& object) noexcept;
+    // The object `object` (an Object node) refers to; null if it was removed (weak).
+    [[nodiscard]] ObjectBase* try_resolve(const Node& object) const noexcept;
+    // As try_resolve, and of type T or derived from it.
+    template <class T>
+    [[nodiscard]] T* try_get(const Node& object) const noexcept;
+    // The object named `name`, as an Object node; Int 0 if there is none.
+    [[nodiscard]] Node object(Symbol name) const noexcept;
+    // Makes T known before any T is added: for {class T ...}, {new T}, and the reference.
+    template <class T>
+    void add_type();
+    // Sends {object method args...}: script handlers, then native methods, then the
+    // methods every object has (object.hpp).
+    [[nodiscard]] Expected<Node> try_call(const Node& object, Symbol method,
+                                          std::span<const Node> args = {});
+    template <class... A>
+    [[nodiscard]] Expected<Node> try_call(const ObjectBase& object, Symbol method, A&&... args);
+#if MOIRA_EXCEPTIONS
+    Node add(ObjectBase& object, Symbol name = {});
+    // Strong resolution: throws if the object was removed or is not a T.
+    template <class T>
+    T& get(const Node& object) const;
+    template <class... A>
+    Node call(const ObjectBase& object, Symbol method, A&&... args);
+#endif
+
     // Nesting deeper than 1,000 calls, or than `bytes` of stack below the outermost call, is
     // a Limit error rather than a stack overflow. The default, 256 KB, is safe on any common
     // thread; release builds nest about 400 calls in it, debug builds fewer. Raise it on a
@@ -578,6 +639,8 @@ public:
 
 private:
     [[nodiscard]] Expected<FuncRef> add(Symbol name, detail::Overload overload);
+    void add_type(const detail::TypeRecord& type);
+    [[nodiscard]] Error resolve_error(const Node& object, std::string_view type) const;
 
     std::unique_ptr<Impl> impl_;
 };

@@ -18,20 +18,9 @@ int64_t wrap(uint64_t v) noexcept {
     return static_cast<int64_t>(v);
 }
 
-// Script functions bind their parameters by dynamic scope, like do: arguments are
-// evaluated first, in the caller's bindings, then bound, then the body runs.
 Expected<Node> run_script(const void* callable, Args& args) {
-    const auto& body = *static_cast<const ScriptBody*>(callable);
-    Context::Impl& impl = args.context().impl();
-    const size_t first = impl.kept.size();
-    for (size_t i = 0; i < args.size(); ++i) {
-        auto r = args.try_eval(i);
-        if (!r) return r;
-        impl.kept.push_back(std::move(*r));
-    }
-    Rebind rebind(impl);
-    for (size_t i = 0; i < body.params.size(); ++i) impl.bind(body.params[i], impl.kept[first + i]);
-    return impl.run(body.definition->nodes().subspan(body.body));
+    return args.context().impl().run_script(*static_cast<const ScriptBody*>(callable), args,
+                                            nullptr);
 }
 
 // {func name ($a ...) (status stub) (doc "...") body...}, or {override name ...}.
@@ -42,12 +31,9 @@ Expected<Node> define(Args a, bool override) {
                                   ErrorCode::Syntax));
     const Symbol name = *a.raw(0).try_sym();
     auto body = std::make_shared<ScriptBody>();
-    for (const Node& p : a.raw(1).try_array()->nodes()) {
-        if (p.type() != Type::Var)
-            return Unexpected(a.error("parameters of " + quoted(name) + " must be $variables",
-                                      ErrorCode::Syntax));
-        body->params.push_back(p.var_name());
-    }
+    if (!parse_params(*a.raw(1).try_array(), *body))
+        return Unexpected(
+            a.error("parameters of " + quoted(name) + " must be $variables", ErrorCode::Syntax));
     Status status = Status::Normal;
     Symbol replacement;
     std::string doc;
@@ -99,6 +85,35 @@ Expected<Node> define(Args a, bool override) {
     return Node(name);
 }
 
+}  // namespace
+
+bool parse_params(const Array& params, ScriptBody& body) {
+    for (const Node& p : params.nodes()) {
+        if (p.type() != Type::Var) return false;
+        body.params.push_back(p.var_name());
+    }
+    return true;
+}
+
+// Script functions and handlers bind their parameters by dynamic scope, like do: arguments
+// are evaluated first, in the caller's bindings, then bound with $this, then the body runs.
+Expected<Node> Context::Impl::run_script(const ScriptBody& body, Args& args,
+                                         const Node* this_node) {
+    const size_t first = kept.size();
+    for (size_t i = 0; i < args.size(); ++i) {
+        auto r = args.try_eval(i);
+        if (!r) return r;
+        kept.push_back(std::move(*r));
+    }
+    Rebind rebind(*this);
+    static const Symbol kThis("this");
+    if (this_node) bind(kThis, *this_node);
+    for (size_t i = 0; i < body.params.size(); ++i) bind(body.params[i], kept[first + i]);
+    return run(body.definition->nodes().subspan(body.body));
+}
+
+namespace {
+
 // == and != compare numbers by value (1 equals 1.0), anything else structurally.
 bool equal(const Node& a, const Node& b) noexcept {
     if (a.is_number() && b.is_number()) {
@@ -129,11 +144,13 @@ void register_builtins(Context& ctx) {
         "(else 0). Only the branch taken is evaluated.");
     add(
         ctx, "set",
-        [](Raw<Var> var, Node value) {
-            var.store(value);
+        [](Raw<Var> place, Node value) -> Expected<Node> {
+            auto r = place.try_store(value);
+            if (!r) return Unexpected(std::move(r).error());
             return value;
         },
-        "`{set $var value}`: sets a variable and returns the value.");
+        "`{set $var value}` or, in a method, `{set [property] value}`: stores the value and "
+        "returns it.");
     add(
         ctx, "do",
         [](Args a) -> Expected<Node> {

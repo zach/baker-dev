@@ -4,6 +4,7 @@
 // Each row evaluates a parsed command node with Context::try_eval, as a game evaluating
 // its data would. The last rows compare the per-Context table that resolves a function
 // name (docs/decisions.md D44) with a hash map, the lookup D5's in-node cache would save.
+#include <moira/object.hpp>
 #include <moira/parse.hpp>
 #include <moira/script.hpp>
 
@@ -43,13 +44,22 @@ double ns_per_call(F&& f) {
 
 }  // namespace
 
+struct Person : moira::Object<Person> {
+    float height = 6.0f;
+    float on_grow(float amount) { return height += amount; }
+    static void bind(moira::Binder<Person>& b) { b.method("grow", &Person::on_grow); }
+};
+
 int main() {
     moira::Context ctx;
+    Person bob;
+    if (!ctx.try_add(bob, "bob")) return 1;
     if (!ctx.try_func("add", [](int64_t a, int64_t b) { return a + b; })) return 1;
     ctx.var("x") = 4;
     if (!ctx.try_eval("{func add1 ($a) {+ $a 1}}")) return 1;
     auto tree = moira::try_read_string(
-        "{add 1 2} {+ 1 2} {+ 1.5 2} {add $x 1} $x {if 1 2 3} {add1 1} {add {add 1 2} 3}",
+        "{add 1 2} {+ 1 2} {+ 1.5 2} {add $x 1} $x {if 1 2 3} {add1 1} {add {add 1 2} 3} "
+        "{bob grow 0}",
         "bench.dta");
     if (!tree) return 1;
     const char* names[] = {
@@ -61,6 +71,7 @@ int main() {
         "{if 1 2 3}: lazy branches",
         "{add1 1}: script function",
         "{add {add 1 2} 3}: nested",
+        "{bob grow 0}: native method",
     };
 
     std::printf("evaluating a command node (best of 7, 2M calls each)\n");
