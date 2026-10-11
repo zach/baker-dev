@@ -72,3 +72,55 @@ That takes the core from 7,262 to about 7,710 of 10,000, before the rest of M6 (
   pins a commit and caches the download.
 - **The renames in step 1** break any downstream code. There is none outside this
   repository yet, which is why now is the time.
+
+## Handoff (2026-10-11, end of step 2)
+
+**State.** Steps 1 and 2 are done (D59, D60). The branch is
+`claude/zealous-goodall-rtindg`, at commit `1d26a21` plus this note, and CI is green on
+every job, MSVC included. The core is 7,633 of 10,000 lines.
+
+**Next: step 3, allocators and the container alias layer (D55, D56).** The owner has
+approved the step 2 choices (Callback, List, the 16-segment Path, and Symbols for layer
+names and result paths). Step 3 is:
+- an `Allocator` struct (function pointers plus a `void*`);
+- `Context` and `Config` taking an allocator at construction;
+- a default allocator for process-wide state (the symbol table);
+- `src/` containers going through one alias header that maps to the STL, or to EASTL
+  with `MOIRA_USE_EASTL=ON`, always with Moira's allocator;
+- a `MOIRA_USE_EASTL` CI job (fetch and pin EASTL; do not vendor it);
+- a test where a counting allocator sees every allocation a Context and a Config make,
+  and the global `operator new` counter sees none.
+
+Places that still allocate through `new` or `operator new` directly, and must move to
+the allocator:
+- `Array::allocate` (array.cpp);
+- `String` (node.cpp);
+- `Error` records (error.cpp);
+- `NodeBuffer`, `List<T>`, `Callback`, and `detail::Shared` (headers);
+- every opaque `Impl`/`State`/`Tables`/`Extra`;
+- `TypeRecord`s, which live for the whole program (object.cpp).
+
+The header types (`List`, `Callback`, `NodeBuffer`, `Shared`) have no owner to ask for an
+allocator. The simplest consistent answer is the process-wide default allocator. Decide
+that in a short note before coding.
+
+**Then step 4: an arena per load (D56).** It needs a design note first, on D56's open
+point: how a value that outlives its load (a Node in a variable, a snapshot) keeps its
+tree alive. The fallback is one refcount per load. Then the rest of M6
+(`docs/m6-plan.md`, with the answers in D53): typed messages with `handles<M>` and
+`handle_all`, call statistics, and the trace hook.
+
+**How the work has been done.**
+- **Commit each sub-step green.** Before every commit, run `tools/local_matrix.sh`:
+  debug, release, C++23, shipping, ASan+UBSan, Clang, data-only, and plain refcounts.
+  Run it every time; both slips in step 2 were configurations that a single build
+  missed.
+- **Header gates.** `ctest` runs `tools/check_headers.py`, and a target compiles every
+  public header alone.
+- **Benchmarks.** Measure before and after with `bench/` (build with
+  `-DMOIRA_BUILD_BENCH=ON`), against a git worktree of the previous commit on the same
+  machine. Record numbers, including regressions and noise, in the D-entry.
+- **Review lens.** Read `.claude/skills/acton-review/` (the skill and its
+  `references/moira-gaps.md` status table) before designing. The owner holds Moira to it.
+- **Decisions.** Record each deviation from the spec in `docs/decisions.md` (the next
+  free number is D61). Delete this plan when step 4 is done.
