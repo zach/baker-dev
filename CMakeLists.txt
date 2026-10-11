@@ -111,6 +111,7 @@ endfunction()
 add_library(moira_data
   src/data/allocator.cpp
   src/data/arena.cpp
+  src/data/clock.cpp
   src/data/array.cpp
   src/data/config.cpp
   src/data/error.cpp

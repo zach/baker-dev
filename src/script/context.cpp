@@ -4,6 +4,7 @@
 #include <moira/parse.hpp>
 
 #include "common/containers.hpp"
+#include "data/text.hpp"
 
 #include <cstdio>
 #if defined(_MSC_VER)
@@ -33,6 +34,12 @@ Str quoted(Symbol s) {
 #define MOIRA_COLD __declspec(noinline)
 #else
 #define MOIRA_COLD [[gnu::noinline, gnu::cold]]
+#endif
+// Context::Impl::call's body, inlined where it is plain and where it is instrumented.
+#if defined(_MSC_VER)
+#define MOIRA_INLINE __forceinline
+#else
+#define MOIRA_INLINE [[gnu::always_inline]] inline
 #endif
 
 }  // namespace
@@ -130,6 +137,41 @@ void stderr_sink(void*, const Error& notice) {
     std::fprintf(stderr, "%.*s\n", static_cast<int>(text.size()), text.data());
 }
 
+// The default trace sink: each call on entry, indented by depth, with where it is written;
+// on exit its result or error.
+void stderr_trace(void*, const TraceEvent& e) {
+    Str line(2 * size_t{e.depth}, ' ');
+    if (!e.result) {
+        line += detail::preview(Node(Ref<Array>(const_cast<Array*>(e.command)), Type::Command), 60);
+        if (!e.command->file().empty())
+            line += "  (" + Str(e.command->file().str()) + ":" +
+                    detail::decimal(e.command->line()) + ")";
+    } else if (*e.result) {
+        line += "-> " + detail::preview(**e.result, 60);
+    } else {
+        line += "-> error: " + Str(e.result->error().message());
+    }
+    std::fprintf(stderr, "%.*s\n", static_cast<int>(line.size()), line.data());
+}
+
+// Every counted call, as CallStats, ordered by self time, then calls.
+Vec<CallStats> collect(const Context::Impl& impl, bool script_only, uint64_t threshold) {
+    Vec<CallStats> out;
+    auto add = [&](const Counters& c, Symbol name, Symbol on, Tier tier) {
+        if (c.calls == 0 || (script_only && (tier != Tier::Script || c.self_ns < threshold)))
+            return;
+        out.push_back(CallStats{name, on, tier, c.calls, c.total_ns, c.self_ns});
+    };
+    for (const auto& f : impl.functions) add(f->counters, f->name, {}, f->tier);
+    for (const auto& c : impl.classes)
+        for (const ScriptClass::Handler& h : c->handlers)
+            add(h.counters, h.name, c->name, Tier::Script);
+    std::sort(out.begin(), out.end(), [](const CallStats& a, const CallStats& b) {
+        return a.self_ns != b.self_ns ? a.self_ns > b.self_ns : a.calls > b.calls;
+    });
+    return out;
+}
+
 }  // namespace
 
 // --- Signatures ---
@@ -207,7 +249,7 @@ Expected<Node> Context::Impl::eval(const Node& n) {
     }
 }
 
-Expected<Node> Context::Impl::call(const Array& command) {
+MOIRA_INLINE Expected<Node> Context::Impl::call_body(const Array& command, Counters** counted) {
     if (command.empty()) return bad_head(command);
     // The head names a function, or is an object: named, an Object node, or a command or
     // variable that evaluates to one (spec §5, "Object commands evaluate slot 0").
@@ -260,7 +302,11 @@ Expected<Node> Context::Impl::call(const Array& command) {
     } frame{*this, kept.size(), {&command, top}};
     top = &frame.call;
     ++depth;
-    if (!f) return send(target, command);
+    if (!f) return send(target, command, counted);
+    if constexpr (!kShipping) {
+        ++f->counters.calls;
+        if (counted) *counted = &f->counters;
+    }
     if (f->overloads.size() > 1) return invoke_set(name, f->overloads, command, 1, nullptr);
     // One overload: the common case, kept inline.
     const detail::Overload& o = f->overloads[0];
@@ -268,6 +314,35 @@ Expected<Node> Context::Impl::call(const Array& command) {
     if (n < o.min_args || n > o.max_args) return bad_arity(command, name, o, n);
     Args args(self, command, command.begin() + 1, n, 0, false);
     return invoke(o, args, command);
+}
+
+Expected<Node> Context::Impl::call(const Array& command) {
+    if constexpr (!kShipping)
+        if (instrumented) return call_instrumented(command);
+    return call_body(command, nullptr);
+}
+
+MOIRA_COLD Expected<Node> Context::Impl::call_instrumented(const Array& command) {
+    const uint32_t level = depth;
+    if (tracing && trace_sink) trace_sink(trace_user, TraceEvent{&command, level, nullptr});
+    Counters* counters = nullptr;
+    uint64_t callees = 0;
+    uint64_t* outer = child_ns;
+    child_ns = &callees;
+    const bool timed = profiling;
+    const uint64_t start = timed ? clock(clock_user) : 0;
+    Expected<Node> r = call_body(command, &counters);
+    child_ns = outer;
+    if (timed) {
+        const uint64_t elapsed = clock(clock_user) - start;
+        if (outer) *outer += elapsed;
+        if (counters) {
+            counters->total_ns += elapsed;
+            counters->self_ns += elapsed > callees ? elapsed - callees : 0;
+        }
+    }
+    if (tracing && trace_sink) trace_sink(trace_user, TraceEvent{&command, level, &r});
+    return r;
 }
 
 // One overload is called directly, its arguments evaluated only as it reads them. An
@@ -343,6 +418,7 @@ Context::Context(const Allocator& allocator)
     detail::set_evaluator(&evaluate_for_data);
     if (!t_current) t_current = this;
     impl_->sink = &stderr_sink;
+    impl_->trace_sink = &stderr_trace;
     register_builtins(*this);
     register_object_builtins(*this);
 }
@@ -452,6 +528,46 @@ void script_backtrace(TextSink out) {
             write(ctx->stack_entry(*c), out);
             out("\n");
         }
+}
+
+void Context::set_profiling(bool on) noexcept {
+    if constexpr (kShipping) return;
+    impl_->profiling = on;
+    impl_->instrumented = impl_->profiling || impl_->tracing;
+}
+
+void Context::set_time_source(TimeSource fn, void* user) noexcept {
+    impl_->clock = fn ? fn : steady_now;
+    impl_->clock_user = user;
+}
+
+List<CallStats> Context::stats() const {
+    if constexpr (kShipping) return {};
+    const Vec<CallStats> all = collect(*impl_, false, 0);
+    return List<CallStats>(std::span<const CallStats>(all.data(), all.size()));
+}
+
+void Context::reset_stats() noexcept {
+    for (const auto& f : impl_->functions) f->counters = {};
+    for (const auto& c : impl_->classes)
+        for (const ScriptClass::Handler& h : c->handlers) h.counters = {};
+}
+
+List<CallStats> Context::hardening_candidates(uint64_t threshold_ns) const {
+    if constexpr (kShipping) return {};
+    const Vec<CallStats> found = collect(*impl_, true, threshold_ns);
+    return List<CallStats>(std::span<const CallStats>(found.data(), found.size()));
+}
+
+void Context::trace(bool on) noexcept {
+    if constexpr (kShipping) return;
+    impl_->tracing = on;
+    impl_->instrumented = impl_->profiling || impl_->tracing;
+}
+
+void Context::set_trace_sink(TraceSink sink, void* user) noexcept {
+    impl_->trace_sink = sink;
+    impl_->trace_user = user;
 }
 
 void Context::set_notice_sink(NoticeSink sink, void* user) noexcept {

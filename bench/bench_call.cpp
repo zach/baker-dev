@@ -111,6 +111,24 @@ int main() {
             std::printf("%-38s %7.2f ns  %zu allocations / 1000 calls\n", names[k], ns, allocs);
     }
 
+    // Call statistics and tracing (D53): counting is always on outside shipping builds;
+    // timing and tracing are switched on here.
+    std::printf("\n{add 1 2} with the development aids switched on\n");
+    {
+        const moira::Node& add = (**tree)[0];
+        auto call = [&](int) {
+            auto r = ctx.eval(opaque(add));
+            return r ? static_cast<double>(r->try_float().value_or(0)) : -1.0;
+        };
+        ctx.set_profiling(true);
+        std::printf("%-38s %7.2f ns\n", "profiling (two steady_clock reads)", ns_per_call(call));
+        ctx.set_profiling(false);
+        ctx.set_trace_sink([](void*, const moira::TraceEvent&) {}, nullptr);
+        ctx.trace(true);
+        std::printf("%-38s %7.2f ns\n", "tracing to an empty sink", ns_per_call(call));
+        ctx.trace(false);
+    }
+
     // Typed messages (spec §7: C++ to C++ dispatch <= 15 ns, zero allocations).
     std::printf("\nsending a message from C++\n");
     {

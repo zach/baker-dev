@@ -295,7 +295,7 @@ Str Context::Impl::class_name(const Slot& s) const {
 
 // {object method args...}: script handlers, then native methods, then the methods every
 // object has.
-Expected<Node> Context::Impl::send(ObjectHandle target, const Array& command) {
+Expected<Node> Context::Impl::send(ObjectHandle target, const Array& command, Counters** counted) {
     Slot* s = slot(target);
     if (!s)
         return fail(command, ErrorCode::NotFound,
@@ -309,6 +309,10 @@ Expected<Node> Context::Impl::send(ObjectHandle target, const Array& command) {
     const size_t n = command.size() - 2;
 
     if (const ScriptClass::Handler* handler = handler_for(*s, method)) {
+        if constexpr (!kShipping) {
+            ++handler->counters.calls;
+            if (counted) *counted = &handler->counters;
+        }
         if (n != handler->body.params.size())
             return fail(command, ErrorCode::Type,
                         quoted(method) + " takes " +
@@ -497,7 +501,7 @@ void register_object_builtins(Context& ctx) {
             if (!h || h->empty() || (*h)[0].type() != Type::Symbol)
                 return Unexpected(
                     a.error("a handler is (method ($params...) body...)", ErrorCode::Syntax));
-            ScriptClass::Handler handler{*(*h)[0].try_sym(), {}};
+            ScriptClass::Handler handler{*(*h)[0].try_sym(), {}, {}};
             handler.body.definition = Ref<Array>(const_cast<Array*>(h));
             handler.body.body = 1;
             if (const Array* params = h->size() > 1 ? (*h)[1].try_array() : nullptr) {

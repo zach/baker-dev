@@ -29,6 +29,7 @@
 // because evaluation never modifies a tree.
 
 #include <moira/array.hpp>
+#include <moira/clock.hpp>
 #include <moira/list.hpp>
 #include <moira/node.hpp>
 #include <moira/text.hpp>
@@ -605,6 +606,26 @@ struct CheckReport {
 // <moira/std_interop.hpp> has to_string(report).
 void write(const CheckReport& report, TextSink out);
 
+// What one function, or one script handler of a {class}, has cost (spec §5, "Call
+// statistics"). Times are in TimeSource nanoseconds: `total_ns` includes the calls it made,
+// `self_ns` does not. A recursive function's total counts each level.
+struct CallStats {
+    Symbol name;
+    Symbol on;  // the {class} of a script handler; empty for a function
+    Tier tier;
+    uint64_t calls;
+    uint64_t total_ns;
+    uint64_t self_ns;
+};
+
+// One call, as the trace hook sees it: on entry `result` is null; on exit it is the call's
+// result or error.
+struct TraceEvent {
+    const Array* command;
+    uint32_t depth;  // 0 for a call made from C++
+    const Expected<Node>* result;
+};
+
 // A call in progress, on the C++ stack: the frames of a Context form a list from the
 // innermost call out (Context::top_frame). Read-only, and valid only while the call runs.
 struct CallFrame {
@@ -692,6 +713,27 @@ public:
     // The calls in progress, innermost first, as an error's stack records them.
     [[nodiscard]] List<StackEntry> backtrace() const;
     [[nodiscard]] StackEntry stack_entry(const CallFrame& frame) const;
+
+    // --- Call statistics and tracing. Development aids: under MOIRA_SHIPPING they are
+    // compiled out, stats() is empty, and the switches do nothing. ---
+
+    // Calls are always counted (one increment each). Timing them takes two clock reads per
+    // call, so it waits for set_profiling(true).
+    void set_profiling(bool on) noexcept;
+    void set_time_source(TimeSource fn, void* user = nullptr) noexcept;
+    // Every function and script handler called since the last reset, by self time, then
+    // by calls. Reading allocates; counting does not.
+    [[nodiscard]] List<CallStats> stats() const;
+    void reset_stats() noexcept;
+    // The script functions and handlers whose self time is at least `threshold_ns`: the
+    // measured list of what to move to C++.
+    [[nodiscard]] List<CallStats> hardening_candidates(uint64_t threshold_ns) const;
+
+    // While on, every call is reported to the trace sink, on entry and on exit. By default
+    // the sink prints each call to stderr, indented by depth.
+    using TraceSink = void (*)(void* user, const TraceEvent& event);
+    void trace(bool on) noexcept;
+    void set_trace_sink(TraceSink sink, void* user) noexcept;
 
     // --- Notices: things worth saying that are not errors, such as a native function
     // replacing a script one. By default they go to stderr. ---

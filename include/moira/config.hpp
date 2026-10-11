@@ -69,6 +69,7 @@
 // root() (a Ref) and read that.
 
 #include <moira/array.hpp>
+#include <moira/clock.hpp>
 #include <moira/parse.hpp>
 #include <moira/path.hpp>
 #include <moira/source_map.hpp>
@@ -117,9 +118,6 @@ struct LayerOptions {
 };
 
 // --- Telemetry ---
-
-// Monotonic nanoseconds from an arbitrary origin.
-using TimeSource = uint64_t (*)(void* user);
 
 enum class ReloadOutcome : uint8_t { Ok, Unchanged, ParseError, Refused };
 

@@ -65,6 +65,14 @@ struct TypeRecord {
 
 }  // namespace detail
 
+// A call statistics record, updated in place (spec §5). Mutable: counting a call does not
+// change what is called.
+struct Counters {
+    uint64_t calls = 0;
+    uint64_t total_ns = 0;
+    uint64_t self_ns = 0;
+};
+
 struct Function : FuncRecord {
     explicit Function(const Allocator& a) : doc(a), overloads(a) {}
 
@@ -75,6 +83,7 @@ struct Function : FuncRecord {
     Vec<detail::Overload> overloads;
     Symbol file;  // where a script function is defined
     int32_t line = 0;
+    mutable Counters counters;
 };
 
 // A {func} body: run with the parameters bound.
@@ -90,6 +99,7 @@ struct ScriptClass {
     struct Handler {
         Symbol name;
         ScriptBody body;
+        mutable Counters counters;
     };
     Symbol name;
     const detail::TypeRecord* native = nullptr;
@@ -146,6 +156,10 @@ struct Context::Impl {
 
     [[nodiscard]] Expected<Node> eval(const Node& n);
     [[nodiscard]] Expected<Node> call(const Array& command);
+    // The call itself. `counted`, if given, receives the counters of what was called.
+    [[nodiscard]] Expected<Node> call_body(const Array& command, Counters** counted);
+    // A call while profiling or tracing: times it, and reports it to the trace sink.
+    [[nodiscard]] Expected<Node> call_instrumented(const Array& command);
     // Calls the overload set `overloads` of `name` with the arguments of `command` from
     // index `first` (2 for a method, whose object is `self`).
     [[nodiscard]] Expected<Node> invoke_set(Symbol name, const Vec<detail::Overload>& overloads,
@@ -177,7 +191,8 @@ struct Context::Impl {
     void remove(ObjectHandle h) noexcept;
     // Deletes an object {new} made: its type knows its size.
     void destroy_owned(ObjectBase* object) noexcept { object->type().destroy(alloc, object); }
-    [[nodiscard]] Expected<Node> send(ObjectHandle target, const Array& command);
+    [[nodiscard]] Expected<Node> send(ObjectHandle target, const Array& command,
+                                      Counters** counted = nullptr);
     [[nodiscard]] Expected<Node> property_path(const Array& path);
     [[nodiscard]] Expected<void> set_property(ObjectBase& object, Symbol name, const Node& value,
                                               const Array& at);
@@ -221,6 +236,16 @@ struct Context::Impl {
     uintptr_t stack_budget = 256 * 1024;  // see Context::set_stack_budget
     NoticeSink sink = nullptr;
     void* sink_user = nullptr;
+
+    // Statistics and tracing (not under MOIRA_SHIPPING).
+    bool profiling = false;
+    bool tracing = false;
+    bool instrumented = false;  // profiling || tracing: the one test on the call path
+    TimeSource clock = steady_now;
+    void* clock_user = nullptr;
+    uint64_t* child_ns = nullptr;  // the innermost timed call's time spent in its callees
+    Context::TraceSink trace_sink = nullptr;
+    void* trace_user = nullptr;
 };
 
 // Restores every variable bound since it was made: dynamic scope, undone even on error.

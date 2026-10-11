@@ -7,7 +7,6 @@
 
 #include <algorithm>
 #include <atomic>
-#include <chrono>
 #include <cstdio>
 #include <optional>
 
@@ -63,12 +62,6 @@ struct Leaf {
 
 uint64_t hash_text(std::string_view s) noexcept {
     return detail::hash_symbol_text(s);
-}
-
-uint64_t steady_now(void*) {
-    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                     std::chrono::steady_clock::now().time_since_epoch())
-                                     .count());
 }
 
 Symbol trigger_name(const char* name) {
