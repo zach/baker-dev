@@ -249,8 +249,10 @@ struct Param {
     using Holder = T;
     static constexpr ParamKind kind = ParamKind::Value;
     static constexpr std::string_view type() {
-        if constexpr (std::is_same_v<T, Node>) return "value";
-        return convert_info<T>().name;
+        if constexpr (std::is_same_v<T, Node>)
+            return "value";
+        else
+            return convert_info<T>().name;
     }
     static constexpr auto match = &match_value<T>;
     static Expected<T> read(const Args& a, size_t i) { return a.try_get<T>(i); }
@@ -382,20 +384,23 @@ struct ArgIndex {
 };
 
 template <class F, class R, class... P, size_t... I>
-Expected<Node> invoke(const void* callable, Args& args, std::index_sequence<I...>) {
-    using Index = ArgIndex<P...>;
-    std::tuple<std::optional<typename Param<P>::Holder>...> held;
-    std::optional<Error> error;
-    const bool ok = ([&] {
-        auto r = Param<P>::read(args, Index::of(I));
-        if (!r) {
-            error.emplace(std::move(r).error());
-            return false;
-        }
-        std::get<I>(held).emplace(std::move(*r));
-        return true;
-    }() && ...);
-    if (!ok) return Unexpected(std::move(*error));
+Expected<Node> invoke(const void* callable, [[maybe_unused]] Args& args,
+                      std::index_sequence<I...>) {
+    [[maybe_unused]] std::tuple<std::optional<typename Param<P>::Holder>...> held;
+    if constexpr (sizeof...(P) > 0) {
+        using Index = ArgIndex<P...>;
+        std::optional<Error> error;
+        const bool ok = ([&] {
+            auto r = Param<P>::read(args, Index::of(I));
+            if (!r) {
+                error.emplace(std::move(r).error());
+                return false;
+            }
+            std::get<I>(held).emplace(std::move(*r));
+            return true;
+        }() && ...);
+        if (!ok) return Unexpected(std::move(*error));
+    }
     const F& f = *static_cast<const F*>(callable);
     if constexpr (std::is_void_v<R>) {
         std::invoke(f, Param<P>::pass(*std::get<I>(held))...);
