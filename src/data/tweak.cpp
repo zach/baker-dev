@@ -55,11 +55,8 @@ void TweakBase::detach() noexcept {
 }
 
 const Path& TweakBase::parsed() {
-    if (!parsed_set_) {
-        parsed_ = Path(path_);
-        parsed_set_ = true;
-    }
-    return parsed_;
+    if (!parsed_) parsed_ = std::make_unique<Path>(path_);
+    return *parsed_;
 }
 
 bool TweakBase::unbind() {
@@ -101,11 +98,13 @@ bool TweakBase::bind(const Array& root, const std::function<void(const Error&)>&
 }
 
 void TweakBase::notify() {
-    for (const auto& f : on_change_) f();
+    if (on_change_)
+        for (const auto& f : *on_change_) f();
 }
 
 void TweakBase::on_change(std::function<void()> callback) {
-    on_change_.push_back(std::move(callback));
+    if (!on_change_) on_change_ = std::make_unique<std::vector<std::function<void()>>>();
+    on_change_->push_back(std::move(callback));
 }
 
 Expected<void> TweakBase::try_set_values(std::span<const Node> values) {

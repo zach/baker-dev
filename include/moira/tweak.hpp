@@ -37,6 +37,7 @@
 
 #include <atomic>
 #include <functional>
+#include <memory>
 #include <span>
 #include <string_view>
 #include <type_traits>
@@ -133,11 +134,12 @@ private:
     TweakRegistry* registry_;
     TweakBase* prev_ = nullptr;
     TweakBase* next_ = nullptr;
-    Path parsed_;  // parsed at the first bind, so registration allocates nothing
-    bool parsed_set_ = false;
+    // Created on first use, not at registration: even an empty std::vector or
+    // std::string allocates in MSVC's debug library, and registration allocates nothing.
+    std::unique_ptr<Path> parsed_;
     Ref<Array> bound_;                // the array holding the value; null when unbound
     uint32_t first_ = 0, count_ = 0;  // the value's nodes within bound_
-    std::vector<std::function<void()>> on_change_;
+    std::unique_ptr<std::vector<std::function<void()>>> on_change_;
 };
 
 // The set of live tweaks, as an intrusive list: adding one allocates nothing. The global

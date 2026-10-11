@@ -559,8 +559,9 @@ callbacks, after tweaks have been rebound and their `on_change` callbacks run.
 
 - The registry is an intrusive doubly linked list behind a spinlock (`std::atomic_flag`),
   and the global one is `constinit`, so registration works from any static initializer,
-  in any order, without allocating (tested with the counting `operator new`). The path is
-  parsed at the first bind, not at registration.
+  in any order, without allocating (tested with the counting `operator new`). The parsed
+  path and the `on_change` list are created on first use, because MSVC's debug library
+  allocates even for an empty `std::vector` or `std::string`; CI's MSVC job caught that.
 - A `Config` attaches to `ConfigOptions::tweaks` (the global registry by default) and
   rebinds every tweak on each change; a tweak registered later binds at once.
 - `T` is stored in a `std::atomic<T>` only when that is always lock-free (`float`, `int`,
@@ -608,9 +609,9 @@ it lets layers change after `freeze()`, for live-ops overlays in a shipped game.
   each a macro (`TRUE`, `kDefaultVolume`, `kMaxPlayers`) named with file and line.
 - **Fuzzing.** The parse fuzzer, now also checking edit-mode spans, ran 1.5M execs clean
   under ASan+UBSan.
-- **Size: over budget.** `moira::data` is 4,001 counted lines, up 1,283 in M3, which crosses
+- **Size: over budget.** `moira::data` is 4,002 counted lines, up 1,284 in M3, which crosses
   the spec's 4,000 (soft, D2). The largest parts are `config.cpp` 571 (write-back about
-  200; layers, reload, provenance, live edits the rest), `tweak.hpp`/`tweak.cpp` 346,
+  200; layers, reload, provenance, live edits the rest), `tweak.hpp`/`tweak.cpp` 347,
   `config.hpp` 125, and `merge.cpp` 82. Flagged here and to the project owner, as §0 asks.
   Six milestones remain. Options, not yet chosen: accept a larger budget, move write-back
   and edit mode into an optional `moira::edit` library (about 300 lines), or trim
