@@ -1553,3 +1553,62 @@ step 4.*
   `<windows.h>` defines `TextOut` as a macro, so a Windows host that included it before a
   Moira header failed to link. `TextSink` matches `NoticeSink`. Functions that return
   one keep their names (`str_out`, `string_out`).
+
+## D64. M5b step 4 design: one refcount per load
+
+*Recorded 2026-10-11, before step 4's code. Answers D56's open point (how a value that
+outlives its load keeps its tree alive), choosing D56's named fallback.*
+
+- **Where sharing comes from.** Trees are not owned by one load today. Three kinds of
+  holder share subtrees across loads, and each must keep working:
+  - **trees built from trees:** a merged config tree reuses subtrees of every layer, and
+    a macro body read by one file is spliced into the arrays of every later file in the
+    session;
+  - **holders of values:** a Context's variables and function bodies, a tweak's bound
+    values, a snapshot's layers, a source map's keys;
+  - **the host:** a `Ref<Array>` from `read_file` or `Config::root()`, or a `Node` from
+    `eval`.
+
+  So "a tree has one owner" (D56) does not describe the data. What can be true is that
+  each array has one *allocation owner*, the load it was read in, which frees it with
+  everything else of that load.
+- **The owner is found from the array.** An `Array` or `String` header keeps 32 bits
+  where its refcount was: the offset back to the start of its block. A block starts with
+  a pointer to its arena, and an arena starts with its refcount. So retaining an array
+  retains its arena, one more dependent load than today, usually in a line the block
+  shares. Headers stay 24 and 8 bytes.
+- **References inside a load are not counted.** A node stored in an arena does not count
+  its own arena, which would never reach zero otherwise. A node that points into another
+  arena counts it once per arena, not once per node: the arena keeps a short list of the
+  arenas it depends on, released when it is freed. Freeing an arena runs no node
+  destructors; it releases its dependencies and frees its blocks.
+- **A one-off array is an arena of one.** `Array::make`, `make_from`, and `make_copy`
+  without an arena build a solo block: its header, the array, and a count. A solo array
+  owns its children as today: each child counts its target, and freeing the block
+  releases them. Script-built values, `set` values, merge results, and host-built arrays
+  are solo. That is one allocation per array, the same as now.
+  - **This deviates from D56,** which put arrays built after load into an owner's scratch
+    arena. A scratch arena only grows unless something copies its live values out, which
+    is a collector. Solo blocks cost what arrays cost today, and nothing measured asks
+    for more. Revisit if call statistics (M6) show script-built arrays in a profile.
+- **Loads use arenas.** `read_string` and `read_file` build the whole tree, includes and
+  macro bodies too, in one arena. Blocks grow from 4 KB, doubling to 1 MB, and an array
+  larger than half a block gets a block of its own. The arena comes from the session's
+  allocator, which a Config or Context sets to its own, so the alloc test (D61) now
+  covers trees.
+- **What changes for a caller.**
+  - `Array::ref_count()` reports the owner's count. For a solo array that is the array's
+    own count, as before.
+  - `Array::set` on an arena array records a dependency if the new node points into
+    another arena. The node it replaces stays alive until the arena is freed, because
+    arena nodes are not counted.
+  - Holding any node of a load holds the whole load. A Context that keeps one function
+    defined by a large `eval` keeps that text's tree. That is the price of not counting
+    per array, and the reason D56's per-array frees go away.
+- **What a TD gets.** A parse makes one allocation per block rather than one per array,
+  and teardown frees blocks without visiting nodes, closing gap 5's cost. Node copies
+  outside a tree still touch a counter, the load's rather than the array's. Threads that
+  copy nodes of one load all touch one line, where today they touch many. Most reads
+  (`find`, `get`, tweaks) copy no node.
+- **Measured before and after:** `bench_parse` (MB/s), the allocation count of a parse,
+  teardown of a large tree, and the call rows, where an array-valued node is copied.
