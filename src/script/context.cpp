@@ -282,10 +282,23 @@ Expected<Node> Context::Impl::invoke_set(Symbol name, const Vec<detail::Overload
         Args args(self, command, command.begin() + first, n, 0, false, first, object);
         return invoke(o, args, command);
     }
+    // Eight on the stack, more from the default allocator. Not a Vec: an empty std::vector
+    // allocates in MSVC's debug library. Not a NodeBuffer: it costs 70 instructions a call.
+    struct Spill {
+        Node* p = nullptr;
+        size_t n = 0;
+        ~Spill() {
+            for (size_t i = 0; i < n; ++i) p[i].~Node();
+            if (p) detail::default_free(p, n * sizeof(Node));
+        }
+    } spill;
     Node small[8];
-    Vec<Node> large;
-    if (n > 8) large.resize(n);
-    Node* values = n <= 8 ? small : large.data();
+    Node* values = small;
+    if (n > 8) {
+        spill.p = static_cast<Node*>(detail::default_alloc(n * sizeof(Node), alignof(Node)));
+        for (; spill.n < n; ++spill.n) ::new (spill.p + spill.n) Node();
+        values = spill.p;
+    }
     for (size_t i = 0; i < n; ++i) {
         auto r = eval(command[i + first]);
         if (!r) {

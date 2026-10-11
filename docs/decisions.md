@@ -1489,22 +1489,43 @@ step 4.*
 - **Performance,** on this container, against `b60a411` built alongside. The hot paths
   allocate nothing, as before.
 
+  Calls were measured at one sitting, three runs each, alternating builds:
+
   | Row | before | after |
   |---|---:|---:|
-  | `{add 1 2}` | 31–34 ns | 28–29 ns |
-  | `{add $x 1}` | 33–35 ns | 32–37 ns |
-  | `{add1 1}` | 62–66 ns | 66–69 ns |
+  | `{add 1 2}` | 31–32 ns | 31–35 ns |
+  | `{+ 1 2}`, an overload set | 46–48 ns | 47–48 ns |
+  | `{+ 1.5 2}`, promoted | 51–54 ns | 48–49 ns |
+  | `{add $x 1}` | 35–38 ns | 35–36 ns |
+  | `{add1 1}`, a script function | 70–72 ns | 71–74 ns |
+  | `{bob grow 0}` | 53 ns | 53–56 ns |
+
+  The lookup rows came from an earlier sitting:
+
+  | Row | before | after |
+  |---|---:|---:|
   | `find_float`, 20 children, avg | 10.6–12.1 ns | 11.5–13.4 ns |
   | `find_float`, last | 15–17 ns | 18–20 ns |
   | `try_find`, 50 children, linear | 14–15 ns | 19–21 ns |
 
-  - **Cachegrind shows the same work per call:** 360 instructions for `{add 1 2}` before
-    and after, 499 → 497 for `{add $x 1}`, and 991 for `{add1 1}`.
+  - **Cachegrind shows the same work per call:**
+    - `{add 1 2}`: 360 instructions before and after;
+    - `{add $x 1}`: 499 and 499;
+    - `{add1 1}`: 991 and 990;
+    - `{+ 1 2}`: 590 and 598;
+    - `{+ 1.5 2}`: 769 and 774.
   - **One real regression was found and fixed.** With variable pages behind `Own<Page>`,
     GCC copied a cell's tag bytes with four byte stores instead of one. The load that
     followed stalled on store forwarding, and `{add $x 1}` lost 4–6 ns at the same
     instruction count. Pages are plain pointers again, and the code matches the old
     code.
+  - **MSVC's CI found a second regression.** The overload-set path held its spill
+    buffer in a `Vec<Node>`. MSVC's debug library allocates even for an empty
+    `std::vector`, so every overload-set call allocated through the default allocator,
+    and two zero-allocation tests failed. It is a stack array again, with a guard for the
+    rare call of more than eight arguments. `NodeBuffer` would also have worked, but it
+    cost 70 instructions a call. A `Vec` constructed on a hot path is a finding for this
+    reason, even when it stays empty.
   - **The lookup rows are layout, not work.** `try_find` is inline in the benchmark's own
     file and unchanged. A separate driver linked against each library measures linear
     `try_find` on 50 children at 20 ns for both, with equal instruction counts and the
