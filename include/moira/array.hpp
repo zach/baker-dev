@@ -41,6 +41,7 @@
 // type is an error, because silently ignoring a mistyped value is the failure located
 // errors exist to prevent (docs/decisions.md D25).
 
+#include <moira/allocator.hpp>
 #include <moira/node.hpp>
 #include <moira/path.hpp>
 
@@ -129,15 +130,22 @@ public:
 
 private:
     void grow() {
-        Node* bigger = new Node[size_t{cap_} * 2];
+        auto* bigger =
+            static_cast<Node*>(default_alloc(sizeof(Node) * size_t{cap_} * 2, alignof(Node)));
+        for (uint32_t i = 0; i < cap_ * 2; ++i) ::new (bigger + i) Node();
         for (uint32_t i = 0; i < size_; ++i) bigger[i] = std::move(data_[i]);
-        if (data_ != inline_) delete[] data_;
+        if (data_ != inline_) free_heap();
         data_ = bigger;
         cap_ *= 2;
     }
+    // The heap block holds cap_ constructed nodes; from the default allocator (D61).
+    void free_heap() noexcept {
+        for (uint32_t i = 0; i < cap_; ++i) data_[i].~Node();
+        default_free(data_, sizeof(Node) * size_t{cap_});
+    }
     void release() noexcept {
         if (data_ != inline_)
-            delete[] data_;
+            free_heap();
         else
             clear();
         data_ = inline_;

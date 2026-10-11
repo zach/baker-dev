@@ -2,6 +2,7 @@
 
 // Umbrella header for everything implemented so far.
 
+#include <moira/allocator.hpp>
 #include <moira/array.hpp>
 #include <moira/config.hpp>
 #include <moira/error.hpp>

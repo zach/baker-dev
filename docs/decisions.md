@@ -1384,3 +1384,56 @@ L2) to measure them.
 - **Size.** The core is 7,633 lines, up 700 in step 2. The plan estimated +150, without
   counting the new small types, opaque implementations, or interop headers. With step 1's
   −329, M5b so far is +371 against the plan's +450 for all four steps. Steps 3–4 remain.
+
+## D61. M5b step 3 design: who allocates from which allocator
+
+*Recorded 2026-10-11, before step 3's code. Settles the handoff's open point (which
+allocator the header types use) and the rules step 3 follows. Implements D55's alias layer
+and the first half of D56.*
+
+- **The rule.** What an owner keeps comes from the owner's allocator. What it hands back,
+  and what has no owner, comes from the process-wide default allocator.
+  - **The owner's allocator** (`Context(alloc)`, `Config(options, alloc)`): the `Impl`
+    itself, every table and record it keeps (functions, variable pages, object slots,
+    classes; layers, sources, edits, tweak bindings), and their containers.
+  - **The default allocator:**
+    - the header types `List`, `Callback`, `detail::NodeBuffer`, and `detail::Shared`;
+    - `Error` records;
+    - snapshots and other results handed to the host;
+    - temporaries that die before the call returns;
+    - process-wide state: the symbol table, `TypeRecord`s, and the global tweak registry;
+    - host-made objects with no owner: `LoadSession`, `SourceMap`, a `Tweak`'s side data;
+    - trees (`Array`, `String`), until step 4 gives each load an arena.
+- **Why the default allocator for the header types.** They are built where no owner is in
+  reach: a `List` is returned, a `Callback` is made by the host before it is passed in, a
+  `NodeBuffer` spills during evaluation. Asking for an owner would add a pointer to each
+  and a choice at every copy (whose allocator does the copy use?). Results also outlive
+  their owner: a host may keep a `List` or an `Error` after the `Context` is gone, so they
+  must not depend on the owner's allocator living that long. The headers call two
+  out-of-line functions, `detail::default_alloc` and `detail::default_free`, so they still
+  include nothing new.
+- **The interface** is D56's struct, in `<moira/allocator.hpp>`. An allocator must not
+  return null. If one does, Moira aborts, as `operator new` failing did with exceptions
+  off. `free` receives the size that was allocated.
+- **The default allocator** is `operator new` unless the host calls
+  `set_default_allocator()` before Moira first allocates. After that it returns false and
+  changes nothing, because blocks already handed out must be freed where they came from.
+- **Lifetime.** An owner's allocator must outlive the owner and anything copied out of it
+  (a `ConfigSnapshot`). Copies keep their source's allocator, as both the STL and EASTL
+  do, so no copy ever frees into the wrong heap.
+- **Attribution is by table, not by every byte.** The owner passes its allocator to its
+  tables and to the records it creates. A container that is built elsewhere and moved
+  into a record (a temporary, a parsed name) keeps the allocator it was built with,
+  usually the default. Plumbing the owner into every nested string would mean an
+  allocator argument at every construction, for no change in what reaches the heap.
+- **The alias layer** is `src/common/containers.hpp`. `Vec<T>`, `Str`, and `HashMap<K, V>`
+  are the STL's by default, or EASTL's with `MOIRA_USE_EASTL=ON`. Each holds a pointer to
+  a Moira `Allocator`, which is the default allocator unless the owner passes its own.
+  `Str` is a thin class over the backend string, because EASTL's string does not convert
+  to `std::string_view`. Naked `std::` containers and `std::string` are gone from `src/`,
+  along with `std::to_string`, `make_unique`/`make_shared`, and the `std_*.hpp` interop
+  headers.
+- **Tested** in its own test binary, whose `main` installs a counting default allocator
+  before anything else runs. A `Context` and a `Config`, each given its own counting
+  allocator, are built, loaded, evaluated, reloaded, and destroyed. Global `operator new`
+  sees no allocation, each owner's allocator sees some, and each is balanced at the end.

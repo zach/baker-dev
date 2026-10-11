@@ -190,7 +190,9 @@ public:
     using Writer = Callback<bool(std::string_view path, std::string_view text)>;
     using ReloadId = uint32_t;
 
-    explicit Config(ConfigOptions options = {});
+    // Everything the Config keeps comes from `allocator`, which must outlive it and its
+    // snapshots (D61).
+    explicit Config(ConfigOptions options = {}, const Allocator& allocator = default_allocator());
     ~Config();
     Config(const Config&) = delete;
     Config& operator=(const Config&) = delete;

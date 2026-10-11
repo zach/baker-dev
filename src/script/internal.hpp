@@ -43,8 +43,9 @@ struct TypeRecord {
     std::vector<const TypeRecord*> bases;  // every ancestor, nearest first
     std::vector<MethodEntry> methods;      // sorted by symbol identity, for binary search
     std::vector<PropertyEntry> properties;
-    ObjectBase* (*create)() = nullptr;  // for {new}; null if T is not default-constructible
-    std::string error;                  // a binding mistake, reported when T is first added
+    CreateObject create = nullptr;  // for {new}; null if T is not default-constructible
+    DestroyObject destroy = nullptr;
+    std::string error;  // a binding mistake, reported when T is first added
 
     [[nodiscard]] bool is(const TypeRecord* t) const noexcept {
         return t == this || std::find(bases.begin(), bases.end(), t) != bases.end();
@@ -115,7 +116,7 @@ struct Context::Impl {
     static constexpr uint32_t kPageBits = 10;
     static constexpr uint32_t kMaxDepth = 1000;
 
-    explicit Impl(Context& c) : self(c) {}
+    Impl(Context& c, const Allocator& a) : alloc(a), self(c) {}
 
     [[nodiscard]] Function* find(Symbol name) const noexcept {
         const uint32_t i = name.index();
@@ -162,6 +163,8 @@ struct Context::Impl {
     [[nodiscard]] Expected<Node> add(ObjectBase& object, Symbol name, ScriptClass* script,
                                      bool owned);
     void remove(ObjectHandle h) noexcept;
+    // Deletes an object {new} made: its type knows its size.
+    void destroy_owned(ObjectBase* object) noexcept { object->type().destroy(alloc, object); }
     [[nodiscard]] Expected<Node> send(ObjectHandle target, const Array& command);
     [[nodiscard]] Expected<Node> property_path(const Array& path);
     [[nodiscard]] Expected<void> set_property(ObjectBase& object, Symbol name, const Node& value,
@@ -178,6 +181,7 @@ struct Context::Impl {
         *c = std::move(value);
     }
 
+    const Allocator alloc;  // first: the containers below take it
     Context& self;
     std::vector<Function*> by_index;  // by Symbol::index()
     std::vector<std::unique_ptr<Function>> functions;

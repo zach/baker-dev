@@ -33,7 +33,7 @@ Ref<String> String::make(std::string_view text) {
     // A string this large cannot come from a parse (inputs are bounded long before).
     if (text.size() >= UINT32_MAX) std::abort();
     const auto size = static_cast<uint32_t>(text.size());
-    void* mem = ::operator new(sizeof(String) + size + 1);
+    void* mem = detail::default_alloc(sizeof(String) + size + 1, alignof(String));
     auto* s = new (mem) String(size);
     char* chars = reinterpret_cast<char*>(s + 1);
     if (size) std::memcpy(chars, text.data(), size);
@@ -42,8 +42,9 @@ Ref<String> String::make(std::string_view text) {
 }
 
 void String::destroy(const String* s) noexcept {
+    const size_t size = s->size();
     s->~String();
-    ::operator delete(const_cast<String*>(s));
+    detail::default_free(const_cast<String*>(s), sizeof(String) + size + 1);
 }
 
 namespace detail {

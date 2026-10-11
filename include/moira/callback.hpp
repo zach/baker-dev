@@ -4,8 +4,11 @@
 // code to call later (a file reader, reload and change callbacks). It is what
 // std::function would be here, but D55 keeps <functional> out of public headers.
 //
-// A callable is copied onto the heap when it is stored. A plain function, or a lambda with
-// no captures, can instead be stored by pointer with no allocation.
+// A callable is copied into the default allocator (D61) when it is stored. A plain
+// function, or a lambda with no captures, can instead be stored by pointer with no
+// allocation.
+
+#include <moira/allocator.hpp>
 
 #include <cstddef>
 #include <new>
@@ -33,10 +36,13 @@ public:
         } else {
             static const Ops ops{
                 [](void* p, A... a) -> R { return (*static_cast<T*>(p))(std::forward<A>(a)...); },
-                [](const void* p) -> void* { return new T(*static_cast<const T*>(p)); },
-                [](void* p) { delete static_cast<T*>(p); }};
+                [](const void* p) -> void* { return make<T>(*static_cast<const T*>(p)); },
+                [](void* p) {
+                    static_cast<T*>(p)->~T();
+                    detail::default_free(p, sizeof(T));
+                }};
             ops_ = &ops;
-            obj_ = new T(std::forward<F>(f));
+            obj_ = make<T>(std::forward<F>(f));
         }
     }
 
@@ -64,6 +70,10 @@ public:
     }
 
 private:
+    template <class T, class... X>
+    static T* make(X&&... x) {
+        return ::new (detail::default_alloc(sizeof(T), alignof(T))) T(std::forward<X>(x)...);
+    }
     struct Ops {
         R (*call)(void*, A...);
         void* (*clone)(const void*);

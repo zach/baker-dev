@@ -17,9 +17,10 @@ struct SourceMap::Tables {
     std::unordered_map<Symbol, std::string> texts;
 };
 
-SourceMap::SourceMap() : t_(new Tables()) {}
+// From the default allocator: a map has no owner, and snapshots share it (D61).
+SourceMap::SourceMap() : t_(detail::create<Tables>(default_allocator())) {}
 SourceMap::~SourceMap() {
-    delete t_;
+    detail::destroy(default_allocator(), t_);
 }
 
 std::optional<std::span<const SourceSpan>> SourceMap::spans(const Array& a) const {

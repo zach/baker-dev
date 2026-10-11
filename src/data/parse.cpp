@@ -628,17 +628,21 @@ private:
 
 }  // namespace detail
 
-LoadSession::LoadSession() : st_(new State()) {}
+// Sessions belong to whoever made them: from the default allocator (D61).
+LoadSession::LoadSession() : st_(detail::create<State>(default_allocator())) {}
 LoadSession::LoadSession(const LoadSession& o)
-    : limits(o.limits), source_map(o.source_map), st_(new State(*o.st_)) {}
+    : limits(o.limits),
+      source_map(o.source_map),
+      st_(detail::create<State>(default_allocator(), *o.st_)) {}
 LoadSession::LoadSession(LoadSession&& o) noexcept
     : limits(o.limits), source_map(o.source_map), st_(o.st_) {
-    o.st_ = new State();  // the moved-from session stays usable, and empty
+    o.st_ = detail::create<State>(
+        default_allocator());  // the moved-from session stays usable, and empty
 }
 LoadSession& LoadSession::operator=(const LoadSession& o) {
     if (this != &o) {
-        State* st = new State(*o.st_);
-        delete st_;
+        State* st = detail::create<State>(default_allocator(), *o.st_);
+        detail::destroy(default_allocator(), st_);
         st_ = st;
         limits = o.limits;
         source_map = o.source_map;
@@ -652,7 +656,7 @@ LoadSession& LoadSession::operator=(LoadSession&& o) noexcept {
     return *this;
 }
 LoadSession::~LoadSession() {
-    delete st_;
+    detail::destroy(default_allocator(), st_);
 }
 
 void LoadSession::define(Symbol name) {

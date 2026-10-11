@@ -2,7 +2,6 @@
 
 #include <cstdlib>
 #include <new>
-#include <string>
 #include <type_traits>
 
 namespace moira {
@@ -22,7 +21,8 @@ uint16_t above(uint16_t h) noexcept {
 
 Array* Array::allocate(uint32_t size, Symbol file, int32_t line) {
     const size_t slots = size ? size : 1;
-    void* mem = ::operator new(sizeof(Array) + slots * sizeof(Node));
+    // From the default allocator until step 4 gives each load an arena (D61).
+    void* mem = detail::default_alloc(sizeof(Array) + slots * sizeof(Node), alignof(Array));
     auto* a = new (mem) Array(size, file, line);
     if (size == 0) new (a->data()) Node();  // Int 0 owns nothing, so it is never destroyed
     return a;
@@ -58,9 +58,10 @@ Ref<Array> Array::make_copy(std::span<const Node> nodes, Symbol file, int32_t li
 void Array::destroy(const Array* a) noexcept {
     auto* self = const_cast<Array*>(a);
     Node* d = self->data();
-    for (uint32_t i = 0; i < self->size_; ++i) d[i].~Node();
+    const uint32_t size = self->size_;
+    for (uint32_t i = 0; i < size; ++i) d[i].~Node();
     self->~Array();
-    ::operator delete(self);
+    detail::default_free(self, sizeof(Array) + (size ? size : 1) * sizeof(Node));
 }
 
 void Array::compute_height() noexcept {

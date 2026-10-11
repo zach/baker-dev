@@ -61,7 +61,10 @@ using PropertySet = bool (*)(const void* accessor, ObjectBase& self, const Node&
 void add_property(TypeRecord& type, Symbol name, std::string_view value_type, Shared accessor,
                   PropertyGet get, PropertySet set, std::string_view doc);
 void inherit(TypeRecord& type, const TypeRecord& base);
-void set_create(TypeRecord& type, ObjectBase* (*create)());
+// {new T} and its delete, through the creating Context's allocator.
+using CreateObject = ObjectBase* (*)(const Allocator& allocator);
+using DestroyObject = void (*)(const Allocator& allocator, ObjectBase* object);
+void set_create(TypeRecord& type, CreateObject create, DestroyObject destroy);
 void finish_type_record(TypeRecord& type);
 // Whether `type` is `other` or derives from it.
 [[nodiscard]] bool type_is(const TypeRecord& type, const TypeRecord* other) noexcept;
@@ -251,7 +254,9 @@ const detail::TypeRecord& Object<T, Base>::record() {
         if constexpr (!std::is_same_v<Base, ObjectBase>) b.inherit(Base::record());
         if constexpr (requires { T::bind(b); }) T::bind(b);
         if constexpr (std::is_default_constructible_v<T>)
-            detail::set_create(rec, []() -> ObjectBase* { return new T(); });
+            detail::set_create(
+                rec, [](const Allocator& a) -> ObjectBase* { return detail::create<T>(a); },
+                [](const Allocator& a, ObjectBase* o) { detail::destroy(a, static_cast<T*>(o)); });
         detail::finish_type_record(rec);
         return &rec;
     }();

@@ -262,6 +262,8 @@ struct Plan {
 }  // namespace
 
 struct ConfigSnapshot::State {
+    explicit State(const Allocator& a) : alloc(a) {}
+    const Allocator alloc;  // the Config's, which outlives its snapshots (D61)
     std::vector<LayerState> layers;
     std::vector<ScratchEntry> scratch;
     bool scratch_enabled = true;
@@ -277,7 +279,8 @@ ConfigSnapshot& ConfigSnapshot::operator=(const ConfigSnapshot& other) noexcept 
     return *this;
 }
 ConfigSnapshot::~ConfigSnapshot() {
-    if (state_ && state_->refs.fetch_sub(1, std::memory_order_acq_rel) == 1) delete state_;
+    if (state_ && state_->refs.fetch_sub(1, std::memory_order_acq_rel) == 1)
+        detail::destroy(state_->alloc, state_);
 }
 
 struct Config::Impl {
@@ -292,6 +295,9 @@ struct Config::Impl {
         Callback<void(const ReloadRecord&)> fn;
     };
 
+    explicit Impl(const Allocator& a) : alloc(a) {}
+
+    const Allocator alloc;  // first: the containers below take it
     ConfigOptions options;
     LoadSession base;
     Writer writer = write_disk_file;
@@ -852,7 +858,8 @@ Expected<WriteReport> Config::Impl::write_into(Config& c, size_t li, const Path&
 
 // --- Construction ---
 
-Config::Config(ConfigOptions options) : root_(Array::make(0)), impl_(new Impl()) {
+Config::Config(ConfigOptions options, const Allocator& allocator)
+    : root_(Array::make(0)), impl_(detail::create<Impl>(allocator, allocator)) {
     impl_->options = options;
     if (TweakRegistry* reg = options.tweaks) {
         reg->config_ = this;
@@ -865,7 +872,8 @@ Config::Config(ConfigOptions options) : root_(Array::make(0)), impl_(new Impl())
 Config::~Config() {
     if (TweakRegistry* reg = impl_->options.tweaks; reg && reg->config_ == this)
         reg->config_ = nullptr;
-    delete impl_;
+    const Allocator alloc = impl_->alloc;
+    detail::destroy(alloc, impl_);
 }
 
 LoadSession& Config::session() noexcept {
@@ -1351,7 +1359,7 @@ Expected<List<DiffEntry>> Config::diff(std::string_view a, std::string_view b) c
 // --- Snapshots ---
 
 ConfigSnapshot Config::snapshot() const {
-    auto* state = new ConfigSnapshot::State();
+    auto* state = detail::create<ConfigSnapshot::State>(impl_->alloc, impl_->alloc);
     state->layers = impl_->layers;
     state->scratch = copy_scratch(impl_->scratch);
     state->scratch_enabled = impl_->scratch_enabled;

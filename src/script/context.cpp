@@ -314,7 +314,8 @@ Expected<Node> Context::Impl::run(std::span<const Node> nodes) {
 
 // --- Context ---
 
-Context::Context() : impl_(new Impl(*this)) {
+Context::Context(const Allocator& allocator)
+    : impl_(detail::create<Impl>(allocator, *this, allocator)) {
     detail::set_evaluator(&evaluate_for_data);
     if (!t_current) t_current = this;
     impl_->sink = &stderr_sink;
@@ -327,10 +328,11 @@ Context::~Context() {
     for (Impl::Slot& s : impl_->slots) {
         if (!s.object) continue;
         s.object->ctx_ = nullptr;
-        if (s.owned) delete s.object;
+        if (s.owned) impl_->destroy_owned(s.object);
     }
     if (t_current == this) t_current = nullptr;
-    delete impl_;
+    const Allocator alloc = impl_->alloc;
+    detail::destroy(alloc, impl_);
 }
 
 Context::Scope::Scope(Context& ctx) noexcept : previous_(t_current) {

@@ -206,13 +206,14 @@ template <class T>
 inline constexpr bool is_raw<std::optional<Raw<T>>> = true;
 
 // A refcounted, type-erased, immutable object: the callable behind a function. get() is
-// one load, as std::shared_ptr's is.
+// one load, as std::shared_ptr's is. From the default allocator (D61).
 class Shared {
 public:
     Shared() noexcept = default;
     template <class T, class... A>
     [[nodiscard]] static Shared make(A&&... a) {
-        auto* box = new Box<T>(std::forward<A>(a)...);
+        auto* box =
+            ::new (default_alloc(sizeof(Box<T>), alignof(Box<T>))) Box<T>(std::forward<A>(a)...);
         Shared s;
         s.base_ = box;
         s.object_ = &box->value;
@@ -249,7 +250,10 @@ private:
     struct Box : Base {
         template <class... A>
         explicit Box(A&&... a) : value(std::forward<A>(a)...) {
-            this->destroy = [](Base* b) { delete static_cast<Box*>(b); };
+            this->destroy = [](Base* b) {
+                static_cast<Box*>(b)->~Box();
+                default_free(b, sizeof(Box));
+            };
         }
         T value;
     };
@@ -610,7 +614,8 @@ struct CallFrame {
 
 class Context {
 public:
-    Context();
+    // Everything the Context keeps comes from `allocator`, which must outlive it (D61).
+    explicit Context(const Allocator& allocator = default_allocator());
     ~Context();
     Context(const Context&) = delete;
     Context& operator=(const Context&) = delete;

@@ -71,7 +71,8 @@ void TypeRecord::sort() {
 }
 
 TypeRecord* new_type_record(std::string_view name) {
-    auto* r = new TypeRecord();  // one per bound type, for the life of the program
+    // One per bound type, for the life of the program: from the default allocator (D61).
+    auto* r = detail::create<TypeRecord>(default_allocator());
     r->name = name;
     return r;
 }
@@ -141,8 +142,9 @@ void inherit(TypeRecord& r, const TypeRecord& b) {
             r.properties.push_back(p);
 }
 
-void set_create(TypeRecord& r, ObjectBase* (*create)()) {
+void set_create(TypeRecord& r, CreateObject create, DestroyObject destroy) {
     r.create = create;
+    r.destroy = destroy;
 }
 
 void finish_type_record(TypeRecord& r) {
@@ -161,7 +163,7 @@ std::string_view type_record_name(const TypeRecord& type) noexcept {
 
 ObjectBase::~ObjectBase() {
     if (ctx_) ctx_->remove(*this);
-    delete params_;
+    detail::destroy(default_allocator(), params_);
 }
 
 // --- Impl ---
@@ -312,7 +314,7 @@ Expected<void> Context::Impl::set_property(ObjectBase& o, Symbol name, const Nod
                                          std::string(moira::type_name(value.type())),
                                      at.file(), at.line()));
     }
-    if (!o.params_) o.params_ = new ObjectParams();
+    if (!o.params_) o.params_ = detail::create<ObjectParams>(default_allocator());
     for (auto& [k, v] : o.params_->items)
         if (k == name) {
             v = value;
@@ -485,20 +487,20 @@ void register_object_builtins(Context& ctx) {
                 return Unexpected(a.error(quoted(cls) + " cannot be created from script: it is not "
                                                         "default-constructible",
                                           ErrorCode::Refused));
-            object = t->create();
+            object = t->create(impl.alloc);
         } else if ((script = impl.script_class(cls))) {
-            object = new ScriptObject();
+            object = detail::create<ScriptObject>(impl.alloc);
         } else {
             return Unexpected(a.error(quoted(cls) + " is not a class", ErrorCode::NotFound));
         }
-        std::unique_ptr<ObjectBase> owner(object);
         size_t i = 1;
         Symbol name;
         if (a.size() > 1 && a.raw(1).type() == Type::Symbol) name = *a.raw(i++).try_sym();
         auto node = impl.add(*object, name, script, true);
-        if (!node)
+        if (!node) {
+            impl.destroy_owned(object);
             return Unexpected(a.error(std::string(node.error().message()), ErrorCode::Refused));
-        owner.release();
+        }
         for (; i < a.size(); ++i) {
             const Array* p = a.raw(i).try_array();
             Expected<void> r;
@@ -511,7 +513,7 @@ void register_object_builtins(Context& ctx) {
             }
             if (!r) {
                 impl.remove(node->object_handle());
-                delete object;
+                impl.destroy_owned(object);
                 return Unexpected(std::move(r).error());
             }
         }
@@ -534,7 +536,7 @@ void register_object_builtins(Context& ctx) {
         ObjectBase* o = s->object;
         const bool owned = s->owned;
         impl.remove(object.object_handle());
-        if (owned) delete o;
+        if (owned) impl.destroy_owned(o);
         return Node();
     };
     if (auto r = ctx.func("delete", destroy))

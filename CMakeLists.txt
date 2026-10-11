@@ -84,6 +84,7 @@ endfunction()
 # --- moira::data: nodes, arrays, parsing, lookup, config, tweaks, binary cache.
 #     Must never depend on moira::script.
 add_library(moira_data
+  src/data/allocator.cpp
   src/data/array.cpp
   src/data/config.cpp
   src/data/error.cpp
