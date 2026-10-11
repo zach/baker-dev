@@ -76,22 +76,65 @@ of the CppCon 2014 deck's PDF (201 pages), checked against the deck itself
 
    The talk also calls for profiling and debugging rather than guessing (paraphrased).
 
-**Practice at Insomniac** (CppCon 2014, slides 18–27, under "How are games like the Mars
-rovers?").
-- Slide 24 lists, without qualification: Exceptions, Templates, Iostream, Multiple
-  inheritance, Operator overloading, RTTI. The talk presents them as features avoided;
-  the slide text itself says neither "no" nor "limited", so do not claim the deck says
-  templates were "limited".
-- Slides 25–27 add "No STL", "Custom allocators (lots)", and "Custom debugging tools".
+**Practice at Insomniac** (CppCon 2014, slides 18–27, "How are games like the Mars
+rovers?"). The slides only list the features. What he said about each, from the talk
+transcript (`references/sources.md`):
+- **Exceptions:** "we avoid them. We turn them off if we can at all help it." A
+  third-party library that needs them is sandboxed off.
+- **Templates:** "we don't have a hard rule that says no templates", but "there's
+  occasionally a good use, but most of the time what it is is a poor use. And most of the
+  time it slows things down." Heavy template use "cripples compile times". From the Q&A:
+  "A template is just a poor man's text process[or]"; generate the code with a real tool
+  instead. Code duplication is "almost certainly not as big a problem as people think it
+  is."
+- **Iostream:** they use standard out for logging, but not C++ iostream.
+- **Multiple inheritance:** "that's right out."
+- **Operator overloading:** no strict rule, but "you will get the frowny face, depending
+  on how complex that overloading is."
+- **RTTI, "No STL", "Custom allocators (lots)":** on the slides (24–26). The transcript
+  is garbled here, so there is no spoken gloss.
+- **"Custom debugging tools"** (slide 27): tools that introspect the data, pull it from
+  the console to the development PC, and examine it live or offline.
 
 Treat all of it as a strong default for runtime engine code, not as a law for every line.
 See "Where the school disagrees" below.
 
+**Also from the talk** (spoken, from the transcript):
+- **Priorities:** hard deadlines; soft real time (16 or 33 ms frames, with most work
+  measured in microseconds); usability, meaning tools that are "easy and quick" for
+  artists, designers, and sound engineers; and performance.
+- **Solve for the common case:** "solve for the most common case first. The most common
+  actual, real, live case first, and not the most generic." His example: a dictionary of
+  key–value pairs loads every value into the cache while scanning keys it mostly won't
+  hit. Store the keys together, find an index, and read the one value from a separate
+  table.
+- **Costs to estimate with:** about 3 cycles for L1, about 20 for L2, and 200+ for main
+  RAM (numbers he credits to Jason Gregory). Estimate on the back of an envelope to get
+  the order of magnitude, then measure.
+- **Last-minute decision making:** a per-item `bool` or `switch` testing state the caller
+  already knows (is this node the root? which case is the whole hierarchy in?). Split the
+  states so the caller picks the path once for the whole batch.
+- **Strings:** "Strings are generally bad." "The best code is code that doesn't need to
+  exist at all." Hash strings offline, and push work back in time. Generate code for
+  results that can be known statically.
+- **Help the compiler:** "compilers are not magic". Eliminate ghost reads and writes, and
+  hoist loop invariants yourself, even obvious ones.
+- **Portability:** "general portability is a fool's errand." Know the finite set of
+  target platforms, with their minimum, maximum, average, and common case.
+- **Maintainability:** fewer states are easier to reason about. Separated data also
+  resists the refactor that drops a `bool` into the middle of a hot struct.
+- **Language:** his own preference "would be C99". C++ is used because it is culturally
+  dominant, and a feature is used only if it pays for itself.
+- **Not his line:** the closing "design patterns are spoon-fed material for brainless
+  programmers…" is a quote from Christer Ericson. Do not attribute it to Acton.
+
 **The "Three Big Lies"** (CellPerformance, 2008; the deck frames data-oriented design as
 "a response to the culture of C++ … and The Three Big Lies it has engendered", slides
-45–46): "Software is a platform." "Code should be
-designed around a model of the world." "Code is more important than data." Moira's own
-hazards with each:
+45–46): "Software is a platform." "Code should be designed around a model of the world."
+"Code is more important than data." In the talk: "Reality is not a hack… Reality is the
+actual problem", and "if you think the right way is some way other than the way that
+actually works in context, then your idea of the right way is wrong." Moira's own hazards
+with each lie:
 - treating the library as a platform for every possible game;
 - an object model that mirrors designers' nouns, not the data's access patterns;
 - clever evaluator code that ignores the shape of the data it walks.
@@ -134,6 +177,9 @@ in either direction.
 - **Layout.**
   - Hot fields go together, and cold fields (docs, names, file and line, debug data) go
     elsewhere.
+  - **Keys together, values elsewhere.** Any search (by tag, by symbol, by name) should scan
+    a contiguous run of keys, not step through records or pointers to read one field
+    each. This is the talk's dictionary example.
   - Look for padding and stray `bool`s in structs that are iterated. The deck's phrase for
     a `bool` in a struct is "Extremely low information density" (slides 120–122). It
     measures it as signal against noise: bits of information used per frame, divided by
@@ -148,13 +194,23 @@ in either direction.
   span. The single-item form is then a thin wrapper.
 - **Branches on the common path.** A feature that is off should cost at most one
   predictable branch. Check that with the benchmark, not by reasoning.
+- **No last-minute decisions.** A per-item check of something the caller already knows
+  (a state flag, "has a script override?", "is this the root?") should be decided once,
+  outside the loop, with the cases split.
+- **Strings.** None on a hot path. Names are `Symbol`s, interned or hashed at load or at
+  bake time. A `std::string` built during a call is a finding, except on the error path.
 - **Exceptions and RTTI.** Never needed on a hot path. Everything works under
   `MOIRA_NO_EXCEPTIONS` (CI has the job) and with no RTTI (D49's `TypeRecord`). A `try`
   block on the hot path is a finding: D52 measured one at about 10 ns per call.
-- **Templates.** Allowed where they remove runtime work (signature deduction removes
-  per-call marshalling decisions). Ask what each one costs in compile time, code size per
-  instantiation, and debug-build speed. A template that only buys "genericity" for one
-  real use case is a finding.
+- **Templates.** Acton's stated cost is compile time and slower code, and his stated
+  alternative is generated code. Moira's binding templates remove per-call marshalling
+  decisions, which is a real use. Still ask:
+  - what does each template cost in compile time, in code size per instantiation, and in
+    debug-build speed;
+  - would a small code generator do it better?
+
+  A template that only buys "genericity" for one real use case is a finding. Watch the
+  build time of a translation unit that includes `<moira/object.hpp>` like a benchmark.
 - **Shipping.** Development-only work compiles out under `MOIRA_SHIPPING`
   (`if constexpr (kShipping)`), and the shipping CI job proves it.
 
@@ -208,13 +264,17 @@ names its cost.
 
 ## Where the school disagrees (use judgment)
 
-- **Templates and generic code.** The Insomniac list avoids templates, but Moira's binding
-  layer is templates. Accept them where they move work to compile time and the benchmarks
-  hold. Flag them where they only add generality.
+- **Templates and generic code.** Insomniac had no hard rule against templates, only
+  strong suspicion: "occasionally a good use", usually "a poor use", and "cripples compile
+  times". Moira's binding layer is templates, deliberately: spec §5 deduces signatures
+  so that binding needs no macro tables. Accept templates where they
+  move work to compile time and both the benchmarks and the build times hold. Flag them
+  where they only add generality, and consider a generator for anything bulky.
 - **"Never virtual" is not the rule.** Measured, the virtual-call cost is small when the
   call is predictable and in cache. The real costs are scattered heap objects and lost
   batching. Review the data layout first, then dispatch.
 - **Scripting itself.** No quoted source shows Acton for or against embedded interpreters.
+  The CppCon 2014 talk and its Q&A do not mention scripting.
   A second researcher reported that he prefers compiled graphs to interpreted bytecode
   (the DOTS era), but gave no quote, so do not cite it as his view.
   - Insomniac's engine team listed "Visual scripting" among its development tools

@@ -66,6 +66,38 @@ differently again.
     - 195–198: "Most problems are easy to see"; solving the 90% well lets the compiler
       solve the 10% better; "Organized data makes maintenance, debugging and concurrency
       much easier"; "Good programming is hard. Bad programming is easy."
+- **Talk transcript** (CppCon 2014, an automatic transcript the project owner supplied in
+  the session, 2026-10-11; not committed). It is garbled in places, with repeated and
+  dropped lines, so quote only clean passages. Highest confidence: the words are his,
+  though the transcription may slip. What it settles:
+  - **The framing of slide 24.** Exceptions: "we avoid them. We turn them off if we can
+    at all help it." Templates: "we don't have a hard rule that says no templates…
+    occasionally a good use, but most of the time… a poor use… it slows things down",
+    and "cripples compile times". Iostream: standard out yes, C++ iostream no. Multiple
+    inheritance: "that's right out." Operator overloading: no strict rule, "the frowny
+    face". RTTI, "No STL", and "custom allocators" are garbled, so there is no gloss.
+  - **The Q&A on templates.** "A template is just a poor man's text process[or]"; generate
+    the code instead. Code duplication is "almost certainly not as big a problem as
+    people think it is."
+  - **The Q&A on portability.** "General portability is a fool's errand": know the finite
+    platform range (minimum, maximum, average, common case).
+  - **Priorities:** hard deadlines; soft real time at 16 or 33 ms; usability of tools
+    for non-programmers; performance.
+  - **The dictionary example** (lie 2): store keys together and look values up by index;
+    "solve for the most common case first… and not the most generic."
+  - **Cache costs** credited to Jason Gregory: L1 about 3 cycles, L2 about 20, RAM 200+.
+  - **Strings:** "Strings are generally bad"; "the best code is code that doesn't need to
+    exist at all"; precompute string hashes; push work back in time; generate code for
+    statically knowable results.
+  - **Last-minute decision making** (the node-translate example): split the states so the
+    caller, who knows the case, picks the path. Estimate on the back of an envelope to
+    the right order of magnitude, then measure.
+  - **"Compilers are not magic"**: remove ghost reads and writes, and hoist invariants.
+  - **Language:** he prefers C99. C++ is used because it is culturally dominant, and a
+    feature only if it pays for itself. C++11 had no tangible performance effect for them.
+  - **The closing design-patterns quote is Christer Ericson's** (the transcript spells it
+    "Christa Erickson"), not Acton's.
+  - **No mention of scripting or interpreters**, in the talk or the Q&A.
 - **"Three Big Lies".** High confidence. "Software is a platform." "Code should be
   designed around a model of the world." "Code is more important than data."
   - The 2008 article: <https://cellperformance.beyond3d.com/articles/2008/03/three-big-lies.html>.
@@ -159,5 +191,6 @@ They agree with the rest of the record, but the skill does not attribute them:
 
 ## Not found
 
-- A quoted statement of Acton's view on embedded scripting languages or interpreters.
+- A quoted statement of Acton's view on embedded scripting languages or interpreters
+  (not in the CppCon 2014 talk or its Q&A either).
 - The original "Typical C++ Bullshit" images.

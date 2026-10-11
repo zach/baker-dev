@@ -36,7 +36,19 @@ or accepted as a deviation, record it in `docs/decisions.md` and update this fil
      88-byte stride for an 8-byte name.
 
    `Function` (96 bytes) likewise mixes `overloads` with `doc`, `file`, and `line`.
-   Splitting the hot keys and thunks from the cold documentation fixes both.
+   Splitting the hot keys and thunks from the cold documentation fixes both: the talk's
+   "keys together, values elsewhere".
+2b. **Lookup by tag reads one heap array per child (hot, load).** `Array::try_find`
+   scans the children, and for each array child dereferences a separate heap `Array` just
+   to read its tag (`include/moira/array.hpp`). Keys are not together: this is the
+   talk's dictionary example, where each probe pays for the value's cache line. The
+   `find_float` benchmark (§7, 25 ns) runs warm and does not show it. Remedies:
+   - a contiguous tag array beside the children, built at load or bake time;
+   - laying child arrays out adjacent to their parent in the binary cache (M8's "children
+     adjacent to parents");
+   - sorted mode (D28) for wide arrays.
+
+   Measure cold, with the cache flushed or a working set larger than L2, before choosing.
 3. **Dispatch chases pointers (hot).** A native call loads, one after another:
    - `by_index[i]` (a `Function*`);
    - the `Function`, for its `overloads` storage pointer;
