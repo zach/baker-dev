@@ -213,6 +213,31 @@ std::string join_path(std::string_view dir, std::string_view p) {
 
 double float_to_decimal_double(float f) noexcept {
     if (!std::isfinite(f)) return static_cast<double>(f);
+    // Fast path, for magnitudes where it is exact: round to p significant digits by scaling
+    // with an exact power of ten, for p = 1, 2, ...; the first that reads back as `f` is the
+    // shortest. n / 10^k is then the double nearest the decimal, as reading its text gives.
+    // Checked against the text search below on millions of floats.
+    static constexpr double kPow10[] = {1e0,  1e1,  1e2,  1e3,  1e4,  1e5,  1e6,  1e7,
+                                        1e8,  1e9,  1e10, 1e11, 1e12, 1e13, 1e14, 1e15,
+                                        1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22};
+    const double x = f;
+    const double ax = std::fabs(x);
+    if (ax >= 1e-13 && ax < 1e13) {
+        auto pow10 = [](int k) { return k >= 0 ? kPow10[k] : 1 / kPow10[-k]; };
+        int e = static_cast<int>(std::floor(std::log10(ax)));
+        if (pow10(e) > ax)
+            --e;
+        else if (pow10(e + 1) <= ax)
+            ++e;
+        for (int p = 1; p <= 9; ++p) {
+            const int k = p - 1 - e;
+            if (k > 22 || k < -22) break;
+            const double scale = kPow10[k >= 0 ? k : -k];
+            const double n = std::nearbyint(k >= 0 ? x * scale : x / scale);
+            const double r = k >= 0 ? n / scale : n * scale;
+            if (static_cast<float>(r) == f) return r;
+        }
+    }
     const char* point = std::localeconv()->decimal_point;
     const std::string_view decimal = point && *point ? point : ".";
     // The shortest %g that reads back as the same float, then that text read as a double.
