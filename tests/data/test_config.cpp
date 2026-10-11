@@ -1,0 +1,659 @@
+// Config: merge, layers, provenance, reload, callbacks, tweaks, live edits, write-back.
+#include <doctest.h>
+#include <moira/config.hpp>
+#include <moira/parse.hpp>
+#include <moira/write.hpp>
+
+#include "alloc_counter.hpp"
+
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <map>
+#include <optional>
+#include <sstream>
+#include <string>
+#include <vector>
+
+using namespace moira;
+namespace fs = std::filesystem;
+
+namespace {
+
+// A fresh directory of files for one test.
+class TempDir {
+public:
+    TempDir() {
+        static std::atomic<int> counter{0};
+        dir_ = fs::temp_directory_path() /
+               ("moira_test_" + std::to_string(counter++) + "_" + std::to_string(std::rand()));
+        fs::remove_all(dir_);
+        fs::create_directories(dir_);
+    }
+    ~TempDir() {
+        std::error_code ec;
+        fs::remove_all(dir_, ec);
+    }
+    std::string write(const std::string& name, const std::string& text) const {
+        const fs::path p = dir_ / name;
+        std::ofstream(p, std::ios::binary) << text;
+        return p.generic_string();
+    }
+    [[nodiscard]] std::string read(const std::string& name) const {
+        std::ifstream in(dir_ / name, std::ios::binary);
+        std::stringstream ss;
+        ss << in.rdbuf();
+        return ss.str();
+    }
+    [[nodiscard]] std::string path(const std::string& name) const {
+        return (dir_ / name).generic_string();
+    }
+
+private:
+    fs::path dir_;
+};
+
+Ref<Array> parse(const char* text) {
+    auto r = try_read_string(text, "t.dta");
+    REQUIRE(r);
+    return *r;
+}
+
+std::string str_of(const Array& a) {
+    return to_string(a);
+}
+
+// The lines that differ between two texts, as "-old" / "+new".
+[[maybe_unused]] std::vector<std::string> diff_lines(const std::string& a, const std::string& b) {
+    auto split = [](const std::string& s) {
+        std::vector<std::string> lines;
+        std::stringstream ss(s);
+        for (std::string l; std::getline(ss, l);) lines.push_back(l);
+        return lines;
+    };
+    const auto la = split(a), lb = split(b);
+    std::vector<std::string> out;
+    for (size_t i = 0; i < std::max(la.size(), lb.size()); ++i) {
+        const std::string x = i < la.size() ? la[i] : "<none>";
+        const std::string y = i < lb.size() ? lb[i] : "<none>";
+        if (x != y) {
+            out.push_back("-" + x);
+            out.push_back("+" + y);
+        }
+    }
+    return out;
+}
+
+const char* const kDefault =
+    "; engine defaults\n"
+    "[kDefaultVolume 0.8]\n"
+    "(renderer\n"
+    "   (screen_size 1280 720)\n"
+    "   (clear_color 0.1 0.1 0.12)\n"
+    "   (shadows (enabled 1) (resolution 2048)))\n"
+    "(audio\n"
+    "   (master_volume kDefaultVolume)   ; from the macro\n"
+    "   (channels 64))\n"
+    "(box (width 2 (range 0 10) (note \"good values are 2-3\")) (height 1))\n";
+
+const char* const kApp =
+    "; app overrides\n"
+    "(renderer (screen_size 1920 1080) (shadows (resolution 4096)))\n"
+    "(audio (channels 32))\n";
+
+}  // namespace
+
+TEST_CASE("overwrite merge: leaves win, tagged arrays recurse") {
+    // The slide's example, with the leaves winning (docs/decisions.md D1).
+    auto r = merge(*parse("(a (b 1))"), *parse("(a (b 2) (c 2))"));
+    CHECK(str_of(*r) == "((a (b 2) (c 2)))");
+    // Values replace values; children are kept and merged.
+    r = merge(*parse("(width 2 (range 0 10))"), *parse("(width 3)"));
+    CHECK(str_of(*r) == "((width 3 (range 0 10)))");
+    r = merge(*parse("(clear_color 0.1 0.1 0.12)"), *parse("(clear_color 1 0)"));
+    CHECK(str_of(*r) == "((clear_color 1 0))");
+    r = merge(*parse("(points (1 2) (3 4))"), *parse("(points (5 6))"));
+    CHECK(str_of(*r) == "((points (5 6)))");  // untagged arrays are values
+    r = merge(*parse("(s (a 1) (b 2))"), *parse("(s (b 3))"));
+    CHECK(str_of(*r) == "((s (a 1) (b 3)))");
+    // Nothing changes: the base itself comes back.
+    auto base = parse("(a (b 1))");
+    CHECK(merge(*base, *parse("(a)")).get() == base.get());
+    CHECK(merge(*base, *Array::make(0)).get() == base.get());
+    // Fill-missing keeps existing values.
+    r = merge(*parse("(a (b 1))"), *parse("(a (b 2) (c 2))"), MergePolicy::FillMissing);
+    CHECK(str_of(*r) == "((a (b 1) (c 2)))");
+}
+
+TEST_CASE("edit mode records where every node is written") {
+    const std::string text = "[M 5]\n(a 1 \"two\" 'three four' M\n  (b 2.5))\n";
+    LoadSession s;
+    SourceMap map;
+    s.source_map = &map;
+    auto root = try_read_string(text, "e.dta", s);
+    REQUIRE(root);
+    const Array& a = *(**root)[0].try_array();
+    auto token = [&](size_t i) {
+        const SourceSpan* sp = map.span(a, i);
+        REQUIRE(sp);
+        return text.substr(sp->begin, sp->end - sp->begin);
+    };
+    CHECK(token(0) == "a");
+    CHECK(token(1) == "1");
+    CHECK(token(2) == "\"two\"");
+    CHECK(token(3) == "'three four'");
+    CHECK(map.span(a, 4)->macro == Symbol("M"));  // spliced from macro M
+    CHECK(token(4) == "M");
+    CHECK(token(5) == "(b 2.5)");
+    CHECK(map.span(a, 1)->literal());
+    CHECK_FALSE(map.span(a, 4)->literal());
+    const SourceSpan* ext = map.extent(a);
+    REQUIRE(ext);
+    CHECK(text.substr(ext->begin, ext->end - ext->begin) ==
+          "(a 1 \"two\" 'three four' M\n  (b 2.5))");
+    CHECK(*map.text(Symbol("e.dta")) == text);
+    CHECK(map.extent(**root)->end == text.size());
+
+    // Gameplay mode records nothing and builds the same tree.
+    auto plain = try_read_string(text, "e.dta");
+    REQUIRE(plain);
+    CHECK(structurally_equal(**plain, **root));
+}
+
+TEST_CASE("edit mode follows #include and #merge") {
+    TempDir dir;
+    dir.write("inc.dta", "(from_inc 7)\n");
+    dir.write("base.dta", "(s (x 1) (y 2))\n(only_base 3)\n");
+    const std::string main =
+        dir.write("main.dta", "#include inc.dta\n(s (x 10))\n#merge base.dta\n");
+    LoadSession session;
+    SourceMap map;
+    session.source_map = &map;
+    auto root = try_read_file(main, session);
+    REQUIRE(root);
+    const Array& r = **root;
+    CHECK(to_string(r) == "((from_inc 7) (s (x 10) (y 2)) (only_base 3))");
+    const SourceSpan* inc = map.span(r, 0);
+    REQUIRE(inc);
+    CHECK(inc->file.str().ends_with("inc.dta"));
+    // (s ...) was rebuilt by #merge; its spans travel with its nodes.
+    const Array& s = *r[1].try_array();
+    REQUIRE(map.spans(s));
+    CHECK(map.span(s, 1)->file.str().ends_with("main.dta"));  // (x 10)
+    CHECK(map.span(s, 2)->file.str().ends_with("base.dta"));  // (y 2), merged in
+    CHECK(map.span(r, 2)->file.str().ends_with("base.dta"));
+}
+
+TEST_CASE("layers merge, and removing one restores every value") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.try_push_layer("default", dir.write("default.dta", kDefault)));
+    REQUIRE(cfg.try_push_layer("app", dir.write("app.dta", kApp)));
+    CHECK(cfg.layers() == std::vector<std::string>{"default", "app"});
+    CHECK(cfg.try_get<int>("renderer.screen_size.0") == 1920);
+    CHECK(cfg.try_get<int>("renderer.shadows.resolution") == 4096);
+    CHECK(cfg.try_get<int>("renderer.shadows.enabled") == 1);
+    CHECK(cfg.try_get<double>("audio.master_volume") == 0.8);
+    CHECK(cfg.try_get<int>("audio.channels") == 32);
+
+    const Ref<Array> before = cfg.root();
+    REQUIRE(cfg.try_push_layer(
+        "patch-2026-10-11",
+        parse("(audio (channels 16)) (renderer (clear_color 1 0 0)) (new_key 5)")));
+    CHECK(cfg.try_get<int>("audio.channels") == 16);
+    CHECK(cfg.try_get<double>("renderer.clear_color.1") == 0.0);
+    CHECK(cfg.try_get<int>("new_key") == 5);
+    REQUIRE(cfg.try_remove_layer("patch-2026-10-11"));
+    CHECK(structurally_equal(*cfg.root(), *before));
+    CHECK_FALSE(cfg.try_get<int>("new_key"));
+
+    // Removing a middle layer re-merges the rest; popping removes the top.
+    const uint64_t epoch = cfg.epoch();
+    REQUIRE(cfg.try_push_layer("top", parse("(audio (channels 8))")));
+    REQUIRE(cfg.try_remove_layer("app"));
+    CHECK(cfg.try_get<int>("audio.channels") == 8);
+    CHECK(cfg.try_get<int>("renderer.screen_size.0") == 1280);
+    REQUIRE(cfg.try_pop_layer());
+    CHECK(cfg.try_get<int>("audio.channels") == 64);
+    CHECK(cfg.epoch() == epoch + 3);
+
+    CHECK(error_code_name(cfg.try_remove_layer("nope").error().code) == "not found");
+    CHECK(cfg.try_push_layer("default", parse("(x 1)")).error().code == ErrorCode::Refused);
+    CHECK(cfg.try_push_layer("bad", dir.path("missing.dta")).error().code == ErrorCode::Io);
+}
+
+TEST_CASE("layers above see macros from layers below, and lose them with the layer") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.try_push_layer("macros", dir.write("m.dta", "[kSize 7]\n")));
+    REQUIRE(cfg.try_push_layer("use", dir.write("u.dta", "(size kSize)\n")));
+    CHECK(cfg.try_get<int>("size") == 7);
+    REQUIRE(cfg.try_remove_layer("macros"));
+    CHECK(cfg.try_get<Symbol>("size") == Symbol("kSize"));  // now just a symbol
+}
+
+TEST_CASE("source names the layer, file, and line") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.try_push_layer("default", dir.write("default.dta", kDefault)));
+    REQUIRE(cfg.try_push_layer("app", dir.write("app.dta", kApp)));
+    REQUIRE(cfg.try_push_layer("patch", parse("(renderer (clear_color 1 0 0))")));
+
+    Source s = *cfg.try_source("renderer.screen_size");
+    CHECK(s.layer == "app");
+    CHECK(s.file.str().ends_with("app.dta"));
+    CHECK(s.line == 2);
+    s = *cfg.try_source("renderer.shadows.enabled");
+    CHECK(s.layer == "default");
+    CHECK(s.file.str().ends_with("default.dta"));
+    CHECK(s.line == 6);
+    s = *cfg.try_source("audio.master_volume");
+    CHECK(s.layer == "default");
+    CHECK(s.line == 8);
+    s = *cfg.try_source("renderer.clear_color.2");
+    CHECK(s.layer == "patch");
+    CHECK(s.file == Symbol("t.dta"));         // the overlay was parsed from a string named t.dta
+    s = *cfg.try_source("renderer.shadows");  // a container: the topmost layer that has it
+    CHECK(s.layer == "app");
+
+#if !MOIRA_SHIPPING
+    REQUIRE(cfg.try_set("renderer.screen_size", std::array<int, 2>{800, 600}));
+    s = *cfg.try_source("renderer.screen_size");
+    CHECK(s.layer == "live");
+    CHECK(cfg.try_get<int>("renderer.screen_size.1") == 600);
+    CHECK(cfg.unsaved() == std::vector<std::string>{"renderer/screen_size"});
+#endif
+
+    CHECK(cfg.try_source("renderer.nope").error().code == ErrorCode::NotFound);
+    CHECK(cfg.try_source("a..b").error().code == ErrorCode::Syntax);
+}
+
+#if !MOIRA_SHIPPING  // reload is inert under MOIRA_SHIPPING (tested below)
+TEST_CASE("reload sees a file changed on disk") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    dir.write("inc.dta", "(volume 3)\n");
+    REQUIRE(
+        cfg.try_push_layer("default", dir.write("default.dta", "(speed 1)\n#include inc.dta\n")));
+    REQUIRE(cfg.try_push_layer("app", dir.write("app.dta", "(speed 2)\n")));
+    CHECK(cfg.try_get<int>("speed") == 2);
+    CHECK(cfg.try_reload() == false);  // nothing changed
+
+    dir.write("app.dta", "(speed 5)\n");
+    CHECK(cfg.try_reload() == true);
+    CHECK(cfg.try_get<int>("speed") == 5);
+
+    dir.write("inc.dta", "(volume 4)\n");  // an included file counts too
+    CHECK(cfg.try_reload() == true);
+    CHECK(cfg.try_get<int>("volume") == 4);
+
+    // A broken edit changes nothing, and the error says where.
+    const Ref<Array> good = cfg.root();
+    dir.write("app.dta", "(speed 6\n");
+    auto r = cfg.try_reload();
+    REQUIRE_FALSE(r);
+    CHECK(r.error().file.str().ends_with("app.dta"));
+    CHECK(cfg.root().get() == good.get());
+    CHECK(cfg.try_get<int>("speed") == 5);
+    dir.write("app.dta", "(speed 7)\n");
+    CHECK(cfg.try_reload() == true);
+    CHECK(cfg.try_get<int>("speed") == 7);
+    // The old tree is still readable by anyone who held it.
+    CHECK(good->try_get<int>("speed") == 5);
+}
+
+TEST_CASE("reload callbacks fire per group; punting rebuilds, migrating does not") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(
+        cfg.try_push_layer("d", dir.write("d.dta", "(renderer (msaa 4)) (audio (channels 8))\n")));
+    int renderer_rebuilds = 0, audio_rebuilds = 0, audio_migrations = 0;
+    cfg.on_reload("renderer", [&] { ++renderer_rebuilds; });  // punt by default: no code
+    cfg.on_reload(
+        "audio", [&] { ++audio_rebuilds; },
+        [&] {
+            ++audio_migrations;
+            return cfg.try_get<int>("audio.channels") == 16 ? Reload::Migrated : Reload::Punt;
+        });
+
+    dir.write("d.dta", "(renderer (msaa 8)) (audio (channels 8))\n");
+    REQUIRE(cfg.try_reload());
+    CHECK(renderer_rebuilds == 1);
+    CHECK(audio_migrations == 0);  // its group did not change
+
+    dir.write("d.dta", "(renderer (msaa 8)) (audio (channels 16))\n");
+    REQUIRE(cfg.try_reload());
+    CHECK(renderer_rebuilds == 1);
+    CHECK(audio_migrations == 1);
+    CHECK(audio_rebuilds == 0);  // migrated
+
+    dir.write("d.dta", "(renderer (msaa 8)) (audio (channels 2))\n");
+    REQUIRE(cfg.try_reload());
+    CHECK(audio_migrations == 2);
+    CHECK(audio_rebuilds == 1);  // migration declined: punt
+
+    // Layer changes fire the same callbacks.
+    REQUIRE(cfg.try_push_layer("p", parse("(renderer (msaa 2))")));
+    CHECK(renderer_rebuilds == 2);
+    REQUIRE(cfg.try_pop_layer());
+    CHECK(renderer_rebuilds == 3);
+}
+
+#endif
+
+TEST_CASE("tweaks bind, rebind, and fall back to their defaults") {
+    TweakRegistry reg;
+    Tweak<float> width{"box.width", 2.0f, {.range = {0, 10}, .step = 1, .desc = "Box width"}, reg};
+    Tweak<int> missing{"box.depth", 9, {}, reg};
+    Tweak<std::string> title{"app.title", "untitled", {}, reg};
+    Tweak<std::array<float, 3>> tint{"look.tint", {1, 1, 1}, {.range = {0, 1}}, reg};
+    CHECK(reg.size() == 4);
+    CHECK(float(width) == 2.0f);
+    CHECK_FALSE(width.bound());
+
+    int width_changes = 0;
+    width.on_change([&] { ++width_changes; });
+
+    TempDir dir;
+    Config cfg({.tweaks = &reg});
+    REQUIRE(cfg.try_push_layer("default", dir.write("default.dta", kDefault)));
+    CHECK(width.bound());
+    CHECK(float(width) == 2.0f);
+    CHECK(width_changes == 1);  // became bound
+    CHECK_FALSE(missing.bound());
+    CHECK(int(missing) == 9);
+    CHECK(title.get() == "untitled");
+
+    REQUIRE(cfg.try_push_layer(
+        "app", parse("(box (width 3.5)) (app (title \"Demo\")) (look (tint 1 0.5 0))")));
+    CHECK(float(width) == 3.5f);
+    CHECK(width_changes == 2);
+    CHECK(title.get() == "Demo");
+    CHECK(tint.value()[1] == 0.5f);
+    CHECK(tint.kind() == "color");  // inferred: 3 numbers ranged 0..1
+
+    // Metadata: the data file's wins over the code's, and note exists only in data.
+    CHECK(width.range().max == 10);
+    CHECK(width.step() == 1);
+    CHECK(width.desc() == "Box width");
+    CHECK(width.note() == "good values are 2-3");
+    CHECK(width.group() == "box");
+
+    REQUIRE(cfg.try_pop_layer());
+    CHECK(float(width) == 2.0f);
+    CHECK(title.get() == "untitled");  // absent again: the default
+    CHECK_FALSE(title.bound());
+
+    // A tweak created after loading binds at once.
+    Tweak<int> height{"box.height", 0, {}, reg};
+    CHECK(height.bound());
+    CHECK(int(height) == 1);
+
+    // A value of the wrong type warns and keeps the default.
+    std::vector<Error> warnings;
+    cfg.set_warning_handler([&](const Error& e) { warnings.push_back(e); });
+    REQUIRE(cfg.try_push_layer("bad", parse("(box (width wide))")));
+    CHECK(float(width) == 2.0f);
+    CHECK_FALSE(width.bound());
+    REQUIRE(warnings.size() == 1);
+    CHECK(warnings[0].message == "'width' is symbol, not float");
+}
+
+TEST_CASE("registering a tweak allocates nothing") {
+    TweakRegistry reg;
+    test::AllocationScope scope;
+    {
+        Tweak<float> t{"a.b", 1.0f, {.desc = "d"}, reg};
+        CHECK(float(t) == 1.0f);
+    }
+    if (test::counting_allocations()) CHECK(scope.count() == 0);
+    CHECK(reg.size() == 0);
+}
+
+TEST_CASE("live edits through tweaks, and write-back to the source line") {
+    TweakRegistry reg;
+    Tweak<float> width{"box.width", 2.0f, {}, reg};
+    TempDir dir;
+    Config cfg({.tweaks = &reg});
+    REQUIRE(cfg.try_push_layer("default", dir.write("default.dta", kDefault)));
+    REQUIRE(cfg.try_push_layer("app", dir.write("app.dta", kApp)));
+
+#if MOIRA_SHIPPING
+    CHECK(width.try_set(2.7f).error().code == ErrorCode::Refused);
+#else
+    REQUIRE(width.try_set(2.7f));
+    CHECK(float(width) == 2.7f);
+    CHECK(width.source()->layer == "live");
+    CHECK(cfg.try_get<double>("box.width") == 2.7);  // written as the float's decimal
+
+    const std::string before = dir.read("default.dta");
+    REQUIRE(width.try_write_back());
+    const std::string after = dir.read("default.dta");
+    CHECK(diff_lines(before, after) ==
+          std::vector<std::string>{
+              "-(box (width 2 (range 0 10) (note \"good values are 2-3\")) (height 1))",
+              "+(box (width 2.7 (range 0 10) (note \"good values are 2-3\")) (height 1))"});
+    CHECK(width.source()->layer == "default");  // saved: no longer live
+    CHECK(width.source()->line == 10);
+    CHECK(cfg.unsaved().empty());
+    CHECK(float(width) == 2.7f);
+    CHECK(width.note() == "good values are 2-3");
+
+    // Writing back an unchanged value changes nothing.
+    REQUIRE(cfg.try_write_back("box.width"));
+    CHECK(dir.read("default.dta") == after);
+
+    // An override in a higher layer is written there, as one token.
+    REQUIRE(cfg.try_set("renderer.screen_size.1", Node(1200)));
+    REQUIRE(cfg.try_write_back("renderer.screen_size.1"));
+    CHECK(dir.read("app.dta") ==
+          "; app overrides\n(renderer (screen_size 1920 1200) (shadows (resolution 4096)))\n"
+          "(audio (channels 32))\n");
+    CHECK(cfg.unsaved().empty());
+#endif
+}
+
+#if !MOIRA_SHIPPING
+TEST_CASE("write-back refuses what it cannot edit exactly") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.try_push_layer("default", dir.write("default.dta", kDefault)));
+    REQUIRE(cfg.try_push_layer("patch", parse("(renderer (clear_color 1 0 0))")));
+
+    // A value spliced in from a macro.
+    REQUIRE(cfg.try_set("audio.master_volume", Node(0.5)));
+    auto r = cfg.try_write_back("audio.master_volume");
+    REQUIRE_FALSE(r);
+    CHECK(r.error().code == ErrorCode::Refused);
+    CHECK(r.error().message ==
+          "'audio/master_volume' comes from macro 'kDefaultVolume'; edit the macro's definition "
+          "instead");
+    CHECK(r.error().file.str().ends_with("default.dta"));
+    CHECK(r.error().line == 8);
+    CHECK(cfg.unsaved().size() == 1);  // still live
+
+    // A value from an overlay layer.
+    REQUIRE(cfg.try_set("renderer.clear_color.0", Node(0.5)));
+    r = cfg.try_write_back("renderer.clear_color");
+    CHECK(r.error().message ==
+          "'renderer/clear_color' comes from layer 'patch', which has no source file");
+
+    // A file edited since it was read.
+    const std::string edited = dir.read("default.dta") + "; edited by hand\n";
+    dir.write("default.dta", edited);
+    REQUIRE(cfg.try_set("audio.channels", Node(4)));
+    r = cfg.try_write_back("audio.channels");
+    CHECK(r.error().code == ErrorCode::Refused);
+    CHECK(r.error().message.ends_with("has changed since it was read; reload before writing back"));
+    CHECK(dir.read("default.dta") == edited);  // untouched
+    REQUIRE(cfg.try_reload());
+    REQUIRE(cfg.try_write_back("audio.channels"));
+    CHECK(dir.read("default.dta").find("(channels 4))") != std::string::npos);
+
+    // A value no layer's file has.
+    REQUIRE(cfg.try_set("fresh.key", Node(1)));
+    CHECK(cfg.try_write_back("fresh.key").error().code == ErrorCode::Refused);
+}
+
+TEST_CASE("write-back into an array assembled by #merge is refused") {
+    TempDir dir;
+    dir.write("base.dta", "(s (w 1 (range 0 2)))\n");
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.try_push_layer("main", dir.write("main.dta", "(s (w 5))\n#merge base.dta\n")));
+    // (w 5) gained (range 0 2) from base.dta, so it was rebuilt; its values are main.dta's
+    // tokens, carried along with their spans.
+    REQUIRE(cfg.try_set("s.w", Node(6)));
+    REQUIRE(cfg.try_write_back("s.w"));
+    CHECK(dir.read("main.dta") == "(s (w 6))\n#merge base.dta\n");
+}
+
+TEST_CASE("write_back_to writes into another layer, adding the key if needed") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.try_push_layer("default", dir.write("default.dta", kDefault)));
+    REQUIRE(cfg.try_push_layer("local", dir.write("local.dta", "; my machine\n(box (height 3))")));
+    REQUIRE(cfg.try_set("box.width", Node(4)));
+    REQUIRE(cfg.try_write_back_to("box.width", "local"));
+    CHECK(dir.read("local.dta") == "; my machine\n(box (height 3) (width 4))");
+    CHECK(cfg.try_source("box.width")->layer == "local");
+    CHECK(cfg.unsaved().empty());
+
+    REQUIRE(cfg.try_set("audio.channels", Node(2)));
+    REQUIRE(cfg.try_write_back_to("audio.channels", "local"));
+    CHECK(dir.read("local.dta") ==
+          "; my machine\n(box (height 3) (width 4))\n(audio (channels 2))\n");
+    CHECK(cfg.try_get<int>("audio.channels") == 2);
+
+    // Into a layer below the one that supplies the value: written, but still shadowed, so
+    // the live edit stays.
+    REQUIRE(cfg.try_set("box.height", Node(9)));
+    REQUIRE(cfg.try_write_back_to("box.height", "default"));
+    CHECK(dir.read("default.dta").find("(height 9))") != std::string::npos);
+    CHECK(cfg.unsaved() == std::vector<std::string>{"box/height"});
+    CHECK(cfg.try_get<int>("box.height") == 9);
+}
+
+TEST_CASE("freeze ends the initial load") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.try_push_layer("d", dir.write("d.dta", "(a 1)\n")));
+    cfg.freeze();
+    CHECK(cfg.try_push_layer("p", parse("(a 2)")).error().code == ErrorCode::Refused);
+    CHECK(cfg.try_set("a", Node(3)).error().code == ErrorCode::Refused);
+    dir.write("d.dta", "(a 5)\n");
+    CHECK(cfg.try_reload() == false);
+    CHECK(cfg.try_get<int>("a") == 1);
+
+    Config live({.live_layers = true, .tweaks = nullptr});
+    REQUIRE(live.try_push_layer("d", dir.path("d.dta")));
+    live.freeze();
+    REQUIRE(live.try_push_layer("patch", parse("(a 2)")));  // the explicit live-ops path
+    CHECK(live.try_get<int>("a") == 2);
+}
+#endif
+
+#if MOIRA_SHIPPING
+TEST_CASE("under MOIRA_SHIPPING reload is inert and dev_only tweaks keep their defaults") {
+    TweakRegistry reg;
+    Tweak<int> cheat{"debug.god_mode", 0, {.dev_only = true}, reg};
+    Tweak<int> speed{"player.speed", 1, {}, reg};
+    TempDir dir;
+    Config cfg({.tweaks = &reg});
+    REQUIRE(
+        cfg.try_push_layer("d", dir.write("d.dta", "(debug (god_mode 1)) (player (speed 5))\n")));
+    CHECK(int(cheat) == 0);
+    CHECK_FALSE(cheat.bound());
+    CHECK(int(speed) == 5);
+    dir.write("d.dta", "(debug (god_mode 1)) (player (speed 9))\n");
+    CHECK(cfg.try_reload() == false);
+    CHECK(int(speed) == 5);
+    CHECK(speed.try_set(7).error().code == ErrorCode::Refused);
+    CHECK(cfg.try_write_back("player.speed").error().code == ErrorCode::Refused);
+}
+#endif
+
+#if MOIRA_EXCEPTIONS && !MOIRA_SHIPPING
+TEST_CASE("throwing forms") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    cfg.load(dir.write("default.dta", kDefault));
+    cfg.merge(dir.write("app.dta", kApp));
+    CHECK(cfg.get<int>("audio.channels") == 32);
+    CHECK(cfg.get<int>("audio.missing", 3) == 3);
+    CHECK(cfg.source("audio.channels").file.str().ends_with("app.dta"));
+    CHECK_THROWS_AS(cfg.push_layer("x", dir.path("nope.dta")), Exception);
+    CHECK_THROWS_AS((void)cfg.get<int>("audio.nope"), Exception);
+    cfg.set("audio.channels", 4);
+    cfg.write_back("audio.channels");
+    CHECK(dir.read("app.dta").find("(audio (channels 4))") != std::string::npos);
+    CHECK(cfg.reload() == false);
+}
+#endif
+
+#if !MOIRA_SHIPPING
+namespace {
+// Every path in `a` that ends on an array with values: menu/item/price, ...
+void value_paths(const Array& a, const std::string& prefix, std::vector<std::string>& out) {
+    for (const Array& child : a.subarrays()) {
+        const auto tag = child.empty() ? std::nullopt : child[0].try_sym();
+        if (!tag) continue;
+        const std::string path =
+            (prefix.empty() ? "" : prefix + "/") + "'" + std::string(tag->str()) + "'";
+        bool values = false;
+        for (size_t i = 1; i < child.size(); ++i) {
+            const Array* c = child[i].try_array();
+            values = values || !c || c->empty() || !(*c)[0].try_sym();
+        }
+        if (values) out.push_back(path);
+        value_paths(child, path, out);
+    }
+}
+}  // namespace
+
+TEST_CASE("every corpus config value writes back as one line, or is refused with a location") {
+    TempDir dir;
+    for (const char* name : {"config_default.dta", "config_app.dta", "macros.dta"}) {
+        std::ifstream in(fs::path(MOIRA_CORPUS_DIR) / name, std::ios::binary);
+        std::stringstream ss;
+        ss << in.rdbuf();
+        dir.write(name, ss.str());
+    }
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.try_push_layer("app", dir.path("config_app.dta")));
+    std::vector<std::string> paths;
+    value_paths(*cfg.root(), "", paths);
+    REQUIRE(paths.size() >= 10);
+    size_t written = 0, refused_count = 0;
+    for (const std::string& path : paths) {
+        CAPTURE(path);
+        REQUIRE(cfg.try_set(path, Node(4242)));
+        auto source = cfg.try_source(path);
+        REQUIRE(source);
+        std::map<std::string, std::string> before;
+        for (const char* name : {"config_default.dta", "config_app.dta", "macros.dta"})
+            before[name] = dir.read(name);
+        auto r = cfg.try_write_back(path);
+        if (!r) {
+            CHECK(r.error().code == ErrorCode::Refused);
+            CHECK_FALSE(r.error().file.empty());
+            CHECK(r.error().line > 0);
+            ++refused_count;
+            continue;
+        }
+        size_t changed_lines = 0;
+        for (const auto& [name, text] : before)
+            changed_lines += diff_lines(text, dir.read(name)).size() / 2;
+        CHECK(changed_lines == 1);
+        CHECK(cfg.try_get<int>(path) == 4242);
+        const auto unsaved = cfg.unsaved();  // refused paths stay live; this one is saved
+        CHECK(std::find(unsaved.begin(), unsaved.end(), Path(path).to_string()) == unsaved.end());
+        ++written;
+    }
+    CHECK(written >= 8);
+    CHECK(refused_count >= 2);  // kDefaultVolume and kMaxPlayers are macros
+    MESSAGE("wrote " << written << ", refused " << refused_count);
+}
+#endif

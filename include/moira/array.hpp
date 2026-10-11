@@ -89,12 +89,31 @@ private:
     const Array* source_ = nullptr;
 };
 
+// The write direction, for Config::set and write-back: the values a T becomes. The mirror
+// of Values: a converter's to() appends its values with add(), and add() of a compound
+// element nests it as an array, as Values::read descends into one.
+class ValueList {
+public:
+    template <class T>
+    void add(const T& v);
+    void push(Node n) { nodes_.push_back(std::move(n)); }
+    [[nodiscard]] std::span<const Node> nodes() const noexcept { return nodes_; }
+    [[nodiscard]] std::vector<Node>& nodes() noexcept { return nodes_; }
+
+private:
+    std::vector<Node> nodes_;
+};
+
 // Convert<T>: how a lookup reads a T. Specialize it for your own types:
 //
 //   template <> struct moira::Convert<Vec2> {
 //       static constexpr std::string_view name = "vec2";   // optional; used in errors
 //       static bool from(const moira::Values& v, Vec2& out) {
 //           return v.size() >= 2 && v.read(0, out.x) && v.read(1, out.y);
+//       }
+//       static void to(const Vec2& v, moira::ValueList& out) {   // optional; for set()
+//           out.add(v.x);
+//           out.add(v.y);
 //       }
 //   };
 //
@@ -105,7 +124,9 @@ private:
 // every integer and floating-point type (range-checked), bool (any integral number),
 // Symbol, std::string_view and std::string (String nodes), Node (the first value, raw),
 // std::vector<T>, and std::array<T, N>. Scalars read the first value and ignore the rest,
-// so (width 2 (range 0 10)) reads as 2. T must be default-constructible.
+// so (width 2 (range 0 10)) reads as 2. T must be default-constructible. to() is needed
+// only to write a T (Config::set, Tweak::set); every built-in converter has one, and a
+// float is written as its shortest decimal (0.7f as 0.7, not 0.699999988).
 //
 // A class template rather than an ADL function, so a type you do not own (glm::vec3) can
 // be given a converter without adding names to its namespace (docs/decisions.md D26).
@@ -155,6 +176,9 @@ template <class T>
         return {"the requested type", ConvertKind::Compound};
     }
 }
+
+// The double nearest the shortest decimal that reads back as `f`: 0.7f gives 0.7.
+[[nodiscard]] double float_to_decimal_double(float f) noexcept;
 
 // Reads a number into any arithmetic type, range-checked (as Node::as<T>).
 template <class T>
@@ -479,6 +503,12 @@ struct Convert<T> {
     static bool from(const Values& v, T& out) noexcept {
         return !v.empty() && detail::read_number(v[0], out);
     }
+    static void to(T v, ValueList& out) {
+        if constexpr (std::is_same_v<T, float>)
+            out.push(Node(detail::float_to_decimal_double(v)));
+        else
+            out.push(Node(v));
+    }
 };
 
 template <>
@@ -491,6 +521,7 @@ struct Convert<bool> {
         if (i) out = *i != 0;
         return i.has_value();
     }
+    static void to(bool v, ValueList& out) { out.push(Node(v ? 1 : 0)); }
 };
 
 template <>
@@ -502,6 +533,7 @@ struct Convert<Symbol> {
         out = *v[0].try_sym();
         return true;
     }
+    static void to(Symbol v, ValueList& out) { out.push(Node(v)); }
 };
 
 // Views into the String node, valid while the array holding it is alive.
@@ -514,6 +546,7 @@ struct Convert<std::string_view> {
         out = v[0].string()->view();
         return true;
     }
+    static void to(std::string_view v, ValueList& out) { out.push(Node(String::make(v))); }
 };
 
 template <>
@@ -526,17 +559,20 @@ struct Convert<std::string> {
         out.assign(s);
         return true;
     }
+    static void to(const std::string& v, ValueList& out) { out.push(Node(String::make(v))); }
 };
 
 // The first value, raw: never converted or evaluated.
 template <>
 struct Convert<Node> {
     static constexpr std::string_view name = "value";
+    static constexpr bool scalar = true;
     static bool from(const Values& v, Node& out) noexcept {
         if (v.empty()) return false;
         out = v[0];
         return true;
     }
+    static void to(const Node& v, ValueList& out) { out.push(v); }
 };
 
 // Every value, each read as T: (tags fast loud blue) as std::vector<Symbol>.
@@ -548,6 +584,9 @@ struct Convert<std::vector<T>> {
         for (size_t i = 0; i < v.size(); ++i)
             if (!v.read(i, out[i])) return false;
         return true;
+    }
+    static void to(const std::vector<T>& v, ValueList& out) {
+        for (const T& x : v) out.add(x);
     }
 };
 
@@ -561,6 +600,9 @@ struct Convert<std::array<T, N>> {
             if (!v.read(i, out[i])) return false;
         return true;
     }
+    static void to(const std::array<T, N>& v, ValueList& out) {
+        for (const T& x : v) out.add(x);
+    }
 };
 
 // --- Template definitions. ---
@@ -573,6 +615,17 @@ bool Values::read(size_t i, T& out) const {
             return Convert<T>::from(Values(a->nodes(), a), out);
     }
     return Convert<T>::from(Values(nodes_.subspan(i, 1), source_), out);
+}
+
+template <class T>
+void ValueList::add(const T& v) {
+    if constexpr (detail::convert_info<T>().kind == detail::ConvertKind::Compound) {
+        ValueList inner;
+        Convert<T>::to(v, inner);
+        nodes_.emplace_back(Array::make_from(inner.nodes_));
+    } else {
+        Convert<T>::to(v, *this);
+    }
 }
 
 template <class T>

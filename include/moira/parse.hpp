@@ -27,6 +27,7 @@
 
 #include <moira/array.hpp>
 #include <moira/error.hpp>
+#include <moira/source_map.hpp>
 
 #include <cstdint>
 #include <functional>
@@ -66,10 +67,14 @@ public:
     // Replaces file access (default: the local filesystem), e.g. to serve files from
     // memory or a socket.
     void set_reader(Reader reader);
+    [[nodiscard]] const Reader& reader() const noexcept { return reader_; }
 
     std::vector<std::string> include_dirs;  // searched after the including file's directory
     ParseLimits limits;
     std::vector<Node> autorun;  // #autorun commands, in load order
+    // Set for an edit-mode parse: records source text and node spans (source_map.hpp).
+    // Null (the default) is a gameplay parse, which keeps only the tree.
+    SourceMap* source_map = nullptr;
 
 private:
     friend class detail::Parser;

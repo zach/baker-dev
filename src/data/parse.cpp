@@ -1,5 +1,6 @@
 #include <moira/parse.hpp>
 
+#include "merge.hpp"
 #include "text.hpp"
 
 #include <cstdio>
@@ -17,6 +18,7 @@ struct Token {
     char bracket = 0;     // Open, Close
     bool quoted = false;  // Symbol written as 'text'
     int32_t line = 0;
+    uint32_t begin = 0, end = 0;  // byte span in the source
     int64_t i = 0;
     double f = 0;
     std::string_view text;  // symbol, var name, directive name, decoded string
@@ -65,12 +67,19 @@ private:
     }
 
     bool lex(Token& t, Error& err) {
+        const bool ok = lex_token(t, err);
+        t.end = static_cast<uint32_t>(pos_);
+        return ok;
+    }
+
+    bool lex_token(Token& t, Error& err) {
         t = Token{};
         const size_t n = src_.size();
         for (;;) {
             if (pos_ >= n) {
                 t.kind = Tok::End;
                 t.line = line_;
+                t.begin = static_cast<uint32_t>(pos_);
                 return true;
             }
             const auto c = static_cast<unsigned char>(src_[pos_]);
@@ -98,6 +107,7 @@ private:
         }
 
         t.line = line_;
+        t.begin = static_cast<uint32_t>(pos_);
         const char c = src_[pos_];
         switch (c) {
             case '(':
@@ -234,51 +244,19 @@ bool read_disk_file(const std::string& path, std::string& out) {
     return ok;
 }
 
-// Fill-missing merge (#merge): for each tagged array in `src`, merge it into the array in
-// dst[first..] with the same symbol tag, or append it if there is none. Existing values
-// win; non-array nodes of `src` are ignored; untagged arrays are appended. Arrays along
-// the way are rebuilt, never mutated, because they may be shared by macros. Returns
-// whether `dst` changed.
-//
-// The GDC 2005 slide shows (a (b 1)) merged with (a (b 2) (c 2)) giving (a (b 1) (c 2)).
-// The spec took that for a typo; it is not. See docs/decisions.md D1.
-bool merge_missing_into(std::vector<Node>& dst, size_t first, const Array& src) {
-    bool changed = false;
-    for (const Node& s : src) {
-        const Array* sa = s.try_array();
-        if (!sa) continue;
-        const auto tag = sa->empty() ? std::nullopt : (*sa)[0].try_sym();
-        size_t found = dst.size();
-        if (tag) {
-            for (size_t i = first; i < dst.size(); ++i) {
-                const Array* da = dst[i].try_array();
-                if (da && !da->empty() && (*da)[0].try_sym() == tag) {
-                    found = i;
-                    break;
-                }
-            }
-        }
-        if (found == dst.size()) {
-            dst.push_back(s);
-            changed = true;
-            continue;
-        }
-        const Array& da = *dst[found].try_array();
-        std::vector<Node> merged(da.begin(), da.end());
-        if (merge_missing_into(merged, 0, *sa)) {
-            dst[found] = Node(Array::make_from(merged, da.file(), da.line()));
-            changed = true;
-        }
-    }
-    return changed;
-}
-
 }  // namespace
 
 class Parser {
 public:
     Parser(LoadSession& session, std::string_view text, Symbol file, uint32_t include_depth)
-        : s_(session), lex_(text, file), file_(file), include_depth_(include_depth) {}
+        : s_(session),
+          lex_(text, file),
+          file_(file),
+          include_depth_(include_depth),
+          map_(session.source_map),
+          size_(static_cast<uint32_t>(text.size())) {
+        if (map_) map_->record_text(file, text);
+    }
 
     bool run(Ref<Array>& out, Error& err) {
         err_ = &err;
@@ -294,13 +272,13 @@ public:
             }
             bool ok = true;
             switch (t.kind) {
-                case Tok::Open: ok = open(t.bracket, t.line); break;
+                case Tok::Open: ok = open(t.bracket, t.line, t.begin); break;
                 case Tok::Close: ok = close(t); break;
-                case Tok::Int: ok = push(Node(t.i)); break;
-                case Tok::Float: ok = push(Node(t.f)); break;
-                case Tok::String: ok = push(Node(String::make(t.text))); break;
+                case Tok::Int: ok = push(Node(t.i), here(t)); break;
+                case Tok::Float: ok = push(Node(t.f), here(t)); break;
+                case Tok::String: ok = push(Node(String::make(t.text)), here(t)); break;
                 case Tok::Symbol: ok = symbol(t); break;
-                case Tok::Var: ok = push(Node::var(Symbol(t.text))); break;
+                case Tok::Var: ok = push(Node::var(Symbol(t.text)), here(t)); break;
                 case Tok::Directive: ok = directive(t); break;
                 case Tok::End: break;
             }
@@ -318,6 +296,7 @@ public:
         }
         Ref<Array> root = Array::make_from(scratch_, file_, 1);
         if (root->height() > s_.limits.max_depth + 1) return too_deep(1);
+        if (map_) map_->record(root, {file_, 0, size_, {}}, std::move(spans_));
         out = std::move(root);
         return true;
     }
@@ -330,6 +309,7 @@ private:
         int32_t line;
         Symbol name;  // DefineBody
         char open = '(';
+        uint32_t begin = 0;  // offset of the opening bracket
     };
     struct Cond {
         bool active;         // tokens in the current branch are read
@@ -350,7 +330,12 @@ private:
     }
     [[nodiscard]] bool active() const noexcept { return conds_.empty() || conds_.back().active; }
 
-    bool push(Node n) {
+    [[nodiscard]] SourceSpan here(const Token& t) const noexcept {
+        return {file_, t.begin, t.end, {}};
+    }
+
+    // Edit mode keeps spans_ parallel to scratch_.
+    bool push(Node n, const SourceSpan& span = {}) {
         if (++s_.nodes_ > s_.limits.max_nodes)
             return fail(ErrorCode::Limit,
                         "more than " + std::to_string(s_.limits.max_nodes) + " nodes", line_);
@@ -359,7 +344,20 @@ private:
                         "a [property] cannot appear at top level, where '[' defines a macro",
                         line_);
         scratch_.push_back(std::move(n));
+        if (map_) spans_.push_back(span);
         return true;
+    }
+
+    void truncate(size_t size) {
+        scratch_.resize(size);
+        if (map_) spans_.resize(size);
+    }
+    // Records `arr` (made from the nodes from `start`) and its span, for edit mode.
+    void record(const Ref<Array>& arr, size_t start, uint32_t begin, uint32_t end) {
+        if (!map_) return;
+        map_->record(
+            arr, {file_, begin, end, {}},
+            std::vector<SourceSpan>(spans_.begin() + static_cast<ptrdiff_t>(start), spans_.end()));
     }
 
     bool symbol(const Token& t) {
@@ -368,21 +366,22 @@ private:
         const bool naming_macro = f.kind == Frame::MacroDef && scratch_.size() == f.start;
         if (!t.quoted && !naming_macro && !s_.defines_.empty()) {
             if (const Array* body = s_.macro(sym)) {
+                const SourceSpan from{file_, t.begin, t.end, sym};
                 for (const Node& n : *body)
-                    if (!push(n)) return false;
+                    if (!push(n, from)) return false;
                 return true;
             }
         }
-        return push(Node(sym));
+        return push(Node(sym), here(t));
     }
 
-    bool open(char bracket, int32_t line) {
+    bool open(char bracket, int32_t line, uint32_t begin) {
         if (frames_.size() > s_.limits.max_depth) return too_deep(line);
         Frame kind = Frame::Array;
         if (bracket == '{') kind = Frame::Command;
         if (bracket == '[')
             kind = frames_.back().kind == Frame::Root ? Frame::MacroDef : Frame::Property;
-        frames_.push_back({kind, scratch_.size(), line, {}, bracket});
+        frames_.push_back({kind, scratch_.size(), line, {}, bracket, begin});
         return true;
     }
 
@@ -414,23 +413,26 @@ private:
             if (!name)
                 return fail(ErrorCode::Syntax, "macro definition needs a symbol name", f.line);
             Ref<Array> body = Array::make_from(kids.subspan(1), file_, f.line);
-            scratch_.resize(f.start);
+            record(body, f.start + 1, f.begin, t.end);
+            truncate(f.start);
             if (body->height() > s_.limits.max_depth) return too_deep(f.line);
             s_.define(*name, std::move(body));
             return true;
         }
 
         Ref<Array> arr = Array::make_from(kids, file_, f.line);
-        scratch_.resize(f.start);
+        record(arr, f.start, f.begin, t.end);
+        truncate(f.start);
         if (arr->height() > s_.limits.max_depth) return too_deep(f.line);
+        const SourceSpan span{file_, f.begin, t.end, {}};
         switch (f.kind) {
             case Frame::DefineBody: s_.define(f.name, std::move(arr)); return true;
             case Frame::Autorun:
                 s_.autorun.emplace_back(std::move(arr), Type::Command);
                 return true;
-            case Frame::Command: return push(Node(std::move(arr), Type::Command));
-            case Frame::Property: return push(Node(std::move(arr), Type::Property));
-            default: return push(Node(std::move(arr)));
+            case Frame::Command: return push(Node(std::move(arr), Type::Command), span);
+            case Frame::Property: return push(Node(std::move(arr), Type::Property), span);
+            default: return push(Node(std::move(arr)), span);
         }
     }
 
@@ -498,11 +500,14 @@ private:
             if (!load(path, d == "include_opt", t.line, root)) return false;
             if (!root) return true;  // optional and missing
             if (d == "merge") {
-                merge_missing_into(scratch_, frames_.back().start, *root);
+                merge_into(scratch_, map_ ? &spans_ : nullptr, frames_.back().start, *root, 0,
+                           MergePolicy::FillMissing, map_);
                 return true;
             }
-            for (const Node& n : *root)
-                if (!push(n)) return false;
+            for (size_t i = 0; i < root->size(); ++i) {
+                const SourceSpan* sp = map_ ? map_->span(*root, i) : nullptr;
+                if (!push((*root)[i], sp ? *sp : SourceSpan{})) return false;
+            }
             return true;
         }
         if (d == "define") {
@@ -513,7 +518,7 @@ private:
             if (!lex_.peek(next, *err_)) return false;
             if (next.kind == Tok::Open && next.bracket == '(' && next.line == name.line) {
                 (void)lex_.next(next, *err_);
-                if (!open('(', next.line)) return false;
+                if (!open('(', next.line, next.begin)) return false;
                 frames_.back().kind = Frame::DefineBody;
                 frames_.back().name = sym;
                 return true;
@@ -532,7 +537,7 @@ private:
             if (!lex_.next(next, *err_)) return false;
             if (next.kind != Tok::Open || next.bracket != '{')
                 return fail(ErrorCode::Directive, "#autorun needs a {command}", next.line);
-            if (!open('{', next.line)) return false;
+            if (!open('{', next.line, next.begin)) return false;
             frames_.back().kind = Frame::Autorun;
             return true;
         }
@@ -589,7 +594,10 @@ private:
     uint32_t include_depth_;
     Error* err_ = nullptr;
     int32_t line_ = 1;
+    SourceMap* map_;
+    uint32_t size_;
     std::vector<Node> scratch_;
+    std::vector<SourceSpan> spans_;  // parallel to scratch_ in edit mode
     std::vector<FrameInfo> frames_;
     std::vector<Cond> conds_;
 };

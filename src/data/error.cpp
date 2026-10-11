@@ -11,6 +11,7 @@ std::string_view error_code_name(ErrorCode code) noexcept {
         case ErrorCode::Limit: return "limit";
         case ErrorCode::Type: return "type";
         case ErrorCode::NotFound: return "not found";
+        case ErrorCode::Refused: return "refused";
     }
     return "unknown";
 }

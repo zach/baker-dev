@@ -1,10 +1,12 @@
 #include "parse_harness.hpp"
 
 #include <moira/parse.hpp>
+#include <moira/source_map.hpp>
 #include <moira/write.hpp>
 
 #include <algorithm>
 #include <cstdint>
+#include <string>
 
 namespace moira::fuzz {
 namespace {
@@ -17,6 +19,30 @@ bool fits(const Node& n, uint64_t& budget) {
     if (const Array* a = n.array())
         for (const Node& c : *a)
             if (!fits(c, budget)) return false;
+    return true;
+}
+
+// Edit mode: every recorded span lies within the text, and a literal scalar token read on
+// its own is the node it produced. Visits up to `budget` arrays.
+bool spans_hold(const Node& n, const SourceMap& map, std::string_view text, uint64_t& budget) {
+    const Array* a = n.array();
+    if (!a || budget == 0) return true;
+    --budget;
+    if (const auto* spans = map.spans(*a)) {
+        for (size_t i = 0; i < a->size(); ++i) {
+            const SourceSpan& sp = (*spans)[i];
+            if (sp.file.empty()) continue;
+            if (sp.begin > sp.end || sp.end > text.size()) return false;
+            if (!sp.literal() || (*a)[i].array()) continue;
+            // A leading space, so a token starting with BOM bytes is not read as a BOM.
+            const std::string token = " " + std::string(text.substr(sp.begin, sp.end - sp.begin));
+            auto alone = try_read_string(token, "token.dta");
+            if (!alone || (*alone)->size() != 1 || !structurally_equal((**alone)[0], (*a)[i]))
+                return false;
+        }
+    }
+    for (const Node& c : *a)
+        if (!spans_hold(c, map, text, budget)) return false;
     return true;
 }
 
@@ -41,6 +67,15 @@ bool check_parse(std::string_view data) {
     uint64_t budget = 100000;
     for (const Node& n : **first)
         if (!fits(n, budget)) return true;
+
+    // The same text read in edit mode gives the same tree, with spans that hold.
+    LoadSession edit = make_session();
+    SourceMap map;
+    edit.source_map = &map;
+    auto edited = try_read_string(data, "fuzz.dta", edit);
+    if (!edited || !structurally_equal(**first, **edited)) return false;
+    uint64_t span_budget = 2000;
+    if (!spans_hold(Node(*edited), map, data, span_budget)) return false;
 
     const std::string printed = to_dta(**first);
     LoadSession s2 = make_session();

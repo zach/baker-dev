@@ -10,6 +10,7 @@ if(MOIRA_NO_EXCEPTIONS)
 endif()
 
 add_executable(moira_data_tests
+  data/test_config.cpp
   data/test_core.cpp
   data/test_corpus.cpp
   data/test_lookup.cpp
@@ -31,4 +32,20 @@ if(MOIRA_BUILD_SCRIPT)
     script/test_script_info.cpp)
   target_link_libraries(moira_script_tests PRIVATE moira::script moira_doctest_main)
   add_test(NAME moira_script_tests COMMAND moira_script_tests)
+endif()
+
+# Spec §7: a Tweak<float> read is a single load. Checked in the generated assembly with
+# GCC and Clang, unless sanitizers or fuzzing instrument every load.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT MOIRA_SANITIZE AND NOT MOIRA_BUILD_FUZZERS)
+  separate_arguments(moira_codegen_flags UNIX_COMMAND "${CMAKE_CXX_FLAGS}")
+  add_test(NAME moira_tweak_codegen COMMAND ${CMAKE_COMMAND}
+    -DCXX=${CMAKE_CXX_COMPILER}
+    -DSTD=${CMAKE_CXX_STANDARD}
+    -DSRC=${CMAKE_CURRENT_SOURCE_DIR}/codegen/tweak_read.cpp
+    -DINC=${PROJECT_SOURCE_DIR}/include
+    "-DDEFS=-DMOIRA_STD_EXPECTED=${MOIRA_STD_EXPECTED_VALUE};-DMOIRA_ATOMIC_REFCOUNT=$<BOOL:${MOIRA_ATOMIC_REFCOUNT}>"
+    "-DFLAGS=${moira_codegen_flags}"
+    -DOUT=${CMAKE_CURRENT_BINARY_DIR}/tweak_read.s
+    -DARCH=${CMAKE_SYSTEM_PROCESSOR}
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/codegen/check_tweak_read.cmake)
 endif()

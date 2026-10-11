@@ -204,4 +204,34 @@ std::string join_path(std::string_view dir, std::string_view p) {
     return out;
 }
 
+double float_to_decimal_double(float f) noexcept {
+    if (!std::isfinite(f)) return static_cast<double>(f);
+    const char* point = std::localeconv()->decimal_point;
+    const std::string_view decimal = point && *point ? point : ".";
+    // The shortest %g that reads back as the same float, then that text read as a double.
+    for (int precision = 1; precision <= 9; ++precision) {
+        char buf[64];
+        const int n = std::snprintf(buf, sizeof buf, "%.*g", precision, static_cast<double>(f));
+        if (n <= 0 || static_cast<size_t>(n) >= sizeof buf) break;
+        std::string_view text(buf, static_cast<size_t>(n));
+        char norm[64];
+        size_t len = 0;
+        for (size_t i = 0; i < text.size(); ++i) {
+            if (text.substr(i, decimal.size()) == decimal) {
+                norm[len++] = '.';
+                i += decimal.size() - 1;
+            } else {
+                norm[len++] = text[i];
+            }
+        }
+        float back = 0;
+        double wide = 0;
+        const char* end = norm + len;
+        if (fast_float::from_chars(norm, end, back).ptr == end && back == f &&
+            fast_float::from_chars(norm, end, wide).ptr == end)
+            return wide;
+    }
+    return static_cast<double>(f);
+}
+
 }  // namespace moira::detail

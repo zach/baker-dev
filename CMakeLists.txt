@@ -8,6 +8,7 @@ option(MOIRA_SHIPPING         "Freeze config and compile out dev instrumentation
 option(MOIRA_NO_EXCEPTIONS    "Compile out throwing APIs; non-throwing twins only" OFF)
 option(MOIRA_BUILD_TOOLS      "Build command-line tools (moira_parse_corpus)" ${PROJECT_IS_TOP_LEVEL})
 option(MOIRA_BUILD_BENCH      "Build benchmarks" OFF)
+option(MOIRA_BUILD_EXAMPLES   "Build the examples" ${PROJECT_IS_TOP_LEVEL})
 option(MOIRA_BUILD_FUZZERS    "Build libFuzzer targets (Clang only)" OFF)
 set(MOIRA_SANITIZE "" CACHE STRING "Sanitizers to enable, e.g. address,undefined")
 
@@ -86,12 +87,16 @@ endfunction()
 #     Must never depend on moira::script.
 add_library(moira_data
   src/data/array.cpp
+  src/data/config.cpp
   src/data/error.cpp
   src/data/lookup.cpp
+  src/data/merge.cpp
   src/data/node.cpp
   src/data/parse.cpp
+  src/data/source_map.cpp
   src/data/symbol.cpp
   src/data/text.cpp
+  src/data/tweak.cpp
   src/data/version.cpp
   src/data/write.cpp)
 add_library(moira::data ALIAS moira_data)
@@ -132,6 +137,17 @@ endif()
 if(MOIRA_BUILD_TOOLS)
   add_executable(moira_parse_corpus tools/parse_corpus.cpp)
   target_link_libraries(moira_parse_corpus PRIVATE moira::data)
+endif()
+
+if(MOIRA_BUILD_EXAMPLES)
+  add_executable(moira_example_one_line_tweak examples/one_line_tweak/main.cpp)
+  target_link_libraries(moira_example_one_line_tweak PRIVATE moira::data)
+  if(MOIRA_BUILD_TESTS)
+    add_test(NAME moira_example_one_line_tweak
+      COMMAND moira_example_one_line_tweak ${PROJECT_SOURCE_DIR}/examples/one_line_tweak/config.dta)
+    set_tests_properties(moira_example_one_line_tweak PROPERTIES
+      PASS_REGULAR_EXPRESSION "before loading: box width 2[^.0-9].*after loading:  box width 3[.]5 .*config[.]dta:3[)]  note: 3-4 reads well")
+  endif()
 endif()
 
 if(MOIRA_BUILD_BENCH)

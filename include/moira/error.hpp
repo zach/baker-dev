@@ -28,6 +28,14 @@
 
 namespace moira {
 
+// MOIRA_SHIPPING: reload and live edits are inert, and dev_only tweaks keep their code
+// defaults (config.hpp, tweak.hpp).
+#if defined(MOIRA_SHIPPING) && MOIRA_SHIPPING
+inline constexpr bool kShipping = true;
+#else
+inline constexpr bool kShipping = false;
+#endif
+
 enum class ErrorCode : uint8_t {
     Syntax,     // malformed text
     Range,      // a value out of its representable range
@@ -36,6 +44,8 @@ enum class ErrorCode : uint8_t {
     Limit,      // a safety limit (nesting, node count, includes) was exceeded
     Type,       // a value has the wrong type for how it was accessed
     NotFound,   // a lookup found nothing
+    Refused,    // an operation was declined: write-back without one literal source, a
+                // mutation of a frozen config
 };
 
 [[nodiscard]] std::string_view error_code_name(ErrorCode code) noexcept;
