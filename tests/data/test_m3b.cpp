@@ -501,18 +501,27 @@ TEST_CASE("restore never reads disk, and write-back of restored values checks th
 }
 
 TEST_CASE("taking a snapshot copies no array") {
-    TempDir dir;
-    std::string big;
-    for (int i = 0; i < 500; ++i)
-        big += "(k" + std::to_string(i) + " (v " + std::to_string(i) + "))\n";
-    Config cfg({.tweaks = nullptr});
-    REQUIRE(cfg.try_push_layer("big", dir.write("big.dta", big)));
-    REQUIRE(cfg.try_set("k1.v", Node(5)));
-    test::AllocationScope scope;
-    const ConfigSnapshot snap = cfg.snapshot();
-    const size_t allocations = scope.count();
-    // Bookkeeping only: the state, the layer list and its strings, one scratch entry.
-    if (test::counting_allocations()) CHECK(allocations < 16);
-    CHECK_FALSE(snap.empty());
+    // Bookkeeping only (the state, the layer list and its strings, one scratch entry), so the
+    // cost does not grow with the trees. Compared rather than bounded: debug STLs add their own.
+    auto snapshot_allocations = [](int entries) {
+        TempDir dir;
+        std::string text;
+        for (int i = 0; i < entries; ++i)
+            text += "(k" + std::to_string(i) + " (v " + std::to_string(i) + "))\n";
+        Config cfg({.tweaks = nullptr});
+        REQUIRE(cfg.try_push_layer("big", dir.write("big.dta", text)));
+        REQUIRE(cfg.try_set("k1.v", Node(5)));
+        test::AllocationScope scope;
+        const ConfigSnapshot snap = cfg.snapshot();
+        const size_t allocations = scope.count();
+        CHECK_FALSE(snap.empty());
+        return allocations;
+    };
+    const size_t small = snapshot_allocations(2);
+    const size_t big = snapshot_allocations(500);
+    if (test::counting_allocations()) {
+        CHECK(big == small);
+        CHECK(small > 0);
+    }
 }
 #endif

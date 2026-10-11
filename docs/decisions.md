@@ -798,6 +798,8 @@ Results:
   libc++, data-only, ASan+UBSan, TSan, the plain reference-count build, shipping, and
   no-exceptions on gcc and clang). Two fixes were needed: helpers used only by non-shipping
   code are marked `[[maybe_unused]]`, for clang's `-Wunneeded-internal-declaration` and
-  gcc's unused-function warning in the shipping build. MSVC is covered by CI.
+  gcc's unused-function warning in the shipping build. MSVC is covered by CI. Its debug STL
+  allocates more per container copy, so the snapshot test compares a 2-entry and a
+  500-entry config instead of bounding the count.
 - **Size.** `moira::data` is 4,747 counted lines (core 4,759), up 745 in M3b. That is over
   the 4,000 the brief cites and under the 8,000 budget of D40.
