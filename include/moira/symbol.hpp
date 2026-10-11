@@ -20,6 +20,7 @@ namespace detail {
 struct SymbolEntry {
     const char* text;  // NUL-terminated
     uint32_t size;
+    uint32_t index;  // dense, in interning order; 0 is the empty symbol
     uint64_t hash;
 };
 
@@ -32,7 +33,7 @@ struct SymbolEntry {
     return h;
 }
 
-inline constexpr SymbolEntry kEmptySymbolEntry{"", 0, hash_symbol_text("")};
+inline constexpr SymbolEntry kEmptySymbolEntry{"", 0, 0, hash_symbol_text("")};
 
 }  // namespace detail
 
@@ -48,6 +49,9 @@ public:
     [[nodiscard]] const char* c_str() const noexcept { return e_->text; }
     [[nodiscard]] uint64_t hash() const noexcept { return e_->hash; }
     [[nodiscard]] bool empty() const noexcept { return e_->size == 0; }
+    // Dense index, in interning order (the empty symbol is 0), for tables indexed by
+    // symbol: moira::script keeps its functions and variables this way.
+    [[nodiscard]] uint32_t index() const noexcept { return e_->index; }
 
     friend bool operator==(Symbol a, Symbol b) noexcept { return a.e_ == b.e_; }
 

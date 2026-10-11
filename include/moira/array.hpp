@@ -202,9 +202,36 @@ template <class T>
 // Out-of-line error builders (src/data/lookup.cpp); only reached when a lookup fails.
 
 // find(tag) on `container` failed: `found` is null if no child has the tag, otherwise
-// its values did not convert as `info` describes (null `info`: no conversion was asked).
+// its values (or `values`, if given: the evaluated ones) did not convert as `info`
+// describes (null `info`: no conversion was asked).
 [[nodiscard]] Error find_error(const Array& container, Symbol tag, const Array* found,
-                               const ConvertInfo* info);
+                               const ConvertInfo* info, const Values* values = nullptr);
+
+// Evaluates a Command or Var node in the calling thread's current Context. moira::script
+// installs it; it is null in a program that does not use moira::script.
+using Evaluator = Expected<Node> (*)(const Node&);
+void set_evaluator(Evaluator evaluator) noexcept;
+[[nodiscard]] Evaluator evaluator() noexcept;
+
+struct Evaluated {
+    std::vector<Node> nodes;
+    Values values;
+};
+// `in` with every Command and Var evaluated. False if there is none, or no evaluator.
+[[nodiscard]] Expected<bool> evaluate_values(const Values& in, Evaluated& out);
+
+// The slow path of a typed lookup whose values `v` did not convert: evaluates any Command
+// or Var among them and converts again. `fail` builds the error from the values that did
+// not convert. Only the values themselves are evaluated, not arrays nested in them.
+template <class T, class Fail>
+[[nodiscard]] Expected<T> convert_evaluated(const Values& v, Fail&& fail) {
+    Evaluated ev;
+    auto r = evaluate_values(v, ev);
+    if (!r) return Unexpected(std::move(r).error());
+    T out{};
+    if (*r && Convert<T>::from(ev.values, out)) return out;
+    return Unexpected(fail(*r ? ev.values : v));
+}
 
 struct Resolved {
     Values values;
@@ -212,8 +239,10 @@ struct Resolved {
 };
 enum class ResolveStatus : uint8_t { Ok, Missing, Malformed };
 [[nodiscard]] ResolveStatus resolve(const Array& root, const Path& path, Resolved& out) noexcept;
-// get(path) on `root` failed; re-walks the path to say where and why.
-[[nodiscard]] Error get_error(const Array& root, const Path& path, const ConvertInfo* info);
+// get(path) on `root` failed; re-walks the path to say where and why. `values`, if given,
+// are the evaluated values that did not convert.
+[[nodiscard]] Error get_error(const Array& root, const Path& path, const ConvertInfo* info,
+                              const Values* values = nullptr);
 
 inline constexpr ConvertInfo kArrayInfo{"array", ConvertKind::Scalar};
 
@@ -634,7 +663,10 @@ Expected<T> Array::try_find(Symbol tag) const {
     T out{};
     const Array* a = try_find(tag);
     if (a && Convert<T>::from(a->values(), out)) return out;
-    return Unexpected(detail::find_error(*this, tag, a, &kInfo));
+    if (!a) return Unexpected(detail::find_error(*this, tag, nullptr, &kInfo));
+    return detail::convert_evaluated<T>(a->values(), [&](const Values& v) {
+        return detail::find_error(*this, tag, a, &kInfo, &v);
+    });
 }
 
 template <class T>
@@ -644,7 +676,9 @@ Expected<T> Array::try_find(Symbol tag, T fallback) const {
     if (!a) return fallback;
     T out{};
     if (Convert<T>::from(a->values(), out)) return out;
-    return Unexpected(detail::find_error(*this, tag, a, &kInfo));
+    return detail::convert_evaluated<T>(a->values(), [&](const Values& v) {
+        return detail::find_error(*this, tag, a, &kInfo, &v);
+    });
 }
 
 template <class T>
@@ -652,10 +686,11 @@ Expected<T> Array::try_get(const Path& path) const {
     static constexpr detail::ConvertInfo kInfo = detail::convert_info<T>();
     detail::Resolved r;
     T out{};
-    if (detail::resolve(*this, path, r) == detail::ResolveStatus::Ok &&
-        Convert<T>::from(r.values, out))
-        return out;
-    return Unexpected(detail::get_error(*this, path, &kInfo));
+    if (detail::resolve(*this, path, r) != detail::ResolveStatus::Ok)
+        return Unexpected(detail::get_error(*this, path, &kInfo));
+    if (Convert<T>::from(r.values, out)) return out;
+    return detail::convert_evaluated<T>(
+        r.values, [&](const Values& v) { return detail::get_error(*this, path, &kInfo, &v); });
 }
 
 template <class T>
@@ -664,9 +699,12 @@ Expected<T> Array::try_get(const Path& path, T fallback) const {
     detail::Resolved r;
     const auto status = detail::resolve(*this, path, r);
     if (status == detail::ResolveStatus::Missing) return fallback;
+    if (status != detail::ResolveStatus::Ok)
+        return Unexpected(detail::get_error(*this, path, &kInfo));
     T out{};
-    if (status == detail::ResolveStatus::Ok && Convert<T>::from(r.values, out)) return out;
-    return Unexpected(detail::get_error(*this, path, &kInfo));
+    if (Convert<T>::from(r.values, out)) return out;
+    return detail::convert_evaluated<T>(
+        r.values, [&](const Values& v) { return detail::get_error(*this, path, &kInfo, &v); });
 }
 
 // Deep comparison of type and value, ignoring source locations and Node::aux().

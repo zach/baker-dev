@@ -8,6 +8,7 @@
 #include "text.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <charconv>
 #include <cmath>
 #include <optional>
@@ -263,13 +264,44 @@ const Array* Array::find_sorted(Symbol tag) const noexcept {
 
 namespace detail {
 
-Error find_error(const Array& container, Symbol tag, const Array* found, const ConvertInfo* info) {
-    Error e = found && info ? conversion_error(quoted(tag), found->values(), *info)
-                            : not_found(tag, container.nodes());
+Error find_error(const Array& container, Symbol tag, const Array* found, const ConvertInfo* info,
+                 const Values* values) {
+    Error e = found && info
+                  ? conversion_error(quoted(tag), values ? *values : found->values(), *info)
+                  : not_found(tag, container.nodes());
     locate(e, found ? found : &container);
     if (!container.empty())
         if (auto t = container[0].try_sym()) append_name(e.path, *t);
     return e;
+}
+
+namespace {
+std::atomic<Evaluator> g_evaluator{nullptr};
+}  // namespace
+
+void set_evaluator(Evaluator evaluator) noexcept {
+    g_evaluator.store(evaluator, std::memory_order_release);
+}
+
+Evaluator evaluator() noexcept {
+    return g_evaluator.load(std::memory_order_acquire);
+}
+
+Expected<bool> evaluate_values(const Values& in, Evaluated& out) {
+    auto evaluable = [](const Node& n) {
+        return n.type() == Type::Command || n.type() == Type::Var;
+    };
+    const Evaluator eval = evaluator();
+    if (!eval || std::none_of(in.begin(), in.end(), evaluable)) return false;
+    out.nodes.assign(in.begin(), in.end());
+    for (Node& n : out.nodes) {
+        if (!evaluable(n)) continue;
+        auto r = eval(n);
+        if (!r) return Unexpected(std::move(r).error());
+        n = std::move(*r);
+    }
+    out.values = Values(out.nodes, in.source());
+    return true;
 }
 
 ResolveStatus resolve(const Array& root, const Path& path, Resolved& out) noexcept {
@@ -282,7 +314,8 @@ ResolveStatus resolve(const Array& root, const Path& path, Resolved& out) noexce
     return ResolveStatus::Ok;
 }
 
-Error get_error(const Array& root, const Path& path, const ConvertInfo* info) {
+Error get_error(const Array& root, const Path& path, const ConvertInfo* info,
+                const Values* values) {
     if (!path.valid()) {
         Error e = make_error(ErrorCode::Syntax, "malformed path '" + path.to_string() + "'");
         locate(e, &root);
@@ -305,7 +338,7 @@ Error get_error(const Array& root, const Path& path, const ConvertInfo* info) {
     }
     // The path resolved, so the value did not convert.
     const std::string label = path.empty() ? "the array" : label_of(path[path.size() - 1]);
-    Error e = conversion_error(label, v, info ? *info : kArrayInfo);
+    Error e = conversion_error(label, values ? *values : v, info ? *info : kArrayInfo);
     locate(e, v.source());
     e.path = path.to_string(path.empty() ? 0 : path.size() - 1);
     return e;

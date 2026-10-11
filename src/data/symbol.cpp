@@ -59,7 +59,8 @@ private:
         auto* chars = mem + sizeof(detail::SymbolEntry);
         if (!text.empty()) std::memcpy(chars, text.data(), text.size());
         chars[text.size()] = '\0';
-        return new (mem) detail::SymbolEntry{chars, static_cast<uint32_t>(text.size()), hash};
+        return new (mem) detail::SymbolEntry{chars, static_cast<uint32_t>(text.size()),
+                                             static_cast<uint32_t>(count_ + 1), hash};
     }
 
     char* alloc(size_t n) {
