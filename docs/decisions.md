@@ -803,3 +803,155 @@ Results:
   500-entry config instead of bounding the count.
 - **Size.** `moira::data` is 4,747 counted lines (core 4,759), up 745 in M3b. That is over
   the 4,000 the brief cites and under the 8,000 budget of D40.
+
+## D44. Functions and variables live in per-Context tables (supersedes D5)
+
+*Spec §5, "Handler caching"; M4 plan Q1, answered 2026-10-11.*
+
+Every symbol carries a dense 32-bit index (`Symbol::index()`), stored in padding
+`SymbolEntry` already had, so symbols cost no more memory. Each Context keeps two tables
+indexed by it:
+
+- **Functions.** A flat array of function records. Resolving a command's head is a load of
+  the symbol's index, a bounds check, and a load: 1.2 ns against 4.8 ns for a hash map
+  (`bench/bench_call.cpp`).
+- **Variables.** Value cells in pages of 1,024, allocated when a variable in that range is
+  first used. Reading `$x` is the index, the page, and the cell: 7–8 ns through
+  `try_eval`, almost all of it the call itself. A `VarRef` holds the cell's address.
+
+D5's in-node cache is not built. It saved a lookup that now costs about a nanosecond, and
+it had three costs this avoids:
+
+- it modified the tree on first run, which conflicts with sharing trees between threads
+  and with macros sharing arrays;
+- a second Context would keep re-resolving the first one's cached handler;
+- `diff`, `layer_effect` and structural equality would see a `Func` node where the file
+  has a symbol.
+
+Evaluation never modifies a tree, so separate Contexts can run the same trees at once.
+The cost is memory proportional to the highest symbol index used, per Context: 8 bytes
+per symbol for functions, and 16 KB per page of variables.
+
+## D45. Typed lookups evaluate, in the thread's current Context
+
+*Spec §5, "Evaluation semantics"; M4 plan Q2.*
+
+`find_int`, `get<T>` and the other typed lookups evaluate a Command or Var value, as §5
+says. `moira::data` stays independent of `moira::script` through one hook:
+`detail::set_evaluator`, installed by the first Context constructed.
+
+- **Only on the slow path.** A lookup converts the raw values first. Only if that fails,
+  and some value is a Command or Var, does it evaluate them and convert again. Config
+  lookups cost what they did. Only the values themselves are evaluated, not arrays nested
+  inside them.
+- **Raw reads stay raw.** `find`, `at`, `Convert<Node>` and `find<Node>` never evaluate.
+- **Errors.** A value that evaluates to the wrong type is reported as what it evaluated
+  to: `'name' is symbol, not int`. Without `moira::script`, the M2 message stands.
+- **Which Context.** The calling thread's current Context:
+  - the innermost `Context::Scope`;
+  - else the Context running the current `try_eval`;
+  - else the first Context created on the thread, which stays current until destroyed.
+
+  With none, the lookup fails cleanly: "needs a current moira::Context on this thread".
+
+Inside a native function, `Args::get<T>(i)` evaluates its argument; `args.raw(i)` does
+not. A `Node` parameter is evaluated; `Raw<Node>` is the unevaluated one.
+
+## D46. M4 scope: script functions and the built-in vocabulary
+
+*Spec §10 M4, M5; M4 plan Q3 and Q4.*
+
+- **Script functions.** `{func}`, `{override}`, and their `(status ...)` and `(doc ...)`
+  metadata are built in M4 rather than M5, because M4's "a script stub replaced by a native
+  registration" needs one. `{class}` and `{new}` stay in M5.
+- **Built-ins.** Every Context registers a control set and a calculator core, through the
+  same `func` as user code:
+  - control: `if`, `set`, `do`, `func`, `override`;
+  - arithmetic: `+ - * / %`;
+  - comparison: `== != < <= > >=`;
+  - logic: `and or not`.
+
+  They are in `docs/script-reference.md`.
+  - Ints stay ints and wrap on overflow (no undefined behavior). `/` always gives a float,
+    and `%` by zero is an error.
+  - `==` compares numbers by value (`1` equals `1.0`) and anything else by structure.
+  - `and` and `or` stop at the first argument that decides the result.
+
+## D47. M4 implementation notes and results
+
+*Recorded 2026-10-11.* Choices made where the spec left room:
+
+- **`Args` counts from 0 after the function name**, so `args.get<int>(0)` is the first
+  argument. Error messages count from 1 ("argument 1 of 'not'").
+- **Overload sets evaluate every argument once, then choose.** Choosing by runtime type
+  needs the values, and evaluating twice would repeat side effects. So a function taking
+  `Raw` parameters cannot be overloaded (a registration error). `Args` in an overload sees
+  the evaluated values. A function with one signature passes its arguments through
+  unevaluated, which keeps the common call path lazy and fast.
+- **Ambiguity is checked at registration** as "same arity and same parameter types". This
+  is stricter than real ambiguity, but resolution is first match, so nothing reachable is
+  lost.
+- **Unset variables are errors**, `$x is not set`, rather than reading as 0: silently
+  using a default is what located errors exist to prevent (D25). `{do ($a) ...}` binds
+  `$a` unset; `($a value)` binds a value. Bindings are sequential.
+- **Script functions** evaluate their arguments in the caller's bindings, then bind the
+  parameters, then run the body, which returns its last value.
+- **Collisions** follow §5:
+  - A native registration replaces a script definition, with a notice that compares the
+    arities.
+  - `{func}` over a native name is an error naming `{override}`.
+  - `{override}` replaces the native, with a notice.
+
+  Notices go to a sink, stderr by default (`set_notice_sink`).
+- **Tiers.** `Tier` has Native and Script only. Macros are expanded by the reader before
+  anything runs, so no function record is ever a macro.
+- **Safety.** Calls nested deeper than 1,000 are a `Limit` error, not a stack overflow. An
+  exception thrown by a native function comes back from `try_eval` as its error, and the
+  dynamic scope is restored on every exit path.
+- **`check`** reads a Context's signatures and the `{func}` definitions in the trees it is
+  given. It is a free function: the spec's "opt-in via a Config flag" waits for `#require`
+  and shapes (M8b), where checking at load has a natural home.
+  - It also checks `Raw<Var>` slots ({set x 1} is reported), because a literal there is
+    knowably wrong.
+  - Object dispatch, unknown methods and the one-way rule arrive with M5 and M8b.
+- **Not yet.** Evaluating `[...]` property nodes and object commands (`{{nearest} hit}`)
+  are errors until M5.
+- **The reference** is `docs/script-reference.md`, generated from a default Context.
+  - `tests/script/test_check.cpp` fails when it drifts.
+  - Running the script tests with `MOIRA_UPDATE_REFERENCE=1` rewrites it.
+
+Results:
+
+- **Done-when items.** Each is a test in `tests/script/`, and the calculator example
+  (`examples/calculator`) runs under ctest:
+  - `if` and `set` are table entries, and the evaluator source names no function;
+  - the untaken branch of `if` is never evaluated;
+  - the reference drift test;
+  - `check` finds a wrong-arity call without evaluating;
+  - a stub replaced by a native function runs unchanged call sites;
+  - the demand report lists unresolved heads with every call site.
+
+  Allocation tests show zero allocations for native calls, overload sets, variables,
+  `if`, `do` and `set` after warm-up.
+- **Benchmark** (`bench/bench_call.cpp`, Release, gcc 13, this container). All rows make
+  zero allocations.
+
+  | Call | Time |
+  |---|---:|
+  | `{add 1 2}`, 2 int args | **34.7 ns** (target 40) |
+  | Overload set `{+ 1 2}` | 59 ns |
+  | Promoted `{+ 1.5 2}` | 64 ns |
+  | `{add $x 1}` | 46 ns |
+  | `{if 1 2 3}` | 41 ns |
+  | Script `{add1 1}` | 100 ns |
+
+  A profile put the remaining cost in call setup, argument reads, and moving `Expected`
+  results; none dominates.
+- **Matrix.** All twelve local configurations pass. One fix was needed: a converter used
+  only by exception-only tests tripped clang's unused-variable warning in the
+  no-exceptions build. MSVC is covered by CI.
+- **Size.** `moira::data` is 4,807 counted lines (+48, the hook and the symbol index).
+  `moira::script` is 1,325. The core total is 6,132 of 8,000, up 1,373 in M4, under the
+  plan's 1,600–1,750 estimate. That leaves 1,868 lines for M5–M8 and M10's core
+  instrumentation. As the plan said, this is likely to run out around M8, and each
+  milestone will flag it.

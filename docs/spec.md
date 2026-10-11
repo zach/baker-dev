@@ -728,7 +728,9 @@ requiring a script reload if a function was re-registered. Do the same, but make
 correct rather than a footgun: cache a resolved-handler pointer in the node, and bump a
 registry generation counter on every `func` registration so a stale cache is detected and
 re-resolved rather than silently wrong. Measure both paths; if the check costs more than
-the lookup saves, drop the cache and say so in `docs/decisions.md`.
+the lookup saves, drop the cache and say so in `docs/decisions.md`. *(Done: D44 replaces
+the cache with per-Context tables indexed by symbol, which resolve a name in about a
+nanosecond without modifying the tree.)*
 
 **Object commands evaluate slot 0.** `{{nearest_object $bomb_position} suffer_damage}`
 must work — the object slot is evaluated before dispatch, unlike the argument slots.

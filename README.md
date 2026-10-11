@@ -9,11 +9,13 @@ designer-editable value should cost one line and no ceremony.
 
 ## Status
 
-**M3b: config, tweaks, and the data loop.** You can read DTA text into trees, look values
-up with typed, located errors, stack config files and overlays into layers, hot-reload
-them with every reload timed, replace constants with one-line tweaks, toggle experiment
-layers A/B, snapshot and restore exact states, and write values tuned in the running
-program back into their source files. Scripting is a later milestone (`docs/spec.md` §10).
+**M4: config, tweaks, the data loop, and script evaluation.** You can read DTA text into
+trees, look values up with typed, located errors, stack config files and overlays into
+layers, hot-reload them with every reload timed, replace constants with one-line tweaks,
+toggle experiment layers A/B, snapshot and restore exact states, and write values tuned in
+the running program back into their source files. Commands evaluate lazily, native
+functions bind in one line, and `moira::check` finds bad calls before anything runs.
+Objects, messages, and tasks are later milestones (`docs/spec.md` §10).
 `docs/decisions.md` records where the implementation deviates from the spec.
 
 The one-line constant replacement (`examples/one_line_tweak`):
@@ -63,6 +65,23 @@ float  same  = root->get<float>("menu.'bacon and eggs'.price");
 std::string text = moira::to_dta(*root);            // round-trips through read_string()
 ```
 
+Scripting (`examples/calculator`):
+
+```cpp
+moira::Context ctx;
+ctx.func("hypot", [](double a, double b) { return std::hypot(a, b); });  // types deduced
+ctx.eval("{hypot 3 4}");                            // 5.0
+ctx.eval("{func square ($x) {* $x $x}}");           // a script function
+ctx.var("difficulty") = 3;
+
+// (enemy (hp {* 100 $difficulty}))
+int hp = enemy.find_int("hp");                      // 300: typed lookups evaluate
+auto report = moira::check(*tree, ctx);             // wrong arity, found without running
+```
+
+`if` is an ordinary function: its branches are passed unevaluated, so the evaluator needs
+no special forms (`docs/script-reference.md` lists every built-in).
+
 A failed lookup says what, where, and how it got there:
 
 ```
@@ -92,6 +111,12 @@ What exists:
 - `Tweak<T>`: one-line tunables with code- or data-side metadata (`range`, `step`, `desc`,
   `note`, `kind`, `group`), `on_change`, and `dev_only` for `MOIRA_SHIPPING`.
 - Edit-mode parsing (`SourceMap`): the byte span of every node, beside an unchanged tree.
+- `Context` (`moira::script`): lazy evaluation with no special forms, native functions
+  bound from their signatures (`Raw<T>` for unevaluated parameters, `std::optional` for
+  optional ones, `Args` for the rest, overload sets), dynamically scoped `$variables`,
+  script functions (`{func}`, with `stub`/`provisional`/`deprecated` status), `eval` of
+  text, a generated reference (`docs/script-reference.md`), and `check` with a demand
+  report. A native call with two scalar arguments takes about 35 ns and never allocates.
 - Tests, a hand-written corpus, benchmarks, and libFuzzer harnesses for parsing and lookup
   (`-DMOIRA_BUILD_FUZZERS=ON`).
 
@@ -117,7 +142,7 @@ depends on data), `moira::moira` (both). Build the data layer by itself with
 | `MOIRA_SANITIZE` | empty | e.g. `address,undefined` |
 | `MOIRA_BUILD_TOOLS` | `ON` when top-level | `moira_parse_corpus` |
 | `MOIRA_BUILD_EXAMPLES` | `ON` when top-level | `examples/` (run by CTest) |
-| `MOIRA_BUILD_BENCH` | `OFF` | `moira_bench_parse`, `moira_bench_lookup` |
+| `MOIRA_BUILD_BENCH` | `OFF` | `moira_bench_parse`, `moira_bench_lookup`, `moira_bench_call` |
 | `MOIRA_BUILD_FUZZERS` | `OFF` | `moira_parse_fuzzer`, `moira_lookup_fuzzer` (Clang) |
 
 Android: clang defaults to C++17. CMake builds get C++20 from the targets; with
