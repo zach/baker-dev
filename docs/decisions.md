@@ -679,7 +679,8 @@ written back as a one-line diff. If the slice is defined elsewhere, it should be
 ## D42. M3b, as specified by the readiness brief (supersedes D41)
 
 *Amends spec §1, §4, §10. Requested by the project owner, 2026-10-11, as a detailed brief
-replacing the earlier request D41 recorded.*
+replacing the earlier request D41 recorded. The brief is kept as
+`docs/background/m3b-environment-readiness.md`.*
 
 A studio's readiness gate has four data-layer tests: edit-to-see time measured with
 Moira's share visible; values tuned in play saved as minimal diffs; experiments that do not
