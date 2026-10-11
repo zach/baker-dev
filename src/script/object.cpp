@@ -69,6 +69,9 @@ void TypeRecord::sort() {
     std::sort(methods.begin(), methods.end(), [](const MethodEntry& a, const MethodEntry& b) {
         return std::less<>()(a.name.id(), b.name.id());
     });
+    std::sort(messages.begin(), messages.end(), [](const MessageEntry& a, const MessageEntry& b) {
+        return std::less<>()(a.key, b.key);
+    });
     symbol = Symbol(name);
 }
 
@@ -87,12 +90,12 @@ MethodEntry* add_method(TypeRecord& r, Symbol name, Overload o) {
     MethodEntry* m = nullptr;
     for (MethodEntry& x : r.methods)
         if (x.name == name) {
-            if (x.inherited) x = MethodEntry{name, {}, {}, {}, {}, false};
+            if (x.inherited) x = MethodEntry{name, {}, {}, {}, {}, false, {}};
             m = &x;
             break;
         }
     if (!m) {
-        r.methods.push_back(MethodEntry{name, {}, {}, {}, {}, false});
+        r.methods.push_back(MethodEntry{name, {}, {}, {}, {}, false, {}});
         m = &r.methods.back();
     }
     auto has_raw = [](const Overload& x) {
@@ -131,6 +134,10 @@ void inherit(TypeRecord& r, const TypeRecord& b) {
     if (r.is(&b)) return;
     r.bases.push_back(&b);
     r.bases.insert(r.bases.end(), b.bases.begin(), b.bases.end());
+    for (const MessageEntry& m : b.messages)
+        if (std::none_of(r.messages.begin(), r.messages.end(),
+                         [&](const MessageEntry& x) { return x.key == m.key; }))
+            r.messages.push_back(m);
     for (MethodEntry m : b.methods) {
         if (std::any_of(r.methods.begin(), r.methods.end(),
                         [&](const MethodEntry& x) { return x.name == m.name; }))
@@ -147,6 +154,46 @@ void inherit(TypeRecord& r, const TypeRecord& b) {
 void set_create(TypeRecord& r, CreateObject create, DestroyObject destroy) {
     r.create = create;
     r.destroy = destroy;
+}
+
+void add_message(TypeRecord& r, const void* key, MessageThunk thunk, Shared callable) {
+    for (MessageEntry& m : r.messages)
+        if (m.key == key) {
+            m = MessageEntry{key, thunk, std::move(callable)};
+            return;
+        }
+    r.messages.push_back(MessageEntry{key, thunk, std::move(callable)});
+}
+
+MessageTarget find_message(const TypeRecord& r, const void* key) noexcept {
+    // Sorted by key: a type handles few messages, so this is a short scan or search.
+    auto it = std::lower_bound(
+        r.messages.begin(), r.messages.end(), key,
+        [](const MessageEntry& m, const void* k) { return std::less<>()(m.key, k); });
+    if (it == r.messages.end() || it->key != key) return {};
+    return {it->thunk, it->callable.get()};
+}
+
+void set_method_message(MethodEntry& m, std::string_view message_type) {
+    m.message = message_type;
+}
+
+bool has_method(const TypeRecord& r, Symbol name) noexcept {
+    return r.method(name) != nullptr;
+}
+
+bool scripted(const ObjectBase& o, Symbol name) noexcept {
+    Context::Impl& impl = o.ctx_->impl();
+    const uint32_t i = name.index();
+    if (i / 64 >= impl.handled_names.size() || !(impl.handled_names[i / 64] >> (i % 64) & 1))
+        return false;
+    const Context::Impl::Slot* s = impl.slot(o.handle_);
+    return s && impl.handler_for(*s, name);
+}
+
+Error unhandled(const ObjectBase& o, Symbol name) {
+    return make_error(ErrorCode::NotFound,
+                      Str(o.type_name()) + " does not handle the message " + quoted(name));
 }
 
 void finish_type_record(TypeRecord& r) {
@@ -217,6 +264,20 @@ void Context::Impl::remove(ObjectHandle h) noexcept {
     free_slots.push_back(h.index());
 }
 
+// Script handlers: the object's own class, else classes named after its type or an
+// ancestor's, most derived first.
+const ScriptClass::Handler* Context::Impl::handler_for(const Slot& s, Symbol method) const {
+    if (s.script) return s.script->handler(method);
+    if (classes.empty()) return nullptr;
+    const detail::TypeRecord& type = s.object->type();
+    for (size_t i = 0; i <= type.bases.size(); ++i) {
+        const detail::TypeRecord& t = i == 0 ? type : *type.bases[i - 1];
+        if (const ScriptClass* c = script_class(t.symbol))
+            if (const ScriptClass::Handler* h = c->handler(method)) return h;
+    }
+    return nullptr;
+}
+
 ScriptClass* Context::Impl::script_class(Symbol name) const noexcept {
     const uint32_t i = name.index();
     return i < class_by_name.size() ? class_by_name[i] : nullptr;
@@ -247,18 +308,7 @@ Expected<Node> Context::Impl::send(ObjectHandle target, const Array& command) {
     const detail::TypeRecord& type = object->type();
     const size_t n = command.size() - 2;
 
-    // Script handlers: the object's own class, else classes named after its type or an
-    // ancestor's, most derived first.
-    const ScriptClass::Handler* handler = nullptr;
-    if (s->script) {
-        handler = s->script->handler(method);
-    } else if (!classes.empty()) {
-        for (size_t i = 0; !handler && i <= type.bases.size(); ++i) {
-            const detail::TypeRecord& t = i == 0 ? type : *type.bases[i - 1];
-            if (const ScriptClass* c = script_class(t.symbol)) handler = c->handler(method);
-        }
-    }
-    if (handler) {
+    if (const ScriptClass::Handler* handler = handler_for(*s, method)) {
         if (n != handler->body.params.size())
             return fail(command, ErrorCode::Type,
                         quoted(method) + " takes " +
@@ -457,6 +507,9 @@ void register_object_builtins(Context& ctx) {
                                 ErrorCode::Syntax));
                 handler.body.body = 2;
             }
+            const uint32_t bit = handler.name.index();
+            if (bit / 64 >= impl.handled_names.size()) impl.handled_names.resize(bit / 64 + 1);
+            impl.handled_names[bit / 64] |= uint64_t{1} << (bit % 64);
             cls->handlers.push_back(std::move(handler));
         }
         if (name.index() >= impl.class_by_name.size()) impl.class_by_name.resize(name.index() + 1);

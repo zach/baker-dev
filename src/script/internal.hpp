@@ -21,6 +21,14 @@ struct MethodEntry {
     Status status = Status::Normal;
     Symbol replacement;
     bool inherited = false;
+    std::string_view message;  // the message type this method is the script face of
+};
+
+// A typed message handler (Binder::on), searched by key on the C++ path.
+struct MessageEntry {
+    const void* key;
+    MessageThunk thunk;
+    Shared callable;
 };
 
 struct PropertyEntry {
@@ -41,6 +49,7 @@ struct TypeRecord {
     Symbol symbol;                 // `name`, interned
     Vec<const TypeRecord*> bases;  // every ancestor, nearest first
     Vec<MethodEntry> methods;      // sorted by symbol identity, for binary search
+    Vec<MessageEntry> messages;    // sorted by key; a type has few
     Vec<PropertyEntry> properties;
     CreateObject create = nullptr;  // for {new}; null if T is not default-constructible
     DestroyObject destroy = nullptr;
@@ -173,6 +182,8 @@ struct Context::Impl {
     [[nodiscard]] Expected<void> set_property(ObjectBase& object, Symbol name, const Node& value,
                                               const Array& at);
     [[nodiscard]] ScriptClass* script_class(Symbol name) const noexcept;
+    // The script handler `method` sent to the object in `s` reaches, if any (D50).
+    [[nodiscard]] const ScriptClass::Handler* handler_for(const Slot& s, Symbol method) const;
     [[nodiscard]] const detail::TypeRecord* type_named(Symbol name) const noexcept;
     // The name a type goes by in messages: a script class's, else the native type's.
     [[nodiscard]] Str class_name(const Slot& s) const;
@@ -201,7 +212,10 @@ struct Context::Impl {
     Vec<const detail::TypeRecord*> types{alloc};
     Vec<Own<ScriptClass>> classes{alloc};
     Vec<ScriptClass*> class_by_name{alloc};  // by Symbol::index()
-    const CallFrame* top = nullptr;          // the innermost call in progress
+    // Bit per Symbol::index(): some {class} has a handler of that name. The usual answer
+    // for a message, "none", costs one load.
+    Vec<uint64_t> handled_names{alloc};
+    const CallFrame* top = nullptr;  // the innermost call in progress
     uint32_t depth = 0;
     uintptr_t stack_base = 0;             // the outermost call's stack address
     uintptr_t stack_budget = 256 * 1024;  // see Context::set_stack_budget

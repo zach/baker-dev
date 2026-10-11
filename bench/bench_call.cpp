@@ -45,10 +45,20 @@ double ns_per_call(F&& f) {
 
 }  // namespace
 
+struct HitMsg {
+    static constexpr auto name = "hit";
+    int points;
+};
+
 struct Person : moira::Object<Person> {
     float height = 6.0f;
+    int hp = 1'000'000;
     float on_grow(float amount) { return height += amount; }
-    static void bind(moira::Binder<Person>& b) { b.method("grow", &Person::on_grow); }
+    int on_hit(const HitMsg& m) { return hp -= m.points; }
+    static void bind(moira::Binder<Person>& b) {
+        b.method("grow", &Person::on_grow);
+        b.on<HitMsg>(&Person::on_hit);
+    }
 };
 
 int main() {
@@ -99,6 +109,55 @@ int main() {
                         names[k], ns, allocs, ns <= 40 && allocs == 0 ? "ok" : "MISSED");
         else
             std::printf("%-38s %7.2f ns  %zu allocations / 1000 calls\n", names[k], ns, allocs);
+    }
+
+    // Typed messages (spec §7: C++ to C++ dispatch <= 15 ns, zero allocations).
+    std::printf("\nsending a message from C++\n");
+    {
+        auto row = [](const char* name, auto&& call, const char* target) {
+            for (int i = 0; i < 100; ++i) call(i);
+            moira::test::AllocationScope scope;
+            for (int i = 0; i < 1000; ++i) call(i);
+            const size_t allocs = scope.count();
+            const double ns = ns_per_call(call);
+            std::printf("%-38s %7.2f ns  %zu allocations / 1000 calls%s\n", name, ns, allocs,
+                        target);
+        };
+        Person loose;
+        Person* volatile to_bob = &bob;  // opaque, and not const
+        Person* volatile to_loose = &loose;
+        row(
+            "bob.handle(HitMsg{1}), in a Context",
+            [&](int i) {
+                auto r = to_bob->handle(HitMsg{i & 1});
+                return r ? static_cast<double>(r->try_int().value_or(0)) : -1.0;
+            },
+            "   (target <= 15 ns)");
+        row(
+            "handle(HitMsg{1}), in no Context",
+            [&](int i) {
+                auto r = to_loose->handle(HitMsg{i & 1});
+                return r ? static_cast<double>(r->try_int().value_or(0)) : -1.0;
+            },
+            "");
+        std::vector<Person> crowd(64);
+        std::vector<moira::ObjectBase*> ptrs;
+        for (Person& p : crowd) ptrs.push_back(&p);
+        row(
+            "handle_all, one call for 64 objects",
+            [&](int i) {
+                auto r =
+                    moira::handle_all(std::span<moira::ObjectBase* const>(ptrs), HitMsg{i & 1});
+                return r ? static_cast<double>(*r) : -1.0;
+            },
+            "   (the time is for 64)");
+        row(
+            "ctx.call(bob, \"grow\", 1.5f), for comparison",
+            [&](int) {
+                auto r = ctx.call(opaque(bob), "grow", 1.5f);
+                return r ? r->try_float().value_or(0) : -1.0;
+            },
+            "");
     }
 
     // Resolving a name: the Context's table, indexed by Symbol::index(), against a hash map.

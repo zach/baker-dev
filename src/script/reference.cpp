@@ -304,6 +304,7 @@ Str reference_text(const Context& ctx) {
                     out += "- `{<" + t->name + "> " + Str(m->name.str()) + sig + "}` → " +
                            Str(o.result);
                     if (&o == &m->overloads.front() && !m->doc.empty()) out += ": " + m->doc;
+                    if (!m->message.empty()) out += " (message `" + Str(m->message) + "`)";
                     out += "\n";
                 }
             for (const detail::PropertyEntry& p : t->properties)
