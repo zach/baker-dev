@@ -106,8 +106,8 @@ TEST_CASE("checked accessors return located type errors") {
     CHECK(Node(2.5).as<float>() == 2.5f);
     CHECK(Node(int64_t{3000000000}).as<int64_t>() == 3000000000);
     CHECK(Node(int64_t{3000000000}).as<uint32_t>() == 3000000000u);
-    CHECK(Node(int64_t{3000000000}).as<int32_t>().error().code == ErrorCode::Range);
-    CHECK(Node(1e300).as<float>().error().code == ErrorCode::Range);
+    CHECK(Node(int64_t{3000000000}).as<int32_t>().error().code() == ErrorCode::Range);
+    CHECK(Node(1e300).as<float>().error().code() == ErrorCode::Range);
     CHECK(Node(1e-300).as<float>() == 0.0f);  // precision may round; only range is checked
     CHECK(Node(200).as<uint8_t>() == 200);
     CHECK_FALSE(Node(300).as<uint8_t>());
@@ -115,8 +115,8 @@ TEST_CASE("checked accessors return located type errors") {
     CHECK_FALSE(Node(Symbol("a")).as_str());
     CHECK_FALSE(Node(str("a")).as_sym());
     const Error e = Node(12.75f).as_int().error();
-    CHECK(e.code == ErrorCode::Type);
-    CHECK(e.message == "12.75 is float, not int");
+    CHECK(e.code() == ErrorCode::Type);
+    CHECK(e.message() == "12.75 is float, not int");
     auto a = Array::make(1, "where.dta", 12);
     CHECK(to_string(Node(a).as_int().error()) == "moira: (0) is array, not int  (where.dta:12)");
     CHECK(a->try_at(1) == nullptr);
@@ -215,7 +215,7 @@ TEST_CASE("Expected is std::expected when the library has it") {
     CHECK(ok.has_value());
     CHECK(*ok == 3);
     CHECK_FALSE(bad.has_value());
-    CHECK(bad.error().message == "nope");
+    CHECK(bad.error().message() == "nope");
     CHECK(bad.value_or(7) == 7);
     Expected<void> v;
     CHECK(v.has_value());

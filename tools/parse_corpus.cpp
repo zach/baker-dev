@@ -85,7 +85,7 @@ int main(int argc, char** argv) {
         if (!root) {
             ++failed;
             std::printf("FAIL %s\n     %s\n", item.file.generic_string().c_str(),
-                        moira::to_string(root.error()).c_str());
+                        moira::to_string(root.error()).data());
             continue;
         }
         ++ok;

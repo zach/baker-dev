@@ -94,14 +94,14 @@ TEST_CASE("parameter and return types are deduced from the signature") {
 
     const auto e = ctx.eval("\n{checked -1}", "c.dta");
     REQUIRE_FALSE(e);
-    CHECK(e.error().message == "negative");
-    CHECK(e.error().line == 2);  // located at the call
+    CHECK(e.error().message() == "negative");
+    CHECK(e.error().line() == 2);  // located at the call
     const auto narrow = ctx.eval("{narrow 300}");
     REQUIRE_FALSE(narrow);
-    CHECK(narrow.error().message == "argument 1 of 'narrow' is int, not int8");
+    CHECK(narrow.error().message() == "argument 1 of 'narrow' is int, not int8");
     const auto arity = ctx.eval("{opt}");
     REQUIRE_FALSE(arity);
-    CHECK(arity.error().message == "'opt' takes 1 to 2 arguments, given 0");
+    CHECK(arity.error().message() == "'opt' takes 1 to 2 arguments, given 0");
 }
 
 TEST_CASE("a string argument computed by a command lives until the function returns") {
@@ -152,10 +152,10 @@ TEST_CASE("overload sets: registration order, exact types first, then Int as Flo
     // Ambiguity is a registration error, not a call error.
     const auto dup = ctx.func("f", [](int64_t v) { return v; });
     REQUIRE_FALSE(dup);
-    CHECK(dup.error().message == "'f' already has the overload (int)");
+    CHECK(dup.error().message() == "'f' already has the overload (int)");
     const auto raw = ctx.func("f", [](Raw<Node> n) { return *n; });
     REQUIRE_FALSE(raw);
-    CHECK(raw.error().message == "'f' takes unevaluated arguments, so it cannot be overloaded");
+    CHECK(raw.error().message() == "'f' takes unevaluated arguments, so it cannot be overloaded");
 }
 
 TEST_CASE("documentation and status appear in the reference") {

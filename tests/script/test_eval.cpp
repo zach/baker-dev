@@ -59,28 +59,28 @@ TEST_CASE("literals evaluate to themselves; commands run their function") {
 TEST_CASE("errors name the function and the call site") {
     Context ctx;
     Error e = eval_error(ctx, "\n{nope 1}");
-    CHECK(e.message == "'nope' is not a function");
-    CHECK(e.file == Symbol("test.dta"));
-    CHECK(e.line == 2);
+    CHECK(e.message() == "'nope' is not a function");
+    CHECK(e.file() == Symbol("test.dta"));
+    CHECK(e.line() == 2);
 
     e = eval_error(ctx, "{not 1 2}");
-    CHECK(e.message == "'not' takes 1 argument, given 2");
-    CHECK(e.line == 1);
+    CHECK(e.message() == "'not' takes 1 argument, given 2");
+    CHECK(e.line() == 1);
 
     e = eval_error(ctx, "\n\n{+ 1 two}");
-    CHECK(e.message == "no overload of '+' takes (int symbol); it has (int int) (float float)");
-    CHECK(e.line == 3);
+    CHECK(e.message() == "no overload of '+' takes (int symbol); it has (int int) (float float)");
+    CHECK(e.line() == 3);
 
     e = eval_error(ctx, "{not two}");
-    CHECK(e.message == "argument 1 of 'not' is symbol, not bool");
+    CHECK(e.message() == "argument 1 of 'not' is symbol, not bool");
 
     e = eval_error(ctx, "{% 1 0}");
-    CHECK(e.message == "'%' by zero");
-    CHECK(e.line == 1);
+    CHECK(e.message() == "'%' by zero");
+    CHECK(e.line() == 1);
 
-    CHECK(eval_error(ctx, "{}").message == "empty command {}");
-    CHECK(eval_error(ctx, "$nobody").message == "$nobody is not set");
-    CHECK(eval_error(ctx, "{+ $nobody 1}").line == 1);
+    CHECK(eval_error(ctx, "{}").message() == "empty command {}");
+    CHECK(eval_error(ctx, "$nobody").message() == "$nobody is not set");
+    CHECK(eval_error(ctx, "{+ $nobody 1}").line() == 1);
 }
 
 TEST_CASE("if and set are ordinary functions, and the evaluator knows no function by name") {
@@ -96,7 +96,7 @@ TEST_CASE("if and set are ordinary functions, and the evaluator knows no functio
     // that takes unevaluated arguments.
     const auto r = ctx.func("if", [](int64_t a, int64_t b) { return a * b; });
     REQUIRE_FALSE(r);
-    CHECK(r.error().message == "'if' takes unevaluated arguments, so it cannot be overloaded");
+    CHECK(r.error().message() == "'if' takes unevaluated arguments, so it cannot be overloaded");
 }
 
 TEST_CASE("the untaken branch of an if is never evaluated") {
@@ -130,7 +130,7 @@ TEST_CASE("variables: set, read from C++, and dynamic scope through do") {
     CHECK_FALSE(ctx.var("b").is_set());
 
     // Restored on error too.
-    CHECK(eval_error(ctx, "{do (($a 5)) {nope}}").message == "'nope' is not a function");
+    CHECK(eval_error(ctx, "{do (($a 5)) {nope}}").message() == "'nope' is not a function");
     CHECK(ctx.var("a")->as_int() == 1);
 
     // Dynamic, not lexical: a function sees its caller's bindings.
@@ -139,7 +139,7 @@ TEST_CASE("variables: set, read from C++, and dynamic scope through do") {
     CHECK(eval_ok(ctx, "{peek}").as_int() == 1);
 
     // set needs a variable.
-    CHECK(eval_error(ctx, "{set a 1}").message ==
+    CHECK(eval_error(ctx, "{set a 1}").message() ==
           "argument 1 of 'set' must be a $variable, not symbol");
 }
 
@@ -150,16 +150,16 @@ TEST_CASE("script functions: arguments evaluate in the caller's scope, then bind
     ctx.var("a") = 10;
     CHECK(eval_ok(ctx, "{add1 {+ $a 1}}").as_int() == 12);  // $a is still the caller's 10
     CHECK(ctx.var("a")->as_int() == 10);
-    CHECK(eval_error(ctx, "{add1}").message == "'add1' takes 1 argument, given 0");
+    CHECK(eval_error(ctx, "{add1}").message() == "'add1' takes 1 argument, given 0");
     eval_ok(ctx, "{func fact ($n) {if {< $n 2} 1 {* $n {fact {- $n 1}}}}}");
     CHECK(eval_ok(ctx, "{fact 10}").as_int() == 3628800);
     eval_ok(ctx, "{func forever () {forever}}");
     const Error e = eval_error(ctx, "{forever}");
-    CHECK(e.code == ErrorCode::Limit);
-    CHECK(e.message.starts_with("calls nested too deep ("));
+    CHECK(e.code() == ErrorCode::Limit);
+    CHECK(e.message().starts_with("calls nested too deep ("));
     CHECK(eval_ok(ctx, "{fact 20}").as_int() == 2432902008176640000);
     ctx.set_stack_budget(4 * 1024);  // the limit is the stack used, not a call count
-    CHECK(eval_error(ctx, "{fact 20}").code == ErrorCode::Limit);
+    CHECK(eval_error(ctx, "{fact 20}").code() == ErrorCode::Limit);
 }
 
 TEST_CASE("a script stub replaced by a native function runs unchanged call sites") {
@@ -167,7 +167,7 @@ TEST_CASE("a script stub replaced by a native function runs unchanged call sites
     std::vector<std::string> notices;
     ctx.set_notice_sink(
         [](void* user, const Error& e) {
-            static_cast<std::vector<std::string>*>(user)->push_back(e.message);
+            static_cast<std::vector<std::string>*>(user)->emplace_back(e.message());
         },
         &notices);
     auto tree =
@@ -200,11 +200,11 @@ TEST_CASE("a script func cannot silently replace a native one; override can, and
     std::vector<std::string> notices;
     ctx.set_notice_sink(
         [](void* user, const Error& e) {
-            static_cast<std::vector<std::string>*>(user)->push_back(e.message);
+            static_cast<std::vector<std::string>*>(user)->emplace_back(e.message());
         },
         &notices);
     REQUIRE(ctx.func("greet", [] { return 1; }));
-    CHECK(eval_error(ctx, "{func greet () 2}").message ==
+    CHECK(eval_error(ctx, "{func greet () 2}").message() ==
           "'greet' is a native function; write {override greet ...} to replace it");
     CHECK(eval_ok(ctx, "{greet}").as_int() == 1);
     eval_ok(ctx, "{override greet () 2}");
@@ -232,8 +232,8 @@ TEST_CASE("typed lookups in moira::data evaluate commands and variables") {
     // A value that evaluates to the wrong type is reported as what it evaluated to.
     const auto bad = enemy.find<int>("name");
     REQUIRE_FALSE(bad);
-    CHECK(bad.error().message == "'name' is symbol, not int");
-    CHECK(bad.error().line == 1);
+    CHECK(bad.error().message() == "'name' is symbol, not int");
+    CHECK(bad.error().line() == 1);
 }
 
 TEST_CASE("lookups use the thread's current Context") {
@@ -261,7 +261,7 @@ TEST_CASE("a lookup with no current Context is a clean error") {
     REQUIRE(Context::current() == nullptr);
     const auto r = tree->find<int>("x");
     REQUIRE_FALSE(r);
-    CHECK(r.error().message == "a var value needs a current moira::Context on this thread");
+    CHECK(r.error().message() == "a var value needs a current moira::Context on this thread");
 }
 
 TEST_CASE("an error returned by a function comes back from eval") {
@@ -270,7 +270,7 @@ TEST_CASE("an error returned by a function comes back from eval") {
     REQUIRE(ctx.func("height", [&] { return tree->try_find("cfg")->find_int("height"); }));
     const auto r = ctx.eval("{+ 1 {height}}");
     REQUIRE_FALSE(r);
-    CHECK(r.error().message == "'height' not found");
+    CHECK(r.error().message() == "'height' not found");
     CHECK(eval_ok(ctx, "{+ 1 1}").as_int() == 2);  // and the Context still works
 }
 

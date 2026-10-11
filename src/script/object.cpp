@@ -176,9 +176,8 @@ Expected<Node> Context::Impl::send(ObjectHandle target, const Array& command) {
         Args args(self, command, command.begin() + 2, n, 0, false, 2, object);
         const Node this_node = Node::object(target);
         Expected<Node> r = run_script(handler->body, args, &this_node);
-        if (!r && r.error().file.empty()) {
-            r.error().file = command.file();
-            r.error().line = command.line();
+        if (!r && r.error().file().empty()) {
+            r.error().set_location(command.file(), command.line());
         }
         return r;
     }
@@ -409,7 +408,8 @@ void register_object_builtins(Context& ctx) {
         Symbol name;
         if (a.size() > 1 && a.raw(1).type() == Type::Symbol) name = *a.raw(i++).try_sym();
         auto node = impl.add(*object, name, script, true);
-        if (!node) return Unexpected(a.error(std::move(node).error().message, ErrorCode::Refused));
+        if (!node)
+            return Unexpected(a.error(std::string(node.error().message()), ErrorCode::Refused));
         owner.release();
         for (; i < a.size(); ++i) {
             const Array* p = a.raw(i).try_array();

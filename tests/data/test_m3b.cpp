@@ -207,7 +207,7 @@ TEST_CASE("toggling a layer off and on restores every value and source exactly")
     CHECK(back.line == s_width.line);
     CHECK(float(width) == 3.0f);
     CHECK(cfg.layers() == std::vector<std::string>{"default", "experiment", "scratch"});
-    CHECK(cfg.toggle_layer("nope").error().code == ErrorCode::NotFound);
+    CHECK(cfg.toggle_layer("nope").error().code() == ErrorCode::NotFound);
 
     // A layer pushed disabled keeps its place but contributes nothing.
     REQUIRE(cfg.push_layer("off", parse("(box (width 9))"), {.enabled = false}));
@@ -220,7 +220,7 @@ TEST_CASE("an optional layer with a missing file is empty, and appears on reload
     REQUIRE(cfg.push_layer("default", dir.write("default.dta", kBase)));
     REQUIRE(cfg.push_layer("local", dir.path("local/sam.dta"), {.optional = true}));
     CHECK(cfg.get<int>("box.height") == 1);
-    CHECK(cfg.push_layer("bad", dir.path("missing.dta")).error().code == ErrorCode::Io);
+    CHECK(cfg.push_layer("bad", dir.path("missing.dta")).error().code() == ErrorCode::Io);
     dir.write("local/sam.dta", "(box (height 5))\n");
     REQUIRE(cfg.reload() == true);
     CHECK(cfg.get<int>("box.height") == 5);
@@ -346,8 +346,8 @@ TEST_CASE("write-back refuses a file changed on disk since it was read") {
     REQUIRE(cfg.set("box.width", Node(5)));
     auto r = cfg.write_back_to("box.width", "local");
     REQUIRE_FALSE(r);
-    CHECK(r.error().code == ErrorCode::Refused);
-    CHECK(r.error().file.str().ends_with("local.dta"));
+    CHECK(r.error().code() == ErrorCode::Refused);
+    CHECK(r.error().file().str().ends_with("local.dta"));
     CHECK(dir.read("local.dta") == "(box (height 3)) ; edited by hand\n");
 }
 
@@ -365,9 +365,9 @@ TEST_CASE("promote writes all entries or none, and reports every refusal") {
     REQUIRE(r);
     CHECK_FALSE(r->ok());
     REQUIRE(r->refused.size() == 1);  // net's array comes from net.dta, not default.dta
-    CHECK(r->refused[0].code == ErrorCode::Refused);
-    CHECK(r->refused[0].file.str().ends_with("net.dta"));
-    CHECK(r->refused[0].line == 1);
+    CHECK(r->refused[0].code() == ErrorCode::Refused);
+    CHECK(r->refused[0].file().str().ends_with("net.dta"));
+    CHECK(r->refused[0].line() == 1);
     CHECK(r->written.empty());
     CHECK(dir.read("default.dta") == base);  // nothing written
 
@@ -410,7 +410,7 @@ TEST_CASE("layer_effect reports below and shadowed in a three-layer stack") {
     CHECK_FALSE(e.below);  // nothing else sets it
     CHECK_FALSE(e.below_source);
     CHECK(e.source.layer == "mid");
-    CHECK(cfg.layer_effect("nope").error().code == ErrorCode::NotFound);
+    CHECK(cfg.layer_effect("nope").error().code() == ErrorCode::NotFound);
 }
 
 TEST_CASE("diff compares two layers' own values, for A/B") {
@@ -496,7 +496,8 @@ TEST_CASE("restore never reads disk, and write-back of restored values checks th
     REQUIRE(cfg.set("box.width", Node(3)));
     auto r = cfg.write_back("box.width");
     REQUIRE_FALSE(r);
-    CHECK(r.error().message.ends_with("has changed since it was read; reload before writing back"));
+    CHECK(
+        r.error().message().ends_with("has changed since it was read; reload before writing back"));
     REQUIRE(cfg.reload());                  // the file differs from the restored state
     CHECK(cfg.get<int>("box.width") == 3);  // scratch still wins
 }

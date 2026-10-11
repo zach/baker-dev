@@ -21,7 +21,7 @@ namespace {
 bool show(moira::Context& ctx, const std::string& line) {
     auto r = ctx.eval(line, "<input>");
     if (!r) {
-        std::printf("%s\n", moira::to_string(r.error()).c_str());
+        std::printf("%s\n", moira::to_string(r.error()).data());
         return false;
     }
     std::printf("%s\n", moira::to_string(*r).c_str());

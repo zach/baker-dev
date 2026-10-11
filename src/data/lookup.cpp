@@ -44,8 +44,7 @@ std::string label_of(const Path::Segment& seg) {
 
 void locate(Error& e, const Array* a) {
     if (!a) return;
-    e.file = a->file();
-    e.line = a->line();
+    e.set_location(a->file(), a->line());
 }
 
 bool ascii_iequal(std::string_view a, std::string_view b) noexcept {
@@ -271,7 +270,11 @@ Error find_error(const Array& container, Symbol tag, const Array* found, const C
                   : not_found(tag, container.nodes());
     locate(e, found ? found : &container);
     if (!container.empty())
-        if (auto t = container[0].try_sym()) append_name(e.path, *t);
+        if (auto t = container[0].try_sym()) {
+            std::string path(e.path());
+            append_name(path, *t);
+            e.set_path(path);
+        }
     return e;
 }
 
@@ -333,14 +336,14 @@ Error get_error(const Array& root, const Path& path, const ConvertInfo* info,
                                                 std::to_string(before.size()) + " values)")
                                : not_found(seg.name, before.nodes());
         locate(e, before_arr ? before_arr : before.source());
-        e.path = path.to_string(i);
+        e.set_path(path.to_string(i));
         return e;
     }
     // The path resolved, so the value did not convert.
     const std::string label = path.empty() ? "the array" : label_of(path[path.size() - 1]);
     Error e = conversion_error(label, values ? *values : v, info ? *info : kArrayInfo);
     locate(e, v.source());
-    e.path = path.to_string(path.empty() ? 0 : path.size() - 1);
+    e.set_path(path.to_string(path.empty() ? 0 : path.size() - 1));
     return e;
 }
 

@@ -62,7 +62,8 @@ bool check_parse(std::string_view data) {
     if (!first) {
         const Error& e = first.error();
         const auto lines = 1 + std::count(data.begin(), data.end(), '\n');
-        return !e.message.empty() && e.file == Symbol("fuzz.dta") && e.line >= 1 && e.line <= lines;
+        return !e.message().empty() && e.file() == Symbol("fuzz.dta") && e.line() >= 1 &&
+               e.line() <= lines;
     }
     uint64_t budget = 100000;
     for (const Node& n : **first)

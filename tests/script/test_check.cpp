@@ -65,11 +65,11 @@ TEST_CASE("check: literal types against overloads, and {set} needs a variable") 
     const auto tree = parse("{+ 1 two}\n{set x 1}\n{not}\n", "bad.dta");
     const CheckReport report = check(*tree, ctx);
     REQUIRE(report.errors.size() == 3);
-    CHECK(report.errors[0].message ==
+    CHECK(report.errors[0].message() ==
           "'+' is given (int symbol); it takes (int int) (float float)");
-    CHECK(report.errors[1].message == "'set' is given (symbol int); it takes ($variable value)");
-    CHECK(report.errors[2].message == "'not' takes 1 argument, given 0");
-    CHECK(report.errors[2].line == 3);
+    CHECK(report.errors[1].message() == "'set' is given (symbol int); it takes ($variable value)");
+    CHECK(report.errors[2].message() == "'not' takes 1 argument, given 0");
+    CHECK(report.errors[2].line() == 3);
 }
 
 TEST_CASE("the demand report lists unresolved heads and stubs with every call site") {

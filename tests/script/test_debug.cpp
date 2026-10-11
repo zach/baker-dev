@@ -3,6 +3,7 @@
 #include <moira/object.hpp>
 #include <moira/parse.hpp>
 #include <moira/script.hpp>
+#include <moira/std_interop.hpp>
 
 #include "alloc_counter.hpp"
 
@@ -40,16 +41,16 @@ TEST_CASE("an error four calls deep carries its stack, innermost first") {
                                "  {c $x}}\n"               // 4
                                "{func a ($x) {b $x}}\n"    // 5
                                "{a 7}\n");                 // 6
-    CHECK(e.message == "'%' by zero");
-    CHECK(e.line == 1);
-    REQUIRE(e.stack.size() == 5);
+    CHECK(e.message() == "'%' by zero");
+    CHECK(e.line() == 1);
+    REQUIRE(e.stack().size() == 5);
     const char* names[] = {"%", "d", "c", "b", "a"};
     const int32_t lines[] = {1, 2, 4, 5, 6};
     for (size_t i = 0; i < 5; ++i) {
-        CHECK(e.stack[i].function == names[i]);
-        CHECK(e.stack[i].file == "boss.dta");
-        CHECK(e.stack[i].line == lines[i]);
-        CHECK(e.stack[i].on.empty());
+        CHECK(e.stack()[i].function == names[i]);
+        CHECK(e.stack()[i].file == "boss.dta");
+        CHECK(e.stack()[i].line == lines[i]);
+        CHECK(e.stack()[i].on.empty());
     }
     CHECK(describe(e) ==
           "moira: '%' by zero  (boss.dta:1)\n"
@@ -65,12 +66,12 @@ TEST_CASE("an error four calls deep carries its stack, innermost first") {
 TEST_CASE("a call that never starts is not on the stack") {
     Context ctx;
     const Error e = eval_error(ctx, "{func f () {nope}}\n{f}");
-    CHECK(e.message == "'nope' is not a function");
-    REQUIRE(e.stack.size() == 1);
-    CHECK(e.stack[0].function == "f");
-    CHECK(e.stack[0].line == 2);
+    CHECK(e.message() == "'nope' is not a function");
+    REQUIRE(e.stack().size() == 1);
+    CHECK(e.stack()[0].function == "f");
+    CHECK(e.stack()[0].line == 2);
     // Nothing running: no stack at all.
-    CHECK(eval_error(ctx, "{nope}").stack.empty());
+    CHECK(eval_error(ctx, "{nope}").stack().empty());
 }
 
 TEST_CASE("methods and handlers name their object") {
@@ -79,11 +80,11 @@ TEST_CASE("methods and handlers name their object") {
     REQUIRE(ctx.add(g, "guard"));
     REQUIRE(ctx.eval("{class Guard (alarm ($n) {+ $n nope})}"));
     const Error e = eval_error(ctx, "{guard alarm 1}");
-    REQUIRE(e.stack.size() == 2);
-    CHECK(e.stack[0].function == "+");
-    CHECK(e.stack[1].function == "alarm");
-    CHECK(e.stack[1].on == "guard");
-    CHECK(to_string(e.stack[1]) == "{guard alarm}  (boss.dta:1)");
+    REQUIRE(e.stack().size() == 2);
+    CHECK(e.stack()[0].function == "+");
+    CHECK(e.stack()[1].function == "alarm");
+    CHECK(e.stack()[1].on == "guard");
+    CHECK(to_string(e.stack()[1]) == "{guard alarm}  (boss.dta:1)");
 }
 
 TEST_CASE("an error returned by a native function records the calls it leaves") {
@@ -92,10 +93,10 @@ TEST_CASE("an error returned by a native function records the calls it leaves") 
         return Unexpected(make_error(ErrorCode::Refused, "boom"));
     }));
     const Error e = eval_error(ctx, "{func f () {explode 1}}\n{f}");
-    CHECK(e.message == "boom");
-    REQUIRE(e.stack.size() == 2);
-    CHECK(e.stack[0].function == "explode");
-    CHECK(e.stack[1].function == "f");
+    CHECK(e.message() == "boom");
+    REQUIRE(e.stack().size() == 2);
+    CHECK(e.stack()[0].function == "explode");
+    CHECK(e.stack()[1].function == "f");
     CHECK(describe(e).find("\n  in {f}") != std::string::npos);
 }
 
@@ -123,10 +124,10 @@ TEST_CASE("frames cross a native call back into script") {
     REQUIRE(ctx.eval("{func walk ($n) {% $n 0}}"));
     const Error e = eval_error(ctx, "{guard patrol 3}");
     // The inner evaluation shares the frame list, so its error records the outer calls too.
-    REQUIRE(e.stack.size() >= 3);
-    CHECK(e.stack[0].function == "%");
-    CHECK(e.stack[1].function == "walk");
-    CHECK(e.stack.back().function == "patrol");
+    REQUIRE(e.stack().size() >= 3);
+    CHECK(e.stack()[0].function == "%");
+    CHECK(e.stack()[1].function == "walk");
+    CHECK(e.stack().back().function == "patrol");
 }
 
 TEST_CASE("the frame list allocates nothing") {

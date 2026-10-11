@@ -10,7 +10,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <string_view>
 
 namespace moira {
@@ -77,8 +76,3 @@ inline Symbol operator""_sym(const char* s, size_t n) {
 }  // namespace literals
 
 }  // namespace moira
-
-template <>
-struct std::hash<moira::Symbol> {
-    size_t operator()(moira::Symbol s) const noexcept { return static_cast<size_t>(s.hash()); }
-};

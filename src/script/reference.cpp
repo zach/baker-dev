@@ -2,6 +2,8 @@
 // registrations, and neither evaluates anything.
 #include "internal.hpp"
 
+#include <moira/std_interop.hpp>
+
 #include <algorithm>
 #include <cstdio>
 #include <unordered_map>
@@ -199,7 +201,7 @@ CheckReport check(const Array& tree, const Context& ctx) {
 
 std::string CheckReport::to_string() const {
     std::string out;
-    for (const Error& e : errors) out += moira::to_string(e) + "\n";
+    for (const Error& e : errors) out += std::string(moira::to_string(e)) + "\n";
     for (const Demand& d : demand) {
         out += "demand: " + quoted(d.name);
         if (!d.on.empty()) out += " on " + std::string(d.on.str());

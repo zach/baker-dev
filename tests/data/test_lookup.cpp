@@ -111,15 +111,15 @@ TEST_CASE("fallbacks apply only when the key is absent") {
     CHECK(eggs.find_str("note", "none") == "none");
     CHECK(eggs.find<int32_t>("fat", -1) == -1);
     // Present but the wrong type: an error, not the fallback.
-    CHECK(error_of(eggs.find_int("price", 0)).code == ErrorCode::Type);
-    CHECK(error_of(eggs.find_str("tags", "x")).code == ErrorCode::Type);
+    CHECK(error_of(eggs.find_int("price", 0)).code() == ErrorCode::Type);
+    CHECK(error_of(eggs.find_str("tags", "x")).code() == ErrorCode::Type);
 
     CHECK(root->get<int>("menu.'bacon and eggs'.fat", 3) == 3);
     CHECK(root->get<int>("menu.waffles.price", 3) == 3);
     CHECK(root->get<int>("menu.'bacon and eggs'.price.4", 3) == 3);
     CHECK(root->get<double>("menu.'bacon and eggs'.price", 0.0) == 12.75);
-    CHECK(error_of(root->get<int>("menu.'bacon and eggs'.price", 0)).code == ErrorCode::Type);
-    CHECK(error_of(root->get<int>("menu..price", 0)).code == ErrorCode::Syntax);
+    CHECK(error_of(root->get<int>("menu.'bacon and eggs'.price", 0)).code() == ErrorCode::Type);
+    CHECK(error_of(root->get<int>("menu..price", 0)).code() == ErrorCode::Syntax);
 }
 
 TEST_CASE("errors carry key, types, location, and path") {
@@ -129,7 +129,7 @@ TEST_CASE("errors carry key, types, location, and path") {
 
     // The spec's example, through a path: the whole path is known.
     Error e = error_of(root->get<int>("menu.'bacon and eggs'.price"));
-    CHECK(e.code == ErrorCode::Type);
+    CHECK(e.code() == ErrorCode::Type);
     CHECK(to_string(e) ==
           "moira: 'price' is float, not int  (menu.dta:3, at menu/'bacon and eggs')");
 
@@ -138,42 +138,42 @@ TEST_CASE("errors carry key, types, location, and path") {
     CHECK(to_string(e) == "moira: 'price' is float, not int  (menu.dta:3, at 'bacon and eggs')");
 
     e = error_of(eggs.find_int("fat"));
-    CHECK(e.code == ErrorCode::NotFound);
+    CHECK(e.code() == ErrorCode::NotFound);
     CHECK(to_string(e) == "moira: 'fat' not found  (menu.dta:2, at 'bacon and eggs')");
 
     e = error_of(root->get<double>("menu.waffles.price"));
     CHECK(to_string(e) == "moira: 'waffles' not found  (menu.dta:1, at menu)");
 
     e = error_of(eggs.find_sym("price"));
-    CHECK(e.message == "'price' is float, not symbol");
+    CHECK(e.message() == "'price' is float, not symbol");
     e = error_of(eggs.find_str("tags"));
-    CHECK(e.message == "'tags' is symbol, not string");
+    CHECK(e.message() == "'tags' is symbol, not string");
     e = error_of(eggs.find_array("price"));
-    CHECK(e.message == "'price' is float, not array");
+    CHECK(e.message() == "'price' is float, not array");
     e = error_of(eggs.find<uint8_t>("price"));
-    CHECK(e.message == "'price' is float, not int");
+    CHECK(e.message() == "'price' is float, not int");
     CHECK(eggs.find<int8_t>("calories") == 120);
     e = error_of(array("t", array("calories", 300))->find<int8_t>("calories"));
-    CHECK(e.code == ErrorCode::Range);
-    CHECK(e.message == "'calories' value 300 is out of range for int8");
+    CHECK(e.code() == ErrorCode::Range);
+    CHECK(e.message() == "'calories' value 300 is out of range for int8");
     e = error_of(eggs.find<float>("tags"));
-    CHECK(e.message == "'tags' is symbol, not float");
+    CHECK(e.message() == "'tags' is symbol, not float");
     e = error_of(eggs.find<Vec2>("tags"));
-    CHECK(e.message == "'tags' (hot savory) does not read as vec2");
-    CHECK(e.line == 5);
+    CHECK(e.message() == "'tags' (hot savory) does not read as vec2");
+    CHECK(e.line() == 5);
 
     auto empty = array("t", array("nothing"));
-    CHECK(error_of(empty->find_int("nothing")).message == "'nothing' has no value");
+    CHECK(error_of(empty->find_int("nothing")).message() == "'nothing' has no value");
 }
 
 TEST_CASE("commands and variables need moira::script to be read as values") {
     auto root = menu_root();
     const Array& fruit = *root->try_get("menu.'fruit and cereal'");
     Error e = error_of(fruit.find_str("on_order"));
-    CHECK(e.message == "'on_order' is a command; reading it as a value needs moira::script");
-    CHECK(e.line == 9);
+    CHECK(e.message() == "'on_order' is a command; reading it as a value needs moira::script");
+    CHECK(e.line() == 9);
     e = error_of(fruit.find_int("count"));
-    CHECK(e.message == "'count' is a var; reading it as a value needs moira::script");
+    CHECK(e.message() == "'count' is a var; reading it as a value needs moira::script");
     // Raw access never evaluates.
     CHECK(fruit.try_find("on_order")->values()[0].type() == Type::Command);
     CHECK(fruit.find<Node>("count")->type() == Type::Var);
@@ -185,13 +185,13 @@ TEST_CASE("failed lookups suggest the likely mistake") {
     REQUIRE(r);
     const Array& menu = *(*r)->try_find("menu");
     Error e = error_of(menu.find_float("bacon and eggs"));
-    CHECK(e.message ==
+    CHECK(e.message() ==
           "'bacon and eggs' not found; \"bacon and eggs\" at line 2 is a string, but keys are "
           "symbols: write 'bacon and eggs'");
     e = error_of(menu.find_float("price"));
-    CHECK(e.message == "'price' not found; did you mean 'Price'?");
+    CHECK(e.message() == "'price' not found; did you mean 'Price'?");
     e = error_of((*r)->get<float>("menu.CALORIES"));
-    CHECK(e.message == "'CALORIES' not found; did you mean 'calories'?");
+    CHECK(e.message() == "'CALORIES' not found; did you mean 'calories'?");
 }
 
 TEST_CASE("paths parse names, quoted names, and indexes") {
@@ -224,8 +224,8 @@ TEST_CASE("paths parse names, quoted names, and indexes") {
     }
     auto root = menu_root();
     Error e = error_of(root->get<int>("menu..price"));
-    CHECK(e.code == ErrorCode::Syntax);
-    CHECK(e.message == "malformed path 'menu..price'");
+    CHECK(e.code() == ErrorCode::Syntax);
+    CHECK(e.message() == "malformed path 'menu..price'");
     CHECK(root->try_get("menu..price") == nullptr);
 }
 
@@ -262,17 +262,17 @@ TEST_CASE("paths walk names and indexes") {
     CHECK(root.try_get("renderer.clear_color.0") == nullptr);  // a leaf, not an array
 
     Error e = error_of(root.get<double>("renderer.clear_color.3"));
-    CHECK(e.code == ErrorCode::NotFound);
+    CHECK(e.code() == ErrorCode::NotFound);
     CHECK(to_string(e) ==
           "moira: element 3 is out of range (3 values)  (cfg.dta:1, at renderer/clear_color)");
     e = error_of(root.get<Symbol>("renderer.clear_color.1"));
     CHECK(to_string(e) ==
           "moira: element 1 is float, not symbol  (cfg.dta:1, at renderer/clear_color)");
     e = error_of(root.get<int>("renderer.clear_color.0.x"));
-    CHECK(e.code == ErrorCode::NotFound);
-    CHECK(e.path == "renderer/clear_color/0");
+    CHECK(e.code() == ErrorCode::NotFound);
+    CHECK(e.path() == "renderer/clear_color/0");
     e = error_of(root.get<Vec2>("renderer.points"));
-    CHECK(e.message == "'points' ((1 2) (3 4)) does not read as vec2");
+    CHECK(e.message() == "'points' ((1 2) (3 4)) does not read as vec2");
 }
 
 TEST_CASE("Values::read descends into arrays") {
@@ -398,7 +398,7 @@ TEST_CASE("typed reads with fallbacks, and their errors") {
 
     const auto wrong = eggs.find_int("price");
     REQUIRE_FALSE(wrong);
-    CHECK(wrong.error().code == ErrorCode::Type);
+    CHECK(wrong.error().code() == ErrorCode::Type);
     CHECK(to_string(wrong.error()) ==
           "moira: 'price' is float, not int  (menu.dta:3, at 'bacon and eggs')");
     CHECK_FALSE(menu.find_array("waffles"));
@@ -424,7 +424,7 @@ TEST_CASE("the corpus config reads through lookups") {
     CHECK(cfg.get<int>("app.max_players") == 4);
     CHECK(cfg.get<double>("input.deadzone") == 0.15);
     Error e = error_of(cfg.get<int>("input.deadzone"));
-    CHECK(e.file.str().ends_with("config_default.dta"));
-    CHECK(e.line == 15);
-    CHECK(e.path == "input");
+    CHECK(e.file().str().ends_with("config_default.dta"));
+    CHECK(e.line() == 15);
+    CHECK(e.path() == "input");
 }

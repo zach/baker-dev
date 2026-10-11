@@ -102,7 +102,7 @@ TEST_CASE("C++ calls a handler that script defined; script handlers come first")
     CHECK(ok(ctx.eval("{bob shrink 2}")).as_int() == 0);      // the native method still serves
     CHECK(bob.height == 110.0f);
     // A handler's arity is checked.
-    CHECK(error_of(ctx, "{bob grow}").message == "'grow' takes 1 argument, given 0");
+    CHECK(error_of(ctx, "{bob grow}").message() == "'grow' takes 1 argument, given 0");
 }
 
 TEST_CASE("inheritance: methods and properties are flattened, a derived method replaces") {
@@ -137,9 +137,9 @@ TEST_CASE("a destroyed object leaves a stale handle, never a dangling pointer") 
     }  // p removes itself
     CHECK(ctx.try_resolve(old) == nullptr);
     CHECK(ctx.object("temp").type() == Type::Int);
-    CHECK(error_of(ctx, "\n{$p grow 1}").message ==
+    CHECK(error_of(ctx, "\n{$p grow 1}").message() ==
           "the object this command is sent to was removed (a stale handle)");
-    CHECK(error_of(ctx, "{temp grow 1}").message == "'temp' is not a function");
+    CHECK(error_of(ctx, "{temp grow 1}").message() == "'temp' is not a function");
     Person q;
     const Node fresh = ok(ctx.add(q));  // likely reuses the slot, with a new salt
     CHECK(ctx.try_resolve(fresh) == &q);
@@ -155,7 +155,7 @@ TEST_CASE("object commands evaluate slot 0") {
     CHECK(ok(ctx.eval("{{nearest} grow 1}")).as_float() == 7.0);
     ctx.var("who") = bob.node();
     CHECK(ok(ctx.eval("{$who grow 1}")).as_float() == 8.0);
-    CHECK(error_of(ctx, "{{+ 1 2} grow 1}").message ==
+    CHECK(error_of(ctx, "{{+ 1 2} grow 1}").message() ==
           "a command starts with a function or an object, not a int");
 }
 
@@ -164,20 +164,20 @@ TEST_CASE("errors name the type, the method, and the call site") {
     Person bob;
     ok(ctx.add(bob, "bob"));
     Error e = error_of(ctx, "\n\n{bob fly}");
-    CHECK(e.message == "Person has no method 'fly'");
-    CHECK(e.line == 3);
-    CHECK(error_of(ctx, "{bob grow tall}").message ==
+    CHECK(e.message() == "Person has no method 'fly'");
+    CHECK(e.line() == 3);
+    CHECK(error_of(ctx, "{bob grow tall}").message() ==
           "argument 1 of 'grow' is symbol, not float32");
-    CHECK(error_of(ctx, "{bob set height tall}").message ==
+    CHECK(error_of(ctx, "{bob set height tall}").message() ==
           "property 'height' of Person is float32, not symbol");
-    CHECK(error_of(ctx, "{bob get weight}").message ==
+    CHECK(error_of(ctx, "{bob get weight}").message() ==
           "Person has no property or parameter 'weight'");
-    CHECK(error_of(ctx, "{bob}").message ==
+    CHECK(error_of(ctx, "{bob}").message() ==
           "an object command names a method: {object method ...}");
     CHECK_FALSE(ctx.add(bob, "bob2"));  // already in this Context
     Person other;
-    CHECK(ctx.add(other, "bob").error().message == "an object is already named 'bob'");
-    CHECK(ctx.add(other, "if").error().message ==
+    CHECK(ctx.add(other, "bob").error().message() == "an object is already named 'bob'");
+    CHECK(ctx.add(other, "if").error().message() ==
           "'if' is a function, so it cannot name an object");
 }
 
@@ -191,7 +191,7 @@ TEST_CASE("loose parameters and property paths") {
     ok(ctx.eval("{class Person (where [pos x]) (feeling [mood])}"));
     CHECK(ok(ctx.eval("{bob where}")).as_int() == 3);
     CHECK(ok(ctx.eval("{bob feeling}")).as_sym() == Symbol("happy"));
-    CHECK(error_of(ctx, "{+ [height] 1}").message ==
+    CHECK(error_of(ctx, "{+ [height] 1}").message() ==
           "[...] reads a property of $this, which is not set");
 }
 
@@ -206,11 +206,11 @@ TEST_CASE("script classes: new, parameters, and delete") {
     CHECK(ok(ctx.eval("{g1 alive}")).as_int() == 1);
     CHECK(ok(ctx.eval("{g1 hit 2} {g1 alive}")).as_int() == 0);
     CHECK(ok(ctx.eval("{g1 type}")).as_sym() == Symbol("Goblin"));
-    CHECK(error_of(ctx, "{g1 fly}").message == "Goblin has no method 'fly'");
+    CHECK(error_of(ctx, "{g1 fly}").message() == "Goblin has no method 'fly'");
     const Node g = ctx.object("g1");
     ok(ctx.eval("{delete g1}"));
     CHECK(ctx.try_resolve(g) == nullptr);
-    CHECK(error_of(ctx, "{new Orc o}").message == "'Orc' is not a class");
+    CHECK(error_of(ctx, "{new Orc o}").message() == "'Orc' is not a class");
     // A default-constructible bound type can be created from script too.
     ctx.add_type<Person>();
     const Node p = ok(ctx.eval("{new Person tall (height 9)}"));

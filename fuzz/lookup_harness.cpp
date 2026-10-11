@@ -19,7 +19,7 @@ LoadSession make_session() {
 }
 
 bool located(const Error& e) {
-    return !e.message.empty() && e.file == Symbol("lookup.dta") && e.line >= 1;
+    return !e.message().empty() && e.file() == Symbol("lookup.dta") && e.line() >= 1;
 }
 
 // Sorted and linear find must agree on every tag among `a`'s children, and on `extra`.
@@ -91,7 +91,7 @@ bool check_lookup(std::string_view data) {
           as_list ? nullptr : &as_list.error(), with_fallback ? nullptr : &with_fallback.error()})
         if (e && !located(*e)) return false;
     if (!path.valid() && (arr || as_node || with_fallback)) return false;
-    if (arr && !as_list && as_list.error().code == ErrorCode::NotFound) return false;
+    if (arr && !as_list && as_list.error().code() == ErrorCode::NotFound) return false;
 
     const Symbol first =
         path.valid() && !path.empty() && !path[0].is_index ? path[0].name : Symbol("x");

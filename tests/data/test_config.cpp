@@ -171,9 +171,9 @@ TEST_CASE("layers merge, and removing one restores every value") {
     CHECK(cfg.get<int>("audio.channels") == 64);
     CHECK(cfg.epoch() == epoch + 3);
 
-    CHECK(error_code_name(cfg.remove_layer("nope").error().code) == "not found");
-    CHECK(cfg.push_layer("default", parse("(x 1)")).error().code == ErrorCode::Refused);
-    CHECK(cfg.push_layer("bad", dir.path("missing.dta")).error().code == ErrorCode::Io);
+    CHECK(error_code_name(cfg.remove_layer("nope").error().code()) == "not found");
+    CHECK(cfg.push_layer("default", parse("(x 1)")).error().code() == ErrorCode::Refused);
+    CHECK(cfg.push_layer("bad", dir.path("missing.dta")).error().code() == ErrorCode::Io);
 }
 
 TEST_CASE("layers above see macros from layers below, and lose them with the layer") {
@@ -218,8 +218,8 @@ TEST_CASE("source names the layer, file, and line") {
     CHECK(cfg.unsaved() == std::vector<std::string>{"renderer/screen_size"});
 #endif
 
-    CHECK(cfg.source("renderer.nope").error().code == ErrorCode::NotFound);
-    CHECK(cfg.source("a..b").error().code == ErrorCode::Syntax);
+    CHECK(cfg.source("renderer.nope").error().code() == ErrorCode::NotFound);
+    CHECK(cfg.source("a..b").error().code() == ErrorCode::Syntax);
 }
 
 #if !MOIRA_SHIPPING  // reload is inert under MOIRA_SHIPPING (tested below)
@@ -245,7 +245,7 @@ TEST_CASE("reload sees a file changed on disk") {
     dir.write("app.dta", "(speed 6\n");
     auto r = cfg.reload();
     REQUIRE_FALSE(r);
-    CHECK(r.error().file.str().ends_with("app.dta"));
+    CHECK(r.error().file().str().ends_with("app.dta"));
     CHECK(cfg.root().get() == good.get());
     CHECK(cfg.get<int>("speed") == 5);
     dir.write("app.dta", "(speed 7)\n");
@@ -348,7 +348,7 @@ TEST_CASE("tweaks bind, rebind, and fall back to their defaults") {
     CHECK(float(width) == 2.0f);
     CHECK_FALSE(width.bound());
     REQUIRE(warnings.size() == 1);
-    CHECK(warnings[0].message == "'width' is symbol, not float");
+    CHECK(warnings[0].message() == "'width' is symbol, not float");
 }
 
 TEST_CASE("registering a tweak allocates nothing") {
@@ -416,18 +416,18 @@ TEST_CASE("write-back refuses what it cannot edit exactly") {
     REQUIRE(cfg.set("audio.master_volume", Node(0.5)));
     auto r = cfg.write_back("audio.master_volume");
     REQUIRE_FALSE(r);
-    CHECK(r.error().code == ErrorCode::Refused);
-    CHECK(r.error().message ==
+    CHECK(r.error().code() == ErrorCode::Refused);
+    CHECK(r.error().message() ==
           "'audio/master_volume' comes from macro 'kDefaultVolume'; edit the macro's definition "
           "instead");
-    CHECK(r.error().file.str().ends_with("default.dta"));
-    CHECK(r.error().line == 8);
+    CHECK(r.error().file().str().ends_with("default.dta"));
+    CHECK(r.error().line() == 8);
     CHECK(cfg.unsaved().size() == 1);  // still live
 
     // A value from an overlay layer.
     REQUIRE(cfg.set("renderer.clear_color.0", Node(0.5)));
     r = cfg.write_back("renderer.clear_color");
-    CHECK(r.error().message ==
+    CHECK(r.error().message() ==
           "'renderer/clear_color' comes from layer 'patch', which has no source file");
 
     // A file edited since it was read.
@@ -435,8 +435,9 @@ TEST_CASE("write-back refuses what it cannot edit exactly") {
     dir.write("default.dta", edited);
     REQUIRE(cfg.set("audio.channels", Node(4)));
     r = cfg.write_back("audio.channels");
-    CHECK(r.error().code == ErrorCode::Refused);
-    CHECK(r.error().message.ends_with("has changed since it was read; reload before writing back"));
+    CHECK(r.error().code() == ErrorCode::Refused);
+    CHECK(
+        r.error().message().ends_with("has changed since it was read; reload before writing back"));
     CHECK(dir.read("default.dta") == edited);  // untouched
     REQUIRE(cfg.reload());
     REQUIRE(cfg.write_back("audio.channels"));
@@ -444,7 +445,7 @@ TEST_CASE("write-back refuses what it cannot edit exactly") {
 
     // A value no layer's file has.
     REQUIRE(cfg.set("fresh.key", Node(1)));
-    CHECK(cfg.write_back("fresh.key").error().code == ErrorCode::Refused);
+    CHECK(cfg.write_back("fresh.key").error().code() == ErrorCode::Refused);
 }
 
 TEST_CASE("write-back into an array assembled by #merge is refused") {
@@ -490,8 +491,8 @@ TEST_CASE("freeze ends the initial load") {
     Config cfg({.tweaks = nullptr});
     REQUIRE(cfg.push_layer("d", dir.write("d.dta", "(a 1)\n")));
     cfg.freeze();
-    CHECK(cfg.push_layer("p", parse("(a 2)")).error().code == ErrorCode::Refused);
-    CHECK(cfg.set("a", Node(3)).error().code == ErrorCode::Refused);
+    CHECK(cfg.push_layer("p", parse("(a 2)")).error().code() == ErrorCode::Refused);
+    CHECK(cfg.set("a", Node(3)).error().code() == ErrorCode::Refused);
     dir.write("d.dta", "(a 5)\n");
     CHECK(cfg.reload() == false);
     CHECK(cfg.get<int>("a") == 1);
@@ -534,7 +535,7 @@ TEST_CASE("the short forms in one place") {
     CHECK_FALSE(cfg.push_layer("x", dir.path("nope.dta")));
     CHECK_FALSE(cfg.get<int>("audio.nope"));
     if constexpr (kShipping) {
-        CHECK(cfg.set("audio.channels", 4).error().code == ErrorCode::Refused);
+        CHECK(cfg.set("audio.channels", 4).error().code() == ErrorCode::Refused);
     } else {
         ok(cfg.set("audio.channels", 4));
         ok(cfg.write_back("audio.channels"));
@@ -587,9 +588,9 @@ TEST_CASE("every corpus config value writes back as one line, or is refused with
             before[name] = dir.read(name);
         auto r = cfg.write_back(path);
         if (!r) {
-            CHECK(r.error().code == ErrorCode::Refused);
-            CHECK_FALSE(r.error().file.empty());
-            CHECK(r.error().line > 0);
+            CHECK(r.error().code() == ErrorCode::Refused);
+            CHECK_FALSE(r.error().file().empty());
+            CHECK(r.error().line() > 0);
             ++refused_count;
             continue;
         }

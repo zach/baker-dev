@@ -2,6 +2,7 @@
 #include "internal.hpp"
 
 #include <moira/parse.hpp>
+#include <moira/std_interop.hpp>
 
 #include <cstdio>
 #if defined(_MSC_VER)
@@ -39,17 +40,16 @@ std::string quoted(Symbol s) {
 // still live; an error that has one keeps it as it unwinds further. Nothing on the
 // successful path pays for it.
 MOIRA_COLD void record_stack(Error& e) {
-    if (!e.stack.empty() || !t_current) return;
+    if (!e.stack().empty() || !t_current) return;
     for (const CallFrame* c = t_current->impl().top; c; c = c->parent)
-        e.stack.push_back(t_current->stack_entry(*c));
+        e.push_stack(t_current->stack_entry(*c));
 }
 
 namespace {
 
 MOIRA_COLD void locate(Error& e, const Array& at) {
-    if (e.file.empty()) {
-        e.file = at.file();
-        e.line = at.line();
+    if (e.file().empty()) {
+        e.set_location(at.file(), at.line());
     }
     record_stack(e);
 }
@@ -126,7 +126,8 @@ Expected<Node> evaluate_for_data(const Node& n) {
 }
 
 void stderr_sink(void*, const Error& notice) {
-    std::fprintf(stderr, "%s\n", describe(notice).c_str());
+    const std::string_view text = describe(notice);
+    std::fprintf(stderr, "%.*s\n", static_cast<int>(text.size()), text.data());
 }
 
 }  // namespace
@@ -420,7 +421,7 @@ std::string script_backtrace() {
     if (const Context* ctx = Context::current())
         for (const StackEntry& e : ctx->backtrace()) {
             out += "in ";
-            out += to_string(e);
+            write(e, string_out(out));
             out += '\n';
         }
     return out;
@@ -448,8 +449,8 @@ Expected<FuncRef> Context::add_overload(Symbol name, detail::Overload o) {
                              "native " + quoted(name) + " replaces the script definition", f.file,
                              f.line);
         if (n < o.min_args || n > o.max_args)
-            e.message += "; the script took " + arity_text(n, n) + ", the native takes " +
-                         arity_text(o.min_args, o.max_args);
+            e.set_message(std::string(e.message()) + "; the script took " + arity_text(n, n) +
+                          ", the native takes " + arity_text(o.min_args, o.max_args));
         notice(std::move(e));
         f.overloads.clear();
         f.status = Status::Normal;

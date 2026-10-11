@@ -159,7 +159,7 @@ TEST_CASE("write_file writes the file form") {
     REQUIRE(back.has_value());
     CHECK(structurally_equal(*root, **back));
     std::remove(path.c_str());
-    CHECK(write_file("/definitely/not/a/dir/x.dta", *root).error().code == ErrorCode::Io);
+    CHECK(write_file("/definitely/not/a/dir/x.dta", *root).error().code() == ErrorCode::Io);
 }
 
 TEST_CASE("preview is bounded on shared trees") {

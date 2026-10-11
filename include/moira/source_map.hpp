@@ -14,6 +14,7 @@
 // refuse instead of guessing.
 
 #include <moira/array.hpp>
+#include <moira/std_interop.hpp>  // until LoadSession is opaque (M5b step 2b)
 
 #include <cstdint>
 #include <string>

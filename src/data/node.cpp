@@ -69,8 +69,7 @@ Error Node::type_error(Type expected) const {
     Error e = make_error(ErrorCode::Type, text + " is " + std::string(type_name(type_)) + ", not " +
                                               std::string(type_name(expected)));
     if (const auto* a = array()) {
-        e.file = a->file();
-        e.line = a->line();
+        e.set_location(a->file(), a->line());
     }
     return e;
 }
