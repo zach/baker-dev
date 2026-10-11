@@ -1088,6 +1088,10 @@ for the core is now 10,000 non-test, non-comment lines. The rest of D2 and D40 s
     - converting a float result to its shortest decimal took about 150 ns through
       `snprintf`. `float_to_decimal_double` now has an arithmetic fast path, which agreed
       with the text search on 2.9 million floats, and keeps the search as a fallback.
+- **Matrix.** All twelve local configurations pass. ASan initially failed the recursion
+  tests: its fake stack keeps address-taken locals on the heap, so measuring the stack
+  budget (D47) from a local's address saw nonsense. The budget now reads the frame
+  address (`__builtin_frame_address`, `_AddressOfReturnAddress` on MSVC).
 - **Size.** The core is 7,142 of 10,000 lines (D48), up 939 in M5: `moira::script`
   +917, `moira::data` +22. That is about 160 lines over the plan's estimate of 780. The
   overrun is mostly property paths, `{new}` for native types, and the reference and

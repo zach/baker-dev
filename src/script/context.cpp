@@ -4,6 +4,9 @@
 #include <moira/parse.hpp>
 
 #include <cstdio>
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
 
 namespace moira {
 namespace {
@@ -207,8 +210,12 @@ Expected<Node> Context::Impl::call(const Array& command) {
     }
     // Deep recursion is an error, not a crash: at most kMaxDepth calls, and at most
     // stack_budget bytes of stack below the outermost one (a debug build's frames are large).
-    const char here = 0;
-    const auto at = reinterpret_cast<uintptr_t>(&here);
+    // The frame's address, not a local's: ASan can move address-taken locals to the heap.
+#if defined(_MSC_VER)
+    const auto at = reinterpret_cast<uintptr_t>(_AddressOfReturnAddress());
+#else
+    const auto at = reinterpret_cast<uintptr_t>(__builtin_frame_address(0));
+#endif
     if (depth == 0) stack_base = at;
     const uintptr_t used = at < stack_base ? stack_base - at : at - stack_base;
     if (depth >= kMaxDepth || used > stack_budget) return too_deep(command, depth, used);
