@@ -9,13 +9,14 @@ designer-editable value should cost one line and no ceremony.
 
 ## Status
 
-**M4: config, tweaks, the data loop, and script evaluation.** You can read DTA text into
+**M5: config, tweaks, the data loop, script evaluation, and objects.** You can read DTA text into
 trees, look values up with typed, located errors, stack config files and overlays into
 layers, hot-reload them with every reload timed, replace constants with one-line tweaks,
 toggle experiment layers A/B, snapshot and restore exact states, and write values tuned in
 the running program back into their source files. Commands evaluate lazily, native
-functions bind in one line, and `moira::check` finds bad calls before anything runs.
-Objects, messages, and tasks are later milestones (`docs/spec.md` §10).
+functions bind in one line, C++ objects are callable from script (and script handlers
+from C++), and `moira::check` finds bad calls before anything runs. Messages and tasks are
+later milestones (`docs/spec.md` §10).
 `docs/decisions.md` records where the implementation deviates from the spec.
 
 The one-line constant replacement (`examples/one_line_tweak`):
@@ -82,6 +83,25 @@ auto report = moira::check(*tree, ctx);             // wrong arity, found withou
 `if` is an ordinary function: its branches are passed unevaluated, so the evaluator needs
 no special forms (`docs/script-reference.md` lists every built-in).
 
+Objects (`moira/object.hpp`):
+
+```cpp
+struct Person : moira::Object<Person> {
+    float height = 6.0f;
+    float on_grow(float amount) { return height += amount; }
+    static void bind(moira::Binder<Person>& b) {
+        b.method("grow", &Person::on_grow);
+        b.property("height", &Person::height);
+    }
+};
+
+Person bob;
+ctx.add(bob, "bob");
+ctx.eval("{bob grow 10}");                          // script calls C++
+ctx.eval("{class Person (miss {set [height] 0})}"); // script handlers for a C++ type
+ctx.call(bob, "miss");                              // C++ calls script
+```
+
 A failed lookup says what, where, and how it got there:
 
 ```
@@ -116,7 +136,12 @@ What exists:
   optional ones, `Args` for the rest, overload sets), dynamically scoped `$variables`,
   script functions (`{func}`, with `stub`/`provisional`/`deprecated` status), `eval` of
   text, a generated reference (`docs/script-reference.md`), and `check` with a demand
-  report. A native call with two scalar arguments takes about 26 ns and never allocates.
+  report. A native call with two scalar arguments takes about 30 ns and never allocates.
+- Objects: `Object<T>` and `Binder<T>` for methods (overloads, docs, status) and
+  properties, inheritance flattened at bind time, salted handles that make a reference to
+  a destroyed object a clean error, script handlers attached to C++ types (`{class}`),
+  script classes and `{new}`/`{delete}`, `$this`, `[property]` paths, and loose
+  per-object parameters.
 - Tests, a hand-written corpus, benchmarks, and libFuzzer harnesses for parsing and lookup
   (`-DMOIRA_BUILD_FUZZERS=ON`).
 

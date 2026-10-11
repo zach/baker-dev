@@ -980,3 +980,115 @@ for the core is now 10,000 non-test, non-comment lines. The rest of D2 and D40 s
 - disproportionate growth is still called out;
 - M10's fallback (move the repetition report into a separate tool) applies at the new
   number.
+
+## D49. Objects: table, handles, binding, and lifetime
+
+*Spec §5 ("Objects"); M5 plan, Q1 answered 2026-10-11.*
+
+- **Lifetime.**
+  - `ctx.add(obj[, name])` adds an object.
+  - `ObjectBase` (the base of every `Object<T>`) keeps its Context and handle, and its
+    destructor removes it.
+  - A Context destroyed first leaves its objects unregistered: they can join another.
+  - A copy of an object is in no Context.
+  - Objects created by `{new}` are owned by the Context and deleted with it or by
+    `{delete}`.
+- **Handles** (D4, D19).
+  - A slot holds the object, its name, and a salt that starts at 1 and increments when the
+    slot is freed, so a handle to a removed object resolves to nothing.
+  - `try_resolve` / `try_get<T>` are the weak forms and return null. `get<T>` is the
+    strong form: it throws "the Person object was removed", or "the object is a Hero, not
+    a Person".
+- **Names.**
+  - A named object is found through a per-Context table indexed by `Symbol::index()`, like
+    functions (D44).
+  - Functions take precedence at dispatch.
+  - Naming an object after a function, or after a live object, is refused.
+- **Inheritance through the second template argument.** `Object<T, Base>` gives every
+  object one `ObjectBase`, so a base type's method thunks can downcast from it safely.
+  - `T`'s table starts as a copy of `Base`'s, so dispatch never walks a chain.
+  - A method `T` binds replaces the inherited one of the same name.
+  - `b.inherits<B>()`, the spec's spelling, is accepted and checked, but the template
+    argument already did it.
+- **No RTTI.**
+  - Each type's `TypeRecord` is a function-local static, built thread-safely on first use
+    from `T::bind`.
+  - Its default name is `T`'s unqualified name, read from the compiler's signature of a
+    template function (`__PRETTY_FUNCTION__` / `__FUNCSIG__`). `b.name()` overrides it.
+  - `try_get<T>` compares records along the flattened ancestor list.
+- **Methods reuse M4's binding.** A member function pointer, or a callable taking `T&`
+  first, is wrapped into a function whose first parameter is the object, which takes no
+  argument (`ParamKind::Implicit`, as `Context&` does). So methods get signature
+  deduction, `Raw<T>`, optional and rest parameters, overloads, docs, and status.
+- **Method tables** are static per type, sorted by symbol identity for binary search.
+  Properties are a short list searched linearly.
+
+## D50. Script handlers, `$this`, properties, and parameters
+
+*Spec §5; the talk's `DataClass`; M5 plan Q2 and Q3.*
+
+- **`{class Name (method ($params...) body...) (method body...) ...}`.**
+  - If `Name` is a bound type, the handlers apply to its objects and to objects derived
+    from it.
+  - Otherwise it is a script class, for `{new}`.
+  - Classes are matched to types by name when a command is sent, so a class may be defined
+    before the type is first added.
+  - Defining a class again replaces its handlers, as reloading a script would.
+- **Dispatch order.**
+  1. Script handlers, most derived type first. This lets data override or extend a C++
+     type without a rebuild.
+  2. Native methods.
+  3. The methods every object has: `get`, `set`, `type`, `name`.
+
+  A handler's arguments are evaluated in the caller's scope, then `$this` and the
+  parameters are bound by the same dynamic scope as `do`.
+- **Properties and parameters.**
+  - `{obj get k}` and `{obj set k v}` reach a bound property first, then the object's loose
+    parameters (the talk's "Perl dictionary"). Parameters are allocated on first `set`.
+  - `[k]` reads `$this`'s; `[a b]` reads `b` from `a`, where `a` is an object or an array
+    of tagged values.
+  - `{set [k] v}` assigns one: `Raw<Var>` is now "a place", a variable or a property.
+- **`{new Class [name] (param value)...}`** creates a script-class instance, or a
+  default-constructible bound type, as `rec.create` allows.
+- **`{delete obj}`** also accepts a bare name.
+- **`[...]` at a file's top level is still a macro (D11).** A property expression must be
+  inside a command or array.
+- **Object commands evaluate slot 0** when it is a command or variable; a value that is
+  not an object is an error.
+- **Not in M5.**
+  - Script classes do not derive from one another.
+  - A redefinition of a class while one of its handlers runs is not guarded against.
+
+## D51. M5 results
+
+*Recorded 2026-10-11.*
+
+- **Done-when items.** `tests/script/test_object.cpp` covers each of them:
+  - the talk's `Person::grow` runs from script (`{bob grow 10}`), through the same dispatch
+    from C++ (`ctx.call(bob, "grow", 1.5)`), and directly;
+  - C++ calls a handler defined only in script (`ctx.call(bob, "miss")`);
+  - script handlers take precedence over native methods.
+
+  The tests also cover inheritance, stale handles and slot reuse, slot-0 evaluation,
+  located errors naming type and method, parameters and property paths, script classes
+  with `new`/`delete`, and a Context dying before its objects.
+- **Allocations.** A native method call, `get`, and `set` allocate nothing after warm-up.
+- **Tooling.**
+  - The reference gains a Types section: methods with signatures and docs, properties,
+    base types, attached script handlers, and script classes.
+  - `check` checks the arity and literal types of methods sent to named objects and to
+    objects the tree creates, and reports their unknown methods in the demand report as
+    "'fly' on Person". `CheckReport::Demand` gains `on`.
+- **Performance.** On this container, against the M4 build measured on the same machine:
+  - `{add 1 2}` is 31 ns for both (target 40).
+  - `{bob grow 0}`, a native method returning a float, takes 84 ns.
+  - Two regressions were found and fixed:
+    - routing every call through the method-capable `invoke_set` added about 65
+      instructions, so the single-overload function path is inline again;
+    - converting a float result to its shortest decimal took about 150 ns through
+      `snprintf`. `float_to_decimal_double` now has an arithmetic fast path, which agreed
+      with the text search on 2.9 million floats, and keeps the search as a fallback.
+- **Size.** The core is 7,142 of 10,000 lines (D48), up 939 in M5: `moira::script`
+  +917, `moira::data` +22. That is about 160 lines over the plan's estimate of 780. The
+  overrun is mostly property paths, `{new}` for native types, and the reference and
+  `check` additions.
