@@ -24,7 +24,10 @@ bool show(moira::Context& ctx, const std::string& line) {
         std::printf("%s\n", moira::to_string(r.error()).data());
         return false;
     }
-    std::printf("%s\n", moira::to_string(*r).c_str());
+    // Moira writes text through a TextOut: here, straight to stdout.
+    moira::write(*r, {[](void*, std::string_view t) { std::fwrite(t.data(), 1, t.size(), stdout); },
+                      nullptr});
+    std::printf("\n");
     ctx.var("ans") = *r;
     return true;
 }

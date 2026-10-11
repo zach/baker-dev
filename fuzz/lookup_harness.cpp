@@ -3,6 +3,7 @@
 #include <moira/array.hpp>
 #include <moira/parse.hpp>
 #include <moira/path.hpp>
+#include <moira/std_interop.hpp>
 
 #include <cstdint>
 #include <vector>
@@ -64,7 +65,7 @@ bool check_lookup(std::string_view data) {
         bool quotes = false;
         for (size_t i = 0; i < path.size(); ++i)
             quotes |= !path[i].is_index && path[i].name.str().find('\'') != std::string_view::npos;
-        const Path again(path.to_string());
+        const Path again(to_string(path));
         if (!quotes) {
             if (!again.valid() || again.size() != path.size()) return false;
             for (size_t i = 0; i < path.size(); ++i)
@@ -72,7 +73,7 @@ bool check_lookup(std::string_view data) {
                     again[i].name != path[i].name)
                     return false;
         }
-    } else if (path.to_string() != path_text) {
+    } else if (!path_text.starts_with(to_string(path))) {  // an invalid path keeps a prefix
         return false;
     }
 

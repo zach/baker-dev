@@ -3,6 +3,7 @@
 #include <moira/object.hpp>
 #include <moira/parse.hpp>
 #include <moira/script.hpp>
+#include <moira/std_interop.hpp>
 
 #include "alloc_counter.hpp"
 

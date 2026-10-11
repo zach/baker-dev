@@ -2,6 +2,7 @@
 #include <doctest.h>
 #include <moira/config.hpp>
 #include <moira/parse.hpp>
+#include <moira/std_interop.hpp>
 #include <moira/write.hpp>
 
 #include "alloc_counter.hpp"
@@ -578,8 +579,9 @@ TEST_CASE("every corpus config value writes back as one line, or is refused with
     value_paths(*cfg.root(), "", paths);
     REQUIRE(paths.size() >= 10);
     size_t written = 0, refused_count = 0;
-    for (const std::string& path : paths) {
-        CAPTURE(path);
+    for (const std::string& path_text : paths) {
+        CAPTURE(path_text);
+        const Path path(path_text);
         REQUIRE(cfg.set(path, Node(4242)));
         auto source = cfg.source(path);
         REQUIRE(source);
@@ -600,7 +602,7 @@ TEST_CASE("every corpus config value writes back as one line, or is refused with
         CHECK(changed_lines == 1);
         CHECK(cfg.get<int>(path) == 4242);
         const auto unsaved = cfg.unsaved();  // refused paths stay live; this one is saved
-        CHECK(std::find(unsaved.begin(), unsaved.end(), Path(path).to_string()) == unsaved.end());
+        CHECK(std::find(unsaved.begin(), unsaved.end(), to_string(path)) == unsaved.end());
         ++written;
     }
     CHECK(written >= 8);

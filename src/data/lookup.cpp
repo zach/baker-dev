@@ -3,6 +3,7 @@
 // when a lookup has already failed.
 #include <moira/array.hpp>
 #include <moira/path.hpp>
+#include <moira/std_interop.hpp>
 #include <moira/write.hpp>
 
 #include "text.hpp"
@@ -146,8 +147,9 @@ bool step(Values& v, const Array*& arr, const Path::Segment& seg) noexcept {
 Path::Path(std::string_view text) {
     if (!parse(text)) {
         valid_ = false;
-        segments_.clear();
-        bad_text_ = text;
+        size_ = 0;
+        bad_size_ = static_cast<uint32_t>(text.size() < kBadText ? text.size() : kBadText);
+        text.copy(bad_text_, bad_size_);
     }
 }
 
@@ -175,7 +177,8 @@ bool Path::parse(std::string_view text) {
             }
             i = j;
         }
-        segments_.push_back(seg);
+        if (size_ == kMaxSegments) return false;
+        segments_[size_++] = seg;
         if (i == n) break;
         if (text[i] != '.' && text[i] != '/') return false;
         if (++i == n) return false;  // trailing separator
@@ -183,17 +186,20 @@ bool Path::parse(std::string_view text) {
     return true;
 }
 
-std::string Path::to_string(size_t count, char separator) const {
-    if (!valid_) return bad_text_;
-    std::string out;
-    for (size_t i = 0; i < segments_.size() && i < count; ++i) {
-        if (i) out += separator;
-        if (segments_[i].is_index)
-            out += std::to_string(segments_[i].index);
-        else
-            append_name(out, segments_[i].name);
+void Path::write(TextOut out, size_t count, char separator) const {
+    if (!valid_) {
+        out(std::string_view(bad_text_, bad_size_));
+        return;
     }
-    return out;
+    std::string text;
+    for (size_t i = 0; i < size_ && i < count; ++i) {
+        if (i) text += separator;
+        if (segments_[i].is_index)
+            text += std::to_string(segments_[i].index);
+        else
+            append_name(text, segments_[i].name);
+    }
+    out(text);
 }
 
 bool Path::matches(std::string_view text) const noexcept {
@@ -201,7 +207,7 @@ bool Path::matches(std::string_view text) const noexcept {
     size_t i = 0, k = 0;
     const size_t n = text.size();
     while (i < n) {
-        if (k == segments_.size()) return false;
+        if (k == size_) return false;
         const Segment& seg = segments_[k++];
         std::string_view name;
         bool quoted_name = false;
@@ -231,7 +237,7 @@ bool Path::matches(std::string_view text) const noexcept {
         if (i == n) break;
         if ((text[i] != '.' && text[i] != '/') || ++i == n) return false;
     }
-    return k == segments_.size();
+    return k == size_;
 }
 
 // --- Array lookup ---
@@ -320,7 +326,7 @@ ResolveStatus resolve(const Array& root, const Path& path, Resolved& out) noexce
 Error get_error(const Array& root, const Path& path, const ConvertInfo* info,
                 const Values* values) {
     if (!path.valid()) {
-        Error e = make_error(ErrorCode::Syntax, "malformed path '" + path.to_string() + "'");
+        Error e = make_error(ErrorCode::Syntax, "malformed path '" + to_string(path) + "'");
         locate(e, &root);
         return e;
     }
@@ -336,14 +342,14 @@ Error get_error(const Array& root, const Path& path, const ConvertInfo* info,
                                                 std::to_string(before.size()) + " values)")
                                : not_found(seg.name, before.nodes());
         locate(e, before_arr ? before_arr : before.source());
-        e.set_path(path.to_string(i));
+        e.set_path(to_string(path, i));
         return e;
     }
     // The path resolved, so the value did not convert.
     const std::string label = path.empty() ? "the array" : label_of(path[path.size() - 1]);
     Error e = conversion_error(label, values ? *values : v, info ? *info : kArrayInfo);
     locate(e, v.source());
-    e.set_path(path.to_string(path.empty() ? 0 : path.size() - 1));
+    e.set_path(to_string(path, path.empty() ? 0 : path.size() - 1));
     return e;
 }
 

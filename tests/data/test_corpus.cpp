@@ -1,6 +1,7 @@
 // The corpus in tests/corpus: every file parses, round-trips, and survives truncation.
 #include <doctest.h>
 #include <moira/parse.hpp>
+#include <moira/std_interop.hpp>
 #include <moira/write.hpp>
 
 #include "parse_harness.hpp"

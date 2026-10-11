@@ -9,6 +9,7 @@
 // under. Exits 1 if any file fails.
 
 #include <moira/parse.hpp>
+#include <moira/std_interop.hpp>
 #include <moira/write.hpp>
 
 #include <algorithm>

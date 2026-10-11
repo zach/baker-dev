@@ -1,6 +1,7 @@
 // The printer: spelling of every value, layout, and the round-trip guarantee.
 #include <doctest.h>
 #include <moira/parse.hpp>
+#include <moira/std_interop.hpp>
 #include <moira/write.hpp>
 
 #include "text.hpp"

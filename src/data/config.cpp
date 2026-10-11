@@ -137,11 +137,11 @@ int32_t line_at(std::string_view text, uint32_t offset) {
 }
 
 std::string quoted(const Path& path) {
-    return "'" + path.to_string() + "'";
+    return "'" + to_string(path) + "'";
 }
 
 Path parent_of(const Path& path) {
-    return Path(path.to_string(path.size() - 1));
+    return Path(to_string(path, path.size() - 1));
 }
 
 bool last_is_index(const Path& path) noexcept {
@@ -510,7 +510,7 @@ struct Config::Impl {
             if (found)
                 found->values = std::move(arr);
             else
-                scratch.push_back({target.to_string(), target, std::move(arr)});
+                scratch.push_back({to_string(target), target, std::move(arr)});
             found = found ? found : &scratch.back();
         }
         c.scratch_dirty_ = true;

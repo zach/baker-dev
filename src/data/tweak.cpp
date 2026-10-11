@@ -2,6 +2,8 @@
 #include <moira/tweak.hpp>
 #include <moira/write.hpp>
 
+#include "text.hpp"
+
 namespace moira {
 namespace {
 

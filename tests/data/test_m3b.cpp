@@ -3,6 +3,7 @@
 #include <doctest.h>
 #include <moira/config.hpp>
 #include <moira/parse.hpp>
+#include <moira/std_interop.hpp>
 #include <moira/write.hpp>
 
 #include "alloc_counter.hpp"

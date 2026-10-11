@@ -2,6 +2,8 @@
 #include <moira/node.hpp>
 #include <moira/write.hpp>
 
+#include "text.hpp"
+
 #include <cstdlib>
 #include <cstring>
 #include <new>

@@ -8,8 +8,10 @@
 // includes the standard containers, and nothing else in Moira includes it.
 
 #include <moira/error.hpp>
+#include <moira/path.hpp>
 #include <moira/symbol.hpp>
 #include <moira/text.hpp>
+#include <moira/write.hpp>
 
 #include <cstddef>
 #include <functional>
@@ -31,6 +33,32 @@ inline TextOut string_out(std::string& s) {
 inline std::string to_string(const StackEntry& entry) {
     std::string out;
     write(entry, string_out(out));
+    return out;
+}
+
+// menu/'bacon and eggs', as Path::write writes it.
+inline std::string to_string(const Path& path, size_t count = SIZE_MAX, char separator = '/') {
+    std::string out;
+    path.write(string_out(out), count, separator);
+    return out;
+}
+
+// The compact single-line form of a node or an array: (price 12.75).
+inline std::string to_string(const Node& node) {
+    std::string out;
+    write(node, string_out(out));
+    return out;
+}
+inline std::string to_string(const Array& array) {
+    std::string out;
+    write(array, string_out(out));
+    return out;
+}
+
+// The file form of a root array (write_dta).
+inline std::string to_dta(const Array& root, const WriteOptions& options = {}) {
+    std::string out;
+    write_dta(root, string_out(out), options);
     return out;
 }
 

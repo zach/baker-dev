@@ -2,6 +2,7 @@
 #include <doctest.h>
 #include <moira/array.hpp>
 #include <moira/callback.hpp>
+#include <moira/std_interop.hpp>
 #include <moira/write.hpp>
 
 #include <string>

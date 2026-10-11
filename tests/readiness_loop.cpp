@@ -3,6 +3,7 @@
 // an experiment compared A/B without touching shared files, and a return to an exact state.
 #include <doctest.h>
 #include <moira/config.hpp>
+#include <moira/std_interop.hpp>
 
 #include "alloc_counter.hpp"
 #include "temp_dir.hpp"

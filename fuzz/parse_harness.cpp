@@ -2,6 +2,7 @@
 
 #include <moira/parse.hpp>
 #include <moira/source_map.hpp>
+#include <moira/std_interop.hpp>
 #include <moira/write.hpp>
 
 #include <algorithm>

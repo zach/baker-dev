@@ -1,6 +1,7 @@
 // Lexing and parsing: tokens, bounds checks, nesting, and located errors.
 #include <doctest.h>
 #include <moira/parse.hpp>
+#include <moira/std_interop.hpp>
 #include <moira/write.hpp>
 
 #include "text.hpp"

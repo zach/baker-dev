@@ -3,6 +3,7 @@
 #include <moira/array.hpp>
 #include <moira/parse.hpp>
 #include <moira/path.hpp>
+#include <moira/std_interop.hpp>
 #include <moira/write.hpp>
 
 #include "alloc_counter.hpp"
@@ -201,14 +202,14 @@ TEST_CASE("paths parse names, quoted names, and indexes") {
     CHECK(p[0].name == Symbol("renderer"));
     CHECK(p[2].is_index);
     CHECK(p[2].index == 0);
-    CHECK(p.to_string() == "renderer/clear_color/0");
-    CHECK(p.to_string(1) == "renderer");
+    CHECK(to_string(p) == "renderer/clear_color/0");
+    CHECK(to_string(p, 1) == "renderer");
 
     Path q("menu/'bacon and eggs'/price");
     REQUIRE(q.valid());
     CHECK(q[1].name == Symbol("bacon and eggs"));
-    CHECK(q.to_string() == "menu/'bacon and eggs'/price");
-    CHECK(Path("'a.b'.'7'.c").to_string() == "'a.b'/'7'/c");
+    CHECK(to_string(q) == "menu/'bacon and eggs'/price");
+    CHECK(to_string(Path("'a.b'.'7'.c")) == "'a.b'/'7'/c");
     CHECK(Path("'a.b'")[0].name == Symbol("a.b"));
     CHECK(Path("'7'")[0].name == Symbol("7"));
     CHECK_FALSE(Path("'7'")[0].is_index);
@@ -220,7 +221,7 @@ TEST_CASE("paths parse names, quoted names, and indexes") {
         CAPTURE(bad);
         Path b(bad);
         CHECK_FALSE(b.valid());
-        CHECK(b.to_string() == bad);
+        CHECK(to_string(b) == bad);
     }
     auto root = menu_root();
     Error e = error_of(root->get<int>("menu..price"));
@@ -427,4 +428,17 @@ TEST_CASE("the corpus config reads through lookups") {
     CHECK(e.file().str().ends_with("config_default.dta"));
     CHECK(e.line() == 15);
     CHECK(e.path() == "input");
+}
+
+TEST_CASE("a Path holds its segments inline, up to kMaxSegments") {
+    std::string deep = "a";
+    for (size_t i = 1; i < Path::kMaxSegments; ++i) deep += ".a";
+    CHECK(Path(deep).valid());
+    CHECK(Path(deep).size() == Path::kMaxSegments);
+    CHECK_FALSE(Path(deep + ".a").valid());
+    (void)Path("menu.'bacon and eggs'.price");  // intern the names first
+    test::AllocationScope scope;
+    const Path p("menu.'bacon and eggs'.price");
+    CHECK(p.size() == 3);
+    if (test::counting_allocations()) CHECK(scope.count() == 0);
 }
