@@ -5,7 +5,7 @@
 //   moira::Config cfg;
 //   cfg.push_layer("default", "default.dta");
 //   cfg.push_layer("platform", "ps5.dta");
-//   cfg.push_layer("local", "local.dta");             // per-machine, never checked in
+//   cfg.push_layer("local", "local/" + user + ".dta", {.optional = true});   // per user
 //   cfg.push_layer("patch-2026-10-11", overlay);       // a live-ops overlay array
 //   cfg.remove_layer("patch-2026-10-11");              // rollback: leaves no trace
 //
@@ -17,12 +17,16 @@
 // array) replace the ones below, so (width 3) over (width 2 (range 0 10)) gives
 // (width 3 (range 0 10)). Each layer is read in its own pass, but macros and defines carry
 // upward from the layers below, as from earlier files in one load. load() and merge() are
-// shorthands that push a layer named after the file.
+// shorthands that push a layer named after the file. A layer pushed with
+// {.optional = true} whose file is missing is an empty layer, and reload() picks the file
+// up once it exists. A disabled layer keeps its place and its trees but is skipped by
+// merging, provenance, and write-back; toggling it is how variants are compared A/B.
 //
-// Every change -- pushing, popping or removing a layer, reload(), a live edit -- re-merges,
-// rebinds the tweaks of the attached TweakRegistry, and fires the reload callbacks. Old
-// trees stay alive while anyone holds a Ref to them, so a reload never dangles a pointer
-// someone is reading through.
+// Every change -- pushing, popping, removing, enabling, or disabling a layer, reload(),
+// restore() -- re-merges, rebinds the tweaks of the attached TweakRegistry, fires the
+// reload callbacks, and appends a ReloadRecord to the history. Old trees stay alive while
+// anyone holds a Ref to them, so a reload never dangles a pointer someone is reading
+// through.
 //
 // Hot reload. reload() re-reads every file each file layer was built from (includes too),
 // and re-parses the lowest layer whose files changed and the layers above it. A reload
@@ -33,20 +37,33 @@
 // instead and return Reload::Migrated, or decline with Reload::Punt. By convention a
 // subsystem reads only its own group: that is what makes a group the unit of refresh.
 //
-// Live edits and write-back. set() changes a value in the running program: it goes into a
-// "live" layer above all others, so source() reports it as unsaved. write_back() writes the
-// current value into the file of the layer that would otherwise supply it, replacing only
-// the tokens that produced the old value, so comments, notes, and formatting are kept and
-// the diff is one line. It refuses, with a located error, a value that came from a macro,
-// an overlay layer, an array assembled by #merge, or a file that changed since it was read;
-// it never guesses. write_back_to() writes into a different layer's file, adding the key
-// if it is missing there. Write-back needs edit mode (ConfigOptions::edit_mode), on by
-// default except under MOIRA_SHIPPING.
+// Telemetry. Each change is timed in six stages (scan, read, parse, merge, bind, notify)
+// with the time source the host gives set_time_source (default: steady_clock), and kept in
+// a fixed ring (set_reload_history, default 256). Under MOIRA_SHIPPING the timing compiles
+// out: last_reload() is empty and each_reload() visits nothing.
+//
+// Scratch and write-back. set() puts a value tuned in the running program into the
+// reserved in-memory layer "scratch", always topmost, so source() reports it as unsaved.
+// Setting a path already in scratch is a fast path: no re-merge and no allocation; only
+// the tweaks bound to that path are updated. Lookups through Config (get, source) consult
+// scratch first; root() includes scratch as of the last full merge. write_back() writes
+// the current value into the file of the highest enabled layer below scratch that supplies
+// it, replacing only the tokens that produced the old value, so comments, notes, and
+// formatting are kept and the diff is one line. write_back_to() writes into a chosen
+// layer's file, adding the entry as the last child of the deepest ancestor written there
+// (creating an optional layer's missing file); promote() writes a whole layer's effect into
+// another layer, all or nothing. Write-back refuses, with a located error, a value from a
+// macro, an overlay, an ancestor that came from #include or #merge, a missing indexed
+// element, or a file that changed on disk since it was read; it never guesses. It needs
+// edit mode (ConfigOptions::edit_mode), on by default except under MOIRA_SHIPPING.
+//
+// snapshot() captures the layer stack, each layer's trees (shared, not copied), and
+// scratch; restore() returns to it exactly without reading any file.
 //
 // freeze() ends the initial load: afterwards reload, layer changes, and live edits are
 // refused, unless ConfigOptions::live_layers explicitly allows them (the path a shipped
-// game uses for live-ops overlays). Under MOIRA_SHIPPING, reload() and live edits are
-// always inert.
+// game uses for live-ops overlays). Under MOIRA_SHIPPING, reload(), toggles, set(),
+// write-back, and promote() are always inert.
 //
 // Not thread-safe: change a Config from one thread. Readers on other threads should take
 // root() (a Ref) and read that.
@@ -57,9 +74,11 @@
 #include <moira/source_map.hpp>
 #include <moira/tweak.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -79,8 +98,8 @@ enum class MergePolicy : uint8_t {
 
 // Where a value came from.
 struct Source {
-    std::string layer;  // "live" for an unsaved live edit
-    Symbol file;        // empty for a layer with no file (an overlay, a live edit)
+    std::string layer;  // "scratch" for an unsaved live edit
+    Symbol file;        // empty for a layer with no file (an overlay, scratch)
     int32_t line = 0;
 };
 
@@ -91,6 +110,77 @@ struct ConfigOptions {
     bool live_layers = false;     // allow layer changes and live edits after freeze()
     // The registry whose tweaks this config binds; null for none.
     TweakRegistry* tweaks = &TweakRegistry::global();
+};
+
+struct LayerOptions {
+    bool optional = false;  // a missing file is not an error; the layer exists, empty
+    bool enabled = true;    // disabled layers keep their position but are skipped by merge
+};
+
+// --- Telemetry ---
+
+// Monotonic nanoseconds from an arbitrary origin.
+using TimeSource = uint64_t (*)(void* user);
+
+enum class ReloadOutcome : uint8_t { Ok, Unchanged, ParseError, Refused };
+
+struct ReloadRequest {
+    Symbol trigger{};        // host tag: "watcher", "console", "livelink", ...
+    uint64_t origin_ns = 0;  // when the edit was saved, in the TimeSource domain; 0: unknown
+};
+
+struct ReloadRecord {
+    uint64_t epoch = 0;  // epoch after this change (unchanged if nothing changed)
+    Symbol trigger{};    // the request's, or "reload", "layer", "restore", "write_back"
+    uint64_t origin_ns = 0, start_ns = 0, end_ns = 0;
+    uint64_t scan_ns = 0, read_ns = 0, parse_ns = 0, merge_ns = 0, bind_ns = 0, notify_ns = 0;
+    uint32_t files_reloaded = 0, tweaks_changed = 0;
+    uint32_t migrated = 0, punted = 0;  // reload-callback outcomes
+    Symbol first_file{};                // the first changed file, for display
+    ReloadOutcome outcome = ReloadOutcome::Ok;
+};
+
+// --- Layer tooling ---
+
+// One value a layer sets: a path to a tagged array with values. A value of several nodes,
+// like (screen_size 1920 1080), is an untagged array of them: (1920 1080).
+struct LayerEffectEntry {
+    std::string path;           // dotted, as get<T>() takes it
+    Node value;                 // this layer's value
+    std::optional<Node> below;  // the stack's value without this layer, if any
+    Source source;              // provenance, as source() returns it
+    std::optional<Source> below_source;
+    bool shadowed = false;  // a higher enabled layer (or scratch) overrides this path
+};
+
+struct DiffEntry {
+    std::string path;
+    std::optional<Node> a, b;  // empty: that layer does not set this path
+    std::optional<Source> source_a, source_b;
+};
+
+struct WrittenLine {
+    Symbol file;
+    int32_t line = 0;
+};
+
+struct WriteReport {
+    std::vector<WrittenLine> written;  // every file and line written
+    std::vector<Error> refused;        // promote(): every refusal; then nothing was written
+    [[nodiscard]] bool ok() const noexcept { return refused.empty(); }
+};
+
+// A configuration state to return to: the layer stack, each layer's trees (shared by
+// reference, not copied), the files' load-time content, and a copy of scratch. Copyable.
+class ConfigSnapshot {
+public:
+    ConfigSnapshot() = default;
+    [[nodiscard]] bool empty() const noexcept { return !state_; }
+
+private:
+    friend class Config;
+    struct State;
+    std::shared_ptr<const State> state_;
 };
 
 class Config {
@@ -104,9 +194,12 @@ public:
     Config& operator=(const Config&) = delete;
 
     // --- Layers. ---
-    [[nodiscard]] Expected<void> try_push_layer(std::string_view name, std::string_view path);
-    [[nodiscard]] Expected<void> try_push_layer(std::string_view name, Ref<Array> overlay);
+    [[nodiscard]] Expected<void> try_push_layer(std::string_view name, std::string_view path,
+                                                LayerOptions options = {});
+    [[nodiscard]] Expected<void> try_push_layer(std::string_view name, Ref<Array> overlay,
+                                                LayerOptions options = {});
     [[nodiscard]] Expected<void> try_remove_layer(std::string_view name);
+    // Removes the topmost layer below scratch.
     [[nodiscard]] Expected<void> try_pop_layer();
     [[nodiscard]] Expected<void> try_load(std::string_view path) {
         return try_push_layer(path, path);
@@ -114,29 +207,51 @@ public:
     [[nodiscard]] Expected<void> try_merge(std::string_view path) {
         return try_push_layer(path, path);
     }
+    // Layer names bottom to top, ending with "scratch".
     [[nodiscard]] std::vector<std::string> layers() const;
+    [[nodiscard]] Expected<void> try_set_layer_enabled(std::string_view name, bool enabled);
+    // Returns the new state.
+    [[nodiscard]] Expected<bool> try_toggle_layer(std::string_view name);
+    // False for an unknown layer.
+    [[nodiscard]] bool layer_enabled(std::string_view name) const;
 
     // --- Reading. ---
-    // The merged tree. Holding the Ref keeps this version alive across reloads.
+    // The merged tree, including scratch as of the last full merge. Holding the Ref keeps
+    // this version alive across reloads.
     [[nodiscard]] Ref<Array> root() const noexcept { return root_; }
     template <class T>
     [[nodiscard]] Expected<T> try_get(const Path& path) const {
+        Values v;
+        if (scratch_dirty_ && scratch_values(path, v)) return from_scratch<T>(path, v);
         return root_->try_get<T>(path);
     }
     template <class T>
     [[nodiscard]] Expected<T> try_get(const Path& path, T fallback) const {
+        Values v;
+        if (scratch_dirty_ && scratch_values(path, v)) return from_scratch<T>(path, v);
         return root_->try_get<T>(path, std::move(fallback));
     }
     [[nodiscard]] Expected<Source> try_source(const Path& path) const;
-    // Increments on every change.
+    // Increments on every change but a fast-path set().
     [[nodiscard]] uint64_t epoch() const noexcept { return epoch_; }
 
-    // --- Hot reload. ---
+    // --- Hot reload and telemetry. ---
     // Re-reads changed files; true if anything changed.
-    [[nodiscard]] Expected<bool> try_reload();
+    [[nodiscard]] Expected<bool> try_reload(const ReloadRequest& request = {});
     ReloadId on_reload(const Path& group, std::function<void()> rebuild,
                        std::function<Reload()> migrate = {});
+    // Called after every change with its finished record (not under MOIRA_SHIPPING).
+    ReloadId on_reload_complete(std::function<void(const ReloadRecord&)> callback);
     void remove_on_reload(ReloadId id);
+    void set_time_source(TimeSource fn, void* user = nullptr);
+    // Allocates the history ring once; 0 turns history off. Default 256.
+    void set_reload_history(size_t capacity);
+    [[nodiscard]] std::optional<ReloadRecord> last_reload() const noexcept;
+    // Visits the history, oldest to newest.
+    template <class F>
+    void each_reload(F&& fn) const {
+        for (size_t i = 0, n = history_size(); i < n; ++i) fn(history_at(i));
+    }
     // Called with a located error for each tweak whose value does not convert (the tweak
     // keeps its default) and each bad tweak path. Default: ignored.
     void set_warning_handler(std::function<void(const Error&)> handler);
@@ -148,48 +263,78 @@ public:
     // Replaces file writing for write-back (default: the local filesystem).
     void set_writer(Writer writer);
 
-    // --- Live edits and write-back. ---
+    // --- Scratch, write-back, and layer tooling. ---
     [[nodiscard]] Expected<void> try_set(const Path& path, std::span<const Node> values);
+    [[nodiscard]] Expected<void> try_set(std::string_view path, const Node& value);
     template <class T>
     [[nodiscard]] Expected<void> try_set(const Path& path, const T& value) {
         ValueList list;
         Convert<T>::to(value, list);
         return try_set(path, std::span<const Node>(list.nodes()));
     }
-    [[nodiscard]] Expected<void> try_write_back(const Path& path);
-    [[nodiscard]] Expected<void> try_write_back_to(const Path& path, std::string_view layer);
-    // Paths with live edits not yet written back.
+    // One path, or all of scratch.
+    [[nodiscard]] Expected<void> try_clear_scratch(std::string_view path = {});
+    // Paths in scratch: live edits not yet written back.
     [[nodiscard]] std::vector<std::string> unsaved() const;
 
+    [[nodiscard]] Expected<WriteReport> try_write_back(const Path& path);
+    [[nodiscard]] Expected<WriteReport> try_write_back_to(const Path& path, std::string_view layer);
+    // Writes every entry of layer_effect(from) into `to`'s file, or nothing: on any refusal
+    // the report lists them all and no file changes. `from` stays in the stack.
+    [[nodiscard]] Expected<WriteReport> try_promote(std::string_view from, std::string_view to);
+    [[nodiscard]] Expected<std::vector<LayerEffectEntry>> try_layer_effect(
+        std::string_view layer) const;
+    [[nodiscard]] Expected<std::vector<DiffEntry>> try_diff(std::string_view a,
+                                                            std::string_view b) const;
+
+    [[nodiscard]] ConfigSnapshot snapshot() const;
+    [[nodiscard]] Expected<void> try_restore(const ConfigSnapshot& snapshot);
+
 #if MOIRA_EXCEPTIONS
-    void push_layer(std::string_view name, std::string_view path) {
-        check(try_push_layer(name, path));
+    void push_layer(std::string_view name, std::string_view path, LayerOptions options = {}) {
+        check(try_push_layer(name, path, options));
     }
-    void push_layer(std::string_view name, Ref<Array> overlay) {
-        check(try_push_layer(name, std::move(overlay)));
+    void push_layer(std::string_view name, Ref<Array> overlay, LayerOptions options = {}) {
+        check(try_push_layer(name, std::move(overlay), options));
     }
     void remove_layer(std::string_view name) { check(try_remove_layer(name)); }
     void pop_layer() { check(try_pop_layer()); }
     void load(std::string_view path) { check(try_load(path)); }
     void merge(std::string_view path) { check(try_merge(path)); }
+    void set_layer_enabled(std::string_view name, bool enabled) {
+        check(try_set_layer_enabled(name, enabled));
+    }
+    bool toggle_layer(std::string_view name) { return value(try_toggle_layer(name)); }
     template <class T>
     [[nodiscard]] T get(const Path& path) const {
-        return root_->get<T>(path);
+        return value(try_get<T>(path));
     }
     template <class T>
     [[nodiscard]] T get(const Path& path, T fallback) const {
-        return root_->get<T>(path, std::move(fallback));
+        return value(try_get<T>(path, std::move(fallback)));
     }
-    [[nodiscard]] Source source(const Path& path) const;
-    bool reload();
+    [[nodiscard]] Source source(const Path& path) const { return value(try_source(path)); }
+    bool reload(const ReloadRequest& request = {}) { return value(try_reload(request)); }
+    void set(std::string_view path, const Node& v) { check(try_set(path, v)); }
     template <class T>
-    void set(const Path& path, const T& value) {
-        check(try_set(path, value));
+    void set(const Path& path, const T& v) {
+        check(try_set(path, v));
     }
-    void write_back(const Path& path) { check(try_write_back(path)); }
-    void write_back_to(const Path& path, std::string_view layer) {
-        check(try_write_back_to(path, layer));
+    void clear_scratch(std::string_view path = {}) { check(try_clear_scratch(path)); }
+    WriteReport write_back(const Path& path) { return value(try_write_back(path)); }
+    WriteReport write_back_to(const Path& path, std::string_view layer) {
+        return value(try_write_back_to(path, layer));
     }
+    WriteReport promote(std::string_view from, std::string_view to) {
+        return value(try_promote(from, to));
+    }
+    [[nodiscard]] std::vector<LayerEffectEntry> layer_effect(std::string_view layer) const {
+        return value(try_layer_effect(layer));
+    }
+    [[nodiscard]] std::vector<DiffEntry> diff(std::string_view a, std::string_view b) const {
+        return value(try_diff(a, b));
+    }
+    void restore(const ConfigSnapshot& s) { check(try_restore(s)); }
 #endif
 
 private:
@@ -200,12 +345,30 @@ private:
     static void check(Expected<void> r) {
         if (!r) detail::raise(std::move(r).error());
     }
+    template <class T>
+    static T value(Expected<T>&& r) {
+        if (!r) detail::raise(std::move(r).error());
+        return std::move(*r);
+    }
 #endif
     void bind(TweakBase& t);
+    // The scratch values `path` names (exactly, or one element of them), if any.
+    [[nodiscard]] bool scratch_values(const Path& path, Values& out) const noexcept;
+    [[nodiscard]] static Error scratch_type_error(const Path& path,
+                                                  const detail::ConvertInfo& info);
+    template <class T>
+    [[nodiscard]] static Expected<T> from_scratch(const Path& path, const Values& v) {
+        T out{};
+        if (Convert<T>::from(v, out)) return out;
+        return Unexpected(scratch_type_error(path, detail::convert_info<T>()));
+    }
+    [[nodiscard]] size_t history_size() const noexcept;
+    [[nodiscard]] const ReloadRecord& history_at(size_t i) const noexcept;
 
     Ref<Array> root_;
     uint64_t epoch_ = 0;
     bool frozen_ = false;
+    bool scratch_dirty_ = false;  // scratch changed since the last full merge
     std::unique_ptr<Impl> impl_;
 };
 

@@ -14,10 +14,12 @@ add_executable(moira_data_tests
   data/test_core.cpp
   data/test_corpus.cpp
   data/test_lookup.cpp
+  data/test_m3b.cpp
   data/test_parse.cpp
   data/test_preprocessor.cpp
   data/test_version.cpp
   data/test_write.cpp
+  readiness_loop.cpp
   support/alloc_counter.cpp)
 target_link_libraries(moira_data_tests PRIVATE moira::data moira_parse_harness moira_doctest_main)
 # White-box tests of internal helpers (text.hpp).

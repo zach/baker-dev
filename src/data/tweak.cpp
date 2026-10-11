@@ -138,7 +138,8 @@ Expected<void> TweakBase::try_write_back() {
     if (!c)
         return Unexpected(
             make_error(ErrorCode::NotFound, "'" + std::string(path_) + "' has no config"));
-    return c->try_write_back(parsed());
+    if (auto r = c->try_write_back(parsed()); !r) return Unexpected(std::move(r).error());
+    return {};
 }
 
 #if MOIRA_EXCEPTIONS

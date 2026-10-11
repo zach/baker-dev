@@ -5,6 +5,7 @@
 #include <moira/write.hpp>
 
 #include "alloc_counter.hpp"
+#include "temp_dir.hpp"
 
 #include <algorithm>
 #include <array>
@@ -20,41 +21,10 @@
 
 using namespace moira;
 namespace fs = std::filesystem;
+using moira::test::diff_lines;
+using moira::test::TempDir;
 
 namespace {
-
-// A fresh directory of files for one test.
-class TempDir {
-public:
-    TempDir() {
-        static std::atomic<int> counter{0};
-        dir_ = fs::temp_directory_path() /
-               ("moira_test_" + std::to_string(counter++) + "_" + std::to_string(std::rand()));
-        fs::remove_all(dir_);
-        fs::create_directories(dir_);
-    }
-    ~TempDir() {
-        std::error_code ec;
-        fs::remove_all(dir_, ec);
-    }
-    std::string write(const std::string& name, const std::string& text) const {
-        const fs::path p = dir_ / name;
-        std::ofstream(p, std::ios::binary) << text;
-        return p.generic_string();
-    }
-    [[nodiscard]] std::string read(const std::string& name) const {
-        std::ifstream in(dir_ / name, std::ios::binary);
-        std::stringstream ss;
-        ss << in.rdbuf();
-        return ss.str();
-    }
-    [[nodiscard]] std::string path(const std::string& name) const {
-        return (dir_ / name).generic_string();
-    }
-
-private:
-    fs::path dir_;
-};
 
 Ref<Array> parse(const char* text) {
     auto r = try_read_string(text, "t.dta");
@@ -64,27 +34,6 @@ Ref<Array> parse(const char* text) {
 
 std::string str_of(const Array& a) {
     return to_string(a);
-}
-
-// The lines that differ between two texts, as "-old" / "+new".
-[[maybe_unused]] std::vector<std::string> diff_lines(const std::string& a, const std::string& b) {
-    auto split = [](const std::string& s) {
-        std::vector<std::string> lines;
-        std::stringstream ss(s);
-        for (std::string l; std::getline(ss, l);) lines.push_back(l);
-        return lines;
-    };
-    const auto la = split(a), lb = split(b);
-    std::vector<std::string> out;
-    for (size_t i = 0; i < std::max(la.size(), lb.size()); ++i) {
-        const std::string x = i < la.size() ? la[i] : "<none>";
-        const std::string y = i < lb.size() ? lb[i] : "<none>";
-        if (x != y) {
-            out.push_back("-" + x);
-            out.push_back("+" + y);
-        }
-    }
-    return out;
 }
 
 const char* const kDefault =
@@ -192,7 +141,7 @@ TEST_CASE("layers merge, and removing one restores every value") {
     Config cfg({.tweaks = nullptr});
     REQUIRE(cfg.try_push_layer("default", dir.write("default.dta", kDefault)));
     REQUIRE(cfg.try_push_layer("app", dir.write("app.dta", kApp)));
-    CHECK(cfg.layers() == std::vector<std::string>{"default", "app"});
+    CHECK(cfg.layers() == std::vector<std::string>{"default", "app", "scratch"});
     CHECK(cfg.try_get<int>("renderer.screen_size.0") == 1920);
     CHECK(cfg.try_get<int>("renderer.shadows.resolution") == 4096);
     CHECK(cfg.try_get<int>("renderer.shadows.enabled") == 1);
@@ -262,7 +211,7 @@ TEST_CASE("source names the layer, file, and line") {
 #if !MOIRA_SHIPPING
     REQUIRE(cfg.try_set("renderer.screen_size", std::array<int, 2>{800, 600}));
     s = *cfg.try_source("renderer.screen_size");
-    CHECK(s.layer == "live");
+    CHECK(s.layer == "scratch");
     CHECK(cfg.try_get<int>("renderer.screen_size.1") == 600);
     CHECK(cfg.unsaved() == std::vector<std::string>{"renderer/screen_size"});
 #endif
@@ -426,7 +375,7 @@ TEST_CASE("live edits through tweaks, and write-back to the source line") {
 #else
     REQUIRE(width.try_set(2.7f));
     CHECK(float(width) == 2.7f);
-    CHECK(width.source()->layer == "live");
+    CHECK(width.source()->layer == "scratch");
     CHECK(cfg.try_get<double>("box.width") == 2.7);  // written as the float's decimal
 
     const std::string before = dir.read("default.dta");
