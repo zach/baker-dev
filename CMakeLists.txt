@@ -31,8 +31,30 @@ if(MOIRA_BUILD_FUZZERS)
   # Coverage instrumentation for everything the fuzzer exercises, not just its main.
   add_compile_options(-fsanitize=fuzzer-no-link)
 endif()
-if(MOIRA_NO_EXCEPTIONS AND NOT MSVC)
-  add_compile_options(-fno-exceptions)
+if(MOIRA_NO_EXCEPTIONS)
+  if(MSVC)
+    string(REPLACE "/EHsc" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+    add_compile_options(/EHs-c-)
+    add_compile_definitions(_HAS_EXCEPTIONS=0)
+  else()
+    add_compile_options(-fno-exceptions)
+  endif()
+endif()
+
+# Whether the library's Expected<T> is std::expected, decided once at configure time and
+# exported, so code built at a different standard cannot silently disagree (D21).
+include(CheckCXXSourceCompiles)
+check_cxx_source_compiles([[
+#include <version>
+#if !defined(__cpp_lib_expected) || __cpp_lib_expected < 202202L
+#error no std::expected
+#endif
+int main() { return 0; }
+]] MOIRA_HAVE_STD_EXPECTED)
+if(MOIRA_HAVE_STD_EXPECTED)
+  set(MOIRA_STD_EXPECTED_VALUE 1)
+else()
+  set(MOIRA_STD_EXPECTED_VALUE 0)
 endif()
 if(MOIRA_SANITIZE)
   # -fno-sanitize-recover: undefined behavior aborts, so tests and the fuzzer fail on it.
@@ -52,6 +74,7 @@ function(moira_configure_library target)
   else()
     target_compile_definitions(${target} PUBLIC MOIRA_ATOMIC_REFCOUNT=0)
   endif()
+  target_compile_definitions(${target} PUBLIC MOIRA_STD_EXPECTED=${MOIRA_STD_EXPECTED_VALUE})
   foreach(flag MOIRA_SHIPPING MOIRA_NO_EXCEPTIONS)
     if(${flag})
       target_compile_definitions(${target} PUBLIC ${flag}=1)

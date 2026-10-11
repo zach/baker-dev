@@ -25,6 +25,7 @@ jobs:
           - { name: no exceptions,      os: ubuntu-24.04,  cc: gcc-13,   cxx: g++-13,     std: 20, flags: "-DMOIRA_NO_EXCEPTIONS=ON" }
           - { name: msvc C++20,         os: windows-2022,  cc: cl,       cxx: cl,         std: 20, flags: "" }
           - { name: msvc C++latest,     os: windows-2022,  cc: cl,       cxx: cl,         std: 23, flags: "" }
+          - { name: msvc no exceptions, os: windows-2022,  cc: cl,       cxx: cl,         std: 20, flags: "-DMOIRA_NO_EXCEPTIONS=ON" }
     env:
       UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
     steps:

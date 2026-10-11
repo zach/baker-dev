@@ -3,6 +3,8 @@
 #include <moira/parse.hpp>
 #include <moira/write.hpp>
 
+#include "text.hpp"
+
 #include <string>
 
 using namespace moira;
@@ -174,4 +176,27 @@ TEST_CASE("missing file is an io error") {
     auto r = try_read_file("/definitely/not/here.dta");
     REQUIRE_FALSE(r.has_value());
     CHECK(r.error().code == ErrorCode::Io);
+}
+
+TEST_CASE("include paths are handled lexically") {
+    using detail::normalize_path;
+    CHECK(normalize_path("a/./b/../c.dta") == "a/c.dta");
+    CHECK(normalize_path("game/sub/part.dta") == "game/sub/part.dta");
+    CHECK(normalize_path("a//b") == "a/b");
+    CHECK(normalize_path("../x/../../y.dta") == "../../y.dta");
+    CHECK(normalize_path("/a/../../b.dta") == "/b.dta");
+    CHECK(normalize_path("C:\\games\\..\\cfg\\x.dta") == "C:/cfg/x.dta");
+    CHECK(normalize_path("./") == ".");
+    CHECK(normalize_path("<string>") == "<string>");
+    CHECK(normalize_path("") == "");
+    CHECK(detail::is_absolute_path("/a"));
+    CHECK(detail::is_absolute_path("C:\\a"));
+    CHECK_FALSE(detail::is_absolute_path("C:a"));
+    CHECK_FALSE(detail::is_absolute_path("a/b"));
+    CHECK(detail::parent_path("a/b/c.dta") == "a/b");
+    CHECK(detail::parent_path("c.dta") == "");
+    CHECK(detail::parent_path("/c.dta") == "/");
+    CHECK(detail::join_path("", "x.dta") == "x.dta");
+    CHECK(detail::join_path("dir", "x.dta") == "dir/x.dta");
+    CHECK(detail::join_path("dir/", "x.dta") == "dir/x.dta");
 }

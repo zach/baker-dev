@@ -279,3 +279,36 @@ within run-to-run noise). M2's lookup benchmarks will measure copy-heavy paths. 
 setting is always passed as a PUBLIC compile definition, because translation units that
 disagree would violate the ODR; `-DMOIRA_ATOMIC_REFCOUNT=OFF` remains for
 single-threaded programs and has its own CI job.
+
+## D21. The Expected<T> choice is made once, by the library's build
+
+`Expected<T>` is `std::expected` in C++23 and Moira's shim in C++20. Compiled functions
+like `try_read_file` return it, and the Itanium ABI does not mangle return types, so a
+C++20 library linked into a C++23 program (or the reverse) would have linked silently
+with two different layouts. CMake now checks once, at configure time, whether the
+library's build has `std::expected`, and exports `MOIRA_STD_EXPECTED=0/1` with the
+target. A consumer that cannot match gets a compile-time `#error`; a C++23 consumer of a
+C++20 build simply uses the shim too. Builds without CMake fall back to detecting it per
+translation unit, and must then compile everything at one standard.
+
+## D22. Portability fixes from the core-types review
+
+- **No `std::filesystem` in the library.** Moira never opens files itself (the
+  `LoadSession` reader does), so include paths are joined and normalized lexically, in
+  about 40 lines; both `/` and `\` separate. This drops a dependency that console and VFS
+  users avoid. The tools and tests still use it.
+- **MSVC no-exceptions** builds now actually disable exceptions (`/EHs-c-`,
+  `_HAS_EXCEPTIONS=0`) and have a CI job. Exceptions-off is the norm in shipping game
+  builds (EASTL defaults to it; see the references).
+- **Android:** clang defaults to C++17, so `ndk-build` users must add `-std=c++20`
+  themselves; CMake users get it from the target. Noted in the README.
+
+## D23. Symbols stay case-sensitive
+
+*Decided 2026-10-11.* Unreal's `FName` compares case-insensitively and keeps the first
+spelling for display. Moira keeps DTA's case-sensitive identity instead: "first spelling
+wins" would let the printer change a symbol's case depending on load order, which breaks
+round-tripping and minimal write-back diffs (M3). To catch `Health` versus `health`
+mistakes anyway, a failed lookup suggests a case variant of the name when one exists (M2,
+alongside D6's quoted-symbol hint), and `check` warns when data mixes case variants of a
+name (M4).

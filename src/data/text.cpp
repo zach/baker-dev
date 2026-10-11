@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstring>
 #include <system_error>
+#include <vector>
 
 #include <fast_float.h>
 
@@ -136,6 +137,71 @@ std::string format_double(double v) {
     auto r = std::to_chars(buf, buf + sizeof buf, v);
     return std::string(buf, r.ptr);
 #endif
+}
+
+namespace {
+bool is_separator(char c) noexcept {
+    return c == '/' || c == '\\';
+}
+bool is_alpha(char c) noexcept {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+}
+
+// "/", "C:/", or "C:" (a drive-relative prefix); 0 if none.
+size_t root_length(std::string_view p) noexcept {
+    if (p.size() >= 2 && is_alpha(p[0]) && p[1] == ':')
+        return p.size() >= 3 && is_separator(p[2]) ? 3 : 2;
+    return !p.empty() && is_separator(p[0]) ? 1 : 0;
+}
+}  // namespace
+
+bool is_absolute_path(std::string_view p) noexcept {
+    const size_t root = root_length(p);
+    return root > 0 && is_separator(p[root - 1]);
+}
+
+std::string normalize_path(std::string_view p) {
+    const size_t root = root_length(p);
+    const bool absolute = is_absolute_path(p);
+    std::vector<std::string_view> parts;
+    size_t start = root;
+    for (size_t i = root; i <= p.size(); ++i) {
+        if (i < p.size() && !is_separator(p[i])) continue;
+        const std::string_view part = p.substr(start, i - start);
+        start = i + 1;
+        if (part.empty() || part == ".") continue;
+        if (part == "..") {
+            if (!parts.empty() && parts.back() != "..")
+                parts.pop_back();
+            else if (!absolute)
+                parts.push_back(part);
+            continue;
+        }
+        parts.push_back(part);
+    }
+    std::string out(p.substr(0, root));
+    for (char& c : out)
+        if (c == '\\') c = '/';
+    for (size_t i = 0; i < parts.size(); ++i) {
+        if (i > 0) out += '/';
+        out += parts[i];
+    }
+    return out.empty() && !p.empty() ? "." : out;
+}
+
+std::string_view parent_path(std::string_view p) noexcept {
+    size_t i = p.size();
+    while (i > 0 && !is_separator(p[i - 1])) --i;
+    if (i == 0) return {};
+    return i == 1 ? p.substr(0, 1) : p.substr(0, i - 1);
+}
+
+std::string join_path(std::string_view dir, std::string_view p) {
+    if (dir.empty()) return std::string(p);
+    std::string out(dir);
+    if (!is_separator(out.back())) out += '/';
+    out += p;
+    return out;
 }
 
 }  // namespace moira::detail

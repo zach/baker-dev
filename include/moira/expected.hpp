@@ -2,18 +2,36 @@
 
 // moira::expected / moira::unexpected: std::expected when the standard library has it,
 // otherwise a minimal shim with the subset of the interface Moira uses.
+//
+// Compiled Moira functions return Expected<T>, so the library and every translation unit
+// using it must make the same choice. CMake decides once, when configuring the library,
+// and exports MOIRA_STD_EXPECTED=0/1 to consumers (docs/decisions.md D21). Without it,
+// the choice follows the current translation unit.
 
 #include <version>
 
 #if defined(__cpp_lib_expected) && __cpp_lib_expected >= 202202L
+#define MOIRA_LIB_HAS_STD_EXPECTED 1
+#else
+#define MOIRA_LIB_HAS_STD_EXPECTED 0
+#endif
+
+#if defined(MOIRA_STD_EXPECTED)
+#if MOIRA_STD_EXPECTED && !MOIRA_LIB_HAS_STD_EXPECTED
+#error "moira was built with std::expected (C++23); compile this code as C++23 too"
+#endif
+#define MOIRA_HAS_STD_EXPECTED MOIRA_STD_EXPECTED
+#else
+#define MOIRA_HAS_STD_EXPECTED MOIRA_LIB_HAS_STD_EXPECTED
+#endif
+
+#if MOIRA_HAS_STD_EXPECTED
 #include <expected>
-#define MOIRA_HAS_STD_EXPECTED 1
 #else
 #include <optional>
 #include <type_traits>
 #include <utility>
 #include <variant>
-#define MOIRA_HAS_STD_EXPECTED 0
 #endif
 
 #include <cstdlib>

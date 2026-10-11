@@ -40,4 +40,14 @@ struct Number {
 // Apple deployment targets); exposed for tests.
 [[nodiscard]] std::string format_double_fallback(double v);
 
+// Lexical path handling. Moira never touches the file system itself (LoadSession's reader
+// does), so include paths are only joined and normalized as text. Both '/' and '\\' are
+// separators; results use '/'.
+[[nodiscard]] bool is_absolute_path(std::string_view p) noexcept;
+// Removes "." and empty segments and resolves ".." lexically: "a/./b/../c.dta" -> "a/c.dta".
+[[nodiscard]] std::string normalize_path(std::string_view p);
+// Everything before the last separator: "a/b/c.dta" -> "a/b"; "c.dta" -> "".
+[[nodiscard]] std::string_view parent_path(std::string_view p) noexcept;
+[[nodiscard]] std::string join_path(std::string_view dir, std::string_view p);
+
 }  // namespace moira::detail

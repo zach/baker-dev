@@ -4,7 +4,6 @@
 
 #include <cstdio>
 #include <cstring>
-#include <filesystem>
 #include <utility>
 
 namespace moira {
@@ -222,10 +221,6 @@ private:
     bool has_peek_ = false;
     Token peeked_;
 };
-
-std::string normalize_path(const std::filesystem::path& p) {
-    return p.lexically_normal().generic_string();
-}
 
 bool read_disk_file(const std::string& path, std::string& out) {
     std::FILE* f = std::fopen(path.c_str(), "rb");
@@ -556,15 +551,13 @@ private:
                         "more than " + std::to_string(s_.limits.max_includes) + " included files",
                         line);
 
-        namespace fs = std::filesystem;
         std::vector<std::string> candidates;
-        const fs::path p(path);
-        if (p.is_absolute()) {
-            candidates.push_back(normalize_path(p));
+        if (is_absolute_path(path)) {
+            candidates.push_back(normalize_path(path));
         } else {
-            candidates.push_back(normalize_path(fs::path(file_.str()).parent_path() / p));
+            candidates.push_back(normalize_path(join_path(parent_path(file_.str()), path)));
             for (const std::string& dir : s_.include_dirs)
-                candidates.push_back(normalize_path(fs::path(dir) / p));
+                candidates.push_back(normalize_path(join_path(dir, path)));
         }
         std::string text;
         const std::string* found = nullptr;
@@ -632,7 +625,7 @@ Expected<Ref<Array>> try_read_string(std::string_view text, std::string_view nam
         session.nodes_ = 0;
         session.includes_ = 0;
     }
-    const std::string file = detail::normalize_path(std::filesystem::path(name));
+    const std::string file = detail::normalize_path(name);
     session.include_stack_.push_back(file);
     struct Pop {
         std::vector<std::string>& stack;
@@ -652,7 +645,7 @@ Expected<Ref<Array>> try_read_string(std::string_view text, std::string_view nam
 }
 
 Expected<Ref<Array>> try_read_file(std::string_view path, LoadSession& session) {
-    const std::string file = detail::normalize_path(std::filesystem::path(path));
+    const std::string file = detail::normalize_path(path);
     std::string text;
     if (!session.reader_(file, text))
         return Unexpected(make_error(ErrorCode::Io, "cannot read '" + file + "'"));

@@ -59,6 +59,9 @@ depends on data), `moira::moira` (both). Build the data layer by itself with
 | `MOIRA_BUILD_BENCH` | `OFF` | `moira_bench_parse` |
 | `MOIRA_BUILD_FUZZERS` | `OFF` | `moira_parse_fuzzer` (Clang) |
 
+Android: clang defaults to C++17. CMake builds get C++20 from the targets; with
+`ndk-build`, add `APP_CPPFLAGS += -std=c++20`.
+
 To check the parser against a local DTA corpus (none is included; see
 `docs/decisions.md` D3):
 

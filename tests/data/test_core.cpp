@@ -213,11 +213,11 @@ TEST_CASE("atomic refcounts survive concurrent copies") {
 #endif
 
 TEST_CASE("Expected is std::expected when the library has it") {
-#if defined(__cpp_lib_expected) && __cpp_lib_expected >= 202202L
-    static_assert(MOIRA_HAS_STD_EXPECTED == 1);
+    // The choice comes from the library's configure step, and these tests are built
+    // at the library's own standard, so it must match what this translation unit sees.
+    static_assert(MOIRA_STD_EXPECTED == MOIRA_LIB_HAS_STD_EXPECTED);
+#if MOIRA_HAS_STD_EXPECTED
     static_assert(std::is_same_v<Expected<int>, std::expected<int, Error>>);
-#else
-    static_assert(MOIRA_HAS_STD_EXPECTED == 0);
 #endif
     MESSAGE("std::expected in use: " << MOIRA_HAS_STD_EXPECTED);
     Expected<int> ok = 3;
