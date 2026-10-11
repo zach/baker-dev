@@ -2,9 +2,10 @@
 
 // Ref<T>: intrusive reference-counted pointer.
 //
-// Refcounts are non-atomic by default: Moira's threading model is single-threaded
-// mutation, multi-thread read after freeze. Build with MOIRA_ATOMIC_REFCOUNT to load or
-// share trees across threads while references are still being taken and dropped.
+// Refcounts are atomic by default, so Nodes and Refs may be copied and dropped on any
+// thread; mutation is still single-threaded. Define MOIRA_ATOMIC_REFCOUNT=0 (CMake:
+// -DMOIRA_ATOMIC_REFCOUNT=OFF) for plain counters in single-threaded programs
+// (docs/decisions.md D20). Every translation unit must agree on the setting.
 //
 // A refcounted type T keeps a detail::RefCount as its first data member, is
 // standard-layout, and provides ref() / unref() members.
@@ -12,15 +13,18 @@
 #include <cstdint>
 #include <utility>
 
-#if defined(MOIRA_ATOMIC_REFCOUNT) && MOIRA_ATOMIC_REFCOUNT
+#if !defined(MOIRA_ATOMIC_REFCOUNT) || MOIRA_ATOMIC_REFCOUNT
+#define MOIRA_ATOMIC_REFCOUNT_ENABLED 1
 #include <atomic>
+#else
+#define MOIRA_ATOMIC_REFCOUNT_ENABLED 0
 #endif
 
 namespace moira {
 
 namespace detail {
 
-#if defined(MOIRA_ATOMIC_REFCOUNT) && MOIRA_ATOMIC_REFCOUNT
+#if MOIRA_ATOMIC_REFCOUNT_ENABLED
 using RefCount = std::atomic<uint32_t>;
 inline void retain(RefCount& c) noexcept {
     c.fetch_add(1, std::memory_order_relaxed);

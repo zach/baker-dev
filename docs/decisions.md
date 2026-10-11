@@ -263,3 +263,19 @@ doubles for world positions), and 32-bit floats represent integers exactly only 
 is too few for current games, and EnTT's and flecs' defaults are far larger. The handle
 still fits the Node's 8-byte payload, so this costs nothing; moira::script (M5) is its
 first user.
+
+## D20. Refcounts are atomic by default
+
+*Deviates from spec §2 (non-atomic by default, atomic as an option).*
+
+`MOIRA_ATOMIC_REFCOUNT` now defaults to ON. Copying a Node that holds a String or Array
+writes its refcount, so the spec's "multi-thread read after freeze" model was only safe if
+readers never copied a Node, an easy rule to break. Unreal made the same call: UE5's
+`TSharedPtr` defaults to `ESPMode::ThreadSafe`. The evidence offered for non-atomic counts
+in job-system engines turned out to be unverifiable (`background/core-types-references.md`).
+
+Cost: no measurable difference on the parse benchmark (about 145–170 MB/s either way,
+within run-to-run noise). M2's lookup benchmarks will measure copy-heavy paths. The
+setting is always passed as a PUBLIC compile definition, because translation units that
+disagree would violate the ODR; `-DMOIRA_ATOMIC_REFCOUNT=OFF` remains for
+single-threaded programs and has its own CI job.

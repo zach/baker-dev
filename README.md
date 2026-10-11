@@ -51,7 +51,7 @@ depends on data), `moira::moira` (both). Build the data layer by itself with
 |--------|---------|--------|
 | `MOIRA_BUILD_SCRIPT` | `ON` | Build `moira::script` |
 | `MOIRA_BUILD_TESTS` | `ON` when top-level | Build the test suite |
-| `MOIRA_ATOMIC_REFCOUNT` | `OFF` | Atomic refcounts for multithreaded loading |
+| `MOIRA_ATOMIC_REFCOUNT` | `ON` | Atomic refcounts; `OFF` for single-threaded programs |
 | `MOIRA_SHIPPING` | `OFF` | Freeze config; compile out dev instrumentation |
 | `MOIRA_NO_EXCEPTIONS` | `OFF` | Non-throwing APIs only |
 | `MOIRA_SANITIZE` | empty | e.g. `address,undefined` |

@@ -196,7 +196,7 @@ TEST_CASE("structural equality ignores locations and aux bits") {
     CHECK_FALSE(structurally_equal(Node(str("s")), Node(Symbol("s"))));
 }
 
-#if defined(MOIRA_ATOMIC_REFCOUNT) && MOIRA_ATOMIC_REFCOUNT
+#if MOIRA_ATOMIC_REFCOUNT_ENABLED
 TEST_CASE("atomic refcounts survive concurrent copies") {
     Ref<Array> shared = array("shared", 1, 2, 3);
     auto work = [&] {
