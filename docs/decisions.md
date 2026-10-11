@@ -1612,3 +1612,64 @@ outlives its load keeps its tree alive), choosing D56's named fallback.*
   (`find`, `get`, tweaks) copy no node.
 - **Measured before and after:** `bench_parse` (MB/s), the allocation count of a parse,
   teardown of a large tree, and the call rows, where an array-valued node is copied.
+
+## D65. M5b step 4 results: an arena per load
+
+*Recorded 2026-10-11. Implements D64. M5b is done, and `docs/m5b-plan.md` is deleted.*
+
+- **What was built.**
+  - **Owners.** An `Array` or `String` header keeps a 32-bit offset to its block where its
+    count was. A block starts with its owner, and the owner holds the count. Headers stay
+    24 and 8 bytes. `ref_count()` reports the owner's count.
+  - **Solo blocks.** Arrays and strings built outside a load are solo blocks, an owner of
+    one, from the default allocator. They own their children as before.
+  - **Arenas.** `read_string`, `read_file`, includes, macro bodies, and `#merge` results
+    build one arena per top-level read, from `LoadSession::allocator`. A Config and a
+    Context set that to their own allocator.
+    - A node stored in an arena counts nothing if it points into the same arena. If it
+      points elsewhere, the arena counts that owner once.
+    - Freeing releases those owners and frees the blocks, without visiting a node.
+    - Until the load is returned, the arena's own count changes without atomics, because
+      no other thread can see it.
+    - `Array::set` on an arena array counts a foreign node's owner atomically.
+  - `bench_parse` reports allocations and the time to free the tree. `bench_call` gains
+    two rows that copy an array-valued variable.
+- **Found on the way.** A `#merge` inside a load made solo arrays that pointed into the
+  arena being built. The arena then adopted them, so each counted the other and neither
+  was ever freed. ASan's leak check caught it. `#merge` now builds in the load's arena,
+  and a test checks that a load with `#merge` has a count of 1.
+- **Tests:**
+  - `test_arena.cpp`:
+    - a 4,001-object parse makes 18 allocations, and freeing its tree makes none;
+    - a node outlives its load and holds all of it;
+    - a macro body from an earlier load keeps that load alive after the session drops it;
+    - `set` counts a foreign arena once;
+    - `#merge` makes no self-dependency;
+    - host-built arrays keep solo counts.
+  - `moira_alloc_tests` checks that 50 reloads of a changing file keep the Config's live
+    bytes flat, and that everything is freed after.
+  - The alloc test (D61) now covers trees, which come from the owner's allocator: 19
+    allocations for the Config scenario and 110 for the Context.
+- **Performance,** against `d7feb82` built alongside, with the same benchmark files:
+
+  | Row | before | after |
+  |---|---:|---:|
+  | parse, 4.2 MB | 110–122 MB/s | 127–129 MB/s |
+  | allocations in that parse | 248,393 | 40 |
+  | freeing that tree | 9.1–9.7 ms | < 0.01 ms |
+  | `$loaded` (copy an array from a load) | 16.5–16.7 ns | 16.0–17.6 ns |
+  | `$solo` (copy a host-built array) | 16.1–17.4 ns | 17.2–19.4 ns |
+  | `{add 1 2}` | 27.6–31.4 ns | 26.8–28.8 ns |
+  | `{add1 1}` | 66.5–69.6 ns | 64.9–65.3 ns |
+
+  - The other call rows are unchanged within noise.
+  - Copying an array-valued node now loads its block's owner pointer before the count.
+    At most that costs about 1 ns, on the solo row.
+  - Parse gained less than the allocation count suggests: lexing dominates, and glibc's
+    malloc was fast for these small blocks. The memory a TD cares about, a few large
+    blocks per load from the owner's allocator, is the real change.
+- **Not done, by decision (D64):** arrays built after a load are solo, not in a scratch
+  arena. The binary cache (M8) can load a whole tree into one arena block.
+- **Size.** The core is 8,059 lines, up 267 in step 4 against a plan of +250. M5b as a
+  whole is +797 against a plan of ~+450. Steps 2 and 3 added small types and the alias
+  layer that the plan did not count (D60, D62).

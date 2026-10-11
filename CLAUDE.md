@@ -1,5 +1,8 @@
 # Working on Moira
 
+Read `docs/spec.md` for what Moira is, `docs/decisions.md` for every deviation from it,
+and the current milestone plan (`docs/m6-plan.md`) for what is next.
+
 ## Rules
 
 - **Breaking changes are allowed and encouraged.** Do not keep backward-compatibility
@@ -7,6 +10,32 @@
   every caller in the repository and delete the old form. There are no downstream users
   to protect. (Script-level `Status::Deprecated` is a feature for script authors, not a
   compatibility layer.)
-- Record each deviation from `docs/spec.md` in `docs/decisions.md` (spec §11).
-- Before every commit, run `tools/local_matrix.sh`; every configuration must be green.
-- Hold designs and hot-path changes to `.claude/skills/acton-review/`.
+- Record each deviation from `docs/spec.md` in `docs/decisions.md` (spec §11). Results of
+  a step go in a D-entry too, with benchmark numbers.
+- Hold designs and hot-path changes to `.claude/skills/acton-review/` (the skill and its
+  `references/moira-gaps.md` status table). Write a short design note before a step that
+  changes ownership or the API.
+
+## How the work is done
+
+- **Commit each sub-step green.** Before every commit, run `tools/local_matrix.sh`:
+  debug, release, C++23, shipping, ASan+UBSan, Clang, data-only, plain refcounts, and
+  EASTL (which needs the network the first time). Shipping refuses live edits and
+  reloads, so test those under `if constexpr (!kShipping)`.
+- **Containers in `src/`** are `Vec`, `Str`, `HashMap`, `Own`, and `Rc` from
+  `src/common/containers.hpp`, never the STL's directly (D55, D61). An owner passes its
+  allocator to the tables it keeps. Do not construct a `Vec` on a hot path, even an empty
+  one: MSVC's debug library allocates for it (D62). Pass pointer ranges, not `std::span`
+  iterators, to EASTL.
+- **Trees** (D64): a load builds in one arena; anything else is a solo block. Code that
+  builds arrays while a load is being read must build them in that load's arena, or the
+  load counts itself and leaks.
+- **Gates.** `ctest` runs `tools/check_headers.py` (public headers reach only D55's
+  standard headers), compiles every public header alone, and runs `moira_alloc_tests`,
+  which fails if a Context or Config reaches `operator new`.
+- **Benchmarks.** Measure before and after with `bench/` (`-DMOIRA_BUILD_BENCH=ON`),
+  against a git worktree of the previous commit on the same machine, with the same
+  benchmark files. Record numbers, regressions and noise included. When a row moves,
+  count instructions with cachegrind in a small driver before calling it code layout.
+- **CI** also runs MSVC, libc++, and TSan, which the local matrix cannot. Check it after
+  each push.

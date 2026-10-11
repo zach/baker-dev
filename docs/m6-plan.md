@@ -193,7 +193,7 @@ with room to spare, unless M8b's shapes are counted in it, which they are not (s
 - **Q2, statistics.** Counts always; timing behind `set_profiling`.
 - **Q3, tracing.** Compiled out under shipping.
 
-The rest of M6 waits for the hygiene work in `docs/m5b-plan.md` (D54–D56). Note that D54
+The rest of M6 waited for the hygiene work of M5b (D54–D56; done in D59–D65). Note that D54
 removes the throwing forms, so `handle` exists only in its `Expected` form, and drops the
 `try_` prefix.
 

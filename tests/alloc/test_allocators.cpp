@@ -11,6 +11,7 @@
 
 #include "alloc_counter.hpp"
 
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string_view>
@@ -68,6 +69,17 @@ struct Mover : moira::Object<Mover> {
         b.property("x", &Mover::x);
     }
 };
+
+// A file whose text changes with `g_version`, for reloads.
+int g_version = 0;
+bool read_versioned(std::string_view path, moira::TextSink out) {
+    if (path != "live.dta") return false;
+    char text[64];
+    const int n =
+        std::snprintf(text, sizeof text, "(speed %d) (list 1 2 3 \"s%d\")", g_version, g_version);
+    out(std::string_view(text, static_cast<size_t>(n)));
+    return true;
+}
 
 int add(int a, int b) {
     return a + b;
@@ -141,4 +153,26 @@ TEST_CASE("a Context allocates through its allocator, and nothing through operat
     CHECK(mine.allocs == mine.frees);
     CHECK(mine.live_bytes == 0);
     MESSAGE("Context: " << mine.allocs << " allocations through its allocator");
+}
+
+TEST_CASE("reloads free the trees they replace") {
+    if constexpr (moira::kShipping) return;  // reload is inert in shipping
+    Counting mine;
+    const moira::Allocator alloc = mine.allocator();
+    size_t steady = 0;
+    bool ok = true;
+    {
+        moira::Config config({.tweaks = nullptr}, alloc);
+        config.session().set_reader(&read_versioned);
+        ok = config.push_layer("live", "live.dta").has_value();
+        for (int i = 1; i <= 50; ++i) {
+            g_version = i;
+            ok = ok && config.reload().value_or(false);
+            if (i == 2) steady = mine.live_bytes;
+        }
+        ok = ok && config.get<int>(moira::Path("speed")).value_or(0) == 50;
+        CHECK(mine.live_bytes == steady);  // each reload's arena replaced the last
+    }
+    CHECK(ok);
+    CHECK(mine.live_bytes == 0);
 }

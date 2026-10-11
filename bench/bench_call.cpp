@@ -57,10 +57,15 @@ int main() {
     if (!ctx.add(bob, "bob")) return 1;
     if (!ctx.func("add", [](int64_t a, int64_t b) { return a + b; })) return 1;
     ctx.var("x") = 4;
+    // Array-valued variables: reading one copies the node, which counts the array's owner.
+    auto loaded = moira::read_string("(1 2 3)", "list.dta");
+    if (!loaded) return 1;
+    ctx.var("loaded") = (**loaded)[0];
+    ctx.var("solo") = moira::Node(moira::Array::make(3));
     if (!ctx.eval("{func add1 ($a) {+ $a 1}}")) return 1;
     auto tree = moira::read_string(
         "{add 1 2} {+ 1 2} {+ 1.5 2} {add $x 1} $x {if 1 2 3} {add1 1} {add {add 1 2} 3} "
-        "{bob grow 0}",
+        "{bob grow 0} $loaded $solo",
         "bench.dta");
     if (!tree) return 1;
     const char* names[] = {
@@ -73,6 +78,8 @@ int main() {
         "{add1 1}: script function",
         "{add {add 1 2} 3}: nested",
         "{bob grow 0}: native method",
+        "$loaded: an array from a load",
+        "$solo: an array built by the host",
     };
 
     std::printf("evaluating a command node (best of 7, 2M calls each)\n");

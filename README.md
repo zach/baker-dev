@@ -121,8 +121,9 @@ moira: 'price' is float, not int  (menu.dta:3, at menu/'bacon and eggs')
 
 What exists:
 
-- `Node` (16 bytes; 64-bit ints and doubles), interned `Symbol`, refcounted `String` and `Array` (one allocation
-  per array, children inline), every array tagged with its source file and line.
+- `Node` (16 bytes; 64-bit ints and doubles), interned `Symbol`, `String` and `Array` with
+  children inline, every array tagged with its source file and line. A load's tree lives
+  in one arena, counted as a whole (D64).
 - A parser that never crashes on bad input: every error has a file and line.
 - The preprocessor: `#include`, `#include_opt`, `#merge`, `#ifdef`/`#ifndef`/`#else`/
   `#endif`, `#define`, `#undef`, `#autorun`, and `[NAME ...]` macros.
