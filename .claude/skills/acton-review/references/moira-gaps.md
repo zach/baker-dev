@@ -89,3 +89,23 @@ or accepted as a deviation, record it in `docs/decisions.md` and update this fil
     reference, and `check` share libraries with the runtime. That is fine while they stay
     behind `MOIRA_SHIPPING` and off the hot structures. Flag it if a hot struct ever gains
     a field only tools use.
+11. **The STL is in every public header (all paths; the TD's first look).** `error.hpp`
+    has `std::string` and `std::vector` in `Error`, and every header includes it, so
+    `<moira/node.hpp>` alone brings in `<string>` and `<vector>`. `tweak.hpp`, which every
+    game file using a tweak includes, pulls in `<functional>` and `<memory>`. Ten of the
+    public headers use STL containers, `std::function`, or `std::shared_ptr` in their
+    declarations. A curated engine codebase that bans the STL cannot adopt Moira without
+    taking these in, and compile time pays in every translation unit.
+
+    This is the first thing a skeptical TD will notice, before any benchmark. A remedy
+    has three layers:
+    - **Hot headers:** `node.hpp`, `symbol.hpp`, `tweak.hpp`, and `Tweak<T>`'s read path
+      free of STL includes, with errors behind an opaque or forward-declared type;
+    - **Callbacks:** a plain function pointer plus `void*` (as `NoticeSink` already is)
+      instead of `std::function`;
+    - **Tools:** STL in tool-only headers (`write.hpp`, `source_map.hpp`, `reference`)
+      kept out of the headers game code includes.
+
+    Measure the preprocessed size and the build time of a translation unit that only
+    reads a tweak, before and after. It deserves its own D-entry, because it touches the
+    public API.
