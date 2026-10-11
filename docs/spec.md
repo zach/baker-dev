@@ -178,6 +178,24 @@ would have had to edit; it never guesses. Writing to a different layer than the 
 supplied the value (for example, saving a tweak into `local.dta` instead of the shared
 file) is an explicit, separate call.
 
+Write-back's rules, in full (the calls themselves are in §4, "Personal, experiment, and
+scratch layers"):
+
+- **A scratch-sourced value** (a value tuned live, held in the in-memory `scratch` layer)
+  is written to the highest enabled non-scratch layer that supplies the path. On success
+  the path leaves `scratch` and the patched file is reloaded (trigger `write_back`), so
+  provenance then names that file and line.
+- **Writing into another layer** (`write_back_to`) replaces the target file's literal token
+  if it has one. Otherwise it inserts: it finds the deepest ancestor array literally present
+  in that file and adds the missing entries as its last child, indented like the previous
+  sibling, in the pretty-printer's form. No other byte changes. If the target layer is
+  optional and its file is absent, the file is created.
+- **Refusals are always located.** Write-back refuses when a positional segment (such as
+  `phase.2`) does not exist in the target; when the ancestor array it would insert into
+  came from a macro, `#include`, or `#merge` rather than the file itself; and when the file
+  on disk changed since it was loaded (compared by a content hash recorded at load).
+- Every write returns a `WriteReport` listing each file and line written.
+
 This is the hinge of direct online discovery: values found by playing must reach version
 control without being transcribed by hand. See `harness-tree-vision.md` §4.
 
@@ -314,7 +332,8 @@ Lookup by dotted path: `cfg.get<float>("renderer.clear_color.0")`,
 cfg.push_layer("default",  "default.dta");
 cfg.push_layer("platform", "ps5.dta");
 cfg.push_layer("app",      "app.dta");
-cfg.push_layer("local",    "local.dta");           // per-machine, never checked in
+cfg.push_layer("local", "local/" + user + ".dta",  // per-user, never checked in
+               {.optional = true});
 cfg.push_layer("patch-2026-10-11", overlay_array); // a live-ops overlay
 cfg.remove_layer("patch-2026-10-11");              // rollback
 ```
@@ -396,67 +415,192 @@ makes hot reload useful on day one rather than after every subsystem has been ta
 migrate. Provide `Config::on_reload` returning `Reload::Migrated` or `Reload::Punt`, and a
 `rebuild` hook the punt path calls.
 
-### Personal and experiment layers
+### Reload telemetry
 
-The layer stack already supports both; they need a convention and three calls.
+Report how long each reload took and where the time went, so a studio's loop dashboard can
+show Moira's share of edit-to-see time (from saving a change in a tool to the running game
+reflecting it) and catch regressions.
 
-- **Personal layers.** Each developer gets a layer `local.<user>`, read from
-  `local.<user>.dta`, which is never checked in. The host supplies the user name
-  (`ConfigOptions::user`; the library reads no environment) and pushes it with one call,
-  `cfg.push_local_layer(dir)`, after the shared layers. A missing file is an empty layer,
-  not an error, and the next `reload()` picks the file up once it exists. The repository
-  template and `docs/cookbook.md` ignore `local.*.dta`. Write-back of a value the
-  personal layer supplies goes to that file, which is what personal tuning wants.
-- **Experiment layers.** `cfg.toggle_layer(name)` (and `set_layer_enabled(name, bool)`)
-  switches a named layer off and on for A/B comparison during polish. A disabled layer
-  keeps its place in the stack and its trees, and is skipped by merging, provenance, and
-  write-back. Toggling re-merges and fires the normal reload callbacks without re-reading
-  any file, so flipping back and forth is instant and exact.
-- **Comparing layers.** `cfg.diff(a, b)` lists every value the two layers' own trees
-  disagree on: the path, each side's value (or its absence), and each side's provenance.
-  It works whether or not the layers are enabled. Promoting an experiment is the existing
-  explicit write-back to a chosen file: `write_back_to(path, layer)` for each entry worth
-  keeping.
+```cpp
+namespace moira {
 
-Toggling is a layer change, so it follows `freeze()` and `MOIRA_SHIPPING` like any other.
+// Monotonic nanoseconds from an arbitrary origin.
+// Default reads std::chrono::steady_clock; tests inject a fake.
+using TimeSource = std::uint64_t (*)(void* user);
+
+enum class ReloadOutcome : std::uint8_t { Ok, Unchanged, ParseError, Refused };
+
+struct ReloadRequest {
+    Symbol        trigger{};      // host tag: "watcher", "console", "livelink", ...
+    std::uint64_t origin_ns = 0;  // when the edit was saved, in the TimeSource domain; 0 = unknown
+};
+
+struct ReloadRecord {
+    std::uint64_t epoch;          // epoch after this reload (unchanged if nothing changed)
+    Symbol        trigger;
+    std::uint64_t origin_ns, start_ns, end_ns;
+    std::uint64_t scan_ns, read_ns, parse_ns, merge_ns, bind_ns, notify_ns;
+    std::uint32_t files_reloaded, tweaks_changed;
+    std::uint32_t migrated, punted;  // reload-callback outcomes
+    Symbol        first_file;        // first changed file, for display
+    ReloadOutcome outcome;
+};
+
+class Config {
+public:
+    void set_time_source(TimeSource fn, void* user = nullptr);
+    bool reload(const ReloadRequest& request = {});      // keeps its return type; try_ twin too
+    [[nodiscard]] std::optional<ReloadRecord> last_reload() const noexcept;
+    template <class F> void each_reload(F&& fn) const;   // oldest to newest
+    void set_reload_history(std::size_t capacity);        // default 256; allocates once
+    void on_reload_complete(/* same callable form as on_reload */);
+};
+
+}  // namespace moira
+```
+
+- **Six stages, in order**, each timed once per reload: *scan* (find changed files),
+  *read*, *parse* (preprocessor and edit-mode trivia included), *merge* (re-merge the layer
+  stack), *bind* (rebind tweaks), and *notify* (reload callbacks, including punt and
+  rebuild hooks).
+- Layer pushes, pops, removals, toggles, and `restore()` also produce records, with
+  trigger `layer` or `restore` and zero scan, read, and parse time.
+- A reload that finds no changed files records `Unchanged`. A parse failure records
+  `ParseError`, keeps the previous tree, and leaves bind and notify at zero.
+- When the host supplies `origin_ns`, the substrate's edit-to-see time is
+  `end_ns - origin_ns`; otherwise hosts compute it from the absolute `start_ns` and
+  `end_ns`. Clock domains across machines (a PC tool and a devkit) are the host's problem.
+- History is a fixed-capacity ring, allocated once; when full, the oldest record is
+  dropped. Telemetry adds no allocation per reload once the ring exists.
+- `on_reload_complete` fires after notify with the finished record, so a host can forward
+  it to telemetry without polling.
+- Under `MOIRA_SHIPPING` the timing code compiles out; `last_reload()` returns empty and
+  `each_reload` visits nothing, so hosts need no `#ifdef`s.
+
+The library still owns no clock: the time source is injectable and only defaults to
+`steady_clock`.
+
+### Personal, experiment, and scratch layers
+
+Let people experiment without touching shared files or blocking each other, compare
+variants A/B during polish, and move a winning experiment into shared data as a reviewable
+diff.
+
+```cpp
+namespace moira {
+
+struct LayerOptions {
+    bool optional = false;  // a missing file is not an error; the layer exists, empty
+    bool enabled  = true;   // disabled layers keep their position but are skipped by merge
+};
+
+struct LayerEffectEntry {
+    std::string           path;          // dotted path, as get<T>() takes it
+    Node                  value;         // this layer's value
+    std::optional<Node>   below;         // the stack's value without this layer, if any
+    Source                source;        // provenance, as source() returns it
+    std::optional<Source> below_source;
+    bool                  shadowed;      // a higher enabled layer overrides this path
+};
+
+struct DiffEntry {
+    std::string           path;
+    std::optional<Node>   a, b;          // empty = that layer does not set this path
+    std::optional<Source> source_a, source_b;
+};
+
+class Config {
+public:
+    void push_layer(std::string_view name, std::string_view path, LayerOptions options = {});
+
+    void set_layer_enabled(std::string_view name, bool enabled);
+    bool toggle_layer(std::string_view name);              // returns the new state
+    [[nodiscard]] bool layer_enabled(std::string_view name) const;
+
+    // Tool edits land in the reserved in-memory "scratch" layer.
+    void set(std::string_view path, Node value);
+    void clear_scratch(std::string_view path = {});        // one path, or all of it
+
+    [[nodiscard]] std::vector<LayerEffectEntry> layer_effect(std::string_view layer) const;
+    [[nodiscard]] std::vector<DiffEntry> diff(std::string_view a, std::string_view b) const;
+
+    // Write-back (§1). Each has a try_ twin; WriteReport lists every file and line written.
+    WriteReport write_back(std::string_view path);
+    WriteReport write_back_to(std::string_view path, std::string_view layer);
+    WriteReport promote(std::string_view from_layer, std::string_view to_layer);
+};
+
+}  // namespace moira
+```
+
+- **Enable and toggle.** Changing a layer's state re-merges, advances the epoch, fires
+  reload callbacks, and records telemetry, exactly as push and remove do. Provenance never
+  names a disabled layer.
+- **Personal layers** are a convention, not a mechanism. The host pushes a layer named
+  `local` with `{.optional = true}` at a per-user path such as `local/<user>.dta`, above the
+  shared layers and below live patches. The project keeps that directory out of version
+  control. Moira never looks up user names.
+- **Scratch.** Every `Config` has a reserved, in-memory layer named `scratch`, always
+  topmost and created empty. Edits from tools, including UI edits made through the tweak
+  registry, go there, so provenance stays honest and "my tuning versus the files" becomes a
+  toggle. `pop_layer` skips scratch, and scratch is never written to disk directly.
+- **`set` is a fast path.** Because scratch is topmost, `set` need not re-merge: it updates
+  scratch, rebinds only the tweaks bound to that path, and fires only their `on_change`.
+  Lookups consult scratch before the merged tree. Setting an existing scalar path
+  allocates nothing. Toggling scratch itself is a full re-merge like any other layer.
+- **Effect and diff** work on leaf entries as merge defines them. `layer_effect` answers
+  "what does this layer actually change?"; `diff` compares two layers' own contents, for
+  variant A against variant B. Both are tooling calls computed on demand; they may
+  allocate and need not be fast.
+- **Promote** plans every entry of `layer_effect(from)` into the target layer's file and
+  validates all of them first. It writes only if every entry succeeds; on any refusal it
+  writes nothing and returns all refusals. The source layer stays in the stack, and the
+  caller removes it.
+- Under `MOIRA_SHIPPING`, toggles, `set`, write-back, and `promote` are inert and return a
+  "shipping build" error. `layer_effect` and `diff` still work.
 
 ### Snapshot and restore
 
-`cfg.snapshot()` captures the layer stack (names, files, enabled flags, and each layer's
-tree, shared rather than copied), the live edits, and every tweak's value.
-`cfg.restore(s)` reinstates all of it exactly, without re-reading files, then re-merges,
-rebinds, and fires the normal reload callbacks. A tweak not bound to the config gets its
-recorded value back directly. A file layer restored from a snapshot is re-read by the next
-`reload()` only if its files changed after the snapshot was taken.
+Give polish and QA an exact configuration to return to. Paired with a host's input
+recording, this makes a captured moment replayable; it also makes A/B comparison of two
+tuned states one call each.
 
-A snapshot serializes to and from DTA (`to_array()`, `Config::restore_from(const Array&)`)
-with each file layer's tree embedded, so it reproduces the same values in a fresh process
-even after the files on disk have moved on. Paired with a host's input recording, this
-gives polish and QA a reproducible starting state. Restore follows `freeze()`; under
-`MOIRA_SHIPPING` a snapshot holding live edits is refused.
+```cpp
+namespace moira {
+
+class ConfigSnapshot;  // copyable; shares loaded arrays by Ref, so capture is cheap
+
+class Config {
+public:
+    [[nodiscard]] ConfigSnapshot snapshot() const;
+    void restore(const ConfigSnapshot& snapshot);
+};
+
+}  // namespace moira
+```
+
+- A snapshot holds the ordered layer list (names, options, enabled state), a `Ref` to each
+  layer's loaded tree, each file's load-time content hash, and a copy of scratch. Loaded
+  arrays are immutable and refcounted, so nothing is deep-copied.
+- `restore` replaces the stack, re-merges, rebinds tweaks, and fires reload callbacks with
+  migrate-or-punt as usual. It advances to a new epoch rather than reusing the old one, so
+  any cached derived data invalidates.
+- `restore` never reads disk. If a file changed after the snapshot, values still come from
+  the snapshot, and write-back of them refuses under the content-hash rule (§1).
+- Not captured: script variables, objects, tasks, and host state. Those belong to
+  `moira::script` and the host.
 
 ### Loop telemetry and the edit journal
 
 Moira sits under every harness in the tree, so it is the cheapest place to measure the
 loop. Everything below is observational, allocation-bounded (fixed-size ring buffers), and
 compiled out under `MOIRA_SHIPPING`. The library still owns no I/O, clock, or threads:
-the host supplies a time source (`cfg.set_clock(fn)`) and reads results through calls or
-callbacks. See `reading-a-studio.md` §2 and §9.
+the host supplies a time source (`cfg.set_time_source`, above) and reads results through
+calls or callbacks. See `reading-a-studio.md` §2 and §9.
 
-- **Reload telemetry (stage stamps).** Every change to a `Config` already passes through
-  five stages: *detect* (compare files), *parse* (re-read changed layers), *merge*, *bind*
-  (rebind tweaks), and *notify* (callbacks). In non-shipping builds each change records a
-  timestamp at the start and end of each stage, the parse time of each layer re-read,
-  each callback's outcome (`Migrated`, `Punt`, or error), and what triggered it (reload,
-  layer change, toggle, restore, live edit). `cfg.reload_stats()` returns the most recent
-  record; a short ring keeps the last few. The host adds the two ends the library cannot
-  see: `cfg.note_saved(t)`, the tool-side save time (or the file-change notification), and
-  `cfg.mark_visible()` when the next frame presents. That gives the loop dashboard
-  edit-to-see time with the substrate's share broken out: tool (save to detect), Moira
-  (detect to notify end, per stage), and host (notify end to visible). Under
-  `MOIRA_SHIPPING` the stamps and the clock calls compile out and `reload_stats()` returns
-  an empty record, so host code compiles unchanged.
-- **Loop statistics.** `cfg.loop_stats()` aggregates those records into rolling medians and
+- **Loop statistics.** `cfg.mark_visible()`, called by the host when the next frame
+  presents, closes the loop past what reload records cover. `cfg.loop_stats()` aggregates
+  the reload records (§ Reload telemetry) into rolling medians and
   worst cases per file and per layer, with change-failure counts (reloads that failed to
   parse, callbacks that errored). This is DORA's change lead time and change-failure rate,
   measured for content where it actually happens.
@@ -919,14 +1063,14 @@ recorded. Do not start the next until the previous is green.
 | **M1** | `Node`, `Symbol`, `Ref`, `Array`, text parser, preprocessor (include/merge/ifdef/define/macros), pretty-printer, error type with file:line | Layout `static_assert`s hold; round-trip test passes; **real-corpus parse at 100%**; fuzzer seeded and clean for 1M execs |
 | **M2** | Lookup API: `find*`/`try_find*`, defaults, sorted mode, path access, `Convert<T>` | Lookup benchmarks meet §7; error messages include path and source location |
 | **M3** | `Config`, merge, named layers, provenance, edit-mode parse and write-back, `Tweak<T>`, registry, hot reload, change callbacks, `MOIRA_SHIPPING` | One-line constant replacement demo in `examples/`; tweak read compiles to a single load; reload test mutates a file on disk and observes the new value; pushing then removing a layer restores every value exactly; `source()` names the correct layer, file, and line; under `MOIRA_SHIPPING`, reload is inert and `dev_only` tweaks return defaults; tweaking a value and calling `write_back` produces a one-line diff in the source file with comments and notes preserved, and refuses cleanly for a macro-sourced value |
-| **M3b** | Reload telemetry (stage stamps, `set_clock`, `note_saved`, `mark_visible`, `reload_stats()`); personal layers (`ConfigOptions::user`, `push_local_layer`); experiment layers (`toggle_layer`, `set_layer_enabled`); `diff(a, b)`; `snapshot()` / `restore()` and their DTA form | With an injected clock, a reload of a changed file reports all five stages in order with per-layer parse times and the trigger; edit-to-see splits into tool, Moira, and host shares once `note_saved` and `mark_visible` are called; under `MOIRA_SHIPPING` the clock is never called and `reload_stats()` is empty; a missing `local.<user>.dta` is an empty layer that a later `reload()` picks up when the file appears; toggling an experiment layer off restores every value exactly, toggling it on reinstates it, and each toggle fires the reload callbacks without reading a file; `diff` lists exactly the disagreeing values with both sides' provenance; snapshot, then change layers, live edits, and tweaks, then restore gives a structurally equal tree and equal tweak values and fires the callbacks; a serialized snapshot restored in a fresh `Config`, after the files changed on disk, reproduces the snapshot's values |
+| **M3b** | Reload telemetry (`TimeSource`, `ReloadRequest`, `ReloadRecord`, history ring, `on_reload_complete`); `LayerOptions` (optional, enabled), toggles, the `scratch` layer and its `set` fast path, `layer_effect`, `diff`, `write_back_to` insertion, `promote`, `WriteReport`; `snapshot()` / `restore()`; the headless readiness test `tests/readiness_loop.cpp` | **Telemetry:** with a fake time source that advances a fixed step per call, one reload yields a record whose six stage durations match exactly; zero allocations per reload once the history exists; the ring wraps at capacity keeping the newest in order; a parse error yields `ParseError`, zero bind and notify time, and unchanged tweak values; `migrated` and `punted` match the callbacks' returns; `origin_ns` appears unchanged. **Layers:** toggling a layer off and on restores every value and every `source()`; an optional layer with a missing file loads and contributes nothing; `set` on an existing scalar path allocates nothing, triggers no full re-merge, and fires only the affected tweak's `on_change`; `set` then `write_back` changes one line on disk, keeps comments and notes, empties that path from scratch, and leaves `source()` naming the file and line; `write_back_to` into an absent personal layer creates the file with the nested entry, and into a populated file inserts beside existing siblings changing no other bytes; `promote` with one unwritable entry writes nothing and reports every refusal with file and line; write-back refuses when the file changed on disk after loading; in a three-layer stack `layer_effect` reports `below` and `shadowed` correctly. **Snapshots:** snapshot, push a layer, toggle another, set three values, restore: every tweak value and `source()` match; restore fires each reload callback exactly once and records trigger `restore`; taking a snapshot copies no array. **Readiness test:** in a temporary directory, a commented tunable with a note and an absent optional `local` layer; a bound `Tweak<float>`; a disk edit and `reload({.trigger = "test"_sym, .origin_ns = t})` under a fake time source with a complete record; `set` and `write_back` with a one-line diff, comment and note intact; an experiment layer toggled with `layer_effect` and both A/B values asserted; snapshot, disturb, restore, equal; zero allocations throughout in reload telemetry and tweak reads |
 | **M4** | `Context`, variables, dynamic scoping, lazy command evaluation, native `func` binding with signature deduction, `Raw<T>` params, overload sets, generated script reference | Calculator example; binding benchmark meets §7 with zero allocations; **`if` and `set` are ordinary registered functions with no evaluator special-casing**; a test asserts the untaken branch of an `if` is never evaluated; `script-reference.md` generates and is checked for drift; `moira::check` catches a wrong-arity call to a registered function at load, without evaluating anything; a script stub replaced by a native registration of the same name runs unchanged call sites; the demand report lists an unresolved head with all its call sites |
 | **M5** | `Object<T>`, `Binder`, method/property binding, inheritance flattening, namespace lookup, script-side `func`/`class`/`new` | Both dispatch directions work; the talk's `Person::grow` example runs from script and from C++ |
 | **M6** | Typed messages, allocation-free C++→C++ path, script call stack, trace hook, call statistics | Message benchmark meets §7; an error thrown 4 frames deep renders a correct stack; call statistics add no allocations and compile out under `MOIRA_SHIPPING` |
 | **M7** | `Task`, `Scheduler`, coroutine awaitables, script-side scheduler commands | `delay`/`until`/interp all tick correctly; a task holding a local across a suspend point works (the problem the original had open) |
 | **M8** | Binary cache: write, load, fixups, staleness detection, `Cipher` hook | Cache load benchmark meets §7; cache and text loads produce structurally equal trees |
 | **M8b** | `moira::shape`: shape declarations, shape-aware `check`, enumeration API; `#require` | A shape violation in the corpus-style test data is reported at load with file and line; extra fields warn without failing; a pack loaded via `#require` from three files defines its macros once; a `game`-layer pack referencing a `task`-layer function produces a one-way-rule warning |
-| **M9** | Docs: README with the one-line-constant pitch up front, `docs/language.md`, `docs/cookbook.md`, `examples/` (config, scripting, objects, tasks, remote-console, live-ops overlay, and `harness-imgui`: a Dear ImGui reference harness with panels generated from tweaks and shapes, an `eval` console, provenance on hover, save-to-source via write-back, and a scripted readiness run) | A reader can go from zero to a working tweak in under five minutes of reading; the cookbook's live-ops section covers environment boundaries, version history, rollback, and personal and experiment layers; `harness-imgui --readiness` runs headless in CI: it edits a data file on disk, measures its own edit-to-see time over several edits (median and worst, with Moira's share from `reload_stats()`), tunes a value through the generated panel, writes it back, checks the diff is exactly one line, prints the report, and fails if any step does |
+| **M9** | Docs: README with the one-line-constant pitch up front, `docs/language.md`, `docs/cookbook.md`, `examples/` (config, scripting, objects, tasks, remote-console, live-ops overlay, and `harness-imgui`: a Dear ImGui reference harness with panels generated from tweaks and shapes, an `eval` console, provenance on hover, save-to-source via write-back, and three readiness panels: **Loop** (recent reload records as stage bars, with edit-to-see time when the host supplies origins), **Layers** (the stack with enable toggles, each layer's effect, and a promote button that shows refusals in place), and **Snapshots** (capture A, capture B, flip between them)) | A reader can go from zero to a working tweak in under five minutes of reading; the cookbook's live-ops section covers environment boundaries, version history, rollback, and personal and experiment layers; the harness pushes a personal `local` layer by the convention in §4 |
 | **M10** | Harness instrumentation: loop statistics (aggregating M3b's reload records), edit journal, pack harness metadata (`owners`, `for`, `stage`), `origin` provenance, repetition report, owner findings, machine-readable check output | `loop_stats()` reports rolling median and worst edit-to-see per file and per layer, and counts a failed reload; `unsaved()` lists a tweaked-but-not-written-back value; `source()` names a value's `origin` tool; a subtree repeated in three files appears in the repetition report with all three locations; a one-owner pack is reported; check JSON output is schema-versioned and stable across runs; all instrumentation adds no allocations on the hot path and compiles out under `MOIRA_SHIPPING`; core stays within the 8,000-line budget (if not, move the repetition report into a separate tool and record it in `docs/decisions.md`) |
 
 ---

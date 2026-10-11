@@ -675,3 +675,57 @@ not defined in the spec or the background documents. M9's done-when therefore na
 the run shows instead: edit-to-see time with Moira's share measured, and a tuned value
 written back as a one-line diff. If the slice is defined elsewhere, it should be added to
 `docs/background/` and M9 should cite it.
+
+## D42. M3b, as specified by the readiness brief (supersedes D41)
+
+*Amends spec §1, §4, §10. Requested by the project owner, 2026-10-11, as a detailed brief
+replacing the earlier request D41 recorded.*
+
+A studio's readiness gate has four data-layer tests: edit-to-see time measured with
+Moira's share visible; values tuned in play saved as minimal diffs; experiments that do not
+block each other, with A/B comparison; and a return to an exact configuration state. M3b
+exposes what Config already holds for each: reload stages, the layer stack, provenance,
+and edit-mode spans. The spec now carries the brief's four changes: reload telemetry
+(§4 "Reload telemetry"), personal, experiment, and scratch layers with `layer_effect`,
+`diff`, and `promote`, snapshots, and the headless test `tests/readiness_loop.cpp` in M3b.
+The three readiness panels for `harness-imgui` go in M9.
+
+What changed from D41's version: `set_clock`/`note_saved`/`reload_stats()` became
+`set_time_source`, `ReloadRequest::origin_ns`, and `last_reload()`/`each_reload()`, with six
+stages instead of five and a default steady-clock source. `ConfigOptions::user` and
+`push_local_layer` became a convention (`push_layer("local", ..., {.optional = true})`).
+Snapshots no longer serialize to DTA in M3b (an open question below). M9's headless
+`--readiness` run is replaced by the M3b test plus the three panels. `mark_visible` and
+`loop_stats()` stay in M10.
+
+The brief's decisions, recorded as asked:
+
+1. **Timing uses an injectable `TimeSource`**, defaulting to `steady_clock`. That keeps
+   "the library owns no clock" (the host can replace it) while working with no setup.
+2. **Tool edits go to a reserved in-memory `scratch` layer** rather than mutating tweaks
+   directly. M3's `"live"` layer (D34) is that layer; M3b renames it and adds toggling,
+   `clear_scratch`, and the `set` fast path.
+3. **Write-back of a scratch-sourced value targets the highest enabled non-scratch layer
+   that supplies the path**, refining spec §1's refusal of overlay-sourced values. M3
+   already does this for the live layer (D34).
+4. **`write_back_to` and `promote` may insert entries, but only as the last child of an
+   ancestor array literally present in the target file.** M3's `write_back_to` inserts
+   inline before the closing bracket; M3b changes it to a new line indented like the
+   previous sibling, and creates an optional layer's absent file.
+5. **Every write-back first checks that the file is unchanged on disk since it was
+   loaded.** M3 compares the full text held for edit mode, which is exact; M3b keeps that
+   and records a content hash for snapshots, which do not hold the text.
+
+Two reconciliations with decisions already made:
+
+- **Line budget.** The brief asks for counts against 4,000; the budget is 8,000 since D40,
+  and M3b reports against that.
+- **Shipping and layer pushes.** "Layer mutation is inert under `MOIRA_SHIPPING`" is read
+  as D38 already defines it: layers can be pushed during the initial load (before
+  `freeze()`), and `ConfigOptions::live_layers` remains the explicit live-ops path.
+  Toggles, `set`, write-back, and `promote` are inert in shipping, as the brief says.
+
+Open questions, raised before building (spec §11), are listed with the implementer's
+recommendations in the reply that accompanied this entry and will be closed here when
+answered.
+
