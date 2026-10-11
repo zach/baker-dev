@@ -371,7 +371,7 @@ TEST_CASE("live edits through tweaks, and write-back to the source line") {
     REQUIRE(cfg.push_layer("app", dir.write("app.dta", kApp)));
 
 #if MOIRA_SHIPPING
-    CHECK(width.set(2.7f).error().code == ErrorCode::Refused);
+    CHECK(width.set(2.7f).error().code() == ErrorCode::Refused);
 #else
     REQUIRE(width.set(2.7f));
     CHECK(float(width) == 2.7f);
@@ -519,8 +519,8 @@ TEST_CASE("under MOIRA_SHIPPING reload is inert and dev_only tweaks keep their d
     dir.write("d.dta", "(debug (god_mode 1)) (player (speed 9))\n");
     CHECK(cfg.reload() == false);
     CHECK(int(speed) == 5);
-    CHECK(speed.set(7).error().code == ErrorCode::Refused);
-    CHECK(cfg.write_back("player.speed").error().code == ErrorCode::Refused);
+    CHECK(speed.set(7).error().code() == ErrorCode::Refused);
+    CHECK(cfg.write_back("player.speed").error().code() == ErrorCode::Refused);
 }
 #endif
 

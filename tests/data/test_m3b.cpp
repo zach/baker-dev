@@ -169,9 +169,9 @@ TEST_CASE("under MOIRA_SHIPPING telemetry is empty but its API stays") {
     int visited = 0;
     cfg.each_reload([&](const ReloadRecord&) { ++visited; });
     CHECK(visited == 0);
-    CHECK(cfg.toggle_layer("d").error().code == ErrorCode::Refused);
-    CHECK(cfg.set("a", Node(2)).error().code == ErrorCode::Refused);
-    CHECK(cfg.promote("d", "d").error().code == ErrorCode::Refused);
+    CHECK(cfg.toggle_layer("d").error().code() == ErrorCode::Refused);
+    CHECK(cfg.set("a", Node(2)).error().code() == ErrorCode::Refused);
+    CHECK(cfg.promote("d", "d").error().code() == ErrorCode::Refused);
     CHECK(cfg.layer_effect("d")->size() == 1);  // tooling still works
 }
 #endif
