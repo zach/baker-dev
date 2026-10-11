@@ -1,3 +1,8 @@
+#include <moira/array.hpp>
+#include <moira/path.hpp>
+#include <moira/write.hpp>
+
+#include "common/containers.hpp"
 #include "text.hpp"
 
 #include <charconv>
@@ -6,7 +11,6 @@
 #include <cstdio>
 #include <cstring>
 #include <system_error>
-#include <vector>
 
 #include <fast_float.h>
 
@@ -103,28 +107,27 @@ bool is_bare_symbol(std::string_view s) noexcept {
     return classify_number(s).kind == NumberKind::NotNumber;
 }
 
-void append_path_name(std::string& out, std::string_view name) {
+void append_path_name(Str& out, std::string_view name) {
     const bool bare = is_bare_symbol(name) && name.find_first_of("./") == std::string_view::npos;
     if (!bare) out += '\'';
     out += name;
     if (!bare) out += '\'';
 }
 
-std::string format_double_fallback(double v) {
+Str format_double_fallback(double v) {
     if (std::isnan(v)) return "nan";
     if (std::isinf(v)) return v < 0 ? "-inf" : "inf";
     // The shortest %g precision that reads back exactly. %g follows the C locale's decimal
     // point, so normalize it.
     const char* point = std::localeconv()->decimal_point;
     const std::string_view decimal = point && *point ? point : ".";
-    std::string text;
+    Str text;
     for (int precision = 1; precision <= 17; ++precision) {
         char buf[64];
         const int n = std::snprintf(buf, sizeof buf, "%.*g", precision, v);
-        text.assign(buf, n > 0 ? static_cast<size_t>(n) : 0);
+        text.assign(std::string_view(buf, n > 0 ? static_cast<size_t>(n) : 0));
         if (decimal != ".")
-            for (size_t at = text.find(decimal); at != std::string::npos;
-                 at = text.find(decimal, at + 1))
+            for (size_t at = text.find(decimal); at != Str::npos; at = text.find(decimal, at + 1))
                 text.replace(at, decimal.size(), ".");
         std::string_view digits = text;
         const bool neg = !digits.empty() && digits[0] == '-';
@@ -136,13 +139,13 @@ std::string format_double_fallback(double v) {
     return text;
 }
 
-std::string format_double(double v) {
+Str format_double(double v) {
 #if MOIRA_FORMAT_FALLBACK
     return format_double_fallback(v);
 #else
     char buf[64];
     auto r = std::to_chars(buf, buf + sizeof buf, v);
-    return std::string(buf, r.ptr);
+    return Str(buf, r.ptr);
 #endif
 }
 
@@ -167,10 +170,10 @@ bool is_absolute_path(std::string_view p) noexcept {
     return root > 0 && is_separator(p[root - 1]);
 }
 
-std::string normalize_path(std::string_view p) {
+Str normalize_path(std::string_view p) {
     const size_t root = root_length(p);
     const bool absolute = is_absolute_path(p);
-    std::vector<std::string_view> parts;
+    Vec<std::string_view> parts;
     size_t start = root;
     for (size_t i = root; i <= p.size(); ++i) {
         if (i < p.size() && !is_separator(p[i])) continue;
@@ -186,7 +189,7 @@ std::string normalize_path(std::string_view p) {
         }
         parts.push_back(part);
     }
-    std::string out(p.substr(0, root));
+    Str out(p.substr(0, root));
     for (char& c : out)
         if (c == '\\') c = '/';
     for (size_t i = 0; i < parts.size(); ++i) {
@@ -203,9 +206,9 @@ std::string_view parent_path(std::string_view p) noexcept {
     return i == 1 ? p.substr(0, 1) : p.substr(0, i - 1);
 }
 
-std::string join_path(std::string_view dir, std::string_view p) {
-    if (dir.empty()) return std::string(p);
-    std::string out(dir);
+Str join_path(std::string_view dir, std::string_view p) {
+    if (dir.empty()) return Str(p);
+    Str out(dir);
     if (!is_separator(out.back())) out += '/';
     out += p;
     return out;
@@ -264,6 +267,30 @@ double float_to_decimal_double(float f) noexcept {
             return wide;
     }
     return static_cast<double>(f);
+}
+
+Str decimal(int64_t value) {
+    char buf[24];
+    const auto r = std::to_chars(buf, buf + sizeof buf, value);
+    return Str(std::string_view(buf, static_cast<size_t>(r.ptr - buf)));
+}
+
+Str text_of(const Path& path, size_t count, char separator) {
+    Str out;
+    path.write(str_out(out), count, separator);
+    return out;
+}
+
+Str text_of(const Node& node) {
+    Str out;
+    write(node, str_out(out));
+    return out;
+}
+
+Str dta_of(const Array& root) {
+    Str out;
+    write_dta(root, str_out(out));
+    return out;
 }
 
 }  // namespace moira::detail

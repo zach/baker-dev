@@ -5,11 +5,10 @@
 #include <moira/object.hpp>
 #include <moira/script.hpp>
 
+#include "common/containers.hpp"
+
 #include <algorithm>
-#include <memory>
-#include <string>
 #include <utility>
-#include <vector>
 
 namespace moira {
 
@@ -17,8 +16,8 @@ namespace detail {
 
 struct MethodEntry {
     Symbol name;
-    std::vector<Overload> overloads;
-    std::string doc;
+    Vec<Overload> overloads;
+    Str doc;
     Status status = Status::Normal;
     Symbol replacement;
     bool inherited = false;
@@ -30,22 +29,22 @@ struct PropertyEntry {
     Shared accessor;
     PropertyGet get = nullptr;
     PropertySet set = nullptr;
-    std::string doc;
+    Str doc;
 };
 
 struct ObjectParams {
-    std::vector<std::pair<Symbol, Node>> items;
+    Vec<std::pair<Symbol, Node>> items;
 };
 
 struct TypeRecord {
-    std::string name;
-    Symbol symbol;                         // `name`, interned
-    std::vector<const TypeRecord*> bases;  // every ancestor, nearest first
-    std::vector<MethodEntry> methods;      // sorted by symbol identity, for binary search
-    std::vector<PropertyEntry> properties;
+    Str name;
+    Symbol symbol;                 // `name`, interned
+    Vec<const TypeRecord*> bases;  // every ancestor, nearest first
+    Vec<MethodEntry> methods;      // sorted by symbol identity, for binary search
+    Vec<PropertyEntry> properties;
     CreateObject create = nullptr;  // for {new}; null if T is not default-constructible
     DestroyObject destroy = nullptr;
-    std::string error;  // a binding mistake, reported when T is first added
+    Str error;  // a binding mistake, reported when T is first added
 
     [[nodiscard]] bool is(const TypeRecord* t) const noexcept {
         return t == this || std::find(bases.begin(), bases.end(), t) != bases.end();
@@ -58,19 +57,21 @@ struct TypeRecord {
 }  // namespace detail
 
 struct Function : FuncRecord {
+    explicit Function(const Allocator& a) : doc(a), overloads(a) {}
+
     Tier tier = Tier::Native;
     Status status = Status::Normal;
     Symbol replacement;  // for Deprecated
-    std::string doc;
-    std::vector<detail::Overload> overloads;
+    Str doc;
+    Vec<detail::Overload> overloads;
     Symbol file;  // where a script function is defined
     int32_t line = 0;
 };
 
 // A {func} body: run with the parameters bound.
 struct ScriptBody {
-    std::vector<Symbol> params;
-    std::vector<detail::ParamInfo> param_info;  // one "value" per parameter, for Overload
+    Vec<Symbol> params;
+    Vec<detail::ParamInfo> param_info;  // one "value" per parameter, for Overload
     Ref<Array> definition;
     size_t body = 0;  // index of the first body node in `definition`
 };
@@ -83,7 +84,7 @@ struct ScriptClass {
     };
     Symbol name;
     const detail::TypeRecord* native = nullptr;
-    std::vector<Handler> handlers;
+    Vec<Handler> handlers;
     Symbol file;
     int32_t line = 0;
 
@@ -96,13 +97,13 @@ struct ScriptClass {
 
 struct Global {
     Symbol name;
-    std::string doc;
+    Str doc;
 };
 
 // "(int float)", as the reference and messages write a signature.
-[[nodiscard]] std::string signature_text(const detail::Overload& o);
+[[nodiscard]] Str signature_text(const detail::Overload& o);
 // "2 arguments", "1 to 2 arguments", "at least 1 argument".
-[[nodiscard]] std::string arity_text(uint32_t min, uint32_t max);
+[[nodiscard]] Str arity_text(uint32_t min, uint32_t max);
 // Records the current Context's live call frames in `e`, unless it already has a stack.
 void record_stack(Error& e);
 // Registers the functions every Context starts with (builtins.cpp, object.cpp).
@@ -117,6 +118,9 @@ struct Context::Impl {
     static constexpr uint32_t kMaxDepth = 1000;
 
     Impl(Context& c, const Allocator& a) : alloc(a), self(c) {}
+    ~Impl();
+    Impl(const Impl&) = delete;
+    Impl& operator=(const Impl&) = delete;
 
     [[nodiscard]] Function* find(Symbol name) const noexcept {
         const uint32_t i = name.index();
@@ -135,8 +139,7 @@ struct Context::Impl {
     [[nodiscard]] Expected<Node> call(const Array& command);
     // Calls the overload set `overloads` of `name` with the arguments of `command` from
     // index `first` (2 for a method, whose object is `self`).
-    [[nodiscard]] Expected<Node> invoke_set(Symbol name,
-                                            const std::vector<detail::Overload>& overloads,
+    [[nodiscard]] Expected<Node> invoke_set(Symbol name, const Vec<detail::Overload>& overloads,
                                             const Array& command, size_t first, ObjectBase* self);
     [[nodiscard]] Expected<Node> run(std::span<const Node> nodes);
     // Runs a script function or handler: arguments evaluated, then bound with $this.
@@ -172,7 +175,7 @@ struct Context::Impl {
     [[nodiscard]] ScriptClass* script_class(Symbol name) const noexcept;
     [[nodiscard]] const detail::TypeRecord* type_named(Symbol name) const noexcept;
     // The name a type goes by in messages: a script class's, else the native type's.
-    [[nodiscard]] std::string class_name(const Slot& s) const;
+    [[nodiscard]] Str class_name(const Slot& s) const;
 
     // Binds `name` to `value` until the innermost Rebind ends.
     void bind(Symbol name, Node value) {
@@ -183,19 +186,22 @@ struct Context::Impl {
 
     const Allocator alloc;  // first: the containers below take it
     Context& self;
-    std::vector<Function*> by_index;  // by Symbol::index()
-    std::vector<std::unique_ptr<Function>> functions;
-    std::vector<std::unique_ptr<Node[]>> pages;  // variable cells, by Symbol::index()
-    std::vector<std::pair<Node*, Node>> saved;   // values shadowed by bind()
-    std::vector<Node> kept;                      // evaluated values a call refers to
-    std::vector<Global> globals;
-    std::vector<Slot> slots;
-    std::vector<uint32_t> free_slots;
-    std::vector<ObjectHandle> by_name;  // by Symbol::index()
-    std::vector<const detail::TypeRecord*> types;
-    std::vector<std::unique_ptr<ScriptClass>> classes;
-    std::vector<ScriptClass*> class_by_name;  // by Symbol::index()
-    const CallFrame* top = nullptr;           // the innermost call in progress
+    Vec<Function*> by_index{alloc};  // by Symbol::index()
+    Vec<Own<Function>> functions{alloc};
+    // Variable cells, by Symbol::index(): pages of 1 << kPageBits, owned. Plain pointers, as
+    // they were before D61: through a wrapper, GCC stopped merging the stores that copy a
+    // cell, and a read of $x lost 4 ns to store forwarding.
+    Vec<Node*> pages{alloc};
+    Vec<std::pair<Node*, Node>> saved{alloc};  // values shadowed by bind()
+    Vec<Node> kept{alloc};                     // evaluated values a call refers to
+    Vec<Global> globals{alloc};
+    Vec<Slot> slots{alloc};
+    Vec<uint32_t> free_slots{alloc};
+    Vec<ObjectHandle> by_name{alloc};  // by Symbol::index()
+    Vec<const detail::TypeRecord*> types{alloc};
+    Vec<Own<ScriptClass>> classes{alloc};
+    Vec<ScriptClass*> class_by_name{alloc};  // by Symbol::index()
+    const CallFrame* top = nullptr;          // the innermost call in progress
     uint32_t depth = 0;
     uintptr_t stack_base = 0;             // the outermost call's stack address
     uintptr_t stack_budget = 256 * 1024;  // see Context::set_stack_budget

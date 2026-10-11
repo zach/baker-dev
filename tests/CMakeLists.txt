@@ -21,7 +21,7 @@ add_executable(moira_data_tests
   support/alloc_counter.cpp)
 target_link_libraries(moira_data_tests PRIVATE moira::data moira_parse_harness moira_doctest_main)
 # White-box tests of internal helpers (text.hpp).
-target_include_directories(moira_data_tests PRIVATE ${PROJECT_SOURCE_DIR}/src/data support)
+target_include_directories(moira_data_tests PRIVATE ${PROJECT_SOURCE_DIR}/src ${PROJECT_SOURCE_DIR}/src/data support)
 target_compile_definitions(moira_data_tests PRIVATE
   MOIRA_CORPUS_DIR="${PROJECT_SOURCE_DIR}/tests/corpus"
   MOIRA_FUZZ_REGRESSIONS_DIR="${PROJECT_SOURCE_DIR}/tests/fuzz_regressions")
@@ -41,6 +41,17 @@ if(MOIRA_BUILD_SCRIPT)
     MOIRA_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
     MOIRA_CORPUS_DIR="${PROJECT_SOURCE_DIR}/tests/corpus")
   add_test(NAME moira_script_tests COMMAND moira_script_tests)
+endif()
+
+if(MOIRA_BUILD_SCRIPT)
+  # D61: its own binary, because main installs the default allocator before anything runs.
+  add_executable(moira_alloc_tests alloc/test_allocators.cpp support/alloc_counter.cpp)
+  target_link_libraries(moira_alloc_tests PRIVATE moira::script)
+  target_include_directories(moira_alloc_tests PRIVATE support)
+  target_include_directories(moira_alloc_tests SYSTEM PRIVATE ${PROJECT_SOURCE_DIR}/third_party/doctest)
+  target_compile_definitions(moira_alloc_tests PRIVATE DOCTEST_CONFIG_USE_STD_HEADERS
+                             DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS)
+  add_test(NAME moira_alloc_tests COMMAND moira_alloc_tests)
 endif()
 
 # Spec §7: a Tweak<float> read is a single load. Checked in the generated assembly with

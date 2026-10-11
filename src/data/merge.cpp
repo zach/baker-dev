@@ -1,4 +1,6 @@
+
 #include "merge.hpp"
+#include "common/containers.hpp"
 
 #include <optional>
 
@@ -25,12 +27,12 @@ bool has_values(const Array& a, size_t first) noexcept {
 // The GDC 2005 slide shows (a (b 1)) merged with (a (b 2) (c 2)) giving (a (b 1) (c 2)).
 // The spec took that for a typo; for #merge it is not, and for Config layers the leaves
 // win. Both policies are here; see docs/decisions.md D1.
-bool merge_into(std::vector<Node>& dst, std::vector<SourceSpan>* spans, size_t dst_first,
-                const Array& src, size_t src_first, MergePolicy policy, SourceMap* map) {
+bool merge_into(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const Array& src,
+                size_t src_first, MergePolicy policy, SourceMap* map) {
     bool changed = false;
     if (policy == MergePolicy::Overwrite && has_values(src, src_first)) {
         // The incoming values replace the existing ones; tagged children stay to merge.
-        std::vector<Node> out(dst.begin(), dst.begin() + static_cast<ptrdiff_t>(dst_first));
+        Vec<Node> out(dst.begin(), dst.begin() + static_cast<ptrdiff_t>(dst_first));
         for (size_t j = src_first; j < src.size(); ++j)
             if (!is_tagged(src[j])) out.push_back(src[j]);
         for (size_t i = dst_first; i < dst.size(); ++i)
@@ -63,12 +65,12 @@ bool merge_into(std::vector<Node>& dst, std::vector<SourceSpan>* spans, size_t d
             continue;
         }
         const Array& da = *dst[found].try_array();
-        std::vector<Node> merged(da.begin(), da.end());
-        std::vector<SourceSpan> merged_spans;
+        Vec<Node> merged(da.begin(), da.end());
+        Vec<SourceSpan> merged_spans;
         if (map) {
             const auto known = map->spans(da);
-            merged_spans = known ? std::vector<SourceSpan>(known->begin(), known->end())
-                                 : std::vector<SourceSpan>(da.size());
+            merged_spans =
+                known ? Vec<SourceSpan>(known->begin(), known->end()) : Vec<SourceSpan>(da.size());
         }
         if (!merge_into(merged, map ? &merged_spans : nullptr, 1, *sa, 1, policy, map)) continue;
         // A rebuilt array is located where its values came from.
@@ -88,7 +90,7 @@ bool merge_into(std::vector<Node>& dst, std::vector<SourceSpan>* spans, size_t d
 }  // namespace detail
 
 Ref<Array> merge(const Array& base, const Array& over, MergePolicy policy) {
-    std::vector<Node> nodes(base.begin(), base.end());
+    Vec<Node> nodes(base.begin(), base.end());
     if (!detail::merge_into(nodes, nullptr, 0, over, 0, policy, nullptr))
         return Ref<Array>(const_cast<Array*>(&base));
     return Array::make_from(nodes, base.file(), base.line());

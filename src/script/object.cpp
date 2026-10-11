@@ -1,5 +1,7 @@
 // Objects: the per-Context object table, method dispatch, properties and loose parameters,
 // and the {class}, {new} and {delete} built-ins.
+
+#include "common/containers.hpp"
 #include "internal.hpp"
 
 #include <functional>
@@ -10,8 +12,8 @@ using detail::ObjectParams;
 
 namespace {
 
-std::string quoted(Symbol s) {
-    return "'" + std::string(s.str()) + "'";
+Str quoted(Symbol s) {
+    return "'" + Str(s.str()) + "'";
 }
 
 #if defined(_MSC_VER)
@@ -20,7 +22,7 @@ std::string quoted(Symbol s) {
 #define MOIRA_COLD [[gnu::noinline, gnu::cold]]
 #endif
 
-MOIRA_COLD Expected<Node> fail(const Array& at, ErrorCode code, std::string message) {
+MOIRA_COLD Expected<Node> fail(const Array& at, ErrorCode code, Str message) {
     Error e = make_error(code, std::move(message), at.file(), at.line());
     record_stack(e);
     return Unexpected(std::move(e));
@@ -99,7 +101,7 @@ MethodEntry* add_method(TypeRecord& r, Symbol name, Overload o) {
     };
     if (!m->overloads.empty() &&
         (has_raw(o) || std::any_of(m->overloads.begin(), m->overloads.end(), has_raw)))
-        r.error = "method '" + std::string(name.str()) + "' of " + r.name +
+        r.error = "method '" + Str(name.str()) + "' of " + r.name +
                   " takes unevaluated arguments, so it cannot be overloaded";
     m->overloads.push_back(std::move(o));
     return m;
@@ -116,7 +118,7 @@ void set_method_status(MethodEntry& m, Status status, Symbol replacement) {
 
 void add_property(TypeRecord& r, Symbol name, std::string_view value_type, Shared accessor,
                   PropertyGet get, PropertySet set, std::string_view doc) {
-    PropertyEntry p{name, value_type, std::move(accessor), get, set, std::string(doc)};
+    PropertyEntry p{name, value_type, std::move(accessor), get, set, Str(doc)};
     for (PropertyEntry& x : r.properties)
         if (x.name == name) {
             x = std::move(p);
@@ -226,8 +228,8 @@ const detail::TypeRecord* Context::Impl::type_named(Symbol name) const noexcept 
     return nullptr;
 }
 
-std::string Context::Impl::class_name(const Slot& s) const {
-    return s.script ? std::string(s.script->name.str()) : s.object->type().name;
+Str Context::Impl::class_name(const Slot& s) const {
+    return s.script ? Str(s.script->name.str()) : s.object->type().name;
 }
 
 // {object method args...}: script handlers, then native methods, then the methods every
@@ -262,7 +264,7 @@ Expected<Node> Context::Impl::send(ObjectHandle target, const Array& command) {
                         quoted(method) + " takes " +
                             arity_text(uint32_t(handler->body.params.size()),
                                        uint32_t(handler->body.params.size())) +
-                            ", given " + std::to_string(n));
+                            ", given " + detail::decimal(n));
         Args args(self, command, command.begin() + 2, n, 0, false, 2, object);
         const Node this_node = Node::object(target);
         Expected<Node> r = run_script(handler->body, args, &this_node);
@@ -287,7 +289,7 @@ Expected<Node> Context::Impl::send(ObjectHandle target, const Array& command) {
             return fail(command, ErrorCode::Type,
                         quoted(method) + " takes " +
                             arity_text(method == kGet ? 1 : 2, method == kGet ? 1 : 2) +
-                            ", given " + std::to_string(n));
+                            ", given " + detail::decimal(n));
         auto key = args.get<Symbol>(0);
         if (!key) return Unexpected(std::move(key).error());
         if (method == kGet) {
@@ -310,8 +312,8 @@ Expected<void> Context::Impl::set_property(ObjectBase& o, Symbol name, const Nod
         if (p->set(p->accessor.get(), o, value)) return {};
         return Unexpected(make_error(ErrorCode::Type,
                                      "property " + quoted(name) + " of " + o.type().name + " is " +
-                                         std::string(p->type) + ", not " +
-                                         std::string(moira::type_name(value.type())),
+                                         Str(p->type) + ", not " +
+                                         Str(moira::type_name(value.type())),
                                      at.file(), at.line()));
     }
     if (!o.params_) o.params_ = detail::create<ObjectParams>(default_allocator());
@@ -379,7 +381,7 @@ void Context::add_type(const detail::TypeRecord& type) {
 }
 
 Expected<Node> Context::call(const Node& object, Symbol method, std::span<const Node> args) {
-    std::vector<Node> nodes;
+    Vec<Node> nodes;
     nodes.reserve(args.size() + 2);
     nodes.push_back(object);
     nodes.emplace_back(method);
@@ -390,12 +392,12 @@ Expected<Node> Context::call(const Node& object, Symbol method, std::span<const 
 
 Error Context::resolve_error(const Node& object, std::string_view type) const {
     if (object.type() != Type::Object)
-        return make_error(ErrorCode::Type, "expected a " + std::string(type) + " object, not " +
-                                               std::string(moira::type_name(object.type())));
+        return make_error(ErrorCode::Type, "expected a " + Str(type) + " object, not " +
+                                               Str(moira::type_name(object.type())));
     if (!try_resolve(object))
-        return make_error(ErrorCode::NotFound, "the " + std::string(type) + " object was removed");
+        return make_error(ErrorCode::NotFound, "the " + Str(type) + " object was removed");
     return make_error(ErrorCode::Type, "the object is a " + try_resolve(object)->type().name +
-                                           ", not a " + std::string(type));
+                                           ", not a " + Str(type));
 }
 
 // --- Raw<Var> ---
@@ -435,7 +437,7 @@ void register_object_builtins(Context& ctx) {
                 a.error("write {class Name (method ($params...) body...) ...}", ErrorCode::Syntax));
         const Symbol name = *a.raw(0).try_sym();
         Context::Impl& impl = a.context().impl();
-        auto cls = std::make_unique<ScriptClass>();
+        auto cls = Own<ScriptClass>::make(impl.alloc);
         cls->name = name;
         cls->native = impl.type_named(name);
         cls->file = a.command().file();
@@ -499,7 +501,7 @@ void register_object_builtins(Context& ctx) {
         auto node = impl.add(*object, name, script, true);
         if (!node) {
             impl.destroy_owned(object);
-            return Unexpected(a.error(std::string(node.error().message()), ErrorCode::Refused));
+            return Unexpected(a.error(Str(node.error().message()), ErrorCode::Refused));
         }
         for (; i < a.size(); ++i) {
             const Array* p = a.raw(i).try_array();
@@ -529,8 +531,7 @@ void register_object_builtins(Context& ctx) {
         if (auto name = object.try_sym()) object = c.object(*name);  // {delete g1}
         if (object.type() != Type::Object)
             return Unexpected(make_error(
-                ErrorCode::Type,
-                "delete takes an object, not a " + std::string(type_name(object.type()))));
+                ErrorCode::Type, "delete takes an object, not a " + Str(type_name(object.type()))));
         Context::Impl::Slot* s = impl.slot(object.object_handle());
         if (!s) return Node();
         ObjectBase* o = s->object;

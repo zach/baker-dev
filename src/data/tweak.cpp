@@ -2,10 +2,11 @@
 #include <moira/tweak.hpp>
 #include <moira/write.hpp>
 
+#include "common/containers.hpp"
+
 #include "text.hpp"
 
 #include <optional>
-#include <vector>
 
 namespace moira {
 namespace {
@@ -41,7 +42,7 @@ size_t TweakRegistry::size() const noexcept {
 
 struct TweakBase::Extra {
     std::optional<Path> parsed;
-    std::vector<Callback<void()>> on_change;
+    Vec<Callback<void()>> on_change;
 };
 
 void TweakBase::attach() {
@@ -126,11 +127,11 @@ Expected<void> TweakBase::set_values(std::span<const Node> values) {
             make_error(ErrorCode::Refused, "live edits are disabled under MOIRA_SHIPPING"));
     const Values v(values, nullptr);
     if (!assign(v, false)) {
-        std::string text;
+        Str text;
         for (const Node& n : values) text += (text.empty() ? "" : " ") + detail::preview(n);
-        return Unexpected(
-            make_error(ErrorCode::Type, "'" + std::string(path_) + "' cannot be set to (" + text +
-                                            "), which is not " + std::string(info().name)));
+        return Unexpected(make_error(ErrorCode::Type, "'" + Str(path_) + "' cannot be set to (" +
+                                                          text + "), which is not " +
+                                                          Str(info().name)));
     }
     if (Config* c = registry_->config()) return c->set(parsed(), values);
     (void)assign(v, true);
@@ -141,16 +142,14 @@ Expected<void> TweakBase::set_values(std::span<const Node> values) {
 Expected<Source> TweakBase::source() const {
     Config* c = registry_->config();
     if (!c)
-        return Unexpected(
-            make_error(ErrorCode::NotFound, "'" + std::string(path_) + "' has no config"));
+        return Unexpected(make_error(ErrorCode::NotFound, "'" + Str(path_) + "' has no config"));
     return c->source(const_cast<TweakBase*>(this)->parsed());
 }
 
 Expected<void> TweakBase::write_back() {
     Config* c = registry_->config();
     if (!c)
-        return Unexpected(
-            make_error(ErrorCode::NotFound, "'" + std::string(path_) + "' has no config"));
+        return Unexpected(make_error(ErrorCode::NotFound, "'" + Str(path_) + "' has no config"));
     if (auto r = c->write_back(parsed()); !r) return Unexpected(std::move(r).error());
     return {};
 }

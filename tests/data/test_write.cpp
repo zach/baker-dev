@@ -170,7 +170,7 @@ TEST_CASE("preview is bounded on shared trees") {
                std::to_string(i - 1) + ")]\n";
     src += "(top M60)";
     auto root = parse(src);
-    const std::string p = detail::preview((*root)[0], 40);
+    const std::string p(detail::preview((*root)[0], 40).view());
     CHECK(p.size() == 40);
     CHECK(p.ends_with("..."));
 }
@@ -203,8 +203,8 @@ TEST_CASE("both double formatters round-trip exactly") {
     }
     for (double v : values) {
         CAPTURE(v);
-        CHECK(reads_back(detail::format_double(v), v));
-        CHECK(reads_back(detail::format_double_fallback(v), v));
+        CHECK(reads_back(std::string(detail::format_double(v).view()), v));
+        CHECK(reads_back(std::string(detail::format_double_fallback(v).view()), v));
     }
     CHECK(detail::format_double_fallback(0.1) == "0.1");
     CHECK(detail::format_double_fallback(-0.0) == "-0");

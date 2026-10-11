@@ -1,24 +1,23 @@
 #include <moira/allocator.hpp>
 #include <moira/error.hpp>
-#include <moira/std_interop.hpp>
+
+#include "common/containers.hpp"
 
 #include <charconv>
-#include <string>
-#include <vector>
 
 namespace moira {
 
 namespace detail {
 struct ErrorRecord {
     ErrorCode code = ErrorCode::Syntax;
-    std::string message;
+    Str message;
     Symbol file;
     int32_t line = 0;
-    std::string path;
-    std::vector<StackEntry> stack;
+    Str path;
+    Vec<StackEntry> stack;
     // The formatted forms, made on first request and cleared by any change.
-    std::string text;
-    std::string described;
+    Str text;
+    Str described;
 };
 }  // namespace detail
 
@@ -133,7 +132,7 @@ std::string_view to_string(const Error& e) {
     if (!e.r_) return "moira: no error";
     detail::ErrorRecord& r = *e.r_;
     if (!r.text.empty()) return r.text;
-    std::string& out = r.text;
+    Str& out = r.text;
     out = "moira: ";
     out += r.message;
     const bool has_file = !r.file.empty();
@@ -144,7 +143,7 @@ std::string_view to_string(const Error& e) {
             out += r.file.str();
             if (r.line > 0) {
                 out += ':';
-                out += std::to_string(r.line);
+                out += detail::decimal(r.line);
             }
         }
         if (has_path) {
@@ -182,10 +181,10 @@ std::string_view describe(const Error& e) {
     if (!e.r_ || e.r_->stack.empty()) return to_string(e);
     detail::ErrorRecord& r = *e.r_;
     if (!r.described.empty()) return r.described;
-    std::string out(to_string(e));
+    Str out(to_string(e));
     for (const StackEntry& s : r.stack) {
         out += "\n  in ";
-        write(s, string_out(out));
+        write(s, detail::str_out(out));
     }
     r.described = std::move(out);
     return r.described;

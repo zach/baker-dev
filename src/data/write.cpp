@@ -1,10 +1,11 @@
 #include <moira/write.hpp>
 
+#include "common/containers.hpp"
+
 #include "text.hpp"
 
 #include <charconv>
 #include <cstdio>
-#include <string>
 
 namespace moira {
 namespace {
@@ -16,7 +17,7 @@ char close_of(Type t) noexcept {
     return t == Type::Command ? '}' : t == Type::Property ? ']' : ')';
 }
 
-void put_symbol(std::string& out, std::string_view s) {
+void put_symbol(Str& out, std::string_view s) {
     if (detail::is_bare_symbol(s)) {
         out += s;
     } else {
@@ -26,7 +27,7 @@ void put_symbol(std::string& out, std::string_view s) {
     }
 }
 
-void put_atom(std::string& out, const Node& n) {
+void put_atom(Str& out, const Node& n) {
     char buf[64];
     switch (n.type()) {
         case Type::Int: {
@@ -35,10 +36,10 @@ void put_atom(std::string& out, const Node& n) {
             break;
         }
         case Type::Float: {
-            const std::string text = detail::format_double(*n.try_float());
+            const Str text = detail::format_double(*n.try_float());
             out += text;
             // Keep it a float on reparse: 5 must print as 5.0.
-            if (text.find_first_of(".eEni") == std::string::npos) out += ".0";
+            if (text.find_first_of(".eEni") == Str::npos) out += ".0";
             break;
         }
         case Type::Symbol: put_symbol(out, n.try_sym()->str()); break;
@@ -61,7 +62,8 @@ void put_atom(std::string& out, const Node& n) {
         case Type::Func: put_symbol(out, n.func_record()->name.str()); break;
         case Type::Object: {
             const ObjectHandle h = n.object_handle();
-            out += "'<object " + std::to_string(h.index()) + ':' + std::to_string(h.salt()) + ">'";
+            out +=
+                "'<object " + detail::decimal(h.index()) + ':' + detail::decimal(h.salt()) + ">'";
             break;
         }
         case Type::Array:
@@ -71,7 +73,7 @@ void put_atom(std::string& out, const Node& n) {
 }
 
 // Compact form; stops once `out` exceeds `limit` bytes. Returns false if it stopped.
-bool put_flat(std::string& out, const Node& n, size_t limit) {
+bool put_flat(Str& out, const Node& n, size_t limit) {
     if (!n.is_array_like()) {
         put_atom(out, n);
         return out.size() <= limit;
@@ -89,12 +91,12 @@ bool put_flat(std::string& out, const Node& n, size_t limit) {
 
 // Length of the compact form, or anything > budget if it is longer.
 size_t flat_length(const Node& n, size_t budget) {
-    std::string tmp;
+    Str tmp;
     put_flat(tmp, n, budget);
     return tmp.size();
 }
 
-void put_pretty(std::string& out, const Node& n, size_t indent, const WriteOptions& o) {
+void put_pretty(Str& out, const Node& n, size_t indent, const WriteOptions& o) {
     if (!n.is_array_like()) {
         put_atom(out, n);
         return;
@@ -121,13 +123,13 @@ void put_pretty(std::string& out, const Node& n, size_t indent, const WriteOptio
 }  // namespace
 
 void write(const Node& node, TextOut text) {
-    std::string out;
+    Str out;
     put_flat(out, node, SIZE_MAX);
     text(out);
 }
 
 void write(const Array& array, TextOut text) {
-    std::string out = "(";
+    Str out = "(";
     bool first = true;
     for (const Node& c : array) {
         if (!first) out += ' ';
@@ -139,15 +141,15 @@ void write(const Array& array, TextOut text) {
 }
 
 namespace {
-std::string dta_text(const Array& root, const WriteOptions& options) {
-    std::string out;
+Str dta_text(const Array& root, const WriteOptions& options) {
+    Str out;
     for (const Node& n : root) {
         put_pretty(out, n, 0, options);
         out += '\n';
     }
     // A reader skips a byte order mark at the very start of a file; a symbol that begins
     // with those bytes must not land there.
-    if (out.starts_with("\xEF\xBB\xBF")) out.insert(out.begin(), ' ');
+    if (out.starts_with("\xEF\xBB\xBF")) out.insert(0, " ");
     return out;
 }
 }  // namespace
@@ -157,8 +159,8 @@ void write_dta(const Array& root, TextOut out, const WriteOptions& options) {
 }
 
 Expected<void> write_file(std::string_view path, const Array& root, const WriteOptions& options) {
-    const std::string text = dta_text(root, options);
-    const std::string p(path);
+    const Str text = dta_text(root, options);
+    const Str p(path);
     std::FILE* f = std::fopen(p.c_str(), "wb");
     if (!f) return Unexpected(make_error(ErrorCode::Io, "cannot open '" + p + "' for writing"));
     const bool ok = std::fwrite(text.data(), 1, text.size(), f) == text.size();
@@ -168,8 +170,8 @@ Expected<void> write_file(std::string_view path, const Array& root, const WriteO
 }
 
 namespace detail {
-std::string preview(const Node& node, size_t max_chars) {
-    std::string out;
+Str preview(const Node& node, size_t max_chars) {
+    Str out;
     if (!put_flat(out, node, max_chars) || out.size() > max_chars) {
         out.resize(max_chars > 3 ? max_chars - 3 : 0);
         out += "...";

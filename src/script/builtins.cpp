@@ -1,6 +1,8 @@
 // The functions every Context starts with: control (if, set, do, func, override) and a
 // small calculator core. Each is registered through the same func() as user code; the
 // evaluator knows none of them by name.
+
+#include "common/containers.hpp"
 #include "internal.hpp"
 
 #include <cstdint>
@@ -9,8 +11,8 @@
 namespace moira {
 namespace {
 
-std::string quoted(Symbol s) {
-    return "'" + std::string(s.str()) + "'";
+Str quoted(Symbol s) {
+    return "'" + Str(s.str()) + "'";
 }
 
 // Ints wrap on overflow, as two's complement, rather than being undefined.
@@ -27,8 +29,8 @@ Expected<Node> run_script(const void* callable, Args& args) {
 Expected<Node> define(Args a, bool override) {
     const char* form = override ? "override" : "func";
     if (a.size() < 2 || a.raw(0).type() != Type::Symbol || a.raw(1).type() != Type::Array)
-        return Unexpected(a.error(std::string("write {") + form + " name ($params...) body...}",
-                                  ErrorCode::Syntax));
+        return Unexpected(
+            a.error(Str("write {") + form + " name ($params...) body...}", ErrorCode::Syntax));
     const Symbol name = *a.raw(0).try_sym();
     detail::Shared holder = detail::Shared::make<ScriptBody>();
     // Filled here, before any other reference to it exists.
@@ -38,7 +40,7 @@ Expected<Node> define(Args a, bool override) {
             a.error("parameters of " + quoted(name) + " must be $variables", ErrorCode::Syntax));
     Status status = Status::Normal;
     Symbol replacement;
-    std::string doc;
+    Str doc;
     size_t i = 2;
     for (; i < a.size(); ++i) {
         const Array* meta = a.raw(i).try_array();
@@ -61,7 +63,7 @@ Expected<Node> define(Args a, bool override) {
     if (f.tier == Tier::Native && !f.overloads.empty()) {
         if (!override)
             return Unexpected(a.error(quoted(name) + " is a native function; write {override " +
-                                          std::string(name.str()) + " ...} to replace it",
+                                          Str(name.str()) + " ...} to replace it",
                                       ErrorCode::Refused));
         a.context().notice(
             a.error("script {override} replaces native " + quoted(name), ErrorCode::Refused));

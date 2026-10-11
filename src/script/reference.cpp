@@ -1,18 +1,17 @@
 // The generated script reference and load-time checking: both read a Context's
 // registrations, and neither evaluates anything.
-#include "internal.hpp"
 
-#include <moira/std_interop.hpp>
+#include "common/containers.hpp"
+#include "internal.hpp"
 
 #include <algorithm>
 #include <cstdio>
-#include <unordered_map>
 
 namespace moira {
 namespace {
 
-std::string quoted(Symbol s) {
-    return "'" + std::string(s.str()) + "'";
+Str quoted(Symbol s) {
+    return "'" + Str(s.str()) + "'";
 }
 
 bool evaluable(const Node& n) noexcept {
@@ -30,24 +29,22 @@ struct Checker {
     struct DemandBuild {
         Symbol name;
         bool stub;
-        std::vector<CheckReport::Site> sites;
+        Vec<CheckReport::Site> sites;
         Symbol on;
     };
     struct Build {
-        std::vector<Error> errors;
-        std::vector<DemandBuild> demand;
+        Vec<Error> errors;
+        Vec<DemandBuild> demand;
     };
 
     Context::Impl& impl;
     Build& report;
-    std::unordered_map<Symbol, Defined> defined;
-    std::unordered_map<Symbol, std::vector<Symbol>> classes;  // {class} in the tree: handlers
-    std::unordered_map<Symbol, Symbol> objects;               // {new Class name} in the tree
-    std::unordered_map<std::string, size_t> demand_index;
+    HashMap<Symbol, Defined> defined;
+    HashMap<Symbol, Vec<Symbol>> classes;  // {class} in the tree: handlers
+    HashMap<Symbol, Symbol> objects;       // {new Class name} in the tree
+    HashMap<Str, size_t> demand_index;
 
-    static std::string key(Symbol name, Symbol on) {
-        return std::string(on.str()) + "." + std::string(name.str());
-    }
+    static Str key(Symbol name, Symbol on) { return Str(on.str()) + "." + Str(name.str()); }
 
     void demand(Symbol name, bool stub, const Array& at, Symbol on = {}) {
         auto [it, inserted] = demand_index.try_emplace(key(name, on), report.demand.size());
@@ -55,7 +52,7 @@ struct Checker {
         report.demand[it->second].sites.push_back({at.file(), at.line()});
     }
 
-    void error(const Array& at, std::string message) {
+    void error(const Array& at, Str message) {
         report.errors.push_back(
             make_error(ErrorCode::Type, std::move(message), at.file(), at.line()));
     }
@@ -102,7 +99,7 @@ struct Checker {
     }
 
     // Arity and literal types against an overload set.
-    void overloads(Symbol name, const std::vector<detail::Overload>& set, const Array& command,
+    void overloads(Symbol name, const Vec<detail::Overload>& set, const Array& command,
                    size_t first) {
         const uint32_t n = command.size() - static_cast<uint32_t>(first);
         const detail::Overload* arity_ok = nullptr;
@@ -115,17 +112,17 @@ struct Checker {
             if (set.size() == 1)
                 error(command, quoted(name) + " takes " +
                                    arity_text(set[0].min_args, set[0].max_args) + ", given " +
-                                   std::to_string(n));
+                                   detail::decimal(n));
             else
                 error(command, "no overload of " + quoted(name) + " takes " + arity_text(n, n));
             return;
         }
-        std::string given;
+        Str given;
         for (size_t i = first; i < command.size(); ++i) {
             if (i > first) given += ' ';
             given += evaluable(command[i]) ? "?" : type_name(command[i].type());
         }
-        std::string have;
+        Str have;
         for (const detail::Overload& o : set)
             if (n >= o.min_args && n <= o.max_args) have += " " + signature_text(o);
         error(command, quoted(name) + " is given (" + given + "); it takes" + have);
@@ -181,7 +178,7 @@ struct Checker {
             if (n != it->second.arity)
                 error(command, quoted(*name) + " takes " +
                                    arity_text(it->second.arity, it->second.arity) + ", given " +
-                                   std::to_string(n));
+                                   detail::decimal(n));
             return;
         }
         demand(*name, false, command);
@@ -208,7 +205,7 @@ void check(const Array& tree, const Context& ctx, CheckReport& report) {
         c.demand_index[Checker::key(b.demand[i].name, b.demand[i].on)] = i;
     c.collect(tree, false);
     c.walk(tree, false);
-    std::vector<CheckReport::Demand> demand;
+    Vec<CheckReport::Demand> demand;
     for (const Checker::DemandBuild& d : b.demand)
         demand.push_back({d.name, d.stub, List<CheckReport::Site>(d.sites), d.on});
     report.errors = List<Error>(b.errors);
@@ -222,15 +219,15 @@ CheckReport check(const Array& tree, const Context& ctx) {
 }
 
 void write(const CheckReport& report, TextOut text) {
-    std::string out;
-    for (const Error& e : report.errors) out += std::string(moira::to_string(e)) + "\n";
+    Str out;
+    for (const Error& e : report.errors) out += Str(moira::to_string(e)) + "\n";
     for (const CheckReport::Demand& d : report.demand) {
         out += "demand: " + quoted(d.name);
-        if (!d.on.empty()) out += " on " + std::string(d.on.str());
-        out += std::string(d.stub ? " is a stub" : " is not defined") + ", called at";
+        if (!d.on.empty()) out += " on " + Str(d.on.str());
+        out += Str(d.stub ? " is a stub" : " is not defined") + ", called at";
         for (size_t i = 0; i < d.sites.size(); ++i) {
             out += i ? ", " : " ";
-            out += std::string(d.sites[i].file.str()) + ":" + std::to_string(d.sites[i].line);
+            out += Str(d.sites[i].file.str()) + ":" + detail::decimal(d.sites[i].line);
         }
         out += "\n";
     }
@@ -238,26 +235,25 @@ void write(const CheckReport& report, TextOut text) {
 }
 
 namespace {
-std::string reference_text(const Context& ctx) {
+Str reference_text(const Context& ctx) {
     const Context::Impl& impl = ctx.impl();
-    std::vector<const Function*> fs;
+    Vec<const Function*> fs;
     for (const auto& f : impl.functions)
         if (!f->overloads.empty()) fs.push_back(f.get());
     std::sort(fs.begin(), fs.end(),
               [](const Function* a, const Function* b) { return a->name.str() < b->name.str(); });
-    std::string out =
+    Str out =
         "# Script reference\n\n"
         "Generated by `moira::reference()` from what a Context registers. Do not edit it by\n"
         "hand: the test suite regenerates it and fails when it and the code disagree.\n\n"
         "A parameter in [brackets] is optional, `unevaluated` is passed as written, and\n"
         "`values...` takes the rest of the arguments.\n\n## Functions\n";
     for (const Function* f : fs) {
-        out += "\n### `" + std::string(f->name.str()) + "`\n\n";
+        out += "\n### `" + Str(f->name.str()) + "`\n\n";
         for (const detail::Overload& o : f->overloads) {
-            std::string sig = signature_text(o);
+            Str sig = signature_text(o);
             sig = sig.size() > 2 ? " " + sig.substr(1, sig.size() - 2) : "";
-            out +=
-                "- `{" + std::string(f->name.str()) + sig + "}` → " + std::string(o.result) + "\n";
+            out += "- `{" + Str(f->name.str()) + sig + "}` → " + Str(o.result) + "\n";
         }
         out += "\n";
         out += f->tier == Tier::Native ? "*Native" : "*Script";
@@ -267,16 +263,15 @@ std::string reference_text(const Context& ctx) {
             case Status::Provisional: out += ", provisional"; break;
             case Status::Deprecated:
                 out += ", deprecated";
-                if (!f->replacement.empty())
-                    out += ": use `" + std::string(f->replacement.str()) + "`";
+                if (!f->replacement.empty()) out += ": use `" + Str(f->replacement.str()) + "`";
                 break;
         }
         out += ".*";
         if (!f->doc.empty()) out += " " + f->doc;
         out += "\n";
     }
-    std::vector<const detail::TypeRecord*> types = impl.types;
-    std::vector<const ScriptClass*> scripts;
+    Vec<const detail::TypeRecord*> types = impl.types;
+    Vec<const ScriptClass*> scripts;
     for (const auto& c : impl.classes)
         if (!impl.type_named(c->name)) scripts.push_back(c.get());
     if (!types.empty() || !scripts.empty()) {
@@ -287,47 +282,47 @@ std::string reference_text(const Context& ctx) {
         out +=
             "\n## Types\n\nEvery object also has `{obj get name}`, `{obj set name value}`, "
             "`{obj type}` and `{obj name}`.\n";
-        auto handlers = [&](Symbol cls, const std::string& shown) {
+        auto handlers = [&](Symbol cls, const Str& shown) {
             if (const ScriptClass* c = impl.script_class(cls))
                 for (const ScriptClass::Handler& h : c->handlers) {
-                    out += "- `{<" + shown + "> " + std::string(h.name.str());
-                    for (Symbol p : h.body.params) out += " $" + std::string(p.str());
+                    out += "- `{<" + shown + "> " + Str(h.name.str());
+                    for (Symbol p : h.body.params) out += " $" + Str(p.str());
                     out += "}` (script)\n";
                 }
         };
         for (const detail::TypeRecord* t : types) {
             out += "\n### `" + t->name + "`\n\n";
             if (!t->bases.empty()) out += "Derives from `" + t->bases[0]->name + "`.\n\n";
-            std::vector<const detail::MethodEntry*> ms;
+            Vec<const detail::MethodEntry*> ms;
             for (const detail::MethodEntry& m : t->methods) ms.push_back(&m);
             std::sort(ms.begin(), ms.end(),
                       [](const auto* a, const auto* b) { return a->name.str() < b->name.str(); });
             for (const detail::MethodEntry* m : ms)
                 for (const detail::Overload& o : m->overloads) {
-                    std::string sig = signature_text(o);
+                    Str sig = signature_text(o);
                     sig = sig.size() > 2 ? " " + sig.substr(1, sig.size() - 2) : "";
-                    out += "- `{<" + t->name + "> " + std::string(m->name.str()) + sig + "}` → " +
-                           std::string(o.result);
+                    out += "- `{<" + t->name + "> " + Str(m->name.str()) + sig + "}` → " +
+                           Str(o.result);
                     if (&o == &m->overloads.front() && !m->doc.empty()) out += ": " + m->doc;
                     out += "\n";
                 }
             for (const detail::PropertyEntry& p : t->properties)
-                out += "- property `" + std::string(p.name.str()) + "`: " + std::string(p.type) +
+                out += "- property `" + Str(p.name.str()) + "`: " + Str(p.type) +
                        (p.doc.empty() ? "" : ": " + p.doc) + "\n";
             handlers(t->symbol, t->name);
         }
         for (const ScriptClass* c : scripts) {
-            out += "\n### `" + std::string(c->name.str()) + "` (script class)\n\n";
-            handlers(c->name, std::string(c->name.str()));
+            out += "\n### `" + Str(c->name.str()) + "` (script class)\n\n";
+            handlers(c->name, Str(c->name.str()));
         }
     }
     if (!impl.globals.empty()) {
-        std::vector<Global> gs = impl.globals;
+        Vec<Global> gs = impl.globals;
         std::sort(gs.begin(), gs.end(),
                   [](const Global& a, const Global& b) { return a.name.str() < b.name.str(); });
         out += "\n## Globals\n";
         for (const Global& g : gs) {
-            out += "\n### `$" + std::string(g.name.str()) + "`\n";
+            out += "\n### `$" + Str(g.name.str()) + "`\n";
             if (!g.doc.empty()) out += "\n" + g.doc + "\n";
         }
     }
@@ -340,8 +335,8 @@ void reference(const Context& ctx, TextOut out) {
 }
 
 Expected<void> write_reference(const Context& ctx, std::string_view path) {
-    const std::string text = reference_text(ctx);
-    const std::string p(path);
+    const Str text = reference_text(ctx);
+    const Str p(path);
     std::FILE* f = std::fopen(p.c_str(), "wb");
     if (!f) return Unexpected(make_error(ErrorCode::Io, "cannot write " + p));
     const bool ok = std::fwrite(text.data(), 1, text.size(), f) == text.size();

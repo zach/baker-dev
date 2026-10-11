@@ -66,6 +66,7 @@ function(moira_configure_library target)
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>)
   target_compile_features(${target} PUBLIC cxx_std_20)
+  target_include_directories(${target} PRIVATE ${PROJECT_SOURCE_DIR}/src)
   # Always explicit: mixing atomic and plain refcounts across translation units is an ODR
   # violation, so consumers must see the library's choice.
   if(MOIRA_ATOMIC_REFCOUNT)
