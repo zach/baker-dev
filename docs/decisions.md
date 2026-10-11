@@ -312,3 +312,15 @@ round-tripping and minimal write-back diffs (M3). To catch `Health` versus `heal
 mistakes anyway, a failed lookup suggests a case variant of the name when one exists (M2,
 alongside D6's quoted-symbol hint), and `check` warns when data mixes case variants of a
 name (M4).
+
+## D24. Results after D18–D23
+
+Re-verified on 2026-10-11 with every configuration passing locally:
+- gcc 13 and clang 18 at C++20 and C++23;
+- clang 18 with **libc++ 18**, which is what failed before D18;
+- data-only, no-exceptions, plain refcounts, ASan+UBSan, TSan, and shipping builds;
+- a build with the Apple formatting fallback forced on.
+
+The fuzzer ran 2M execs clean on the new number handling, reaching 1,325 edges.
+`moira::data` is now 2,063 counted lines; vendored fast_float is third-party and not
+counted (D2).

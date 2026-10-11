@@ -27,7 +27,7 @@ std::string text = moira::to_dta(*menu);            // round-trips through read_
 
 What exists:
 
-- `Node` (16 bytes), interned `Symbol`, refcounted `String` and `Array` (one allocation
+- `Node` (16 bytes; 64-bit ints and doubles), interned `Symbol`, refcounted `String` and `Array` (one allocation
   per array, children inline), every array tagged with its source file and line.
 - A parser that never crashes on bad input: every error has a file and line.
 - The preprocessor: `#include`, `#include_opt`, `#merge`, `#ifdef`/`#ifndef`/`#else`/
