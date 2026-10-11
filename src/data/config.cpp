@@ -1288,7 +1288,7 @@ Expected<List<LayerEffectEntry>> Config::layer_effect(std::string_view layer) co
     if (!is_scratch && scratch) without = moira::merge(*without, *scratch);
 
     for (const Leaf& leaf : leaves_of(*tree)) {
-        LayerEffectEntry e;
+        LayerEffectEntry e{};
         const Path path(leaf.path);
         e.path = Symbol(leaf.path);
         e.value = pack(leaf.values);
