@@ -28,7 +28,7 @@ step 1 (`{add 1 2}` at 34 ns, D52).
      header outside D55's list.
    - Measure: preprocessed lines and compile time of a translation unit that only reads a
      `Tweak<float>`, before and after; `sizeof(Expected<Node>)`; `{add 1 2}`.
-3. **Allocators and the container alias layer (D55, D56).**
+3. **Allocators and the container alias layer (D55, D56).** *Done: D61, D62.*
    - Add `Allocator`.
    - Make `Context` and `Config` take an allocator.
    - Add a default allocator for process-wide state.
@@ -73,54 +73,42 @@ That takes the core from 7,262 to about 7,710 of 10,000, before the rest of M6 (
 - **The renames in step 1** break any downstream code. There is none outside this
   repository yet, which is why now is the time.
 
-## Handoff (2026-10-11, end of step 2)
+## Handoff (2026-10-11, end of step 3)
 
-**State.** Steps 1 and 2 are done (D59, D60). The branch is
-`claude/zealous-goodall-rtindg`, at commit `1d26a21` plus this note, and CI is green on
-every job, MSVC included. The core is 7,633 of 10,000 lines.
+**State.** Steps 1–3 are done (D59, D60, D61–D62). The branch is
+`claude/zealous-goodall-rtindg`, and CI is green on every job, the new `eastl` job
+included. The core is 7,792 of 10,000 lines.
 
-**Next: step 3, allocators and the container alias layer (D55, D56).** The owner has
-approved the step 2 choices (Callback, List, the 16-segment Path, and Symbols for layer
-names and result paths). Step 3 is:
-- an `Allocator` struct (function pointers plus a `void*`);
-- `Context` and `Config` taking an allocator at construction;
-- a default allocator for process-wide state (the symbol table);
-- `src/` containers going through one alias header that maps to the STL, or to EASTL
-  with `MOIRA_USE_EASTL=ON`, always with Moira's allocator;
-- a `MOIRA_USE_EASTL` CI job (fetch and pin EASTL; do not vendor it);
-- a test where a counting allocator sees every allocation a Context and a Config make,
-  and the global `operator new` counter sees none.
+**Open question for the owner:** `TextOut` collides with Win32's `TextOut` macro (D62).
+A rename (for example `TextSink`) is mechanical, but it changes the public API.
 
-Places that still allocate through `new` or `operator new` directly, and must move to
-the allocator:
-- `Array::allocate` (array.cpp);
-- `String` (node.cpp);
-- `Error` records (error.cpp);
-- `NodeBuffer`, `List<T>`, `Callback`, and `detail::Shared` (headers);
-- every opaque `Impl`/`State`/`Tables`/`Extra`;
-- `TypeRecord`s, which live for the whole program (object.cpp).
-
-The header types (`List`, `Callback`, `NodeBuffer`, `Shared`) have no owner to ask for an
-allocator. The simplest consistent answer is the process-wide default allocator. Decide
-that in a short note before coding.
-
-**Then step 4: an arena per load (D56).** It needs a design note first, on D56's open
+**Next: step 4, an arena per load (D56).** It needs a design note first, on D56's open
 point: how a value that outlives its load (a Node in a variable, a snapshot) keeps its
-tree alive. The fallback is one refcount per load. Then the rest of M6
-(`docs/m6-plan.md`, with the answers in D53): typed messages with `handles<M>` and
-`handle_all`, call statistics, and the trace hook.
+tree alive. The fallback is one refcount per load. Trees are the main allocation left on
+the default allocator rather than the owner's (D61). Step 4 moves them into the owner's
+arenas. That also removes the per-array refcount (gap 5) and the per-array
+`default_alloc` in `Array::allocate`.
+
+Then the rest of M6 (`docs/m6-plan.md`, with the answers in D53): typed messages with
+`handles<M>` and `handle_all`, call statistics, and the trace hook.
 
 **How the work has been done.**
 - **Commit each sub-step green.** Before every commit, run `tools/local_matrix.sh`:
-  debug, release, C++23, shipping, ASan+UBSan, Clang, data-only, and plain refcounts.
-  Run it every time; both slips in step 2 were configurations that a single build
-  missed.
+  debug, release, C++23, shipping, ASan+UBSan, Clang, data-only, plain refcounts, and
+  EASTL (which needs the network the first time). Shipping refuses live edits, so test
+  them under `if constexpr (!kShipping)`.
+- **Containers in `src/`** are `Vec`, `Str`, `HashMap`, `Own`, and `Rc` from
+  `src/common/containers.hpp`. An owner passes its allocator to the tables it keeps.
+  Pass pointer ranges, not `std::span` iterators, to EASTL.
 - **Header gates.** `ctest` runs `tools/check_headers.py`, and a target compiles every
-  public header alone.
+  public header alone. `moira_alloc_tests` fails if a Context or Config reaches
+  `operator new`.
 - **Benchmarks.** Measure before and after with `bench/` (build with
   `-DMOIRA_BUILD_BENCH=ON`), against a git worktree of the previous commit on the same
-  machine. Record numbers, including regressions and noise, in the D-entry.
+  machine. Record numbers, including regressions and noise, in the D-entry. When a row
+  moves, count instructions with cachegrind in a small driver before calling it layout
+  (D62).
 - **Review lens.** Read `.claude/skills/acton-review/` (the skill and its
   `references/moira-gaps.md` status table) before designing. The owner holds Moira to it.
 - **Decisions.** Record each deviation from the spec in `docs/decisions.md` (the next
-  free number is D61). Delete this plan when step 4 is done.
+  free number is D63). Delete this plan when step 4 is done.

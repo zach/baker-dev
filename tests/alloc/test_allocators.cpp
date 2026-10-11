@@ -1,8 +1,7 @@
 // D61: a Context and a Config allocate only through Moira allocators. This binary's main
-// installs a counting default allocator before anything else runs, so global operator new
-// can be watched on its own.
+// (main.cpp) installs a malloc default allocator before anything else runs, so global
+// operator new can be watched on its own.
 
-#define DOCTEST_CONFIG_IMPLEMENT
 #include <doctest.h>
 
 #include <moira/config.hpp>
@@ -40,8 +39,6 @@ struct Counting {
                 this};
     }
 };
-
-Counting g_default;
 
 // Files the Config reads, by name.
 const char* text_of(std::string_view path) {
@@ -144,11 +141,4 @@ TEST_CASE("a Context allocates through its allocator, and nothing through operat
     CHECK(mine.allocs == mine.frees);
     CHECK(mine.live_bytes == 0);
     MESSAGE("Context: " << mine.allocs << " allocations through its allocator");
-}
-
-int main(int argc, char** argv) {
-    // Before Moira allocates anything, so every allocation without an owner is counted.
-    if (!moira::set_default_allocator(g_default.allocator())) return 2;
-    doctest::Context context(argc, argv);
-    return context.run();
 }

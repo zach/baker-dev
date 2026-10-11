@@ -385,7 +385,7 @@ Expected<Node> Context::call(const Node& object, Symbol method, std::span<const 
     nodes.reserve(args.size() + 2);
     nodes.push_back(object);
     nodes.emplace_back(method);
-    nodes.insert(nodes.end(), args.begin(), args.end());
+    nodes.insert(nodes.end(), args.data(), args.data() + args.size());
     const Ref<Array> command = Array::make_from(nodes);
     return eval(Node(command, Type::Command));
 }

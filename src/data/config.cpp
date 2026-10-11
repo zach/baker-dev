@@ -523,7 +523,7 @@ struct Config::Impl {
             for (size_t i = 0; i < values.size(); ++i) found->values->set(i + 1, values[i]);
         } else {
             Vec<Node> nodes{Node(target[target.size() - 1].name)};
-            nodes.insert(nodes.end(), values.begin(), values.end());
+            nodes.insert(nodes.end(), values.data(), values.data() + values.size());
             Ref<Array> arr = Array::make_from(nodes);
             if (found)
                 found->values = std::move(arr);

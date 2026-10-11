@@ -4,6 +4,7 @@
 # Build directories go under $MOIRA_MATRIX_DIR (default: build-matrix/, ignored by git).
 #
 # Clang's ASan runtime is often not installed; the asan configuration uses GCC.
+# The eastl configuration needs network access the first time, to fetch EASTL.
 set -u
 cd "$(dirname "$0")/.."
 root=${MOIRA_MATRIX_DIR:-build-matrix}
@@ -16,6 +17,7 @@ declare -A cfg=(
   [clang]="-DCMAKE_CXX_COMPILER=clang++-18 -DCMAKE_BUILD_TYPE=Release"
   [data]="-DMOIRA_BUILD_SCRIPT=OFF"
   [plain]="-DMOIRA_ATOMIC_REFCOUNT=OFF"
+  [eastl]="-DMOIRA_USE_EASTL=ON"  # fetches EASTL at configure time
 )
 status=0
 for n in "${!cfg[@]}"; do

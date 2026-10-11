@@ -1437,3 +1437,82 @@ and the first half of D56.*
   before anything else runs. A `Context` and a `Config`, each given its own counting
   allocator, are built, loaded, evaluated, reloaded, and destroyed. Global `operator new`
   sees no allocation, each owner's allocator sees some, and each is balanced at the end.
+
+## D62. M5b step 3 results: allocators and the container alias layer
+
+*Recorded 2026-10-11. Implements D61, D55's alias layer, and D56's allocators. Arenas are
+step 4.*
+
+- **The API.**
+  - `<moira/allocator.hpp>` has `Allocator`, `default_allocator()`, and
+    `set_default_allocator()`, which returns false once Moira has allocated.
+  - `Context(alloc)` and `Config(options, alloc)` each take one, defaulting to the
+    default allocator.
+  - `{new T}` objects come from the Context's allocator. A type record now carries a
+    destroy function beside `create`, because only the type knows its size.
+- **What moved off `operator new`:**
+  - **Onto the owner's allocator:** the Context and Config `Impl`s and every table in
+    them, function records, script classes, variable pages, `{new}` objects, snapshots,
+    and each layer's shared session and source map.
+  - **Onto the default allocator:**
+    - `List`, `Callback`, `NodeBuffer`, `Shared`, and `Array`/`String` trees;
+    - `Error` records, sessions, source maps, a `Tweak`'s side data, and loose object
+      parameters;
+    - the symbol table, whose blocks and slots are now raw default-allocator memory, and
+      `TypeRecord`s.
+- **The alias layer.** `src/common/containers.hpp` has `Vec`, `Str`, `HashMap`, `Own`
+  (for `unique_ptr`), and `Rc` (for `shared_ptr`).
+  - `src/` names no STL container, `std::string`, smart pointer, or `std::to_string`.
+    It no longer includes the `std_*.hpp` interop headers; `detail::text_of`,
+    `dta_of`, `str_out`, and `decimal` replace them inside.
+  - `std::stable_sort` (`sort_for_lookup`) became a bottom-up merge sort, because its
+    buffer comes from `operator new`.
+  - EASTL needs pointer ranges, not `std::span` iterators, without its
+    std-iterator-category switch. Four call sites changed.
+- **EASTL.** `MOIRA_USE_EASTL=ON` fetches EASTL 3.27.01 at a pinned commit with
+  FetchContent. EASTL in turn fetches EABase. A host that already has an `EASTL` target
+  uses its own. Neither is vendored; `THIRD_PARTY.md` lists them.
+  - EASTL is private to the two libraries. Public headers are unchanged, so a host
+    built either way sees the same API.
+  - The STL and EASTL builds run the same assertions, with the same results (75,978 data,
+    674 script, 11 allocator).
+  - There is a CI job (`eastl`) and a local-matrix entry for it.
+  - It is not built on MSVC in CI.
+- **The test** is `moira_alloc_tests`. Its `main` installs a malloc default allocator
+  before anything runs. In a separate file, because doctest's implementation brings in
+  `<windows.h>`, whose `TextOut` macro renames `moira::TextOut`.
+  - A Config pushes, reads, sets, snapshots, reloads, restores, and removes layers with a
+    bound tweak. A Context registers a native, adds an object, defines a function and a
+    class, runs `{new}` and `{delete}`, and fails a call.
+  - In both, global `operator new` sees 0 allocations. The owner's allocator sees 14
+    (Config) and 100 (Context), and is balanced after destruction.
+- **Performance,** on this container, against `b60a411` built alongside. The hot paths
+  allocate nothing, as before.
+
+  | Row | before | after |
+  |---|---:|---:|
+  | `{add 1 2}` | 31–34 ns | 28–29 ns |
+  | `{add $x 1}` | 33–35 ns | 32–37 ns |
+  | `{add1 1}` | 62–66 ns | 66–69 ns |
+  | `find_float`, 20 children, avg | 10.6–12.1 ns | 11.5–13.4 ns |
+  | `find_float`, last | 15–17 ns | 18–20 ns |
+  | `try_find`, 50 children, linear | 14–15 ns | 19–21 ns |
+
+  - **Cachegrind shows the same work per call:** 360 instructions for `{add 1 2}` before
+    and after, 499 → 497 for `{add $x 1}`, and 991 for `{add1 1}`.
+  - **One real regression was found and fixed.** With variable pages behind `Own<Page>`,
+    GCC copied a cell's tag bytes with four byte stores instead of one. The load that
+    followed stalled on store forwarding, and `{add $x 1}` lost 4–6 ns at the same
+    instruction count. Pages are plain pointers again, and the code matches the old
+    code.
+  - **The lookup rows are layout, not work.** `try_find` is inline in the benchmark's own
+    file and unchanged. A separate driver linked against each library measures linear
+    `try_find` on 50 children at 20 ns for both, with equal instruction counts and the
+    same spacing between child arrays. This is the same code-layout effect D59 and D60
+    saw.
+  - The §7 targets hold: `{add 1 2}` ≤ 40 ns, and `find_float` ≤ 25 ns on average.
+- **Size.** The core is 7,792 lines, up 159 in step 3 against a plan of +200.
+- **Found on the way: `TextOut` collides with Win32.** `<windows.h>` defines `TextOut` as
+  `TextOutA`/`TextOutW`. A Windows host that includes it before a Moira header calls
+  functions that do not exist in the library, and fails to link. Step 2 introduced the
+  name. Renaming it is a public API change, so it waits for the owner.

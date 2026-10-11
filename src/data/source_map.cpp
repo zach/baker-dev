@@ -48,7 +48,8 @@ bool SourceMap::empty() const noexcept {
 
 void SourceMap::record(const Ref<Array>& a, const SourceSpan& extent,
                        std::span<const SourceSpan> spans) {
-    t_->arrays[a.get()] = Tables::Entry{a, extent, Vec<SourceSpan>(spans.begin(), spans.end())};
+    t_->arrays[a.get()] =
+        Tables::Entry{a, extent, Vec<SourceSpan>(spans.data(), spans.data() + spans.size())};
 }
 
 void SourceMap::record_text(Symbol file, std::string_view text) {

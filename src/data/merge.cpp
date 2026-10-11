@@ -69,8 +69,8 @@ bool merge_into(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const 
         Vec<SourceSpan> merged_spans;
         if (map) {
             const auto known = map->spans(da);
-            merged_spans =
-                known ? Vec<SourceSpan>(known->begin(), known->end()) : Vec<SourceSpan>(da.size());
+            merged_spans = known ? Vec<SourceSpan>(known->data(), known->data() + known->size())
+                                 : Vec<SourceSpan>(da.size());
         }
         if (!merge_into(merged, map ? &merged_spans : nullptr, 1, *sa, 1, policy, map)) continue;
         // A rebuilt array is located where its values came from.
