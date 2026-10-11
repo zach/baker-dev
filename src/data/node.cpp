@@ -4,6 +4,7 @@
 
 #include "common/containers.hpp"
 
+#include "arena.hpp"
 #include "text.hpp"
 
 #include <cstdlib>
@@ -35,28 +36,15 @@ Ref<String> String::make(std::string_view text) {
     // A string this large cannot come from a parse (inputs are bounded long before).
     if (text.size() >= UINT32_MAX) std::abort();
     const auto size = static_cast<uint32_t>(text.size());
-    void* mem = detail::default_alloc(sizeof(String) + size + 1, alignof(String));
-    auto* s = new (mem) String(size);
+    void* mem = detail::solo_payload(detail::kSoloString, sizeof(String) + size + 1);
+    auto* s = new (mem) String(detail::kSoloOffset, size);
     char* chars = reinterpret_cast<char*>(s + 1);
     if (size) std::memcpy(chars, text.data(), size);
     chars[size] = '\0';
     return Ref<String>::adopt(s);
 }
 
-void String::destroy(const String* s) noexcept {
-    const size_t size = s->size();
-    s->~String();
-    detail::default_free(const_cast<String*>(s), sizeof(String) + size + 1);
-}
-
 namespace detail {
-
-void destroy_counted(const void* payload, Type type) noexcept {
-    if (type == Type::String)
-        String::destroy(static_cast<const String*>(payload));
-    else
-        Array::destroy(static_cast<const Array*>(payload));
-}
 
 std::optional<int64_t> float_to_int(double f) noexcept {
     // [-2^63, 2^63) are exactly the doubles that convert to int64 without overflow. NaN

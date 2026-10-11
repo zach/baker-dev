@@ -1,5 +1,7 @@
 #include <moira/array.hpp>
 
+#include "arena.hpp"
+
 #include <cstdlib>
 #include <new>
 #include <type_traits>
@@ -21,9 +23,9 @@ uint16_t above(uint16_t h) noexcept {
 
 Array* Array::allocate(uint32_t size, Symbol file, int32_t line) {
     const size_t slots = size ? size : 1;
-    // From the default allocator until step 4 gives each load an arena (D61).
-    void* mem = detail::default_alloc(sizeof(Array) + slots * sizeof(Node), alignof(Array));
-    auto* a = new (mem) Array(size, file, line);
+    // A solo block, from the default allocator (D64).
+    void* mem = detail::solo_payload(detail::kSoloArray, sizeof(Array) + slots * sizeof(Node));
+    auto* a = new (mem) Array(detail::kSoloOffset, size, file, line);
     if (size == 0) new (a->data()) Node();  // Int 0 owns nothing, so it is never destroyed
     return a;
 }
@@ -53,15 +55,6 @@ Ref<Array> Array::make_copy(std::span<const Node> nodes, Symbol file, int32_t li
     for (uint32_t i = 0; i < size; ++i) new (d + i) Node(nodes[i]);
     a->compute_height();
     return Ref<Array>::adopt(a);
-}
-
-void Array::destroy(const Array* a) noexcept {
-    auto* self = const_cast<Array*>(a);
-    Node* d = self->data();
-    const uint32_t size = self->size_;
-    for (uint32_t i = 0; i < size; ++i) d[i].~Node();
-    self->~Array();
-    detail::default_free(self, sizeof(Array) + (size ? size : 1) * sizeof(Node));
 }
 
 void Array::compute_height() noexcept {

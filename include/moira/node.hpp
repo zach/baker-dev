@@ -81,12 +81,10 @@ struct FuncRecord {
 };
 
 namespace detail {
-// Frees a refcounted payload whose count reached zero.
-void destroy_counted(const void* payload, Type type) noexcept;
 [[nodiscard]] std::optional<int64_t> float_to_int(double f) noexcept;
 }  // namespace detail
 
-// Refcounted immutable string, stored in a single allocation.
+// An immutable string, stored in one piece. Counted through its owner (ref.hpp).
 class String {
 public:
     [[nodiscard]] static Ref<String> make(std::string_view text);
@@ -97,22 +95,22 @@ public:
     }
     [[nodiscard]] uint32_t size() const noexcept { return size_; }
 
-    void ref() const noexcept { detail::retain(refs_); }
-    void unref() const noexcept {
-        if (detail::release(refs_)) destroy(this);
+    void ref() const noexcept { detail::retain_payload(this); }
+    void unref() const noexcept { detail::release_payload(this); }
+    // The count of the string's owner: for a solo string, its own.
+    [[nodiscard]] uint32_t ref_count() const noexcept {
+        return detail::count(detail::owner_of(this).refs);
     }
-    [[nodiscard]] uint32_t ref_count() const noexcept { return detail::count(refs_); }
 
     String(const String&) = delete;
     String& operator=(const String&) = delete;
 
 private:
-    explicit String(uint32_t size) noexcept : refs_(1), size_(size) {}
+    String(uint32_t block, uint32_t size) noexcept : block_(block), size_(size) {}
     ~String() = default;
-    static void destroy(const String* s) noexcept;
-    friend void detail::destroy_counted(const void*, Type) noexcept;
+    friend void detail::free_owner(detail::Owner&) noexcept;
 
-    mutable detail::RefCount refs_;
+    uint32_t block_;  // the offset back to the block that holds it
     uint32_t size_;
     // char data[size_ + 1] follows.
 };
@@ -142,7 +140,7 @@ public:
         : type_(array_kind(kind)) {
         assert(a && "Node from null Ref<Array>");
         value_.p = a.get();
-        detail::retain(detail::count_of(value_.p));
+        detail::retain_payload(value_.p);
     }
     Node(Ref<Array>&& a, Type kind = Type::Array) noexcept : type_(array_kind(kind)) {  // NOLINT
         assert(a && "Node from null Ref<Array>");
@@ -171,7 +169,7 @@ public:
 
     Node(const Node& o) noexcept
         : value_(o.value_), type_(o.type_), aux_{o.aux_[0], o.aux_[1], o.aux_[2]} {
-        if (counted()) detail::retain(detail::count_of(value_.p));
+        if (counted()) detail::retain_payload(value_.p);
     }
     Node(Node&& o) noexcept
         : value_(o.value_), type_(o.type_), aux_{o.aux_[0], o.aux_[1], o.aux_[2]} {
@@ -187,8 +185,7 @@ public:
         return *this;
     }
     ~Node() {
-        if (counted() && detail::release(detail::count_of(value_.p)))
-            detail::destroy_counted(value_.p, type_);
+        if (counted()) detail::release_payload(value_.p);
     }
     void swap(Node& o) noexcept {
         std::swap(value_, o.value_);
@@ -334,7 +331,7 @@ private:
     explicit Node(const String* s) noexcept : type_(Type::String) {
         assert(s && "Node from null Ref<String>");
         value_.p = s;
-        detail::retain(detail::count_of(value_.p));
+        detail::retain_payload(value_.p);
     }
 
     union Value {

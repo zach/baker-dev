@@ -494,11 +494,13 @@ public:
     // Bounds every recursive walk over a parsed tree. Saturates at 65535.
     [[nodiscard]] uint16_t height() const noexcept { return height_; }
 
-    void ref() const noexcept { detail::retain(refs_); }
-    void unref() const noexcept {
-        if (detail::release(refs_)) destroy(this);
+    void ref() const noexcept { detail::retain_payload(this); }
+    void unref() const noexcept { detail::release_payload(this); }
+    // The count of the array's owner (D64): for a solo array, its own; for an array read
+    // from a file, its load's.
+    [[nodiscard]] uint32_t ref_count() const noexcept {
+        return detail::count(detail::owner_of(this).refs);
     }
-    [[nodiscard]] uint32_t ref_count() const noexcept { return detail::count(refs_); }
 
     Array(const Array&) = delete;
     Array& operator=(const Array&) = delete;
@@ -506,16 +508,15 @@ public:
 private:
     static constexpr uint16_t kSortedForLookup = 1;
 
-    Array(uint32_t size, Symbol file, int32_t line) noexcept
-        : refs_(1), size_(size), file_(file), line_(line) {}
+    Array(uint32_t block, uint32_t size, Symbol file, int32_t line) noexcept
+        : block_(block), size_(size), file_(file), line_(line) {}
     ~Array() = default;
 
     // Storage for `size` nodes, not yet constructed. An empty array still gets one slot,
     // holding Int 0, so try_find() can read every child's first node without first
     // checking its size.
     [[nodiscard]] static Array* allocate(uint32_t size, Symbol file, int32_t line);
-    static void destroy(const Array* a) noexcept;
-    friend void detail::destroy_counted(const void*, Type) noexcept;
+    friend void detail::free_owner(detail::Owner&) noexcept;
     void compute_height() noexcept;
     [[nodiscard]] const Array* find_sorted(Symbol tag) const noexcept;
 
@@ -524,7 +525,7 @@ private:
         return reinterpret_cast<const Node*>(this + 1);
     }
 
-    mutable detail::RefCount refs_;
+    uint32_t block_;  // the offset back to the block that holds it
     uint32_t size_;
     Symbol file_;
     int32_t line_;
