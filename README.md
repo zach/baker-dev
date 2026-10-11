@@ -116,7 +116,7 @@ What exists:
   optional ones, `Args` for the rest, overload sets), dynamically scoped `$variables`,
   script functions (`{func}`, with `stub`/`provisional`/`deprecated` status), `eval` of
   text, a generated reference (`docs/script-reference.md`), and `check` with a demand
-  report. A native call with two scalar arguments takes about 35 ns and never allocates.
+  report. A native call with two scalar arguments takes about 26 ns and never allocates.
 - Tests, a hand-written corpus, benchmarks, and libFuzzer harnesses for parsing and lookup
   (`-DMOIRA_BUILD_FUZZERS=ON`).
 

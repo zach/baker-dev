@@ -70,6 +70,9 @@ public:
     // until the function returns.
     template <class T>
     [[nodiscard]] Expected<T> try_get(size_t i) const;
+    // try_get for the binding layer: reads into `out`, or puts the error in `error`.
+    template <class T>
+    bool read_into(size_t i, T& out, Expected<Node>& error) const;
     // Argument `i`, evaluated, as an array (valid until the function returns).
     [[nodiscard]] Expected<const Array*> try_array(size_t i) const;
 #if MOIRA_EXCEPTIONS
@@ -100,6 +103,8 @@ public:
 private:
     template <class T>
     [[nodiscard]] Expected<T> get_slow(size_t i) const;
+    template <class T>
+    bool read_slow(size_t i, T& out, Expected<Node>& error) const;
     [[nodiscard]] Expected<Node> eval_node(const Node& n) const;
     void keep(Node n) const;
     [[nodiscard]] Error type_error(size_t i, const Node& n, std::string_view want) const;
@@ -241,6 +246,17 @@ bool match_value(const Node& n, bool promote) noexcept {
     }
 }
 
+// Moves a read's value into `out`, or its error into `result`.
+template <class E, class H>
+bool take(E&& r, std::optional<H>& out, Expected<Node>& result) {
+    if (!r) {
+        result = Unexpected(std::move(r).error());
+        return false;
+    }
+    out.emplace(std::move(*r));
+    return true;
+}
+
 // How a parameter of type P reads its argument. `Holder` is what is read; pass() turns it
 // into the argument.
 template <class P>
@@ -255,7 +271,9 @@ struct Param {
             return convert_info<T>().name;
     }
     static constexpr auto match = &match_value<T>;
-    static Expected<T> read(const Args& a, size_t i) { return a.try_get<T>(i); }
+    static bool read(const Args& a, size_t i, std::optional<T>& out, Expected<Node>& result) {
+        return a.read_into(i, out.emplace(), result);
+    }
     static T&& pass(T& h) noexcept { return std::move(h); }
 };
 template <>
@@ -265,7 +283,9 @@ struct Param<const Array&> {
     static constexpr std::string_view type() { return "array"; }
     static bool match_array(const Node& n, bool) noexcept { return n.type() == Type::Array; }
     static constexpr auto match = &match_array;
-    static Expected<const Array*> read(const Args& a, size_t i) { return a.try_array(i); }
+    static bool read(const Args& a, size_t i, std::optional<Holder>& out, Expected<Node>& result) {
+        return take(a.try_array(i), out, result);
+    }
     static const Array& pass(const Array* h) noexcept { return *h; }
 };
 template <>
@@ -274,8 +294,9 @@ struct Param<Raw<Node>> {
     static constexpr ParamKind kind = ParamKind::Raw;
     static constexpr std::string_view type() { return "unevaluated"; }
     static constexpr bool (*match)(const Node&, bool) noexcept = nullptr;
-    static Expected<Raw<Node>> read(const Args& a, size_t i) {
-        return Raw<Node>(a.context(), a.raw(i));
+    static bool read(const Args& a, size_t i, std::optional<Holder>& out, Expected<Node>&) {
+        out.emplace(a.context(), a.raw(i));
+        return true;
     }
     static Raw<Node> pass(Raw<Node>& h) noexcept { return h; }
 };
@@ -287,7 +308,9 @@ struct Param<Raw<Var>> {
     static constexpr std::string_view type() { return "$variable"; }
     static bool match_var(const Node& n, bool) noexcept { return n.type() == Type::Var; }
     static constexpr auto match = &match_var;
-    static Expected<Raw<Var>> read(const Args& a, size_t i) { return read_var(a, i); }
+    static bool read(const Args& a, size_t i, std::optional<Holder>& out, Expected<Node>& result) {
+        return take(read_var(a, i), out, result);
+    }
     static Raw<Var> pass(Raw<Var>& h) noexcept { return h; }
 };
 template <class T>
@@ -296,11 +319,15 @@ struct Param<std::optional<T>> {
     static constexpr ParamKind kind = ParamKind::Optional;
     static constexpr std::string_view type() { return Param<T>::type(); }
     static constexpr auto match = Param<T>::match;
-    static Expected<std::optional<T>> read(const Args& a, size_t i) {
-        if (i >= a.size()) return std::optional<T>();
-        auto r = Param<T>::read(a, i);
-        if (!r) return Unexpected(std::move(r).error());
-        return std::optional<T>(std::move(*r));
+    static bool read(const Args& a, size_t i, std::optional<Holder>& out, Expected<Node>& result) {
+        if (i >= a.size()) {
+            out.emplace();
+            return true;
+        }
+        std::optional<typename Param<T>::Holder> inner;
+        if (!Param<T>::read(a, i, inner, result)) return false;
+        out.emplace(std::move(*inner));
+        return true;
     }
     static std::optional<T>&& pass(std::optional<T>& h) noexcept { return std::move(h); }
 };
@@ -310,7 +337,10 @@ struct Param<Args> {
     static constexpr ParamKind kind = ParamKind::Rest;
     static constexpr std::string_view type() { return "values..."; }
     static constexpr bool (*match)(const Node&, bool) noexcept = nullptr;
-    static Expected<Args> read(const Args& a, size_t i) { return a.rest(i); }
+    static bool read(const Args& a, size_t i, std::optional<Holder>& out, Expected<Node>&) {
+        out.emplace(a.rest(i));
+        return true;
+    }
     static Args pass(Args& h) noexcept { return h; }
 };
 template <>
@@ -319,7 +349,10 @@ struct Param<Context&> {
     static constexpr ParamKind kind = ParamKind::Context;
     static constexpr std::string_view type() { return ""; }
     static constexpr bool (*match)(const Node&, bool) noexcept = nullptr;
-    static Expected<Context*> read(const Args& a, size_t) { return &a.context(); }
+    static bool read(const Args& a, size_t, std::optional<Holder>& out, Expected<Node>&) {
+        out.emplace(&a.context());
+        return true;
+    }
     static Context& pass(Context* h) noexcept { return *h; }
 };
 
@@ -386,28 +419,23 @@ struct ArgIndex {
 template <class F, class R, class... P, size_t... I>
 Expected<Node> invoke(const void* callable, [[maybe_unused]] Args& args,
                       std::index_sequence<I...>) {
+    // One Expected for the whole call, holding a read error or the result: frames here
+    // nest once per script call, so they stay small.
+    Expected<Node> result;
     [[maybe_unused]] std::tuple<std::optional<typename Param<P>::Holder>...> held;
+    bool ok = true;
     if constexpr (sizeof...(P) > 0) {
         using Index = ArgIndex<P...>;
-        std::optional<Error> error;
-        const bool ok = ([&] {
-            auto r = Param<P>::read(args, Index::of(I));
-            if (!r) {
-                error.emplace(std::move(r).error());
-                return false;
-            }
-            std::get<I>(held).emplace(std::move(*r));
-            return true;
-        }() && ...);
-        if (!ok) return Unexpected(std::move(*error));
+        ok = (Param<P>::read(args, Index::of(I), std::get<I>(held), result) && ...);
     }
-    const F& f = *static_cast<const F*>(callable);
-    if constexpr (std::is_void_v<R>) {
-        std::invoke(f, Param<P>::pass(*std::get<I>(held))...);
-        return Node();
-    } else {
-        return to_result(std::invoke(f, Param<P>::pass(*std::get<I>(held))...));
+    if (ok) {
+        const F& f = *static_cast<const F*>(callable);
+        if constexpr (std::is_void_v<R>)
+            std::invoke(f, Param<P>::pass(*std::get<I>(held))...);
+        else
+            result = to_result(std::invoke(f, Param<P>::pass(*std::get<I>(held))...));
     }
+    return result;
 }
 
 template <class F, class R, class... P>
@@ -520,6 +548,12 @@ public:
     // A documented global: sets `name` to `initial` and lists it in the reference.
     VarRef global(Symbol name, Node initial, std::string_view doc = {});
 
+    // Nesting deeper than 1,000 calls, or than `bytes` of stack below the outermost call, is
+    // a Limit error rather than a stack overflow. The default, 256 KB, is safe on any common
+    // thread; release builds nest about 400 calls in it, debug builds fewer. Raise it on a
+    // thread with a larger stack.
+    void set_stack_budget(size_t bytes) noexcept;
+
     // --- Notices: things worth saying that are not errors, such as a native function
     // replacing a script one. By default they go to stderr. ---
     using NoticeSink = void (*)(void* user, const Error& notice);
@@ -576,6 +610,27 @@ Expected<T> Args::try_get(size_t i) const {
         }
     }
     return get_slow<T>(i);
+}
+
+template <class T>
+bool Args::read_into(size_t i, T& out, Expected<Node>& error) const {
+    if (i < size_) {
+        const Node& n = base_[i];
+        if (evaluated_ || (n.type() != Type::Command && n.type() != Type::Var))
+            if (Values(std::span<const Node>(&n, 1), command_).read(0, out)) return true;
+    }
+    return read_slow(i, out, error);
+}
+
+template <class T>
+bool Args::read_slow(size_t i, T& out, Expected<Node>& error) const {
+    auto r = get_slow<T>(i);
+    if (!r) {
+        error = Unexpected(std::move(r).error());
+        return false;
+    }
+    out = std::move(*r);
+    return true;
 }
 
 template <class T>

@@ -155,6 +155,10 @@ TEST_CASE("script functions: arguments evaluate in the caller's scope, then bind
     eval_ok(ctx, "{func forever () {forever}}");
     const Error e = eval_error(ctx, "{forever}");
     CHECK(e.code == ErrorCode::Limit);
+    CHECK(e.message.starts_with("calls nested too deep ("));
+    CHECK(eval_ok(ctx, "{fact 20}").as_int() == 2432902008176640000);
+    ctx.set_stack_budget(4 * 1024);  // the limit is the stack used, not a call count
+    CHECK(eval_error(ctx, "{fact 20}").code == ErrorCode::Limit);
 }
 
 TEST_CASE("a script stub replaced by a native function runs unchanged call sites") {

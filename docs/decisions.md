@@ -905,9 +905,19 @@ not. A `Node` parameter is evaluated; `Raw<Node>` is the unevaluated one.
   Notices go to a sink, stderr by default (`set_notice_sink`).
 - **Tiers.** `Tier` has Native and Script only. Macros are expanded by the reader before
   anything runs, so no function record is ever a macro.
-- **Safety.** Calls nested deeper than 1,000 are a `Limit` error, not a stack overflow. An
-  exception thrown by a native function comes back from `try_eval` as its error, and the
-  dynamic scope is restored on every exit path.
+- **Safety.** Deep recursion is a `Limit` error, not a stack overflow.
+  - The limit is 1,000 nested calls, or `set_stack_budget` bytes of stack below the
+    outermost call (default 256 KB), whichever comes first. A call count alone was not
+    enough: MSVC debug frames overflowed Windows' 1 MB stack before 1,000 calls (CI caught
+    it).
+  - In the 256 KB budget, release builds nest about 440 calls and gcc debug builds about
+    290.
+  - An exception thrown by a native function comes back from `try_eval` as its error, and
+    the dynamic scope is restored on every exit path.
+- **Small frames.** The evaluator's frames nest once per script call, so they hold no
+  error-message temporaries: errors are built in out-of-line cold functions, and a bound
+  function's arguments are read into one shared result. That took `call()` from 720 bytes
+  of stack to 128, and also made calls faster.
 - **`check`** reads a Context's signatures and the `{func}` definitions in the trees it is
   given. It is a free function: the spec's "opt-in via a Config flag" waits for `#require`
   and shapes (M8b), where checking at load has a natural home.
@@ -938,20 +948,21 @@ Results:
 
   | Call | Time |
   |---|---:|
-  | `{add 1 2}`, 2 int args | **34.7 ns** (target 40) |
-  | Overload set `{+ 1 2}` | 59 ns |
-  | Promoted `{+ 1.5 2}` | 64 ns |
-  | `{add $x 1}` | 46 ns |
-  | `{if 1 2 3}` | 41 ns |
-  | Script `{add1 1}` | 100 ns |
-
-  A profile put the remaining cost in call setup, argument reads, and moving `Expected`
-  results; none dominates.
+  | `{add 1 2}`, 2 int args | **25.6 ns** (target 40) |
+  | Overload set `{+ 1 2}` | 43 ns |
+  | Promoted `{+ 1.5 2}` | 48 ns |
+  | `{add $x 1}` | 32 ns |
+  | `{if 1 2 3}` | 30 ns |
+  | Script `{add1 1}` | 77 ns |
 - **Matrix.** All twelve local configurations pass. One fix was needed: a converter used
   only by exception-only tests tripped clang's unused-variable warning in the
-  no-exceptions build. MSVC is covered by CI.
+  no-exceptions build.
+- **MSVC (CI).**
+  - C4702 (unreachable code) flagged an `if constexpr` with no `else` in a header
+    template.
+  - The recursion test overflowed the stack in debug builds; see Safety.
 - **Size.** `moira::data` is 4,807 counted lines (+48, the hook and the symbol index).
-  `moira::script` is 1,325. The core total is 6,132 of 8,000, up 1,373 in M4, under the
-  plan's 1,600–1,750 estimate. That leaves 1,868 lines for M5–M8 and M10's core
+  `moira::script` is 1,396. The core total is 6,203 of 8,000, up 1,444 in M4, under the
+  plan's 1,600–1,750 estimate. That leaves 1,797 lines for M5–M8 and M10's core
   instrumentation. As the plan said, this is likely to run out around M8, and each
   milestone will flag it.

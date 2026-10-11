@@ -78,6 +78,8 @@ struct Context::Impl {
     std::vector<Node> kept;                      // evaluated values a call refers to
     std::vector<Global> globals;
     uint32_t depth = 0;
+    uintptr_t stack_base = 0;             // the outermost call's stack address
+    uintptr_t stack_budget = 256 * 1024;  // see Context::set_stack_budget
     NoticeSink sink = nullptr;
     void* sink_user = nullptr;
 };

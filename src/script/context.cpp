@@ -18,23 +18,75 @@ bool is_unset(const Node& n) noexcept {
     return n.type() == Type::Func && !n.func_record();
 }
 
-Error located(Error e, const Array& at) {
+std::string quoted(Symbol s) {
+    return "'" + std::string(s.str()) + "'";
+}
+
+// Errors are built out of line, so the evaluator's frames, which nest once per script call,
+// hold no message temporaries.
+#if defined(_MSC_VER)
+#define MOIRA_COLD __declspec(noinline)
+#else
+#define MOIRA_COLD [[gnu::noinline, gnu::cold]]
+#endif
+
+MOIRA_COLD void locate(Error& e, const Array& at) {
     if (e.file.empty()) {
         e.file = at.file();
         e.line = at.line();
     }
-    return e;
+}
+
+MOIRA_COLD Expected<Node> fail(const Array& at, ErrorCode code, std::string message) {
+    return Unexpected(make_error(code, std::move(message), at.file(), at.line()));
+}
+
+MOIRA_COLD Expected<Node> bad_head(const Array& command) {
+    if (command.empty()) return fail(command, ErrorCode::Syntax, "empty command {}");
+    return fail(command, ErrorCode::Type,
+                "a command starts with a function name, not a " +
+                    std::string(type_name(command[0].type())));
+}
+
+MOIRA_COLD Expected<Node> not_function(const Array& command, Symbol name) {
+    return fail(command, ErrorCode::NotFound, quoted(name) + " is not a function");
+}
+
+MOIRA_COLD Expected<Node> too_deep(const Array& command, uint32_t depth, uintptr_t used) {
+    return fail(command, ErrorCode::Limit,
+                "calls nested too deep (" + std::to_string(depth) + " calls, " +
+                    std::to_string(used / 1024) + " KB of stack)");
+}
+
+MOIRA_COLD Expected<Node> bad_arity(const Array& command, Symbol name, const detail::Overload& o) {
+    return fail(command, ErrorCode::Type,
+                quoted(name) + " takes " + arity_text(o.min_args, o.max_args) + ", given " +
+                    std::to_string(command.size() - 1));
+}
+
+MOIRA_COLD Expected<Node> no_overload(const Array& command, const Function& f, const Node* values,
+                                      size_t n) {
+    std::string given;
+    for (size_t i = 0; i < n; ++i) {
+        if (i) given += ' ';
+        given += type_name(values[i].type());
+    }
+    std::string have;
+    for (const detail::Overload& o : f.overloads) have += " " + signature_text(o);
+    return fail(command, ErrorCode::Type,
+                "no overload of " + quoted(f.name) + " takes (" + given + "); it has" + have);
+}
+
+MOIRA_COLD Expected<Node> not_set(Symbol name) {
+    return Unexpected(
+        make_error(ErrorCode::NotFound, "$" + std::string(name.str()) + " is not set"));
 }
 
 // Calls `o`, locating an error at the call. One return, so the result is never moved.
 Expected<Node> invoke(const detail::Overload& o, Args& args, const Array& command) {
     Expected<Node> r = o.thunk(o.callable.get(), args);
-    if (!r) r = Unexpected(located(std::move(r).error(), command));
+    if (!r) locate(r.error(), command);
     return r;
-}
-
-std::string quoted(Symbol s) {
-    return "'" + std::string(s.str()) + "'";
 }
 
 // Evaluates a Command or Var for moira::data's typed lookups.
@@ -109,36 +161,26 @@ Expected<Node> Context::Impl::eval(const Node& n) {
         case Type::Var: {
             const Node* c = cell_if(n.var_name());
             if (c && !is_unset(*c)) return *c;
-            return Unexpected(make_error(ErrorCode::NotFound,
-                                         "$" + std::string(n.var_name().str()) + " is not set"));
+            return not_set(n.var_name());
         }
         case Type::Property:
-            return Unexpected(make_error(ErrorCode::Type,
-                                         "[...] property access is not supported yet",
-                                         n.array()->file(), n.array()->line()));
+            return fail(*n.array(), ErrorCode::Type, "[...] property access is not supported yet");
         default: return n;
     }
 }
 
 Expected<Node> Context::Impl::call(const Array& command) {
-    if (command.empty())
-        return Unexpected(located(make_error(ErrorCode::Syntax, "empty command {}"), command));
-    const Node& head = command[0];
-    if (head.type() != Type::Symbol)
-        return Unexpected(
-            located(make_error(ErrorCode::Type, "a command starts with a function name, not a " +
-                                                    std::string(type_name(head.type()))),
-                    command));
-    const Symbol name = *head.try_sym();
+    if (command.empty() || command[0].type() != Type::Symbol) return bad_head(command);
+    const Symbol name = *command[0].try_sym();
     const Function* f = find(name);
-    if (!f || f->overloads.empty())
-        return Unexpected(
-            located(make_error(ErrorCode::NotFound, quoted(name) + " is not a function"), command));
-    if (depth >= kMaxDepth)
-        return Unexpected(
-            located(make_error(ErrorCode::Limit,
-                               "calls nested more than " + std::to_string(kMaxDepth) + " deep"),
-                    command));
+    if (!f || f->overloads.empty()) return not_function(command, name);
+    // Deep recursion is an error, not a crash: at most kMaxDepth calls, and at most
+    // stack_budget bytes of stack below the outermost one (a debug build's frames are large).
+    const char here = 0;
+    const auto at = reinterpret_cast<uintptr_t>(&here);
+    if (depth == 0) stack_base = at;
+    const uintptr_t used = at < stack_base ? stack_base - at : at - stack_base;
+    if (depth >= kMaxDepth || used > stack_budget) return too_deep(command, depth, used);
     struct Frame {
         Impl& impl;
         size_t kept;
@@ -151,12 +193,7 @@ Expected<Node> Context::Impl::call(const Array& command) {
     if (f->overloads.size() > 1) return call_overloaded(*f, command);
     const detail::Overload& o = f->overloads[0];
     const size_t n = command.size() - 1;
-    if (n < o.min_args || n > o.max_args)
-        return Unexpected(
-            located(make_error(ErrorCode::Type, quoted(name) + " takes " +
-                                                    arity_text(o.min_args, o.max_args) +
-                                                    ", given " + std::to_string(n)),
-                    command));
+    if (n < o.min_args || n > o.max_args) return bad_arity(command, name, o);
     Args args(self, command, command.begin() + 1, n, 0, false);
     return invoke(o, args, command);
 }
@@ -170,7 +207,10 @@ Expected<Node> Context::Impl::call_overloaded(const Function& f, const Array& co
     Node* values = n <= 8 ? small : (large = std::make_unique<Node[]>(n)).get();
     for (size_t i = 0; i < n; ++i) {
         auto r = eval(command[i + 1]);
-        if (!r) return Unexpected(located(std::move(r).error(), command));
+        if (!r) {
+            locate(r.error(), command);
+            return r;
+        }
         values[i] = std::move(*r);
     }
     auto fits = [&](const detail::Overload& o, bool promote) {
@@ -189,17 +229,7 @@ Expected<Node> Context::Impl::call_overloaded(const Function& f, const Array& co
             return invoke(o, args, command);
         }
     }
-    std::string given;
-    for (size_t i = 0; i < n; ++i) {
-        if (i) given += ' ';
-        given += type_name(values[i].type());
-    }
-    std::string have;
-    for (const detail::Overload& o : f.overloads) have += " " + signature_text(o);
-    return Unexpected(located(
-        make_error(ErrorCode::Type,
-                   "no overload of " + quoted(f.name) + " takes (" + given + "); it has" + have),
-        command));
+    return no_overload(command, f, values, n);
 }
 
 Expected<Node> Context::Impl::run(std::span<const Node> nodes) {
@@ -309,6 +339,10 @@ VarRef Context::global(Symbol name, Node initial, std::string_view doc) {
     return v;
 }
 
+void Context::set_stack_budget(size_t bytes) noexcept {
+    impl_->stack_budget = bytes;
+}
+
 void Context::set_notice_sink(NoticeSink sink, void* user) noexcept {
     impl_->sink = sink;
     impl_->sink_user = user;
@@ -369,8 +403,8 @@ FuncRef& FuncRef::status(Status status, Symbol replacement) {
 // --- Args, Raw, VarRef ---
 
 Expected<Node> Args::eval_node(const Node& n) const {
-    auto r = ctx_->impl().eval(n);
-    if (!r) return Unexpected(located(std::move(r).error(), *command_));
+    Expected<Node> r = ctx_->impl().eval(n);
+    if (!r) locate(r.error(), *command_);
     return r;
 }
 
