@@ -185,7 +185,7 @@ bool Path::parse(std::string_view text) {
     return true;
 }
 
-void Path::write(TextOut out, size_t count, char separator) const {
+void Path::write(TextSink out, size_t count, char separator) const {
     if (!valid_) {
         out(std::string_view(bad_text_, bad_size_));
         return;

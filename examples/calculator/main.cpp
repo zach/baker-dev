@@ -24,7 +24,7 @@ bool show(moira::Context& ctx, const std::string& line) {
         std::printf("%s\n", moira::to_string(r.error()).data());
         return false;
     }
-    // Moira writes text through a TextOut: here, straight to stdout.
+    // Moira writes text through a TextSink: here, straight to stdout.
     moira::write(*r, {[](void*, std::string_view t) { std::fwrite(t.data(), 1, t.size(), stdout); },
                       nullptr});
     std::printf("\n");

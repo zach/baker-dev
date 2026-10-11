@@ -156,7 +156,7 @@ std::string_view to_string(const Error& e) {
     return out;
 }
 
-void write(const StackEntry& entry, TextOut out) {
+void write(const StackEntry& entry, TextSink out) {
     out("{");
     if (!entry.on.empty()) {
         out(entry.on.str());

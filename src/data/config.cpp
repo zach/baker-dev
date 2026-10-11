@@ -366,7 +366,7 @@ struct Config::Impl {
         session->clear_autorun();
         Vec<Dep> deps;
         const LoadSession::Reader reader = before.reader();
-        session->set_reader([&](std::string_view p, TextOut out) {
+        session->set_reader([&](std::string_view p, TextSink out) {
             const uint64_t t0 = read_ns ? now() : 0;
             Str text;
             const bool ok = read_into(reader, p, text);
@@ -1212,7 +1212,7 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
     // Plan every entry against the target as each earlier one leaves it, in memory.
     HashMap<Str, Str> virt;
     const LoadSession::Reader disk = impl_->base.reader();
-    const LoadSession::Reader vread = [&](std::string_view p, TextOut out) {
+    const LoadSession::Reader vread = [&](std::string_view p, TextSink out) {
         if (auto it = virt.find(Str(p)); it != virt.end()) {
             out(it->second);
             return true;

@@ -1,5 +1,5 @@
 // main for moira_alloc_tests, in its own file: DOCTEST_CONFIG_IMPLEMENT brings in
-// <windows.h>, whose TextOut macro would rename moira::TextOut in a file that uses it.
+// <windows.h> and its macros, which stay out of the file with the tests.
 
 #define DOCTEST_CONFIG_IMPLEMENT
 #include <doctest.h>

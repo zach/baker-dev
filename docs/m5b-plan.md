@@ -79,8 +79,7 @@ That takes the core from 7,262 to about 7,710 of 10,000, before the rest of M6 (
 `claude/zealous-goodall-rtindg`, and CI is green on every job, the new `eastl` job
 included. The core is 7,792 of 10,000 lines.
 
-**Open question for the owner:** `TextOut` collides with Win32's `TextOut` macro (D62).
-A rename (for example `TextSink`) is mechanical, but it changes the public API.
+`TextOut`, which collided with Win32's `TextOut` macro (D62), is now `TextSink` (D63).
 
 **Next: step 4, an arena per load (D56).** It needs a design note first, on D56's open
 point: how a value that outlives its load (a Node in a variable, a snapshot) keeps its
@@ -111,4 +110,4 @@ Then the rest of M6 (`docs/m6-plan.md`, with the answers in D53): typed messages
 - **Review lens.** Read `.claude/skills/acton-review/` (the skill and its
   `references/moira-gaps.md` status table) before designing. The owner holds Moira to it.
 - **Decisions.** Record each deviation from the spec in `docs/decisions.md` (the next
-  free number is D63). Delete this plan when step 4 is done.
+  free number is D64). Delete this plan when step 4 is done.

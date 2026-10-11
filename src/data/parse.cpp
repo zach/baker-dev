@@ -234,7 +234,7 @@ private:
     Token peeked_;
 };
 
-bool read_disk_file(std::string_view path, TextOut out) {
+bool read_disk_file(std::string_view path, TextSink out) {
     std::FILE* f = std::fopen(Str(path).c_str(), "rb");
     if (!f) return false;
     char buf[65536];

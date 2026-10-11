@@ -1537,3 +1537,19 @@ step 4.*
   `TextOutA`/`TextOutW`. A Windows host that includes it before a Moira header calls
   functions that do not exist in the library, and fails to link. Step 2 introduced the
   name. Renaming it is a public API change, so it waits for the owner.
+
+## D63. No compatibility layers; `TextOut` becomes `TextSink`
+
+*Decided by the project owner 2026-10-11.*
+
+- **The rule.** Breaking changes are allowed and encouraged. Moira keeps no
+  backward-compatibility layers, deprecated aliases, or unused legacy code paths. An API
+  change updates every caller in the repository and deletes the old form. `CLAUDE.md`
+  states the rule for every session.
+  - Script-level `Status::Deprecated` stays: it lets script authors mark their own
+    functions, and is not a compatibility layer in Moira's API.
+  - A search of the code found no other compatibility layer to remove.
+- **`TextOut` is renamed `TextSink`** with no alias, which settles D62's open question.
+  `<windows.h>` defines `TextOut` as a macro, so a Windows host that included it before a
+  Moira header failed to link. `TextSink` matches `NoticeSink`. Functions that return
+  one keep their names (`str_out`, `string_out`).

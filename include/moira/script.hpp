@@ -603,7 +603,7 @@ struct CheckReport {
 
 // Writes the report: errors first, then the demand report, one line each.
 // <moira/std_interop.hpp> has to_string(report).
-void write(const CheckReport& report, TextOut out);
+void write(const CheckReport& report, TextSink out);
 
 // A call in progress, on the C++ stack: the frames of a Context form a list from the
 // innermost call out (Context::top_frame). Read-only, and valid only while the call runs.
@@ -726,7 +726,7 @@ private:
 // Writes the script calls in progress on this thread's current Context
 // (Context::current), one line each, innermost first; nothing if there are none. For an
 // assert handler or crash reporter to print beside the C++ stack. Allocates nothing.
-void script_backtrace(TextOut out);
+void script_backtrace(TextSink out);
 
 // Walks `tree` without evaluating anything and reports, located, every call to a
 // registered function with the wrong number of arguments for every overload, or a literal
@@ -741,7 +741,7 @@ void check(const Array& tree, const Context& ctx, CheckReport& report);
 // Writes the script reference (spec §5): every function with its overloads, tier, status,
 // and documentation, and every documented global, as Markdown. <moira/std_interop.hpp>
 // has reference(ctx) returning a string.
-void reference(const Context& ctx, TextOut out);
+void reference(const Context& ctx, TextSink out);
 [[nodiscard]] Expected<void> write_reference(const Context& ctx, std::string_view path);
 
 // --- Template definitions. ---

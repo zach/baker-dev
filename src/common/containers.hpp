@@ -232,8 +232,8 @@ struct Hash<Str> {
 // Decimal text of an integer, as std::to_string would give.
 [[nodiscard]] Str decimal(int64_t value);
 
-// A TextOut that appends to `s`.
-[[nodiscard]] inline TextOut str_out(Str& s) {
+// A TextSink that appends to `s`.
+[[nodiscard]] inline TextSink str_out(Str& s) {
     return {[](void* u, std::string_view t) { static_cast<Str*>(u)->append(t); }, &s};
 }
 

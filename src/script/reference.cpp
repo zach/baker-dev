@@ -218,7 +218,7 @@ CheckReport check(const Array& tree, const Context& ctx) {
     return report;
 }
 
-void write(const CheckReport& report, TextOut text) {
+void write(const CheckReport& report, TextSink text) {
     Str out;
     for (const Error& e : report.errors) out += Str(moira::to_string(e)) + "\n";
     for (const CheckReport::Demand& d : report.demand) {
@@ -330,7 +330,7 @@ Str reference_text(const Context& ctx) {
 }
 }  // namespace
 
-void reference(const Context& ctx, TextOut out) {
+void reference(const Context& ctx, TextSink out) {
     out(reference_text(ctx));
 }
 

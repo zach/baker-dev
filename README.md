@@ -25,7 +25,7 @@ below leave most of the checks out.
 
 Its public headers include no standard containers, strings, or `<functional>`: only
 language support and `string_view`/`span`/`optional`/`expected` (D55, D60). Text comes
-out through a `TextOut` sink. A host that uses the STL includes `<moira/std_interop.hpp>`
+out through a `TextSink`. A host that uses the STL includes `<moira/std_interop.hpp>`
 and `<moira/std_script.hpp>`, which add `std::string` forms (`to_string`, `to_dta`,
 `reference`), `Convert<>` for standard containers, and `std::hash<Symbol>`.
 

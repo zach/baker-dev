@@ -49,7 +49,7 @@ const char* text_of(std::string_view path) {
     return nullptr;
 }
 
-bool read_text(std::string_view path, moira::TextOut out) {
+bool read_text(std::string_view path, moira::TextSink out) {
     const char* t = text_of(path);
     if (!t) return false;
     out(t);

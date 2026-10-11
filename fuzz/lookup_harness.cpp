@@ -13,7 +13,7 @@ namespace {
 
 LoadSession make_session() {
     LoadSession s;
-    s.set_reader([](std::string_view, TextOut) { return false; });
+    s.set_reader([](std::string_view, TextSink) { return false; });
     s.limits.max_depth = 64;
     s.limits.max_nodes = 1u << 16;
     return s;

@@ -443,7 +443,7 @@ List<StackEntry> Context::backtrace() const {
     return List<StackEntry>(out);
 }
 
-void script_backtrace(TextOut out) {
+void script_backtrace(TextSink out) {
     if (const Context* ctx = Context::current())
         for (const CallFrame* c = ctx->top_frame(); c; c = c->parent) {
             out("in ");

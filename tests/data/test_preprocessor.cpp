@@ -18,7 +18,7 @@ struct Files {
     LoadSession session;
 
     Files() {
-        session.set_reader([this](std::string_view path, TextOut out) {
+        session.set_reader([this](std::string_view path, TextSink out) {
             reads.emplace_back(path);
             auto it = files.find(std::string(path));
             if (it == files.end()) return false;

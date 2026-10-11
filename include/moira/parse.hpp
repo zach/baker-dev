@@ -56,7 +56,7 @@ class LoadSession {
 public:
     // Writes the whole file at `path` to `out` and returns true, or returns false if it
     // cannot read it.
-    using Reader = Callback<bool(std::string_view path, TextOut out)>;
+    using Reader = Callback<bool(std::string_view path, TextSink out)>;
 
     LoadSession();
     LoadSession(const LoadSession& other);

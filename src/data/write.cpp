@@ -122,13 +122,13 @@ void put_pretty(Str& out, const Node& n, size_t indent, const WriteOptions& o) {
 
 }  // namespace
 
-void write(const Node& node, TextOut text) {
+void write(const Node& node, TextSink text) {
     Str out;
     put_flat(out, node, SIZE_MAX);
     text(out);
 }
 
-void write(const Array& array, TextOut text) {
+void write(const Array& array, TextSink text) {
     Str out = "(";
     bool first = true;
     for (const Node& c : array) {
@@ -154,7 +154,7 @@ Str dta_text(const Array& root, const WriteOptions& options) {
 }
 }  // namespace
 
-void write_dta(const Array& root, TextOut out, const WriteOptions& options) {
+void write_dta(const Array& root, TextSink out, const WriteOptions& options) {
     out(dta_text(root, options));
 }
 
