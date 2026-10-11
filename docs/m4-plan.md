@@ -2,8 +2,10 @@
 
 Draft for review before any M4 code. Spec §5 and §10 (M4 row) are the requirements; this
 document says how I intend to meet them, what it costs, and where the spec leaves a choice.
-The open questions at the end are the ones whose answers change the design. Once they are
-answered, the decisions go into `docs/decisions.md` (D44 onward) and this file is deleted.
+The open questions at the end are the ones whose answers change the design.
+
+**Answered 2026-10-11: the recommended option on Q1–Q4.** The decisions move into
+`docs/decisions.md` (D44 onward) when M4 starts, and this file is deleted then.
 
 ## Scope
 
