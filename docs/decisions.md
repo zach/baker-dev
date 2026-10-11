@@ -457,3 +457,161 @@ Parse throughput is unchanged at about 127 MB/s.
 - **Size.** `moira::data` is 2,718 counted lines, up 387 from M1. Lookup, paths, sorted
   mode, and their error messages are about 250 of those; the built-in converters most of
   the rest.
+
+## D31. How Config layers merge
+
+*Spec §4, D1, M3.*
+
+Within a tagged array, the *values* are every node after the tag that is not itself a
+tagged array (numbers, strings, commands, untagged arrays like `(1 2)`), and the
+*children* are the tagged arrays. Overwrite merging: if the incoming array has any values,
+they replace the existing values as a list; children merge by tag, recursively; missing
+children are appended. So `(width 3)` over `(width 2 (range 0 10))` gives
+`(width 3 (range 0 10))`, and `(clear_color 1 0)` over `(clear_color 0.1 0.1 0.12)` gives
+`(clear_color 1 0)`, not a positional mix. Duplicate tags match the first occurrence, as
+`find` does. Repeated tags therefore behave as a list only within one layer, so an override
+that must reach the third `phase` needs keyed phases (`phase_3`).
+
+`#merge` (fill-missing, D15) and layers (overwrite) are one routine, `detail::merge_into`,
+with a policy flag; `moira::merge()` exposes it. Merging never mutates: changed arrays are
+rebuilt, unchanged ones are shared, and a rebuilt array takes the file and line of whichever
+side supplied its values.
+
+## D32. Provenance comes from the layer trees
+
+*Spec §4 ("Provenance").*
+
+Arrays have no room to record a layer, and merging rebuilds them. Instead, `source(path)`
+asks the layers themselves, top down: the value comes from the topmost layer whose own tree
+has values at that path, which is exactly the overwrite rule above. That layer's array gives
+the file and line, even when the value was pulled in by `#include` or `#merge` within the
+layer. A path that names a pure container reports the topmost layer that has it. Live edits
+report layer `"live"`. Anonymous layers from `load()`/`merge()` are named by their path.
+
+## D33. Edit mode is a side table of spans
+
+*Spec §1 ("Edit-mode parsing and write-back").*
+
+`LoadSession::source_map` turns a parse into an edit-mode parse. The `SourceMap` keeps each
+file's text and, per array, the byte span of the array and of every node in it, plus the
+macro name when a node was spliced in from a macro. The spec's "trivia" (comments and
+whitespace) is not stored separately: it is the text between spans, and write-back
+splices tokens into the original text, so it is kept by construction. Nodes and arrays are
+unchanged; a gameplay parse records nothing and pays one null check per node. Spans are
+carried through `#include` and through `#merge`'s rebuilt arrays. The map holds a `Ref` to
+every array it describes, so an address cannot be reused while it is a key. The parse
+fuzzer now also checks that every span lies in the text and every literal scalar token
+re-reads as its node.
+
+## D34. Write-back
+
+*Spec §1, §4.*
+
+- **Live edits.** `cfg.set(path, value)` and `Tweak::set` put the value in a `"live"` layer
+  above all others, so it shows in `source()` and `unsaved()` until it is saved. Without a
+  Config, `Tweak::set` just changes the value.
+- **`write_back(path)`** finds the layer that supplies the value beneath the live layer
+  (D32), walks that layer's tree, and replaces only the value tokens. Each one must be a
+  literal in a file. Unchanged values keep their original text, so `3` is not rewritten as
+  `3.0`. If the number of values changes, the old ones must be adjacent. Floats are written
+  as their shortest decimal (`0.7f` as `0.7`).
+- **Refusals** are `ErrorCode::Refused` with the file and line of what would have had to
+  change: a value spliced from a macro (naming the macro), an array assembled by `#merge`
+  without spans, a layer with no file (an overlay), a layer not read in edit mode, or a file
+  whose text on disk differs from what was read ("reload before writing back"). It never
+  guesses.
+- **`write_back_to(path, layer)`** is the explicit "different layer" call. If the key is
+  missing in that layer's file it is added, as `(width 4)` inside the deepest existing
+  ancestor, or as a new top-level form at the end of the file.
+- After writing, the layer and those above it are re-read, and the live edit is dropped
+  only if the files now produce the same value. Writing below a layer that overrides the
+  value keeps the live edit, so the running value does not jump.
+- The library writes through a replaceable `Writer` (default: `fopen`), as it reads through
+  the session's `Reader`.
+
+## D35. Reload compares content, and re-reads from the lowest change up
+
+*Spec §4 ("Hot reload").*
+
+Each file layer records every file its parse read *or looked for* (include candidates
+included), with a hash of the content. `reload()` re-reads them through the session's
+reader; any difference, appearance, or disappearance marks the layer changed. No clocks or
+file-system metadata are involved, so it works the same over a socket-backed reader. The
+lowest changed layer and every layer above it are re-parsed, because layers see the macros
+of the layers below. That is per-layer, not strictly per-file, but correct. A reload is all
+or nothing: a parse error returns a located error and the previous trees stay. `remove_layer`
+re-reads the layers above for the same reason, so a removed layer's macros leave no trace.
+
+## D36. Reload callbacks are per group
+
+*Spec §4 ("Migrate or punt").*
+
+`on_reload(group, rebuild, migrate = {})` fires only when the subtree at `group` changed
+(compared structurally), which makes the spec's convention ("a group is the unit that gets
+refreshed and notified together") operational. Without `migrate` the outcome is a punt and
+`rebuild` runs: no code beyond the rebuild itself. A `migrate` returning `Reload::Migrated`
+skips the rebuild. Layer pushes, pops and removals, reloads, and live edits all fire the same
+callbacks, after tweaks have been rebound and their `on_change` callbacks run.
+
+## D37. Tweak details
+
+*Spec §4 (`Tweak<T>`).*
+
+- The registry is an intrusive doubly linked list behind a spinlock (`std::atomic_flag`),
+  and the global one is `constinit`, so registration works from any static initializer,
+  in any order, without allocating (tested with the counting `operator new`). The path is
+  parsed at the first bind, not at registration.
+- A `Config` attaches to `ConfigOptions::tweaks` (the global registry by default) and
+  rebinds every tweak on each change; a tweak registered later binds at once.
+- `T` is stored in a `std::atomic<T>` only when that is always lock-free (`float`, `int`,
+  small PODs). Anything else (`std::string`, `std::array<float, 3>`) is read with `get()`,
+  valid until the next reload, under the single-threaded-mutation rule. A codegen test
+  compiles a `Tweak<float>` read at `-O2` with GCC and Clang and checks the assembly: one
+  load and no call, plus a GOT load under PIC.
+- Declare tweaks at namespace scope. A function-local static adds a guard check per read.
+- A value that does not convert keeps the default and is reported through
+  `set_warning_handler` with a located error. An absent path is never reported: unbound is
+  normal.
+- Metadata from data wins (`range`, `step`, `desc`, `kind`, `group`), `note` is data-only,
+  `kind` is inferred as `color` for 3 or 4 numbers ranged 0..1, and `group` defaults to the
+  path without its last segment.
+- Every `TweakMeta` member has its own initializer: clang 18's
+  `-Wmissing-field-initializers` otherwise warns on the spec's own one-liner
+  `{.range = {0, 10}, .step = 1, .desc = "Box width"}`.
+
+## D38. freeze() marks the end of the initial load
+
+*Spec §6 (`MOIRA_SHIPPING`: "reload and layer mutation no-ops after initial load").*
+
+"After initial load" needs a moment to happen at, so `Config::freeze()` is it, in every
+build: afterwards reload, layer changes, and live edits are refused. It is useful outside
+shipping too, for anything that wants the config immutable. Under `MOIRA_SHIPPING`,
+`reload()` is always inert, live edits and write-back are refused, and `dev_only` tweaks
+ignore the data. `ConfigOptions::live_layers` is the spec's "explicitly enabled layer path":
+it lets layers change after `freeze()`, for live-ops overlays in a shipped game.
+
+## D39. M3 results
+
+*Recorded 2026-10-11.*
+
+- **Done-when criteria**, each a test: `examples/one_line_tweak` (built and run by CTest);
+  the codegen check of a `Tweak<float>` read; a reload that rewrites a file on disk and
+  observes the new value (an included file too, and a broken edit that changes nothing);
+  pushing then removing a layer giving a structurally equal tree and every tweak's value
+  back; `source()` naming layer, file, and line for values from several layers, a merged
+  file, an overlay, and a live edit; a shipping-only test (CI's shipping job) that reload is
+  inert and a `dev_only` tweak keeps its default; write-back producing a one-line diff with
+  the note and comments intact, and refusing a macro-sourced value with its file and line.
+- **Property test.** Every value in the corpus's layered config (`config_app.dta`, which
+  `#include`s `macros.dta` and `#merge`s `config_default.dta`) is set live and written back:
+  10 are written as exactly one changed line in the right file and read back; 4 are refused,
+  each a macro (`TRUE`, `kDefaultVolume`, `kMaxPlayers`) named with file and line.
+- **Fuzzing.** The parse fuzzer, now also checking edit-mode spans, ran 1.5M execs clean
+  under ASan+UBSan.
+- **Size: over budget.** `moira::data` is 4,001 counted lines, up 1,283 in M3, which crosses
+  the spec's 4,000 (soft, D2). The largest parts are `config.cpp` 571 (write-back about
+  200; layers, reload, provenance, live edits the rest), `tweak.hpp`/`tweak.cpp` 346,
+  `config.hpp` 125, and `merge.cpp` 82. Flagged here and to the project owner, as §0 asks.
+  Six milestones remain. Options, not yet chosen: accept a larger budget, move write-back
+  and edit mode into an optional `moira::edit` library (about 300 lines), or trim
+  elsewhere.
