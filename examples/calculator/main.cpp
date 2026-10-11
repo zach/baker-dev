@@ -1,0 +1,57 @@
+// A calculator: evaluates each argument, or each line of standard input, as a Moira
+// expression and prints the result.
+//
+//   moira_example_calculator [--functions functions.dta] "{+ 1 {* 2 3}}" "{square 7}"
+//
+// The arithmetic is the built-in vocabulary; `hypot` below is a native function bound in
+// one line; `square`, `average` and `clamp` are script functions from functions.dta. $ans
+// holds the previous result.
+#include <moira/parse.hpp>
+#include <moira/script.hpp>
+#include <moira/write.hpp>
+
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <iostream>
+#include <string>
+
+namespace {
+
+bool show(moira::Context& ctx, const std::string& line) {
+    auto r = ctx.try_eval(line, "<input>");
+    if (!r) {
+        std::printf("%s\n", moira::to_string(r.error()).c_str());
+        return false;
+    }
+    std::printf("%s\n", moira::to_string(*r).c_str());
+    ctx.var("ans") = *r;
+    return true;
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+    moira::Context ctx;
+    if (auto f = ctx.try_func("hypot", [](double a, double b) { return std::hypot(a, b); }))
+        f->doc("Length of the hypotenuse.");
+    ctx.global("ans", 0, "The previous result.");
+
+    int first = 1;
+    if (argc > 2 && std::strcmp(argv[1], "--functions") == 0) {
+        auto tree = moira::try_read_file(argv[2]);
+        if (!tree || !ctx.try_run((*tree)->nodes())) {
+            std::printf("cannot load %s\n", argv[2]);
+            return 1;
+        }
+        first = 3;
+    }
+    bool ok = true;
+    if (first < argc) {
+        for (int i = first; i < argc; ++i) ok = show(ctx, argv[i]) && ok;
+    } else {
+        for (std::string line; std::getline(std::cin, line);)
+            if (!line.empty()) ok = show(ctx, line) && ok;
+    }
+    return ok ? 0 : 1;
+}

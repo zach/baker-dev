@@ -31,8 +31,15 @@ add_test(NAME moira_data_tests COMMAND moira_data_tests)
 
 if(MOIRA_BUILD_SCRIPT)
   add_executable(moira_script_tests
-    script/test_script_info.cpp)
+    script/test_binding.cpp
+    script/test_check.cpp
+    script/test_eval.cpp
+    support/alloc_counter.cpp)
   target_link_libraries(moira_script_tests PRIVATE moira::script moira_doctest_main)
+  target_include_directories(moira_script_tests PRIVATE support)
+  target_compile_definitions(moira_script_tests PRIVATE
+    MOIRA_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+    MOIRA_CORPUS_DIR="${PROJECT_SOURCE_DIR}/tests/corpus")
   add_test(NAME moira_script_tests COMMAND moira_script_tests)
 endif()
 

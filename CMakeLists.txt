@@ -108,7 +108,9 @@ target_include_directories(moira_data SYSTEM PRIVATE ${PROJECT_SOURCE_DIR}/third
 # --- moira::script: evaluation, functions, objects, messages, tasks.
 if(MOIRA_BUILD_SCRIPT)
   add_library(moira_script
-    src/script/script_info.cpp)
+    src/script/builtins.cpp
+    src/script/context.cpp
+    src/script/reference.cpp)
   add_library(moira::script ALIAS moira_script)
   moira_configure_library(moira_script)
   target_link_libraries(moira_script PUBLIC moira::data)
@@ -150,11 +152,28 @@ if(MOIRA_BUILD_EXAMPLES)
   endif()
 endif()
 
+if(MOIRA_BUILD_EXAMPLES AND MOIRA_BUILD_SCRIPT)
+  add_executable(moira_example_calculator examples/calculator/main.cpp)
+  target_link_libraries(moira_example_calculator PRIVATE moira::script)
+  if(MOIRA_BUILD_TESTS)
+    add_test(NAME moira_example_calculator
+      COMMAND moira_example_calculator --functions ${PROJECT_SOURCE_DIR}/examples/calculator/functions.dta
+        "{+ 1 {* 2 3}}" "{square 7}" "{hypot 3 4}" "{average $ans 1}" "{clamp 12 0 10}")
+    set_tests_properties(moira_example_calculator PROPERTIES
+      PASS_REGULAR_EXPRESSION "^7\r?\n49\r?\n5\.0\r?\n3\.0\r?\n10\r?\n$")
+  endif()
+endif()
+
 if(MOIRA_BUILD_BENCH)
   add_executable(moira_bench_parse bench/bench_parse.cpp)
   target_link_libraries(moira_bench_parse PRIVATE moira::data)
   add_executable(moira_bench_lookup bench/bench_lookup.cpp)
   target_link_libraries(moira_bench_lookup PRIVATE moira::data)
+  if(MOIRA_BUILD_SCRIPT)
+    add_executable(moira_bench_call bench/bench_call.cpp tests/support/alloc_counter.cpp)
+    target_include_directories(moira_bench_call PRIVATE tests/support)
+    target_link_libraries(moira_bench_call PRIVATE moira::script)
+  endif()
 endif()
 
 if(MOIRA_BUILD_FUZZERS)

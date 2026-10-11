@@ -1,0 +1,312 @@
+// Evaluation, variables, and the built-in vocabulary (spec §5, M4).
+#include <doctest.h>
+#include <moira/parse.hpp>
+#include <moira/script.hpp>
+
+#include "alloc_counter.hpp"
+
+#include <fstream>
+#include <sstream>
+#include <string>
+
+using namespace moira;
+
+#if MOIRA_EXCEPTIONS
+namespace {
+
+Node eval_ok(Context& ctx, std::string_view text) {
+    auto r = ctx.try_eval(text, "test.dta");
+    if (!r) FAIL(to_string(r.error()));
+    return r ? *r : Node();
+}
+
+Error eval_error(Context& ctx, std::string_view text) {
+    auto r = ctx.try_eval(text, "test.dta");
+    REQUIRE_FALSE(r);
+    return r.error();
+}
+
+std::string slurp(const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    std::stringstream s;
+    s << in.rdbuf();
+    return s.str();
+}
+
+}  // namespace
+
+TEST_CASE("literals evaluate to themselves; commands run their function") {
+    Context ctx;
+    CHECK(eval_ok(ctx, "7").as_int() == 7);
+    CHECK(eval_ok(ctx, "{+ 1 2}").as_int() == 3);
+    CHECK(eval_ok(ctx, "{+ 1 {* 2 3}}").as_int() == 7);
+    CHECK(eval_ok(ctx, "{+ 1 2.5}").as_float() == 3.5);  // Int read as Float, last
+    CHECK(eval_ok(ctx, "{+ 1.5 2.5}").as_float() == 4.0);
+    CHECK(eval_ok(ctx, "{/ 1 2}").as_float() == 0.5);
+    CHECK(eval_ok(ctx, "{- 5}").as_int() == -5);
+    CHECK(eval_ok(ctx, "{% -7 3}").as_int() == -1);
+    CHECK(eval_ok(ctx, "{+ 9223372036854775807 1}").as_int() == INT64_MIN);  // wraps
+    CHECK(eval_ok(ctx, "{== 1 1.0}").as_int() == 1);
+    CHECK(eval_ok(ctx, "{== foo foo}").as_int() == 1);
+    CHECK(eval_ok(ctx, "{!= \"a\" \"b\"}").as_int() == 1);
+    CHECK(eval_ok(ctx, "{< 1 2.5}").as_int() == 1);
+    CHECK(eval_ok(ctx, "{not 0}").as_int() == 1);
+    CHECK(eval_ok(ctx, "{+ 1 2} {* 3 4}").as_int() == 12);  // the last value
+    CHECK(eval_ok(ctx, "").as_int() == 0);
+}
+
+TEST_CASE("errors name the function and the call site") {
+    Context ctx;
+    Error e = eval_error(ctx, "\n{nope 1}");
+    CHECK(e.message == "'nope' is not a function");
+    CHECK(e.file == Symbol("test.dta"));
+    CHECK(e.line == 2);
+
+    e = eval_error(ctx, "{not 1 2}");
+    CHECK(e.message == "'not' takes 1 argument, given 2");
+    CHECK(e.line == 1);
+
+    e = eval_error(ctx, "\n\n{+ 1 two}");
+    CHECK(e.message == "no overload of '+' takes (int symbol); it has (int int) (float float)");
+    CHECK(e.line == 3);
+
+    e = eval_error(ctx, "{not two}");
+    CHECK(e.message == "argument 1 of 'not' is symbol, not bool");
+
+    e = eval_error(ctx, "{% 1 0}");
+    CHECK(e.message == "'%' by zero");
+    CHECK(e.line == 1);
+
+    CHECK(eval_error(ctx, "{}").message == "empty command {}");
+    CHECK(eval_error(ctx, "$nobody").message == "$nobody is not set");
+    CHECK(eval_error(ctx, "{+ $nobody 1}").line == 1);
+}
+
+TEST_CASE("if and set are ordinary functions, and the evaluator knows no function by name") {
+    Context ctx;
+    CHECK(ctx.has_func("if"));
+    CHECK(ctx.has_func("set"));
+    // The evaluator (context.cpp) names no function: everything goes through the table.
+    const std::string src = slurp(MOIRA_SOURCE_DIR "/src/script/context.cpp");
+    REQUIRE_FALSE(src.empty());
+    for (const char* name : {"\"if\"", "\"set\"", "\"do\"", "\"and\"", "\"or\"", "\"func\""})
+        CHECK_MESSAGE(src.find(name) == std::string::npos, name);
+    // Registering either again is an ordinary registration, refused as for any function
+    // that takes unevaluated arguments.
+    const auto r = ctx.try_func("if", [](int64_t a, int64_t b) { return a * b; });
+    REQUIRE_FALSE(r);
+    CHECK(r.error().message == "'if' takes unevaluated arguments, so it cannot be overloaded");
+}
+
+TEST_CASE("the untaken branch of an if is never evaluated") {
+    Context ctx;
+    int taken = 0, untaken = 0;
+    REQUIRE(ctx.try_func("taken", [&] { return ++taken; }));
+    REQUIRE(ctx.try_func("untaken", [&] { return ++untaken; }));
+    CHECK(eval_ok(ctx, "{if 1 {taken} {untaken}}").as_int() == 1);
+    CHECK(eval_ok(ctx, "{if 0 {untaken} {taken}}").as_int() == 2);
+    CHECK(eval_ok(ctx, "{if 0 {untaken}}").as_int() == 0);
+    CHECK(eval_ok(ctx, "{and 1 0 {untaken}}").as_int() == 0);
+    CHECK(eval_ok(ctx, "{or 0 1 {untaken}}").as_int() == 1);
+    CHECK(taken == 2);
+    CHECK(untaken == 0);
+}
+
+TEST_CASE("variables: set, read from C++, and dynamic scope through do") {
+    Context ctx;
+    ctx.var("game_time") = 500;
+    CHECK(eval_ok(ctx, "{+ $game_time 1}").as_int() == 501);
+    CHECK(eval_ok(ctx, "{set $game_time 7}").as_int() == 7);
+    CHECK(ctx.var("game_time")->as_int() == 7);
+    CHECK(ctx.var("game_time").is_set());
+    CHECK_FALSE(ctx.var("never").is_set());
+    CHECK(ctx.var("never").value().as_int() == 0);
+
+    // do binds for its body and restores after; ($b 2) binds to a value.
+    ctx.var("a") = 1;
+    CHECK(eval_ok(ctx, "{do ($a ($b 2)) {set $a 10} {+ $a $b}}").as_int() == 12);
+    CHECK(ctx.var("a")->as_int() == 1);
+    CHECK_FALSE(ctx.var("b").is_set());
+
+    // Restored on error too.
+    CHECK(eval_error(ctx, "{do (($a 5)) {nope}}").message == "'nope' is not a function");
+    CHECK(ctx.var("a")->as_int() == 1);
+
+    // Dynamic, not lexical: a function sees its caller's bindings.
+    eval_ok(ctx, "{func peek () $a}");
+    CHECK(eval_ok(ctx, "{do (($a 7)) {peek}}").as_int() == 7);
+    CHECK(eval_ok(ctx, "{peek}").as_int() == 1);
+
+    // set needs a variable.
+    CHECK(eval_error(ctx, "{set a 1}").message ==
+          "argument 1 of 'set' must be a $variable, not symbol");
+}
+
+TEST_CASE("script functions: arguments evaluate in the caller's scope, then bind") {
+    Context ctx;
+    eval_ok(ctx, "{func add1 ($a) {+ $a 1}}");
+    CHECK(eval_ok(ctx, "{add1 41}").as_int() == 42);
+    ctx.var("a") = 10;
+    CHECK(eval_ok(ctx, "{add1 {+ $a 1}}").as_int() == 12);  // $a is still the caller's 10
+    CHECK(ctx.var("a")->as_int() == 10);
+    CHECK(eval_error(ctx, "{add1}").message == "'add1' takes 1 argument, given 0");
+    eval_ok(ctx, "{func fact ($n) {if {< $n 2} 1 {* $n {fact {- $n 1}}}}}");
+    CHECK(eval_ok(ctx, "{fact 10}").as_int() == 3628800);
+    eval_ok(ctx, "{func forever () {forever}}");
+    const Error e = eval_error(ctx, "{forever}");
+    CHECK(e.code == ErrorCode::Limit);
+}
+
+TEST_CASE("a script stub replaced by a native function runs unchanged call sites") {
+    Context ctx;
+    std::vector<std::string> notices;
+    ctx.set_notice_sink(
+        [](void* user, const Error& e) {
+            static_cast<std::vector<std::string>*>(user)->push_back(e.message);
+        },
+        &notices);
+    auto tree = read_string(
+        "{func boss.find_cover ($p) (status stub) (doc \"placeholder\") {+ $p 1}}\n"
+        "(encounter (cover {boss.find_cover 10}))\n",
+        "boss.dta");
+    REQUIRE(ctx.try_run(tree->nodes()));
+    const Array& encounter = tree->find("encounter");
+    CHECK(encounter.find_int("cover") == 11);  // the stub
+    CHECK(reference(ctx).find("*Script, stub.* placeholder") != std::string::npos);
+
+    REQUIRE(ctx.try_func("boss.find_cover", [](int64_t p) { return p * 100; }));
+    CHECK(encounter.find_int("cover") == 1000);  // same call site, now native
+    REQUIRE(notices.size() == 1);
+    CHECK(notices[0] == "native 'boss.find_cover' replaces the script definition");
+    CHECK(reference(ctx).find(
+              "### `boss.find_cover`\n\n- `{boss.find_cover int}` → int\n\n*Native.*") !=
+          std::string::npos);
+
+    // An arity mismatch is noted.
+    eval_ok(ctx, "{func two ($a $b) $a}");
+    REQUIRE(ctx.try_func("two", [](int64_t a) { return a; }));
+    CHECK(notices.back() ==
+          "native 'two' replaces the script definition; the script took 2 arguments, the native "
+          "takes 1 argument");
+}
+
+TEST_CASE("a script func cannot silently replace a native one; override can, and logs") {
+    Context ctx;
+    std::vector<std::string> notices;
+    ctx.set_notice_sink(
+        [](void* user, const Error& e) {
+            static_cast<std::vector<std::string>*>(user)->push_back(e.message);
+        },
+        &notices);
+    REQUIRE(ctx.try_func("greet", [] { return 1; }));
+    CHECK(eval_error(ctx, "{func greet () 2}").message ==
+          "'greet' is a native function; write {override greet ...} to replace it");
+    CHECK(eval_ok(ctx, "{greet}").as_int() == 1);
+    eval_ok(ctx, "{override greet () 2}");
+    CHECK(eval_ok(ctx, "{greet}").as_int() == 2);
+    REQUIRE(notices.size() == 1);
+    CHECK(notices[0] == "script {override} replaces native 'greet'");
+}
+
+TEST_CASE("typed lookups in moira::data evaluate commands and variables") {
+    Context ctx;
+    ctx.var("difficulty") = 3;
+    auto tree = read_string(
+        "(enemy (hp {* 100 $difficulty}) (speed $difficulty) (name {if 1 grunt boss}) "
+        "(sizes {+ 1 1} 3) (raw {+ 1 2}))",
+        "enemy.dta");
+    const Array& enemy = tree->find("enemy");
+    CHECK(enemy.find_int("hp") == 300);
+    CHECK(enemy.find_float("speed") == 3.0);
+    CHECK(enemy.find_sym("name") == Symbol("grunt"));
+    CHECK(enemy.find<std::vector<int>>("sizes") == std::vector<int>{2, 3});
+    CHECK(tree->get<int>("enemy.hp") == 300);
+    CHECK(tree->try_get<int>("enemy.missing", 5) == 5);
+    // Reading as a Node stays raw.
+    CHECK(enemy.find<Node>("raw").type() == Type::Command);
+    // A value that evaluates to the wrong type is reported as what it evaluated to.
+    const auto bad = enemy.try_find<int>("name");
+    REQUIRE_FALSE(bad);
+    CHECK(bad.error().message == "'name' is symbol, not int");
+    CHECK(bad.error().line == 1);
+}
+
+TEST_CASE("lookups use the thread's current Context") {
+    auto tree = read_string("(x $level)", "x.dta");
+    Context first;
+    first.var("level") = 1;
+    Context second;
+    second.var("level") = 2;
+    CHECK(Context::current() == &first);  // the first one created on the thread
+    CHECK(tree->find_int("x") == 1);
+    {
+        Context::Scope scope(second);
+        CHECK(tree->find_int("x") == 2);
+    }
+    CHECK(tree->find_int("x") == 1);
+    // While a Context evaluates, it is current.
+    REQUIRE(second.try_func("read_x", [&] { return tree->find_int("x"); }));
+    CHECK(second.eval("{read_x}").as_int() == 2);
+}
+
+TEST_CASE("a lookup with no current Context is a clean error") {
+    auto tree = read_string("(x $level)", "x.dta");
+    std::optional<Context> ctx(std::in_place);
+    ctx.reset();  // installs the evaluator, then leaves no Context current
+    REQUIRE(Context::current() == nullptr);
+    const auto r = tree->try_find<int>("x");
+    REQUIRE_FALSE(r);
+    CHECK(r.error().message == "a var value needs a current moira::Context on this thread");
+}
+
+TEST_CASE("an exception thrown by a function comes back from try_eval as an error") {
+    Context ctx;
+    auto tree = read_string("(cfg (width 2))", "cfg.dta");
+    REQUIRE(ctx.try_func("height", [&] { return tree->find("cfg").find_int("height"); }));
+    const auto r = ctx.try_eval("{+ 1 {height}}");
+    REQUIRE_FALSE(r);
+    CHECK(r.error().message == "'height' not found");
+    CHECK(eval_ok(ctx, "{+ 1 1}").as_int() == 2);  // and the Context still works
+}
+
+TEST_CASE("calling a native function allocates nothing") {
+    if (!test::counting_allocations()) return;
+    Context ctx;
+    REQUIRE(ctx.try_func("add", [](int64_t a, int64_t b) { return a + b; }));
+    ctx.var("x") = 4;
+    auto tree =
+        read_string("{add 1 2} {+ 1.5 $x} {if {< $x 5} {add $x 1} 0} {do (($y 1)) {set $y 2}}");
+    for (int i = 0; i < 3; ++i) REQUIRE(ctx.try_run(tree->nodes()));  // warm the stacks
+    test::AllocationScope scope;
+    int64_t sum = 0;
+    for (int i = 0; i < 100; ++i) sum += ctx.eval((*tree)[0]).as_int();
+    for (int i = 0; i < 100; ++i) REQUIRE(ctx.try_run(tree->nodes()));
+    CHECK(scope.count() == 0);
+    CHECK(sum == 300);
+}
+
+#else
+
+TEST_CASE("evaluation without exceptions") {
+    Context ctx;
+    auto r = ctx.try_eval("{+ 1 {* 2 3}}");
+    REQUIRE(r);
+    CHECK(r->try_int().value_or(0) == 7);
+    REQUIRE(ctx.try_eval("{func add1 ($a) {+ $a 1}}"));
+    auto tree = try_read_string("(x {add1 $y})", "x.dta");
+    REQUIRE(tree);
+    ctx.var("y") = 41;
+    CHECK((*tree)->try_find<int>("x").value_or(0) == 42);
+    auto e = ctx.try_eval("{not 1 2}");
+    REQUIRE_FALSE(e);
+    CHECK(e.error().message == "'not' takes 1 argument, given 2");
+    if (test::counting_allocations()) {
+        auto cmd = try_read_string("{+ 1 $y}");
+        REQUIRE(cmd);
+        REQUIRE(ctx.try_eval((**cmd)[0]));
+        test::AllocationScope scope;
+        for (int i = 0; i < 100; ++i) REQUIRE(ctx.try_eval((**cmd)[0]));
+        CHECK(scope.count() == 0);
+    }
+}
+#endif
