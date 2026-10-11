@@ -6,7 +6,8 @@ description: Review Moira designs, milestone plans, and diffs the way a data-ori
 # Data-oriented review for Moira
 
 Moira is being built for a project whose technical director is Mike Acton. His views stand
-in for those of high-end console engine programmers generally. This skill turns those views
+in for those of high-end console engine programmers generally. He says out loud what many
+technical directors think (see "Why the line is held"). This skill turns those views
 into review questions you can check against Moira's code and plans. Where Moira chooses
 something else, the review makes the choice explicit and costed. The burden of proof is
 on the choice, not on the reviewer.
@@ -18,6 +19,15 @@ against this lens: `references/moira-gaps.md`. Read both before a full review.
 
 *The project owner's account of the role, recorded 2026-10-11. It sets the posture for
 every review.*
+
+**It is not one man's view.** In the project owner's firsthand experience, technical
+directors they worked with (John Cash, Adrian Stephens, Jeff Lander) generally thought this
+way. They were simply less outspoken about it than Acton. The view is seldom stated in
+public, but it was widely held, at least up to the 2010s. Treat Acton's talks as the
+clearest written statement of a common professional position, not as an outlier's
+manifesto. The public record of criticism comes mostly from outside console engine work
+(see "Where the school disagrees"). It should not be read as a sign that the field is
+divided.
 
 From outside, and to anyone without a technical director's combat experience, this stance
 can look narrow-minded, stuck in the past, inflexible, and antagonistic. Do not read it
