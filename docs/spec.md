@@ -38,8 +38,9 @@ Everything else in the design serves that, plus the scripting layer that grows o
 
 ### Size budget
 
-Core library: **≤ 4,000 lines** of non-test, non-comment C++. If a milestone pushes past
-this, stop and flag it rather than absorbing the cost silently. Smallness is a feature
+Core library: **≤ 8,000 lines** of non-test, non-comment C++ (raised from 4,000 after M3;
+`docs/decisions.md` D40). If a milestone pushes past this, stop and flag it rather than
+absorbing the cost silently. Smallness is a feature
 being paid for; it is not a nice-to-have.
 
 For calibration: the original was ~70 KB of compiled code, of which ~40 KB was built-in
@@ -395,20 +396,70 @@ makes hot reload useful on day one rather than after every subsystem has been ta
 migrate. Provide `Config::on_reload` returning `Reload::Migrated` or `Reload::Punt`, and a
 `rebuild` hook the punt path calls.
 
+### Personal and experiment layers
+
+The layer stack already supports both; they need a convention and three calls.
+
+- **Personal layers.** Each developer gets a layer `local.<user>`, read from
+  `local.<user>.dta`, which is never checked in. The host supplies the user name
+  (`ConfigOptions::user`; the library reads no environment) and pushes it with one call,
+  `cfg.push_local_layer(dir)`, after the shared layers. A missing file is an empty layer,
+  not an error, and the next `reload()` picks the file up once it exists. The repository
+  template and `docs/cookbook.md` ignore `local.*.dta`. Write-back of a value the
+  personal layer supplies goes to that file, which is what personal tuning wants.
+- **Experiment layers.** `cfg.toggle_layer(name)` (and `set_layer_enabled(name, bool)`)
+  switches a named layer off and on for A/B comparison during polish. A disabled layer
+  keeps its place in the stack and its trees, and is skipped by merging, provenance, and
+  write-back. Toggling re-merges and fires the normal reload callbacks without re-reading
+  any file, so flipping back and forth is instant and exact.
+- **Comparing layers.** `cfg.diff(a, b)` lists every value the two layers' own trees
+  disagree on: the path, each side's value (or its absence), and each side's provenance.
+  It works whether or not the layers are enabled. Promoting an experiment is the existing
+  explicit write-back to a chosen file: `write_back_to(path, layer)` for each entry worth
+  keeping.
+
+Toggling is a layer change, so it follows `freeze()` and `MOIRA_SHIPPING` like any other.
+
+### Snapshot and restore
+
+`cfg.snapshot()` captures the layer stack (names, files, enabled flags, and each layer's
+tree, shared rather than copied), the live edits, and every tweak's value.
+`cfg.restore(s)` reinstates all of it exactly, without re-reading files, then re-merges,
+rebinds, and fires the normal reload callbacks. A tweak not bound to the config gets its
+recorded value back directly. A file layer restored from a snapshot is re-read by the next
+`reload()` only if its files changed after the snapshot was taken.
+
+A snapshot serializes to and from DTA (`to_array()`, `Config::restore_from(const Array&)`)
+with each file layer's tree embedded, so it reproduces the same values in a fresh process
+even after the files on disk have moved on. Paired with a host's input recording, this
+gives polish and QA a reproducible starting state. Restore follows `freeze()`; under
+`MOIRA_SHIPPING` a snapshot holding live edits is refused.
+
 ### Loop telemetry and the edit journal
 
 Moira sits under every harness in the tree, so it is the cheapest place to measure the
-loop. Both features below are observational, allocation-bounded (fixed-size ring buffers),
-and compiled out under `MOIRA_SHIPPING`. The library still owns no I/O, clock, or threads:
+loop. Everything below is observational, allocation-bounded (fixed-size ring buffers), and
+compiled out under `MOIRA_SHIPPING`. The library still owns no I/O, clock, or threads:
 the host supplies a time source (`cfg.set_clock(fn)`) and reads results through calls or
 callbacks. See `reading-a-studio.md` §2 and §9.
 
-- **Loop telemetry.** Per reload, `Config` records time from the host's file-change
-  notification to reload complete, per-file parse and merge time, and each reload
-  callback's outcome (`Migrated`, `Punt`, or error). A host may call `cfg.mark_visible()`
-  when the next frame presents, closing the edit-to-feel measurement. `cfg.loop_stats()`
-  returns rolling medians and worst cases per file and per layer. This is DORA's change
-  lead time and change-failure rate, measured for content where it actually happens.
+- **Reload telemetry (stage stamps).** Every change to a `Config` already passes through
+  five stages: *detect* (compare files), *parse* (re-read changed layers), *merge*, *bind*
+  (rebind tweaks), and *notify* (callbacks). In non-shipping builds each change records a
+  timestamp at the start and end of each stage, the parse time of each layer re-read,
+  each callback's outcome (`Migrated`, `Punt`, or error), and what triggered it (reload,
+  layer change, toggle, restore, live edit). `cfg.reload_stats()` returns the most recent
+  record; a short ring keeps the last few. The host adds the two ends the library cannot
+  see: `cfg.note_saved(t)`, the tool-side save time (or the file-change notification), and
+  `cfg.mark_visible()` when the next frame presents. That gives the loop dashboard
+  edit-to-see time with the substrate's share broken out: tool (save to detect), Moira
+  (detect to notify end, per stage), and host (notify end to visible). Under
+  `MOIRA_SHIPPING` the stamps and the clock calls compile out and `reload_stats()` returns
+  an empty record, so host code compiles unchanged.
+- **Loop statistics.** `cfg.loop_stats()` aggregates those records into rolling medians and
+  worst cases per file and per layer, with change-failure counts (reloads that failed to
+  parse, callbacks that errored). This is DORA's change lead time and change-failure rate,
+  measured for content where it actually happens.
 - **Edit journal.** Every live change to a tweak or config value in a session — from a
   panel, the console, or `eval` — is appended to `cfg.journal()` with old value, new value,
   provenance, and whether it was later written back. `cfg.unsaved()` lists live changes
@@ -868,14 +919,15 @@ recorded. Do not start the next until the previous is green.
 | **M1** | `Node`, `Symbol`, `Ref`, `Array`, text parser, preprocessor (include/merge/ifdef/define/macros), pretty-printer, error type with file:line | Layout `static_assert`s hold; round-trip test passes; **real-corpus parse at 100%**; fuzzer seeded and clean for 1M execs |
 | **M2** | Lookup API: `find*`/`try_find*`, defaults, sorted mode, path access, `Convert<T>` | Lookup benchmarks meet §7; error messages include path and source location |
 | **M3** | `Config`, merge, named layers, provenance, edit-mode parse and write-back, `Tweak<T>`, registry, hot reload, change callbacks, `MOIRA_SHIPPING` | One-line constant replacement demo in `examples/`; tweak read compiles to a single load; reload test mutates a file on disk and observes the new value; pushing then removing a layer restores every value exactly; `source()` names the correct layer, file, and line; under `MOIRA_SHIPPING`, reload is inert and `dev_only` tweaks return defaults; tweaking a value and calling `write_back` produces a one-line diff in the source file with comments and notes preserved, and refuses cleanly for a macro-sourced value |
+| **M3b** | Reload telemetry (stage stamps, `set_clock`, `note_saved`, `mark_visible`, `reload_stats()`); personal layers (`ConfigOptions::user`, `push_local_layer`); experiment layers (`toggle_layer`, `set_layer_enabled`); `diff(a, b)`; `snapshot()` / `restore()` and their DTA form | With an injected clock, a reload of a changed file reports all five stages in order with per-layer parse times and the trigger; edit-to-see splits into tool, Moira, and host shares once `note_saved` and `mark_visible` are called; under `MOIRA_SHIPPING` the clock is never called and `reload_stats()` is empty; a missing `local.<user>.dta` is an empty layer that a later `reload()` picks up when the file appears; toggling an experiment layer off restores every value exactly, toggling it on reinstates it, and each toggle fires the reload callbacks without reading a file; `diff` lists exactly the disagreeing values with both sides' provenance; snapshot, then change layers, live edits, and tweaks, then restore gives a structurally equal tree and equal tweak values and fires the callbacks; a serialized snapshot restored in a fresh `Config`, after the files changed on disk, reproduces the snapshot's values |
 | **M4** | `Context`, variables, dynamic scoping, lazy command evaluation, native `func` binding with signature deduction, `Raw<T>` params, overload sets, generated script reference | Calculator example; binding benchmark meets §7 with zero allocations; **`if` and `set` are ordinary registered functions with no evaluator special-casing**; a test asserts the untaken branch of an `if` is never evaluated; `script-reference.md` generates and is checked for drift; `moira::check` catches a wrong-arity call to a registered function at load, without evaluating anything; a script stub replaced by a native registration of the same name runs unchanged call sites; the demand report lists an unresolved head with all its call sites |
 | **M5** | `Object<T>`, `Binder`, method/property binding, inheritance flattening, namespace lookup, script-side `func`/`class`/`new` | Both dispatch directions work; the talk's `Person::grow` example runs from script and from C++ |
 | **M6** | Typed messages, allocation-free C++→C++ path, script call stack, trace hook, call statistics | Message benchmark meets §7; an error thrown 4 frames deep renders a correct stack; call statistics add no allocations and compile out under `MOIRA_SHIPPING` |
 | **M7** | `Task`, `Scheduler`, coroutine awaitables, script-side scheduler commands | `delay`/`until`/interp all tick correctly; a task holding a local across a suspend point works (the problem the original had open) |
 | **M8** | Binary cache: write, load, fixups, staleness detection, `Cipher` hook | Cache load benchmark meets §7; cache and text loads produce structurally equal trees |
 | **M8b** | `moira::shape`: shape declarations, shape-aware `check`, enumeration API; `#require` | A shape violation in the corpus-style test data is reported at load with file and line; extra fields warn without failing; a pack loaded via `#require` from three files defines its macros once; a `game`-layer pack referencing a `task`-layer function produces a one-way-rule warning |
-| **M9** | Docs: README with the one-line-constant pitch up front, `docs/language.md`, `docs/cookbook.md`, `examples/` (config, scripting, objects, tasks, remote-console, live-ops overlay, and `harness-imgui`: a Dear ImGui reference harness with panels generated from tweaks and shapes, an `eval` console, provenance on hover, and save-to-source via write-back) | A reader can go from zero to a working tweak in under five minutes of reading; the cookbook's live-ops section covers environment boundaries, version history, and rollback |
-| **M10** | Harness instrumentation: loop telemetry, edit journal, pack harness metadata (`owners`, `for`, `stage`), `origin` provenance, repetition report, owner findings, machine-readable check output | A reload test reports file-change-to-complete time and outcome per file; `unsaved()` lists a tweaked-but-not-written-back value; `source()` names a value's `origin` tool; a subtree repeated in three files appears in the repetition report with all three locations; a one-owner pack is reported; check JSON output is schema-versioned and stable across runs; all instrumentation adds no allocations on the hot path and compiles out under `MOIRA_SHIPPING`; core stays within the 4,000-line budget (if not, move the repetition report into a separate tool and record it in `docs/decisions.md`) |
+| **M9** | Docs: README with the one-line-constant pitch up front, `docs/language.md`, `docs/cookbook.md`, `examples/` (config, scripting, objects, tasks, remote-console, live-ops overlay, and `harness-imgui`: a Dear ImGui reference harness with panels generated from tweaks and shapes, an `eval` console, provenance on hover, save-to-source via write-back, and a scripted readiness run) | A reader can go from zero to a working tweak in under five minutes of reading; the cookbook's live-ops section covers environment boundaries, version history, rollback, and personal and experiment layers; `harness-imgui --readiness` runs headless in CI: it edits a data file on disk, measures its own edit-to-see time over several edits (median and worst, with Moira's share from `reload_stats()`), tunes a value through the generated panel, writes it back, checks the diff is exactly one line, prints the report, and fails if any step does |
+| **M10** | Harness instrumentation: loop statistics (aggregating M3b's reload records), edit journal, pack harness metadata (`owners`, `for`, `stage`), `origin` provenance, repetition report, owner findings, machine-readable check output | `loop_stats()` reports rolling median and worst edit-to-see per file and per layer, and counts a failed reload; `unsaved()` lists a tweaked-but-not-written-back value; `source()` names a value's `origin` tool; a subtree repeated in three files appears in the repetition report with all three locations; a one-owner pack is reported; check JSON output is schema-versioned and stable across runs; all instrumentation adds no allocations on the hot path and compiles out under `MOIRA_SHIPPING`; core stays within the 8,000-line budget (if not, move the repetition report into a separate tool and record it in `docs/decisions.md`) |
 
 ---
 

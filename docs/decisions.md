@@ -631,3 +631,47 @@ and disproportionate growth is still called out. M10's fallback (move the repeti
 report into a separate tool if the core is over budget) now applies at 8,000. Edit mode and
 write-back stay in the core.
 
+
+## D41. Spec amendment: telemetry stamps, personal and experiment layers, snapshots, readiness
+
+*Amends spec §4, §10 (new M3b; M9 and M10 changed). Requested by the project owner,
+2026-10-11.*
+
+Four additions, folded into the spec text and the milestone table:
+
+1. **Reload telemetry** is split out of M10's loop telemetry. The per-stage stamps (detect,
+   parse, merge, bind, notify), `set_clock`, `note_saved`, `mark_visible`, and
+   `reload_stats()` move to **M3b**, because they instrument code that exists now. M10
+   keeps the aggregation (`loop_stats()`: rolling medians, worst cases, change-failure
+   counts) and the edit journal.
+2. **Personal and experiment layers** (`push_local_layer`, `toggle_layer` /
+   `set_layer_enabled`, `diff`) go in **M3b**.
+3. **Snapshot and restore** go in **M3b**.
+4. **The readiness run** becomes part of `examples/harness-imgui` in **M9**, with a
+   done-when that CI runs it headless.
+
+M3b comes before M4 because all three Config features build on M3 while it is fresh, and
+M4 onward does not touch them. Choices made while specifying, where the request left room:
+
+- **The library never learns the user name itself.** `ConfigOptions::user` is supplied by
+  the host, consistent with owning no I/O or environment access. "Auto-loaded" means one
+  call (`push_local_layer(dir)`) whose missing file is an empty layer that `reload()` picks
+  up later. Ignoring `local.*.dta` is a repository-template and cookbook convention; the
+  library cannot enforce "never checked in".
+- **A disabled layer stays in the stack** (same position, same trees, same source maps),
+  so re-enabling is instant and exact. It is skipped by provenance and by write-back's
+  supplier search, so `source()` and `write_back()` describe what is actually in effect.
+- **`diff` compares the two layers' own trees**, not merged results with and without each.
+  That is what "the values two layers disagree on" names, and it works for disabled layers.
+- **The clock stays the host's** (spec §4): without `set_clock`, stages are not stamped.
+- **Snapshots serialize to DTA** with file layers' trees embedded, so a QA repro saved next
+  to an input recording reproduces the values even after the data files change. In
+  memory, a snapshot shares trees by reference and costs nothing to take.
+- **Toggling and restoring are layer changes**: refused after `freeze()` unless
+  `live_layers`, and every one fires the reload callbacks and records a telemetry entry.
+
+The request mentions "the two Moira-shaped rows of the environment slice". That term is
+not defined in the spec or the background documents. M9's done-when therefore names what
+the run shows instead: edit-to-see time with Moira's share measured, and a tuned value
+written back as a one-line diff. If the slice is defined elsewhere, it should be added to
+`docs/background/` and M9 should cite it.
