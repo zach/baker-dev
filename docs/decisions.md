@@ -726,7 +726,21 @@ Two reconciliations with decisions already made:
   `freeze()`), and `ConfigOptions::live_layers` remains the explicit live-ops path.
   Toggles, `set`, write-back, and `promote` are inert in shipping, as the brief says.
 
-Open questions, raised before building (spec §11), are listed with the implementer's
-recommendations in the reply that accompanied this entry and will be closed here when
-answered.
+Open questions, raised before building (spec §11) and answered by the project owner:
+
+- **`layer_effect`** re-merges without the layer on demand; it is measured on the corpus
+  during M3b rather than maintained incrementally.
+- **Reload history** is a runtime setting, `set_reload_history(n)`, default 256 records,
+  allocated on the first record.
+- **Snapshots stay in memory** in M3b; serializing them to `.dta` is deferred.
+- **The `local` layer convention** goes in `docs/cookbook.md` and is used by the M9
+  harness.
+- **Scratch lookups are two-tier.** `get()` consults scratch before the merged tree, so
+  `set()` stays allocation-free; `root()` is documented as not including scratch edits made
+  since the last full merge.
+- **The `#include`/`#merge` refusal covers insertion only**: write-back will not insert
+  into an ancestor array that is not written in the target file, but still replaces a
+  literal token wherever it lives, as M3 does.
+- **`set` keeps its multi-value forms** (span and typed overloads) beside
+  `set(path, Node)`.
 
