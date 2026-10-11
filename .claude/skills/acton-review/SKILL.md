@@ -16,31 +16,51 @@ against this lens: `references/moira-gaps.md`. Read both before a full review.
 
 ## The stance, in his terms
 
-Quotes are from his slides or abstracts, with slide numbers from the CppCon 2014 deck,
-unless marked otherwise.
+Quotes are from his slides or abstracts unless marked otherwise. Slide numbers are pages
+of the CppCon 2014 deck's PDF (201 pages), checked against the deck itself
+(`references/sources.md`).
 
 1. **"The transformation of data is the only purpose of any program"** (the keynote
-   abstract). Slide 30 puts it as: "The purpose of all programs, and all parts of those
+   abstract). Slide 29 puts it as: "The purpose of all programs, and all parts of those
    programs, is to transform data from one form to another." The programmer's job is to
    solve data-transformation problems, not to write code. Every Moira subsystem is a
    transform: text → tree, tree → merged config, command → value, cache file → tree. Name
    the input, the output, and the cost of each one.
-2. **Know your data, and know your hardware.** The hardware is the platform, not the
-   software. Reason about cache lines, latency, and what the real values are.
+2. **Know your data, and know your hardware.**
+   - "If you don't understand the data you don't understand the problem." (slide 30)
+   - "If you don't understand the cost of solving the problem, you don't understand the
+     problem." (slide 34)
+   - "If you don't understand the hardware, you can't reason about the cost of solving
+     the problem." (slide 35)
+   - "Software does not run in a magic fairy aether powered by the fevered dreams of CS
+     PhDs." (slide 43)
+
+   Reason about cache lines, latency, and what the real values are.
 3. **Solve the problem you have.** "Solving problems you probably don't have creates more
-   problems you definitely do." Generic machinery has to be paid for by an actual use case.
-4. **"Where there is one, there are many. Try looking on the time axis."** (slide 41) An
+   problems you definitely do." (slide 37) Generic machinery has to be paid for by an actual
+   use case.
+4. **"Where there is one, there are many. Try looking on the time axis."** (slide 40) An
    API that handles one thing at a time (one tweak, one message, one object, one node)
    should be asked what happens when it is called 10,000 times a frame, or every frame
    for an hour.
-5. **"If you have different data, you have a different problem."** (slide 34) A 20-child
+5. **"If you have different data, you have a different problem."** (slide 33) A 20-child
    config array, a 5 MB song database, and a 3-node command are different problems. One
    code path serving all three is a claim that needs evidence.
-6. **"Latency and throughput are only the same in sequential systems."** Say when each
-   result is needed, whether this frame, at load, or offline at build time.
-7. **Reason about cost, including the cost of change.** His CppCon deck adds
-   maintainability, debuggability, and the cost of changing code as goals. "Ignoring
-   inconvenient facts is not engineering; it's dogma." (slide 120)
+6. **"Latency and throughput are only the same in sequential systems."** (slides 38–39) Say
+   when each result is needed, whether this frame, at load, or offline at build time.
+   Related rules of thumb:
+   - "The more context you have, the better you can make the solution. Don't throw away
+     data you need." (slide 41)
+   - "NUMA extends to I/O and pre-built data all the way back through time to original
+     source creation." (slide 42) In Moira's terms: a decision the bake can make should
+     not be thrown away and remade at runtime.
+7. **Reason about cost, including the cost of change.**
+   - "Everything is a data problem. Including usability, maintenance, debug-ability,
+     etc. Everything." (slide 36)
+   - After a worked cache-line example (a 10x speedup, slide 117), the deck adds
+     goals: "Code is maintainable", "Code is debugable", "Can REASON about cost of
+     change" (slide 118).
+   - "Ignoring inconvenient facts is not engineering; It's dogma." (slide 119)
 8. **Design for the common case.** Spoken, in a 2018 Unity keynote: "The actual global
    energy that you use to make a transformation should be proportional to the amount of
    surprise in the data." Expected values take the cheap path, and only surprising ones
@@ -56,14 +76,20 @@ unless marked otherwise.
 
    The talk also calls for profiling and debugging rather than guessing (paraphrased).
 
-**Practice at Insomniac** (CppCon 2014, slides 27–28). Confirmed verbatim: "No STL",
-"Custom allocators (lots)", and "Custom debugging tools". Excerpts of the same slides also
-list no exceptions, no RTTI, no iostream, no multiple inheritance, no operator overloading,
-and limited templates, but that part is not confirmed verbatim. Treat all of it as a
-strong default for runtime engine code, not as a law for every line. See "Where the school
-disagrees" below.
+**Practice at Insomniac** (CppCon 2014, slides 18–27, under "How are games like the Mars
+rovers?").
+- Slide 24 lists, without qualification: Exceptions, Templates, Iostream, Multiple
+  inheritance, Operator overloading, RTTI. The talk presents them as features avoided;
+  the slide text itself says neither "no" nor "limited", so do not claim the deck says
+  templates were "limited".
+- Slides 25–27 add "No STL", "Custom allocators (lots)", and "Custom debugging tools".
 
-**The "Three Big Lies"** (CellPerformance, 2008): "Software is a platform." "Code should be
+Treat all of it as a strong default for runtime engine code, not as a law for every line.
+See "Where the school disagrees" below.
+
+**The "Three Big Lies"** (CellPerformance, 2008; the deck frames data-oriented design as
+"a response to the culture of C++ … and The Three Big Lies it has engendered", slides
+45–46): "Software is a platform." "Code should be
 designed around a model of the world." "Code is more important than data." Moira's own
 hazards with each:
 - treating the library as a platform for every possible game;
@@ -109,7 +135,10 @@ in either direction.
   - Hot fields go together, and cold fields (docs, names, file and line, debug data) go
     elsewhere.
   - Look for padding and stray `bool`s in structs that are iterated. The deck's phrase for
-    a `bool` in a struct is "extremely low information density".
+    a `bool` in a struct is "Extremely low information density" (slides 120–122). It
+    measures it as signal against noise: bits of information used per frame, divided by
+    cache-line bytes loaded per frame (slides 147–148). Do the same arithmetic for any
+    hot struct under review.
   - Prefer index-addressed flat arrays (Moira's per-Context tables indexed by
     `Symbol::index()`, D44) to maps.
   - New per-element structs on a hot path get a `static_assert(sizeof(...))`, as `Node`
@@ -188,7 +217,8 @@ names its cost.
 - **Scripting itself.** No quoted source shows Acton for or against embedded interpreters.
   A second researcher reported that he prefers compiled graphs to interpreted bytecode
   (the DOTS era), but gave no quote, so do not cite it as his view.
-  - Insomniac's engine team listed visual scripting among the tools it built.
+  - Insomniac's engine team listed "Visual scripting" among its development tools
+    (slide 5).
   - Peers in the same school shipped interpreters or Lisps: Bitsquid shipped Lua with hot
     reload. Naughty Dog built GOOL and GOAL, custom Lisps, for its PlayStation games. The data-oriented question is not
   "script or not", but whether the interpreter is kept off the per-entity hot loop and

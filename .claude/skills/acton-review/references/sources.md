@@ -4,17 +4,18 @@ Gathered 2026-10-11 in two passes.
 1. **Web search from this repository's sandbox.** Its network policy blocks fetching pages,
    so this pass saw search-result excerpts only.
 2. **A second research agent with page access, at the project owner's request.** It
-   supplied exact quotes with slide numbers. The sandbox still could not fetch
-   `neil3d.github.io`, `cellperformance.beyond3d.com`, or `blog.s-schoener.com` to
-   recheck them, so quotes from this pass are confirmed by one reader, not two.
+   supplied exact quotes and slide numbers.
+3. **The deck itself, read in the sandbox** (2026-10-11). The PDF that pass 2 cited is
+   reachable through GitHub, though not through `neil3d.github.io`:
+   <https://raw.githubusercontent.com/neil3d/neil3d.github.io/master/assets/img/ecs/DOD-Cpp.pdf>
+   (201 pages). Its text was extracted with `pdftotext`, and slide 24 was rendered and
+   inspected. The PDF is not committed: its license is unknown.
 
-The confidence levels below reflect this. Before quoting anything as Acton's exact words
-outside this repository, check it against the deck or the video.
-
-Slide numbers refer to the PDF export of the CppCon 2014 deck at
-<https://neil3d.github.io/assets/img/ecs/DOD-Cpp.pdf>. Other exports number them differently,
-for example the SlideShare mirror at
-<https://www.slideshare.net/slideshow/data-oriented-design-and-c/39109965>.
+Every CppCon 2014 slide quote and slide number in the skill is checked against that PDF.
+Pass 2's slide numbers were one too high throughout (it gave 30, 34, 41, and 120 where the
+deck has 29, 33, 40, and 119). Other exports, such as the SlideShare mirror at
+<https://www.slideshare.net/slideshow/data-oriented-design-and-c/39109965>, may number them
+differently again.
 
 ## Acton's own material
 
@@ -24,29 +25,47 @@ for example the SlideShare mirror at
     It says "the transformation of data is the only purpose of any program", and that
     common C++ approaches work against that goal in console game development, including
     limits inherent in C++ compilers.
-  - Slides: <https://www.slideshare.net/cellperformance/data-oriented-design-and-c>.
-    - **High confidence** (quoted by pass 2, and consistent with pass 1's excerpts):
-      - slide 30: "The purpose of all programs, and all parts of those programs, is to
-        transform data from one form to another."
-      - slide 34: "If you have different data, you have a different problem."
-      - slide 41: "Rule of thumb: Where there is one, there are many. Try looking on the
-        time axis."
-      - "Latency and throughput are only the same in sequential systems." The slide is
-        around 40; exports differ.
-      - "Solving problems you probably don't have creates more problems you definitely
-        do." (the principles section)
-      - slide 120: "Ignoring inconvenient facts is not engineering; It's dogma."
-      - slides 27–28: "No STL", "Custom allocators (lots)", "Custom debugging tools".
-    - **Medium confidence** (pass 1's excerpts only): the rest of the Insomniac list: no
-      exceptions, templates, iostream, multiple inheritance, operator overloading, or
-      RTTI. Pass 2 said templates were "limited, not banned" but gave no quote for it or
-      for its reasons.
-    - **Medium confidence:** a `bool` in a struct has "extremely low information density"
-      (pass 2 quoted the phrase, without a slide number).
-    - **Pass 1 excerpts:**
-      - a cache-line utilisation example (about a 10x speedup);
-      - maintainability, debuggability, and the cost of change as goals;
-      - "visual scripting" among the engine team's tools.
+  - The slides, **verified against the deck** (page numbers):
+    - 5: the engine team's development tools include "Visual scripting".
+    - 18–27, "How are games like the Mars rovers?":
+      - 24 lists "Exceptions • Templates • Iostream • Multiple inheritance • Operator
+        overloading • RTTI", with no "no" and no "limited" on the slide;
+      - 25–27 add "No STL", "Custom allocators (lots)", and "Custom debugging tools".
+
+      That the six on slide 24 are avoided is the talk's spoken framing. Pass 2's claim
+      that templates were "limited, not banned" is not in the deck.
+    - 29: "The purpose of all programs, and all parts of those programs, is to transform
+      data from one form to another."
+    - 30: "If you don't understand the data you don't understand the problem."
+    - 33: "If you have different data, you have a different problem."
+    - 34: "If you don't understand the cost of solving the problem, you don't understand
+      the problem."
+    - 35: "If you don't understand the hardware, you can't reason about the cost of
+      solving the problem."
+    - 36: "Everything is a data problem. Including usability, maintenance, debug-ability,
+      etc. Everything."
+    - 37: "Solving problems you probably don't have creates more problems you definitely
+      do."
+    - 38–39: "Latency and throughput are only the same in sequential systems."
+    - 40: "Rule of thumb: Where there is one, there are many. Try looking on the time
+      axis."
+    - 41: "Rule of thumb: The more context you have, the better you can make the
+      solution. Don't throw away data you need."
+    - 42: "Rule of thumb: NUMA extends to I/O and pre-built data all the way back through
+      time to original source creation."
+    - 43: "Software does not run in a magic fairy aether powered by the fevered dreams of
+      CS PhDs."
+    - 45–46: data-oriented design as "a response to the culture of C++ … and The Three Big
+      Lies it has engendered".
+    - 117: "Using cache line to capacity* = 10x speedup".
+    - 118–119: "Code is maintainable", "Code is debugable", "Can REASON about cost of
+      change"; "Ignoring inconvenient facts is not engineering; It's dogma."
+    - 120–122 and later: "bools in structs… (3) Extremely low information density". The
+      deck works the arithmetic at 147–148: cache lines loaded per frame against bits of
+      information used.
+    - 195–198: "Most problems are easy to see"; solving the 90% well lets the compiler
+      solve the 10% better; "Organized data makes maintenance, debugging and concurrency
+      much easier"; "Good programming is hard. Bad programming is easy."
 - **"Three Big Lies".** High confidence. "Software is a platform." "Code should be
   designed around a model of the world." "Code is more important than data."
   - The 2008 article: <https://cellperformance.beyond3d.com/articles/2008/03/three-big-lies.html>.
@@ -117,7 +136,8 @@ They agree with the rest of the record, but the skill does not attribute them:
   compiled visual graphs to bytecode in the DOTS era.
 - **"Typical C++ Bullshit" (around 2014).** Its critiques of virtual calls, heap
   allocation, and getter/setter abstraction. The original annotated images were not
-  found.
+  found. The deck's own worked review (around slides 120–150) is about `bool`s,
+  last-minute decision making, and information density, not those topics.
 - **Insomniac, GDC 2013.** Live editing on in-place binary buffers rather than text
   parsing.
 - **Allocators.** No global heap during gameplay; frame, per-system, and fixed-capacity
