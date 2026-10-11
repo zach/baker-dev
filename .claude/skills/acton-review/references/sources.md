@@ -118,13 +118,35 @@ differently again.
 - **MIT 6.189 lecture, Insomniac (2007).** <https://ocw.mit.edu/courses/6-189-multicore-programming-primer-january-iap-2007/0cbeedf18c91ac6c0b75d21194f1d5fd_lec16games.pdf>.
   The engine team's priorities: hard deadlines, soft realtime (33 ms), usability, and
   performance. Most CPU time is in engine code.
-- **"Proportional to surprise."** Spoken: "The actual global energy that you use to make
-  a transformation should be proportional to the amount of surprise in the data." Pass 2
-  traced it through Sebastian Schöner's notes,
-  <https://blog.s-schoener.com/2019-06-09-data-oriented-design/>, to a 2018 keynote, given
-  either as Unite LA 2018 or GDC 2018. Medium-high confidence on the words, uncertain on
-  the venue. Unity's DOTS course paraphrases it:
+- **"Proportional to surprise."** "The actual global energy that you use to make a
+  transformation should be proportional to the amount of surprise in the data." High
+  confidence: it is in the March 2018 Unity talk transcript below, in the Q&A, with the
+  UI frame-to-frame example. That settles the venue as March 2018 (the GDC season), not
+  Unite LA 2018 as Schöner's notes were read to say:
+  <https://blog.s-schoener.com/2019-06-09-data-oriented-design/>. Unity's DOTS course
+  paraphrases it:
   <https://learn.unity.com/course/dots-best-practices/tutorial/part-2-data-design>.
+- **March 2018 Unity talk on democratizing data-oriented design** (an automatic
+  transcript the project owner supplied in the session, 2026-10-11; not committed; garbled
+  in places). High confidence on clean passages. What it gives:
+  - performance by default and "optimizable by default": the first instinct should be "a
+    good first level approximation of the right answer";
+  - "not complicated rules, but… hard rules": declared reads and writes, small data in
+    streams, value types, no garbage collection;
+  - nothing opaque: component memory in 64K chunks "none of which is opaque", and an
+    inspector for the compiler's output;
+  - "an entity is nothing more than a lookup index or an ID… a database key";
+  - named barriers, minimal sync points, and structural changes queued and flushed at
+    barriers for determinism;
+  - "you can't get away with not having no cache misses ever";
+  - its hash map keeps an array of hashes apart from the array of values (keys together
+    again);
+  - on simplicity versus familiarity: "removed things other than the thing that actually
+    solves the problem";
+  - on mobile power: finish early "and then let the CPU rest";
+  - the "two orders of magnitude" claim for the high-performance C# subset over "C#
+    scripts". This is the nearest he comes, in any source here, to a position on
+    scripting languages, and it is not an opinion on interpreters as such.
 
 ## The same school, not Acton
 
@@ -191,6 +213,7 @@ They agree with the rest of the record, but the skill does not attribute them:
 
 ## Not found
 
-- A quoted statement of Acton's view on embedded scripting languages or interpreters
-  (not in the CppCon 2014 talk or its Q&A either).
+- A quoted statement of Acton's view on embedded scripting languages or interpreters.
+  It is not in the CppCon 2014 talk or its Q&A. The March 2018 Unity talk gives only the
+  restricted, compiled C# subset (see above).
 - The original "Typical C++ Bullshit" images.

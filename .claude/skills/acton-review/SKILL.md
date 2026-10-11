@@ -61,10 +61,13 @@ of the CppCon 2014 deck's PDF (201 pages), checked against the deck itself
      goals: "Code is maintainable", "Code is debugable", "Can REASON about cost of
      change" (slide 118).
    - "Ignoring inconvenient facts is not engineering; It's dogma." (slide 119)
-8. **Design for the common case.** Spoken, in a 2018 Unity keynote: "The actual global
-   energy that you use to make a transformation should be proportional to the amount of
-   surprise in the data." Expected values take the cheap path, and only surprising ones
-   pay.
+8. **Design for the common case.** Spoken in his March 2018 Unity talk on data-oriented
+   design, answering a question: "the actual global energy that you use to make a
+   transformation should be proportional to the amount of surprise in the data." His
+   example is a UI, where frame B is almost always identical to frame A, so redrawing it
+   should cost almost nothing. Expected values take the cheap path, and only surprising
+   ones pay. Moira's reload compares content and re-merges from the lowest change (D35)
+   in this spirit: a tweak that did not change should cost nothing.
 9. **From "Everyone Watching This Is Fired" (GDC 2019).** These items are verbatim, as
    reported from the slides:
    - "I can articulate precisely what problem I am trying to solve."
@@ -138,6 +141,42 @@ with each lie:
 - treating the library as a platform for every possible game;
 - an object model that mirrors designers' nouns, not the data's access patterns;
 - clever evaluator code that ignores the shape of the data it walks.
+
+**From the March 2018 Unity talk** ("democratize data-oriented design"; spoken, from the
+transcript):
+- **"Performance by default."** "Your first instinct when you put something in Unity
+  should be a good first level approximation of the right answer", not something "you
+  need to rethink or throw away". It should also be "optimizable by default": later work
+  improves the same layout instead of starting over. For Moira, the obvious API (a
+  one-line tweak, `ctx.func`, `{bob grow 10}`) must be the fast path. There should be no
+  convenient-but-slow API with an expert-only fast one beside it.
+- **Hard rules, few of them.** "These aren't complicated rules, but they're hard rules":
+  declare what you read and what you write; streams of small data; value types only.
+  Declaring access is what lets the system verify correctness and race freedom.
+  Moira's equivalent is in its signatures: `Raw<T>` marks what a function will not
+  evaluate.
+- **Nothing opaque.** Component memory is "blocks of memory organized into 64K chunks,
+  none of which is opaque". The compiler's output is inspectable too. "This is not about
+  making things more opaque for you." Users must be able to see the layout of Moira's
+  data and the cost of its calls (static asserts, the reference, benchmarks, statistics,
+  the trace hook).
+- **An entity is an index.** "An entity is nothing more than a lookup index or an ID into
+  those parallel streams… think about it as a database key." Moira's salted object handles
+  follow the same idea.
+- **Few, named sync points.** Named barriers replace a hand-drawn graph of dependencies
+  between systems, because that "becomes sort of too complicated for you to manage" and
+  "you want to minimize the synchronization points across the frame anyway". Structural
+  changes (adding or removing components) are queued and flushed at a barrier, so jobs
+  see stable data and threaded results match sequential ones.
+- **Cache misses are sometimes the price.** "You can't get away with not having no cache
+  misses ever… At some point, you do have to load data." For random access, copy into an
+  array built for it, and pay the miss knowingly.
+- **"Simpler" is not "familiar."** Answering a questioner who called game objects
+  simpler: "I know it's more familiar", but once the hurdle is past "I don't agree that
+  it's in fact simpler", because the design "removed things other than the thing that
+  actually solves the problem." And: "Show us that" A is simpler than B.
+- **Power.** On mobile, go wide, finish the frame's work early, "and then let the CPU rest
+  for the rest of the frame."
 
 **Shared practice in the field** (Llopis and others, not Acton himself):
 - "Don't do anything at runtime that you can do offline."
@@ -253,12 +292,12 @@ names its cost.
 | Parser, preprocessor | Is this a load-time transform whose output (the tree) is shaped for the runtime's reads, and could the bake do it instead? |
 | `Node` / `Array` | 16-byte nodes, contiguous children, refcounted arrays. Are refcount traffic and per-array heap blocks acceptable for the 5 MB tree case, or should the cache load give one arena (M8)? |
 | Lookup (`find*`) | Is the linear scan right for the real child counts (mostly < 20)? Sorted mode exists for the rest; is it used where the data is big? |
-| Tweaks | Is the read one load (it is: §7 codegen test)? Are tweaks updated in a batch on reload rather than chased one by one? |
+| Tweaks | Is the read one load (it is: §7 codegen test)? Are tweaks updated in a batch on reload rather than chased one by one? Does reload run at a point the host chooses (a frame boundary), never in the middle of evaluation? |
 | Evaluator | Lazy evaluation means no temporary argument lists, which is good. Per-call cost is recorded (34 ns). Count the loads on the dispatch path. |
 | Objects and handles | Salted handles beat pointers (D4, D19). The slot table is a flat array. Do per-object loose parameters (vectors) belong on a hot path? |
 | Typed messages (M6) | "Where there is one there are many": a broadcast to N objects should be one call over a span, grouped by type, with no `Node` built. Does the single-object `handle` force N dispatches and N misses? |
 | Call statistics (M6) | Counters next to the function record (one cache line), with no clock read unless asked, and compiled out in shipping. |
-| Tasks (M7) | Is a coroutine frame a heap allocation per task? Then where are the allocator and the pool? How many tasks are live per frame, and are they stepped in a batch by the scheduler? |
+| Tasks (M7) | Is a coroutine frame a heap allocation per task? Then where are the allocator and the pool? How many tasks are live per frame, and are they stepped in a batch by the scheduler? Are structural changes (`{new}`, `{delete}`, registration) during a step queued and applied at a named sync point, as DOTS's command buffers are? |
 | Binary cache (M8) | Load in place: one read, fixups, ≤ 2 allocations, with the expensive work done at bake time. |
 | Tooling (`check`, reference, write-back) | Tool path: ordinary C++ is fine. Judge it on iteration time and clarity. |
 
@@ -267,22 +306,30 @@ names its cost.
 - **Templates and generic code.** Insomniac had no hard rule against templates, only
   strong suspicion: "occasionally a good use", usually "a poor use", and "cripples compile
   times". Moira's binding layer is templates, deliberately: spec §5 deduces signatures
-  so that binding needs no macro tables. Accept templates where they
-  move work to compile time and both the benchmarks and the build times hold. Flag them
+  so that binding needs no macro tables. Accept templates where they move work to compile
+  time and both the benchmarks and the build times hold. Flag them
   where they only add generality, and consider a generator for anything bulky.
 - **"Never virtual" is not the rule.** Measured, the virtual-call cost is small when the
   call is predictable and in cache. The real costs are scattered heap objects and lost
   batching. Review the data layout first, then dispatch.
-- **Scripting itself.** No quoted source shows Acton for or against embedded interpreters.
-  The CppCon 2014 talk and its Q&A do not mention scripting.
-  A second researcher reported that he prefers compiled graphs to interpreted bytecode
-  (the DOTS era), but gave no quote, so do not cite it as his view.
+- **Scripting itself.** No quoted source shows Acton for or against embedded interpreters,
+  and the CppCon 2014 talk and its Q&A do not mention scripting. The nearest evidence is
+  the 2018 Unity talk. There he did not take scripting away from game programmers. He
+  offered a "high performance C# subset" under hard rules (value types only, no garbage
+  collection, declared reads and writes), compiled for the hardware, and claimed about
+  "two orders of magnitude" over "C# scripts".
+  - The inference, not his words: he accepts a higher-level language for game code when
+    its rules let the system lay data out and compile it well.
+  - For Moira, that means judging the evaluator on whether data stays out of the
+    per-entity loop and gets baked, not on whether there is an interpreter at all.
+  - A second researcher's unquoted claim that he preferred compiled graphs to
+    interpreted bytecode is consistent with this, but is still not citable.
   - Insomniac's engine team listed "Visual scripting" among its development tools
     (slide 5).
   - Peers in the same school shipped interpreters or Lisps: Bitsquid shipped Lua with hot
-    reload. Naughty Dog built GOOL and GOAL, custom Lisps, for its PlayStation games. The data-oriented question is not
-  "script or not", but whether the interpreter is kept off the per-entity hot loop and
-  whether its data is baked.
+    reload. Naughty Dog built GOOL and GOAL, custom Lisps, for its PlayStation games.
+  - The data-oriented question is not "script or not", but whether the interpreter is
+    kept off the per-entity hot loop and whether its data is baked.
 - **Scope.** Critics (Shamus Young, HN and gamedev.net practitioners) accept the
   performance argument but reject applying it to every program. For Moira this means:
   runtime and load paths face the full lens, tool paths face the cost-of-change lens.
