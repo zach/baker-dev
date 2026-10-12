@@ -1752,8 +1752,7 @@ answers. The call stack was step 1 (D52). M6 is done, and `docs/m6-plan.md` is d
 
 ## D67. M7: tasks, first answers
 
-*M7 plan (`docs/m7-plan.md`) Q1–Q4, answered by the project owner 2026-10-12. Q5–Q7 are
-still open.*
+*M7 plan (`docs/m7-plan.md`) Q1–Q7, answered by the project owner 2026-10-12.*
 
 - **Q1, time.** `Scheduler::tick(dt)` advances a `double` in units the host chooses. There
   is one timeline per Scheduler; a game with game time and UI time makes two.
@@ -1769,3 +1768,13 @@ still open.*
     would stop a script from using an object it just made.
 - **Q4, tasks and their object.** A task made with `$this` bound captures it, and is
   cancelled when that object is removed, as in the original.
+- **Q5, waits.** `{wait cond}`, `{wait_for t}`, and `{wait_tick}` work only as a
+  `thread_task`'s own top-level commands. The evaluator does not become resumable.
+- **Q6, `interp_task`.** The spec's form: `{scheduler interp_task $var from to body...}`
+  steps `$var` from `from` to `to` over `to - from` of the Scheduler's units, so `$frame`
+  counts one per unit. A step runs `body` each tick with the value at that time, and the
+  last step runs at exactly `to`. A decreasing range counts down over `from - to` units.
+- **Q7, pool defaults.** A 4 KB frame budget by default, so debug builds (MSVC's
+  especially) fit without tuning, at four times the memory per live task. Chunks of 64
+  blocks, and no cap on live tasks unless `max_tasks` sets one. The first step still
+  measures real frames on GCC, Clang, and MSVC and records the numbers.

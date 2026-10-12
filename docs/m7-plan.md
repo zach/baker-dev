@@ -107,7 +107,7 @@ s.tick(dt);                                  // the host's frame, in the host's 
   The ready list and heap are `Vec`s reserved once and reused: no allocation after
   warm-up.
 - **Live tasks per frame (gap 7's question).** `SchedulerOptions` has `frame_bytes`
-  (default 1,024), `chunk` (blocks per pool chunk, default 64), and `max_tasks` (default
+  (default 4,096, D67), `chunk` (blocks per pool chunk, default 64), and `max_tasks` (default
   0, unlimited; with a cap, spawning past it is a `Limit` error). `stats()` reports live,
   peak, and per-tick resumed counts, and the pool's high water, so a TD sees the real
   numbers.
@@ -120,15 +120,15 @@ makes `{beats delay_task ...}`). Each script task is a C++ coroutine from the sa
 so both sides share one loop.
 
 - **`{scheduler delay_task t body...}`** runs `body` once, `t` units from now.
-- **`{scheduler interp_task $var from to t body...}`** sets `$var` from `from` to `to`
-  linearly over `t`, and runs `body` after each step, including a last step exactly at
-  `to` (Q6 settles the signature).
+- **`{scheduler interp_task $var from to body...}`** steps `$var` from `from` to `to` over
+  `to - from` units, and runs `body` after each step, including a last step exactly at
+  `to` (D67, the spec's form).
 - **`{scheduler thread_task cmd... }`** runs its commands in order across ticks.
   - `{wait cond}` suspends until `cond` is true;
   - `{wait_for t}` suspends for `t` units;
   - `{wait_tick}` suspends until the next tick.
 
-  The waits work only as the thread's own top-level commands (Q5).
+  The waits work only as the thread's own top-level commands (D67).
 - **Each returns a task handle** (an Int, the salted bits) for `{scheduler cancel $h}`.
 - **Variables are captured by value at creation (Q2).** This is the original's open
   problem, solved without closures in the evaluator.
@@ -211,7 +211,8 @@ M10's core instrumentation.
 
 ## Open questions
 
-**Answered 2026-10-12 (D67):** Q1–Q4, each as recommended. Q5–Q7 remain open.
+**Answered 2026-10-12 (D67):** Q1–Q5 as recommended. Q6: the spec's form. Q7: a 4 KB
+frame budget. The design above is updated to match.
 
 **Q1. Time.** What does `tick(dt)` advance?
 - **Recommended.** A `double` in units the host picks, one timeline per Scheduler. Beats,
