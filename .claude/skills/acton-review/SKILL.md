@@ -341,9 +341,9 @@ relaxed inside these limits.
 - Is the runtime load a single read plus fixups, with the allocation count fixed (spec
   §7: ≤ 2)?
 - **Memory ownership.** Who owns each allocation, from which heap, and when is it freed?
-  Today Moira uses global `operator new` everywhere (see `references/moira-gaps.md`). A
-  console team will ask for an allocator hook, so any new load-path allocation should go
-  through one funnel that a hook could later replace.
+  Every Context and Config takes an allocator and passes it to the tables it keeps, and a
+  load builds in one arena (D61, D62, D64). A new allocation goes through its owner's
+  allocator, never global `operator new`; `moira_alloc_tests` fails otherwise.
 - **Iteration speed is a requirement, not a nicety.** Insomniac's engine group built
   designers' tools themselves, and fast iteration (hot reload, live tweaks) is why Moira
   exists. A data-oriented review must not trade away designer iteration time without
@@ -372,15 +372,15 @@ names its cost.
 | Area | The question a data-oriented TD asks |
 |---|---|
 | Parser, preprocessor | Is this a load-time transform whose output (the tree) is shaped for the runtime's reads, and could the bake do it instead? |
-| `Node` / `Array` | 16-byte nodes, contiguous children, refcounted arrays. Are refcount traffic and per-array heap blocks acceptable for the 5 MB tree case, or should the cache load give one arena (M8)? |
+| `Node` / `Array` | 16-byte nodes, contiguous children, one arena and one count per load (D64), a tag run beside the nodes (D77). Does a change keep arrays in their load's arena, and keep the tag run current? |
 | Lookup (`find*`) | Is the linear scan right for the real child counts (mostly < 20)? Sorted mode exists for the rest; is it used where the data is big? |
 | Tweaks | Is the read one load (it is: §7 codegen test)? Are tweaks updated in a batch on reload rather than chased one by one? Does reload run at a point the host chooses (a frame boundary), never in the middle of evaluation? |
-| Evaluator | Lazy evaluation means no temporary argument lists, which is good. Per-call cost is recorded (34 ns). Count the loads on the dispatch path. |
+| Evaluator | Lazy evaluation means no temporary argument lists, which is good. Per-call cost is recorded (about 31 ns, D78). Count the loads on the dispatch path. |
 | Objects and handles | Salted handles beat pointers (D4, D19). The slot table is a flat array. Do per-object loose parameters (vectors) belong on a hot path? |
-| Typed messages (M6) | "Where there is one there are many": a broadcast to N objects should be one call over a span, grouped by type, with no `Node` built. Does the single-object `handle` force N dispatches and N misses? |
-| Call statistics (M6) | Counters next to the function record (one cache line), with no clock read unless asked, and compiled out in shipping. |
-| Tasks (M7) | Is a coroutine frame a heap allocation per task? Then where are the allocator and the pool? How many tasks are live per frame, and are they stepped in a batch by the scheduler? Are structural changes (`{new}`, `{delete}`, registration) during a step queued and applied at a named sync point, as DOTS's command buffers are? |
-| Binary cache (M8) | Load in place: one read, fixups, ≤ 2 allocations, with the expensive work done at bake time. |
+| Typed messages | "Where there is one there are many": `handle_all` broadcasts over a span, one lookup per run of a type, with no `Node` built (D66). Does a new message path keep that? |
+| Call statistics | Counters next to the function record (one cache line), with no clock read unless asked, and compiled out in shipping. |
+| Tasks | Frames come from a per-Scheduler pool with a frame budget, and removals wait for the sync point (D58, D67, D68). Does a change keep a task's frame in the pool and structural changes at the sync point? |
+| Binary cache | Load in place: one read, fixups, ≤ 2 allocations, with the expensive work done at bake time. |
 | Tooling (`check`, reference, write-back) | Tool path: ordinary C++ is fine. Judge it on iteration time and clarity. |
 
 ## Where the school disagrees (use judgment)
