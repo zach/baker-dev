@@ -264,13 +264,18 @@ struct LoadSession::State {
     bool disk = true;  // `reader` is the default
     Vec<Str> include_dirs;
     Vec<Node> autorun;
-    Vec<Str> required;  // the files #require has read, normalized (spec §1)
+    Vec<Str> required;                     // the files #require has read, normalized (spec §1)
+    Vec<Symbol> pack_levels;               // hardest first
+    Vec<Pack> packs;                       // in the order they were read
+    HashMap<Symbol, uint32_t> macro_pack;  // the pack that defined each macro, by index
+    Vec<Error> warnings;
     // What the last top-level read did, if recorded (record_for_cache).
     bool recorded = false;
     Vec<detail::CacheFile> files;
     HashMap<Symbol, Ref<Array>> defines_before;
     size_t autorun_from = 0;
     size_t required_from = 0;
+    size_t packs_from = 0;
     // Per top-level read.
     Vec<Str> include_stack;
     uint64_t nodes = 0;
@@ -400,6 +405,7 @@ private:
         const bool naming_macro = f.kind == Frame::MacroDef && scratch_.size() == f.start;
         if (!t.quoted && !naming_macro && !s_.st_->defines.empty()) {
             if (const Array* body = s_.macro(sym)) {
+                if (pack_ >= 0) one_way(sym, t.line);
                 const SourceSpan from{file_, t.begin, t.end, sym};
                 for (const Node& n : *body)
                     if (!push(n, from)) return false;
@@ -450,6 +456,7 @@ private:
             truncate(f.start);
             if (body->height() > s_.limits.max_depth) return too_deep(f.line);
             s_.define(*name, std::move(body));
+            defined(*name);
             return true;
         }
 
@@ -459,14 +466,89 @@ private:
         if (arr->height() > s_.limits.max_depth) return too_deep(f.line);
         const SourceSpan span{file_, f.begin, t.end, {}};
         switch (f.kind) {
-            case Frame::DefineBody: s_.define(f.name, std::move(arr)); return true;
+            case Frame::DefineBody:
+                s_.define(f.name, std::move(arr));
+                defined(f.name);
+                return true;
             case Frame::Autorun:
                 s_.st_->autorun.emplace_back(std::move(arr), Type::Command);
                 return true;
             case Frame::Command: return push(Node(std::move(arr), Type::Command), span);
             case Frame::Property: return push(Node(std::move(arr), Type::Property), span);
-            default: return push(Node(std::move(arr)), span);
+            default:
+                // A file's first form may declare it a pack, which the tree leaves out.
+                if (frames_.size() == 1 && f.start == 0 && pack_ < 0 && !arr->empty() &&
+                    (*arr)[0].is(sym_pack()))
+                    return declare_pack(*arr);
+                return push(Node(std::move(arr)), span);
         }
+    }
+
+    static const Symbol& sym_pack() {
+        static const Symbol s("pack");
+        return s;
+    }
+
+    // (pack name (level L) (requires other ...)): other children are metadata for later.
+    bool declare_pack(const Array& decl) {
+        LoadSession::State& st = *s_.st_;
+        const auto name = decl.size() > 1 ? decl[1].try_sym() : std::nullopt;
+        if (!name) return fail(ErrorCode::Syntax, "(pack ...) needs a name", decl.line());
+        const Array* level = decl.try_find("level");
+        const auto l = level && level->size() == 2 ? (*level)[1].try_sym() : std::nullopt;
+        if (!l)
+            return fail(ErrorCode::Syntax, "pack '" + Str(name->str()) + "' needs a (level L)",
+                        decl.line());
+        const auto rank = std::find(st.pack_levels.begin(), st.pack_levels.end(), *l);
+        if (rank == st.pack_levels.end()) {
+            Str levels;
+            for (const Symbol& x : st.pack_levels)
+                levels += (levels.empty() ? "" : " ") + Str(x.str());
+            return fail(ErrorCode::Directive,
+                        "pack '" + Str(name->str()) + "' has level '" + Str(l->str()) +
+                            "', which is not one of the session's pack levels (" + levels + ")",
+                        decl.line());
+        }
+        Vec<Symbol> needs;
+        if (const Array* r = decl.try_find("requires"))
+            for (const Node& n : r->values())
+                if (const auto x = n.try_sym()) needs.push_back(*x);
+        for (size_t i = 0; i < st.packs.size(); ++i)
+            if (st.packs[i].file == file_) {  // read again
+                pack_ = static_cast<int32_t>(i);
+                return true;
+            }
+        pack_ = static_cast<int32_t>(st.packs.size());
+        st.packs.push_back(Pack{*name, *l, static_cast<uint32_t>(rank - st.pack_levels.begin()),
+                                file_, List<Symbol>({needs.data(), needs.size()})});
+        return true;
+    }
+
+    // Records which pack, if any, defined `name`.
+    void defined(Symbol name) {
+        if (pack_ >= 0)
+            s_.st_->macro_pack[name] = static_cast<uint32_t>(pack_);
+        else
+            s_.st_->macro_pack.erase(name);
+    }
+
+    // The one-way rule (spec §5): a harder pack may not use a softer pack's macro. Warned
+    // once per file and macro.
+    void one_way(Symbol macro, int32_t line) {
+        LoadSession::State& st = *s_.st_;
+        const auto it = st.macro_pack.find(macro);
+        if (it == st.macro_pack.end()) return;
+        const Pack& mine = st.packs[static_cast<size_t>(pack_)];
+        const Pack& theirs = st.packs[it->second];
+        if (theirs.rank <= mine.rank) return;
+        if (std::find(warned_.begin(), warned_.end(), macro) != warned_.end()) return;
+        warned_.push_back(macro);
+        st.warnings.push_back(
+            make_error(ErrorCode::Refused,
+                       "pack '" + Str(mine.name.str()) + "' (level " + Str(mine.level.str()) +
+                           ") uses macro '" + Str(macro.str()) + "' from the softer pack '" +
+                           Str(theirs.name.str()) + "' (level " + Str(theirs.level.str()) + ")",
+                       file_, line));
     }
 
     // Reads the symbol argument of a directive, unexpanded.
@@ -554,6 +636,7 @@ private:
                 return true;
             }
             s_.define(sym);
+            defined(sym);
             return true;
         }
         if (d == "undef") {
@@ -642,6 +725,8 @@ private:
     Vec<SourceSpan> spans_;  // parallel to scratch_ in edit mode
     Vec<FrameInfo> frames_;
     Vec<Cond> conds_;
+    int32_t pack_ = -1;   // the pack this file declared, as an index; -1 for none
+    Vec<Symbol> warned_;  // macros this file has been warned about
 };
 
 }  // namespace detail
@@ -726,6 +811,26 @@ std::span<const Node> LoadSession::autorun() const noexcept {
 void LoadSession::clear_autorun() {
     st_->autorun.clear();
 }
+void LoadSession::set_pack_levels(std::initializer_list<Symbol> levels) {
+    set_pack_levels(std::span<const Symbol>(levels.begin(), levels.size()));
+}
+void LoadSession::set_pack_levels(std::span<const Symbol> levels) {
+    st_->pack_levels.assign(levels.data(), levels.data() + levels.size());
+}
+std::span<const Pack> LoadSession::packs() const noexcept {
+    return {st_->packs.data(), st_->packs.size()};
+}
+const Pack* LoadSession::pack_of(Symbol file) const noexcept {
+    for (const Pack& p : st_->packs)
+        if (p.file == file) return &p;
+    return nullptr;
+}
+std::span<const Error> LoadSession::warnings() const noexcept {
+    return {st_->warnings.data(), st_->warnings.size()};
+}
+void LoadSession::clear_warnings() {
+    st_->warnings.clear();
+}
 
 namespace detail {
 bool SessionAccess::reads_disk(const LoadSession& s) noexcept {
@@ -756,6 +861,30 @@ std::span<const Str> SessionAccess::required(const LoadSession& s) noexcept {
 size_t SessionAccess::required_before(const LoadSession& s) noexcept {
     return s.st_->recorded ? s.st_->required_from : s.st_->required.size();
 }
+std::span<const Symbol> SessionAccess::pack_levels(const LoadSession& s) noexcept {
+    return {s.st_->pack_levels.data(), s.st_->pack_levels.size()};
+}
+std::span<const Pack> SessionAccess::new_packs(const LoadSession& s) noexcept {
+    const auto& p = s.st_->packs;
+    return {p.data() + std::min(s.st_->packs_from, p.size()), p.data() + p.size()};
+}
+const Pack* SessionAccess::macro_pack(const LoadSession& s, Symbol macro) noexcept {
+    const auto it = s.st_->macro_pack.find(macro);
+    return it == s.st_->macro_pack.end() ? nullptr : &s.st_->packs[it->second];
+}
+void SessionAccess::add_pack(LoadSession& s, const Pack& pack) {
+    if (s.pack_of(pack.file)) return;
+    Pack p = pack;
+    const auto& levels = s.st_->pack_levels;
+    p.rank =
+        static_cast<uint32_t>(std::find(levels.begin(), levels.end(), p.level) - levels.begin());
+    s.st_->packs.push_back(std::move(p));
+}
+void SessionAccess::set_macro_pack(LoadSession& s, Symbol macro, Symbol file) {
+    const auto& packs = s.st_->packs;
+    for (size_t i = 0; i < packs.size(); ++i)
+        if (packs[i].file == file) s.st_->macro_pack[macro] = static_cast<uint32_t>(i);
+}
 void SessionAccess::add_required(LoadSession& s, std::string_view path) {
     Vec<Str>& done = s.st_->required;
     if (std::find(done.begin(), done.end(), path) == done.end()) done.emplace_back(path);
@@ -776,6 +905,7 @@ Expected<Ref<Array>> read_string(std::string_view text, std::string_view name,
             st.defines_before = st.defines;
             st.autorun_from = st.autorun.size();
             st.required_from = st.required.size();
+            st.packs_from = st.packs.size();
         }
     }
     const Str file = detail::normalize_path(name);

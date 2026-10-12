@@ -40,6 +40,15 @@ struct SessionAccess {
     [[nodiscard]] static std::span<const Str> required(const LoadSession& s) noexcept;
     [[nodiscard]] static size_t required_before(const LoadSession& s) noexcept;
     static void add_required(LoadSession& s, std::string_view path);
+    // Packs (D80): the levels, the packs the last recorded read declared, and the pack that
+    // defined a macro, if any.
+    [[nodiscard]] static std::span<const Symbol> pack_levels(const LoadSession& s) noexcept;
+    [[nodiscard]] static std::span<const Pack> new_packs(const LoadSession& s) noexcept;
+    [[nodiscard]] static const Pack* macro_pack(const LoadSession& s, Symbol macro) noexcept;
+    // Adds a pack a cache recorded (ranked by the session's levels), unless its file is
+    // known; and attributes a macro to the pack declared by `file`.
+    static void add_pack(LoadSession& s, const Pack& pack);
+    static void set_macro_pack(LoadSession& s, Symbol macro, Symbol file);
 };
 
 }  // namespace moira::detail

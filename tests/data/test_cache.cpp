@@ -359,3 +359,30 @@ TEST_CASE("a cache records the files #require read, and which it found already r
     LoadSession clean;
     CHECK(cache_fresh(cache, clean));
 }
+
+TEST_CASE("a cache replays packs, and is stale for other pack levels") {
+    test::TempDir dir;
+    dir.write("task.dta", "(pack boss_task (level task))\n#define PHASES (3)");
+    const std::string main = dir.write("main.dta", "#require task.dta\n(a PHASES)");
+    const std::string cache = dir.path("main.datb");
+    LoadSession text;
+    text.set_pack_levels({"game", "task"});
+    text.record_for_cache = true;
+    ok(write_cache(*ok(read_file(main, text)), cache, &text));
+
+    LoadSession cached;
+    cached.set_pack_levels({"game", "task"});
+    REQUIRE(cache_fresh(cache, cached));
+    (void)ok(read_cache(cache, cached));
+    const Pack* p = cached.pack_of(Symbol(dir.path("task.dta")));
+    REQUIRE(p);
+    CHECK(p->rank == 1);
+    // The replayed macro keeps its pack: a game pack using it is warned about.
+    const std::string game = dir.write("game.dta", "(pack rules (level game))\n(b PHASES)");
+    (void)ok(read_file(game, cached));
+    CHECK(cached.warnings().size() == 1);
+
+    LoadSession other;
+    other.set_pack_levels({"task", "game"});
+    CHECK_FALSE(cache_fresh(cache, other));
+}

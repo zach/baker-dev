@@ -21,6 +21,13 @@
 //   #autorun {command}   collect the command into LoadSession::autorun
 //   [N node ...]         at the top level of a file: define macro N
 //
+// Packs (spec §1, D80). A file whose first form is
+//   (pack name (level L) (requires other ...))
+// is a pack at level L of the session's pack levels (set_pack_levels, hardest first); the
+// form is recorded and left out of the tree. Expanding a macro that a softer pack defined,
+// in a harder pack's file, is a warning (the one-way rule): it is kept in warnings(), with
+// file and line. Files that declare no pack are unconstrained.
+//
 // A macro name written as a bare symbol is replaced by the macro's nodes. Expansion
 // shares arrays instead of copying them. Paths may be "quoted" or bare.
 //
@@ -32,9 +39,11 @@
 #include <moira/source_map.hpp>
 
 #include <moira/callback.hpp>
+#include <moira/list.hpp>
 #include <moira/text.hpp>
 
 #include <cstdint>
+#include <initializer_list>
 #include <span>
 #include <string_view>
 
@@ -51,6 +60,15 @@ struct ParseLimits {
     uint32_t max_include_depth = 32;         // #include / #merge nesting
     uint32_t max_includes = 4096;            // files opened per top-level read
     uint64_t max_nodes = uint64_t{1} << 26;  // nodes created per top-level read
+};
+
+// A file that declared itself a pack (above).
+struct Pack {
+    Symbol name;
+    Symbol level;
+    uint32_t rank = 0;  // the level's place in the session's pack levels; 0 is the hardest
+    Symbol file;
+    List<Symbol> requires_packs;
 };
 
 // State shared by all files read through it. Macros and defines persist from one file to
@@ -86,6 +104,15 @@ public:
     // #autorun commands, in load order.
     [[nodiscard]] std::span<const Node> autorun() const noexcept;
     void clear_autorun();
+
+    // The pack levels, hardest first: {"engine", "game", "task"}.
+    void set_pack_levels(std::initializer_list<Symbol> levels);
+    void set_pack_levels(std::span<const Symbol> levels);
+    [[nodiscard]] std::span<const Pack> packs() const noexcept;
+    [[nodiscard]] const Pack* pack_of(Symbol file) const noexcept;  // null: not a pack
+    // Warnings from the files read, in order (the one-way rule), until cleared.
+    [[nodiscard]] std::span<const Error> warnings() const noexcept;
+    void clear_warnings();
 
     ParseLimits limits;
     // Set for an edit-mode parse: records source text and node spans (source_map.hpp).

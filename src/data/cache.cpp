@@ -49,6 +49,9 @@ constexpr uint32_t kEndian = 0x01020304;
 //   (define NAME body-or-0 ...) (undefine NAME ...) (autorun {command} ...)
 //   (required "path" ...)              files #require had read when the load began
 //   (require "path" ...)               files the load #required
+//   (levels L ...)                     the session's pack levels (D80)
+//   (packs (name level file (requires ...)) ...)   packs the load declared
+//   (macro_packs NAME file ...)        the pack each macro the load defined came from
 struct Header {
     char magic[10];
     uint16_t version;
@@ -353,7 +356,8 @@ Ref<Array> record_of(const LoadSession& s) {
     Vec<Node> files{Node(Symbol("files"))}, before{Node(Symbol("before"))},
         define{Node(Symbol("define"))}, undefine{Node(Symbol("undefine"))},
         autorun{Node(Symbol("autorun"))}, required{Node(Symbol("required"))},
-        require{Node(Symbol("require"))};
+        require{Node(Symbol("require"))}, levels{Node(Symbol("levels"))},
+        packs{Node(Symbol("packs"))}, macro_packs{Node(Symbol("macro_packs"))};
     for (const CacheFile& f : A::files(s)) {
         Vec<Node> entry{Node(String::make(f.path)), Node(f.size), Node(f.hash)};
         files.push_back(list(entry));
@@ -369,13 +373,24 @@ Ref<Array> record_of(const LoadSession& s) {
         if (it != was.end() && it->second == body) continue;
         define.push_back(Node(name));
         define.push_back(body ? Node(body) : Node(0));
+        if (const Pack* p = A::macro_pack(s, name)) {
+            macro_packs.push_back(Node(name));
+            macro_packs.push_back(Node(p->file));
+        }
     }
     for (const Node& n : A::new_autorun(s)) autorun.push_back(n);
     const auto paths = A::required(s);
     for (size_t i = 0; i < paths.size(); ++i)
         (i < A::required_before(s) ? required : require).push_back(Node(String::make(paths[i])));
-    Vec<Node> meta{list(files),   list(before),   list(define), list(undefine),
-                   list(autorun), list(required), list(require)};
+    for (const Symbol l : A::pack_levels(s)) levels.push_back(Node(l));
+    for (const Pack& p : A::new_packs(s)) {
+        Vec<Node> deps{Node(Symbol("requires"))};
+        for (const Symbol d : p.requires_packs) deps.push_back(Node(d));
+        Vec<Node> entry{Node(p.name), Node(p.level), Node(p.file), list(deps)};
+        packs.push_back(list(entry));
+    }
+    Vec<Node> meta{list(files),    list(before),  list(define), list(undefine), list(autorun),
+                   list(required), list(require), list(levels), list(packs),    list(macro_packs)};
     return Array::make_from({meta.data(), meta.size()});
 }
 
@@ -406,6 +421,12 @@ bool fresh(const Array& meta, LoadSession& s) {
         const String* p = (*required)[static_cast<uint32_t>(i + 1)].string();
         if (!p || p->view() != paths[i].view()) return false;
     }
+    // The pack levels decide which packs load and what they warn about.
+    const Array* levels = meta.try_find("levels");
+    const auto now_levels = SessionAccess::pack_levels(s);
+    if (!levels || levels->size() - 1 != now_levels.size()) return false;
+    for (size_t i = 0; i < now_levels.size(); ++i)
+        if (!(*levels)[static_cast<uint32_t>(i + 1)].is(now_levels[i])) return false;
     const SessionAccess::Defines& now = SessionAccess::defines(s);
     if (before->size() % 2 == 0 || (before->size() - 1) / 2 != now.size()) return false;
     for (uint32_t i = 1; i + 1 < before->size(); i += 2) {
@@ -432,6 +453,23 @@ void replay(const Array& meta, LoadSession& s) {
             if (const auto name = n.try_sym()) s.undefine(*name);
     if (const Array* a = meta.try_find("autorun"))
         for (const Node& n : a->values()) SessionAccess::add_autorun(s, n);
+    if (const Array* ps = meta.try_find("packs"))
+        for (const Node& n : ps->values()) {
+            const Array* p = n.array();
+            if (!p || p->size() != 4) continue;
+            Vec<Symbol> deps;
+            if (const Array* d = (*p)[3].array())
+                for (const Node& x : d->values())
+                    if (const auto sym = x.try_sym()) deps.push_back(*sym);
+            SessionAccess::add_pack(
+                s, Pack{(*p)[0].try_sym().value_or(Symbol()), (*p)[1].try_sym().value_or(Symbol()),
+                        0, (*p)[2].try_sym().value_or(Symbol()),
+                        List<Symbol>({deps.data(), deps.size()})});
+        }
+    if (const Array* m = meta.try_find("macro_packs"))
+        for (uint32_t i = 1; i + 1 < m->size(); i += 2)
+            SessionAccess::set_macro_pack(s, (*m)[i].try_sym().value_or(Symbol()),
+                                          (*m)[i + 1].try_sym().value_or(Symbol()));
     if (const Array* r = meta.try_find("require"))
         for (const Node& n : r->values())
             if (const String* p = n.string()) SessionAccess::add_required(s, p->view());

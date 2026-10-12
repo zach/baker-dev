@@ -698,3 +698,17 @@ TEST_CASE("cache_dir: file layers load through caches outside edit mode") {
     REQUIRE(edit.push_layer("base", base));
     CHECK(writes == before);
 }
+
+TEST_CASE("Config forwards the one-way rule's warnings") {
+    TempDir dir;
+    dir.write("task.dta", "(pack boss_task (level task))\n#define PHASES (3)");
+    const std::string game =
+        dir.write("game.dta", "(pack rules (level game))\n#require task.dta\n(b PHASES)");
+    Config cfg({.tweaks = nullptr});
+    cfg.session().set_pack_levels({"game", "task"});
+    std::vector<std::string> warnings;
+    cfg.set_warning_handler([&](const Error& e) { warnings.emplace_back(to_string(e)); });
+    REQUIRE(cfg.push_layer("game", game));
+    REQUIRE(warnings.size() == 1);
+    CHECK(warnings[0].find("uses macro 'PHASES'") != std::string::npos);
+}

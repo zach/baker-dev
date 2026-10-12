@@ -408,6 +408,10 @@ struct Config::Impl {
                                   : read_through_cache(layer.path, cache, *session);
         session->set_reader(reader);
         session->source_map = nullptr;
+        // The one-way rule's warnings (D80) go to the warning handler.
+        for (const Error& w : session->warnings())
+            if (warn) warn(w);
+        session->clear_warnings();
         layer.file = deps.empty() ? layer.path : deps.front().path;
         layer.missing = false;
         if (!root) {

@@ -2277,3 +2277,29 @@ structurally equal trees.*
   all three (the plan's third criterion); later reads, copies, and fresh sessions; a
   missing file; a cache round trip and its staleness.
 - `bench_parse`: 121–126 MB/s, unchanged. The core is 9,886 lines.
+
+## D82. M8b, step 2: packs and the one-way rule for macros
+
+*Results of `docs/m8b-plan.md` §2 (D80).*
+
+- **Declaration.** A file whose first form is `(pack name (level L) (requires ...))` is a
+  pack: the session records it (`packs()`, `pack_of(file)`; name, level, its rank among
+  `set_pack_levels({...})`, file, requires) and the tree leaves the form out. Directives
+  may come before it; a later `(pack ...)` is ordinary data. A pack without a level, or
+  with one not in the session's list, is an error at load. Other children (`owners`,
+  `for`, `stage`) are accepted and kept for M10.
+- **Attribution.** Each macro and flag a pack's file defines is attributed to that pack
+  (redefined outside a pack, it loses the attribution). Macros defined before the
+  declaration belong to no pack.
+- **The one-way rule, for macros.** Expanding, in a pack's file, a macro that a softer
+  pack defined is a warning in `session.warnings()`, once per file and macro, with file
+  and line. Softer using harder, and files that declare no pack, pass silently. Config
+  forwards a layer's warnings to its warning handler.
+- **Caches (D72).** A recorded load's record adds the session's pack levels (a cache is
+  stale for other levels), the packs it declared, and the pack of each macro it defined;
+  a cache load replays both, so later text loads still warn about a cached pack's macros.
+- **Tests:** the plan's fourth criterion for macros (a game pack using a task pack's
+  macro warns, once, located; task using engine does not), level errors, first-form only,
+  cache replay and staleness, and Config's forwarding.
+- `bench_parse`: 128–131 MB/s (121–126 before; noise). The core is 10,064 lines, about 70
+  more than the plan's estimate for this part.

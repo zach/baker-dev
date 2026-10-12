@@ -297,3 +297,56 @@ TEST_CASE("#require reads a file once per session (spec §1)") {
     fs.files["e.dta"] = "#require nope.dta";
     CHECK(fs.fail("e.dta").code() == ErrorCode::Io);
 }
+
+TEST_CASE("packs declare a level, and the one-way rule warns on softer macros (D80)") {
+    Files fs;
+    fs.session.set_pack_levels({"engine", "game", "task"});
+    fs.files["engine.dta"] = "(pack engine_core (level engine))\n#define GRAVITY (9.8)";
+    fs.files["task.dta"] =
+        "(pack boss_task (level task) (requires game_rules))\n#define PHASES (3)\n"
+        "(uses GRAVITY)";
+    fs.files["game.dta"] =
+        "(pack game_rules (level game))\n#require engine.dta\n#require task.dta\n"
+        "(a GRAVITY PHASES)\n(b PHASES)";
+    fs.files["loose.dta"] = "#require task.dta\n(free PHASES)";
+
+    // The declarations are recorded and left out of the tree.
+    CHECK(fs.load("game.dta") == "((uses 9.8) (a 9.8 3) (b 3))");
+    REQUIRE(fs.session.packs().size() == 3);
+    const Pack* game = fs.session.pack_of("game.dta");
+    REQUIRE(game);
+    CHECK(game->name == Symbol("game_rules"));
+    CHECK(game->rank == 1);
+    const Pack* task = fs.session.pack_of("task.dta");
+    REQUIRE(task);
+    CHECK(task->rank == 2);
+    REQUIRE(task->requires_packs.size() == 1);
+    CHECK(task->requires_packs[0] == Symbol("game_rules"));
+
+    // The game pack used the task pack's macro, twice, on line 4: one warning, located.
+    // The task pack using the engine's GRAVITY is fine: softer may use harder.
+    REQUIRE(fs.session.warnings().size() == 1);
+    const Error& w = fs.session.warnings()[0];
+    CHECK(w.file() == Symbol("game.dta"));
+    CHECK(w.line() == 4);
+    CHECK(to_string(w).find("pack 'game_rules' (level game) uses macro 'PHASES' from the "
+                            "softer pack 'boss_task' (level task)") != std::string::npos);
+    // A file that declares no pack is unconstrained.
+    fs.session.clear_warnings();
+    CHECK(fs.load("loose.dta") == "((free 3))");
+    CHECK(fs.session.warnings().empty());
+}
+
+TEST_CASE("a pack's level must be one of the session's") {
+    Files fs;
+    fs.files["p.dta"] = "(pack p (level nowhere))";
+    CHECK(to_string(fs.fail("p.dta")).find("not one of the session's pack levels ()") !=
+          std::string::npos);
+    fs.session.set_pack_levels({"engine"});
+    CHECK(to_string(fs.fail("p.dta")).find("(engine)") != std::string::npos);
+    fs.files["q.dta"] = "(pack q)";
+    CHECK(to_string(fs.fail("q.dta")).find("needs a (level L)") != std::string::npos);
+    // Only the first form declares: a later (pack ...) is data.
+    fs.files["r.dta"] = "(x 1)\n(pack r (level nowhere))";
+    CHECK(fs.load("r.dta") == "((x 1) (pack r (level nowhere)))");
+}
