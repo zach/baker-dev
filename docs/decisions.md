@@ -2427,3 +2427,75 @@ enumeration API) and `#require`.*
 - **Q4, doc tests:** the README's five-minute path is also a CTest program
   (`examples/quickstart`), and a script checks that the README's code block matches it
   line for line.
+
+## D88. A tweak's value stops before its metadata
+
+*Found writing `examples/harness-imgui` (M9); answered by the project owner 2026-10-12:
+fix it in M9.*
+
+- **The gap.** A tweak bound to every value after its tag, metadata included. A scalar
+  read only the first, so `(width 2 (range 0 10))` worked, but a value of several
+  numbers did not: `(tint 0.9 0.5 0.2 (range 0 1))` gave a `Tweak<std::array<float, 3>>`
+  five values, which did not convert, so it warned and kept its default. The inference
+  that a 3- or 4-number value ranged 0..1 is a color could never apply to a range written
+  in the data.
+- **The rule.** A tweak's value ends before the trailing arrays tagged with the keys a
+  tweak reads as metadata: `range`, `step`, `desc`, `note`, `kind`, and `group`. Other
+  tagged elements are the value's own, so a `Convert<T>` that reads tagged arrays reads
+  as before. Write-back already took the untagged children as the value, so a live edit
+  of such a tweak writes back its numbers and keeps the metadata.
+- **Not changed:** `get<T>` on a path is data lookup, not a tweak, and still sees every
+  value; `get<std::array<float, 3>>` of the tint above fails as before. Metadata in data is
+  a tweak convention (spec §4), and a lookup cannot tell metadata from an element.
+- **Cost:** none on a hot path. `TweakBase::bind` runs per tweak on each merge, and the
+  check walks back over the value's trailing arrays only.
+- **Tests:** a three-number tweak and a list with metadata in the data bind, infer
+  `color`, and write back keeping the metadata; a trailing tagged element that is not
+  metadata stays in the value. The harness's ball color keeps its range in the data.
+
+## D89. M9 results
+
+*M9 (spec §10): `README.md`, `docs/language.md`, `docs/cookbook.md`, and `examples/`,
+with D87's answers. Done when a reader can go from zero to a working tweak in under five
+minutes of reading, the cookbook's live-ops section covers environment boundaries,
+version history, rollback, and personal and experiment layers, and the harness pushes a
+personal `local` layer by the convention in spec §4.*
+
+- **1. Zero to a working tweak in under five minutes of reading: met.** The README's
+  path, from its first line to the edited value printing, is about 290 words of prose and
+  40 lines of code and data: about a minute and a half of prose at 200 words a minute,
+  and the code besides. `examples/quickstart` is that path as a program; its test copies
+  the data, edits it, and presses Enter, and `tools/check_readme.py` fails if the
+  README's blocks and the files differ by a line (D87 Q4).
+- **2. The cookbook's live ops: met.** Environment boundaries (stacks by directory,
+  `freeze()` and `live_layers`, shipping), version history (overlays as dated files under
+  review, layer names as provenance, `snapshot()` beside a repro), rollback
+  (`remove_layer`, and why it leaves no trace), tests before an overlay ships (shapes and
+  `check`, in CI), and personal and experiment layers. `examples/live-ops` runs them in
+  development and shipping builds alike.
+- **3. The harness pushes `local/<user>.dta`: met.** `examples/harness-imgui` pushes it
+  with `{.optional = true}`; "Keep for me" writes a value there, creating the file, and
+  its headless test checks that.
+- **What was built.**
+  - `README.md`, short (D87 Q3): 203 lines, against 206 that stopped at M7.
+  - `docs/language.md` (373 lines): data, the preprocessor, packs and levels, shapes,
+    script, and errors, with D80, D84, D85, and D54 as built rather than as the spec
+    wrote them. `docs/cookbook.md` (293 lines): its three sections, then tweaks in
+    practice, reload callbacks, live ops, the cache in a build step, harness packs, a
+    console over `eval`, and repro scripts.
+  - Examples, each a CTest run against expected output: `quickstart`, `config`,
+    `scripting`, `objects`, `tasks`, `live-ops`, and `remote-console`, beside
+    `one_line_tweak` and `calculator`, which stay. The console is 89 lines of code over a
+    52-line socket shim, tested over loopback on every CI platform, MSVC included (D87
+    Q2).
+  - `examples/harness-imgui` (D87 Q1): Dear ImGui v1.92.9b and GLFW 3.4 at pinned
+    commits, behind `MOIRA_BUILD_HARNESS`; Tweaks, Shapes, Console, Loop, Layers, and
+    Snapshots panels, provenance on hover, write-back. CI builds it on Linux and MSVC and
+    runs its panels headless. The local matrix gains a harness configuration.
+- **A gap the docs exposed, fixed (D88):** a tweak of several numbers could not carry
+  metadata in the data. The owner chose to fix it in M9; it is the milestone's only core
+  change.
+- **Not changed:** no benchmark row; the core changed only in `TweakBase::bind`, which
+  runs per tweak on each merge. The core is 10,116 lines of 15,000 (10,103 before; D88),
+  and `moira::shape` 400 of 600.
+- `docs/m9-plan.md` is deleted; its answers are D87.
