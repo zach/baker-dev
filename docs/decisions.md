@@ -1936,6 +1936,10 @@ path or a `TextSink`), `read_cache` (a path, through a session), and `read_cache
   header comment says so.
 - **Not in a cache:** the session's `#autorun` commands, which are not part of the tree.
   M8b decides whether `read_cached` keeps them.
+- **An arena allocates nothing beyond itself.** Its list of dependencies was a `Vec`,
+  which MSVC's debug library allocates even when empty (D62; CI caught the second
+  allocation). It is now a raw array grown from the arena's allocator on the first
+  dependency, so every load, text or cache, saves that allocation there.
 - **Allocations on the path.** `read_cache(path, session)` opens the file from a stack
   copy of the path (a heap copy only beyond 511 bytes) and reads it unbuffered straight
   into the arena. A custom reader costs a temporary copy.
@@ -1964,3 +1968,11 @@ path or a `TextSink`), `read_cache` (a path, through a session), and `read_cache
   timed against a target; it matters for M8b's `read_cached`, which writes after a parse.
 - `bench_parse` and `bench_lookup` against the previous commit: unchanged within noise
   (parse 110–117 MB/s before, 114–119 after; lookup rows within ±1.5 ns).
+
+## D72. M8b: a cache load replays the session
+
+*Answered by the project owner 2026-10-12, as recommended.* A text load can change its
+`LoadSession` as well as return a tree: its `#define`, `#undef`, and macros stay for later
+files, and its `#autorun` commands are collected. The cache records those effects
+(defines and macros added or removed, and the autorun commands) and loading it applies
+them, so a cache load leaves the session as the text load did.

@@ -83,11 +83,20 @@ void Arena::adopt(Node* slot, Node&& n, bool building) {
             (void)release(target.refs);
         return;
     }
-    if (std::find(deps_.begin(), deps_.end(), &target) != deps_.end()) {
+    if (std::find(deps_, deps_ + dep_count_, &target) != deps_ + dep_count_) {
         (void)release(target.refs);  // never the last: a dependency holds it
         return;
     }
-    deps_.push_back(&target);
+    if (dep_count_ == dep_cap_) {
+        const uint32_t cap = dep_cap_ ? dep_cap_ * 2 : 4;
+        auto** grown =
+            static_cast<Owner**>(allocate(alloc_, cap * sizeof(Owner*), alignof(Owner*)));
+        if (dep_count_) std::memcpy(grown, deps_, dep_count_ * sizeof(Owner*));
+        deallocate(alloc_, deps_, dep_cap_ * sizeof(Owner*));
+        deps_ = grown;
+        dep_cap_ = cap;
+    }
+    deps_[dep_count_++] = &target;
 }
 
 Ref<Array> Arena::make_array(std::span<Node> nodes, Symbol file, int32_t line) {
@@ -137,8 +146,9 @@ void Arena::own_release() noexcept {
 }
 
 void Arena::free() noexcept {
-    for (Owner* d : deps_)
-        if (release(d->refs)) free_owner(*d);
+    for (uint32_t i = 0; i < dep_count_; ++i)
+        if (release(deps_[i]->refs)) free_owner(*deps_[i]);
+    deallocate(alloc_, deps_, dep_cap_ * sizeof(Owner*));
     Block* b = blocks_;
     while (b) {
         Block* next = b->next;

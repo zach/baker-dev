@@ -172,7 +172,8 @@ cipher says so in its header, and loading it without one is an error.
 
 ## Open questions
 
-**Answered 2026-10-12 (D70):** Q1–Q4, each as recommended.
+**Answered 2026-10-12 (D70):** Q1–Q4, each as recommended. M8b's question, what a
+cache load does to the session, is D72: it replays the text load's effects.
 
 **Q1. D57's layout work.**
 - **Recommended.** Measure first. Add the cold rows, build the cache (whose layout may

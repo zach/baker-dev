@@ -7,7 +7,6 @@
 #include <moira/node.hpp>
 #include <moira/ref.hpp>
 
-#include "common/containers.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -78,9 +77,7 @@ private:
         Block* next;
         size_t bytes;
     };
-    explicit Arena(const Allocator& a) : head_{{}, this}, alloc_(a), deps_(alloc_) {
-        head_.owner.kind = kArena;
-    }
+    explicit Arena(const Allocator& a) : head_{{}, this}, alloc_(a) { head_.owner.kind = kArena; }
     // The arena's own count, changed without atomics: until the load is returned, only the
     // thread building it can see it.
     void own_retain() noexcept;
@@ -102,7 +99,12 @@ private:
     char* cur_ = nullptr;
     size_t left_ = 0;
     size_t next_ = 0;  // the size of the next block
-    Vec<Owner*> deps_;
+    // The owners this arena's nodes point into, counted once each. A raw array, grown from
+    // alloc_ on the first dependency: an empty Vec allocates under MSVC's debug library
+    // (D62), and most loads have no dependency.
+    Owner** deps_ = nullptr;
+    uint32_t dep_count_ = 0;
+    uint32_t dep_cap_ = 0;
     size_t whole_ = sizeof(Arena);  // this allocation's size: more if it holds a block
 };
 
