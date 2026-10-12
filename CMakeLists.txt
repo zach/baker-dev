@@ -191,26 +191,7 @@ if(MOIRA_BUILD_TOOLS)
 endif()
 
 if(MOIRA_BUILD_EXAMPLES)
-  add_executable(moira_example_one_line_tweak examples/one_line_tweak/main.cpp)
-  target_link_libraries(moira_example_one_line_tweak PRIVATE moira::data)
-  if(MOIRA_BUILD_TESTS)
-    add_test(NAME moira_example_one_line_tweak
-      COMMAND moira_example_one_line_tweak ${PROJECT_SOURCE_DIR}/examples/one_line_tweak/config.dta)
-    set_tests_properties(moira_example_one_line_tweak PROPERTIES
-      PASS_REGULAR_EXPRESSION "before loading: box width 2[^.0-9].*after loading:  box width 3[.]5 .*config[.]dta:3[)]  note: 3-4 reads well")
-  endif()
-endif()
-
-if(MOIRA_BUILD_EXAMPLES AND MOIRA_BUILD_SCRIPT)
-  add_executable(moira_example_calculator examples/calculator/main.cpp)
-  target_link_libraries(moira_example_calculator PRIVATE moira::script)
-  if(MOIRA_BUILD_TESTS)
-    add_test(NAME moira_example_calculator
-      COMMAND moira_example_calculator --functions ${PROJECT_SOURCE_DIR}/examples/calculator/functions.dta
-        "{+ 1 {* 2 3}}" "{square 7}" "{hypot 3 4}" "{average $ans 1}" "{clamp 12 0 10}")
-    set_tests_properties(moira_example_calculator PROPERTIES
-      PASS_REGULAR_EXPRESSION "^7\r?\n49\r?\n5\.0\r?\n3\.0\r?\n10\r?\n$")
-  endif()
+  add_subdirectory(examples)
 endif()
 
 if(MOIRA_BUILD_BENCH)

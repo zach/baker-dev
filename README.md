@@ -1,171 +1,164 @@
 # Moira
 
-A small, MIT-licensed C++20 data and scripting library in the spirit of Harmonix's
-DataArray, as described in Eric Malafeew's GDC 2005 talk *Data-Driven Programming Made
-Easy*.
+Moira is a small, MIT-licensed C++20 library for data and scripting, in the spirit of
+Harmonix's DataArray (Eric Malafeew, *Data-Driven Programming Made Easy*, GDC 2005). It
+reads a Lisp-like text format into trees, stacks files into layers that reload while the
+program runs, and evaluates commands written in the same format.
 
-The goal: replacing a hardcoded constant with a configured, hot-reloadable,
-designer-editable value should cost one line and no ceremony.
-
-## Status
-
-**M5: config, tweaks, the data loop, script evaluation, and objects.** You can read DTA text into
-trees, look values up with typed, located errors, stack config files and overlays into
-layers, hot-reload them with every reload timed, replace constants with one-line tweaks,
-toggle experiment layers A/B, snapshot and restore exact states, and write values tuned in
-the running program back into their source files. Commands evaluate lazily, native
-functions bind in one line, C++ objects are callable from script (and script handlers
-from C++), and `moira::check` finds bad calls before anything runs. Messages and tasks are
-later milestones (`docs/spec.md` §10).
-`docs/decisions.md` records where the implementation deviates from the spec.
-
-Moira never throws. Every call that can fail returns `Expected<T>` (`std::expected` where
-the standard library has it) holding the value or a located `Error` (D54). The samples
-below leave most of the checks out.
-
-Its public headers include no standard containers, strings, or `<functional>`: only
-language support and `string_view`/`span`/`optional`/`expected` (D55, D60). Text comes
-out through a `TextSink`. A host that uses the STL includes `<moira/std_interop.hpp>`
-and `<moira/std_script.hpp>`, which add `std::string` forms (`to_string`, `to_dta`,
-`reference`), `Convert<>` for standard containers, and `std::hash<Symbol>`.
-
-The one-line constant replacement (`examples/one_line_tweak`):
+Its first promise: turning a hardcoded constant into a configured, hot-reloadable,
+designer-editable value costs one line.
 
 ```cpp
 // Before:
 const float kBoxWidth = 2.0f;
 
-// After: configured, hot-reloadable, editable.
-static moira::Tweak<float> kBoxWidth{"box.width", 2.0f,
-    {.range = {0, 10}, .step = 1, .desc = "Box width"}};
+// After: read from data, reloaded when the file changes, tunable live and saved back.
+static moira::Tweak<float> kBoxWidth{"box.width", 2.0f, {.range = {0, 10}, .desc = "Box width"}};
 
-float w = kBoxWidth;      // one relaxed atomic load
+float w = kBoxWidth;  // one relaxed atomic load
 ```
 
-```cpp
-moira::Config cfg;                                  // binds every Tweak
-cfg.push_layer("default", "default.dta");
-cfg.push_layer("local", "local/sam.dta", {.optional = true});   // per user, not checked in
-cfg.push_layer("patch", overlay);                   // a live-ops overlay array
-cfg.remove_layer("patch");                          // rollback
+## Five minutes to a working tweak
 
-cfg.on_reload("renderer", [&] { renderer.rebuild(); });   // when that group changes
-cfg.reload({.trigger = "watcher"_sym, .origin_ns = saved_at});   // after a file changes
-auto rec = cfg.last_reload();                       // scan, read, parse, merge, bind, notify
+You need CMake 3.20, Ninja or Make, and a C++20 compiler (GCC 13, Clang 18, or MSVC 2022).
 
-auto s = cfg.source("box.width");                   // layer, file, and line of the value
-kBoxWidth.set(2.5f);                                // tune it live (the scratch layer)...
-kBoxWidth.write_back();                             // ...and save it: a one-line diff
+**1. Build Moira.** This builds the library, its tests, and the examples:
 
-cfg.toggle_layer("experiment");                     // A/B
-auto changes = cfg.layer_effect("experiment");      // what a layer actually changes
-cfg.promote("experiment", "default");               // into shared data, all or nothing
-auto snap = cfg.snapshot();                         // ...and later cfg.restore(snap)
+```sh
+git clone https://github.com/zach/moira-dev.git moira && cd moira
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
 ```
 
-Lookup on a tree:
+**2. Write the data.** `examples/quickstart/default.dta` holds one value, with the metadata
+a tuning panel would show. `;` starts a comment; an array is `(tag values...)`, and a path
+like `player.speed` walks tags from the top.
 
-```cpp
-// (menu ('bacon and eggs' (price 12.75) (calories 120)))
-auto root = moira::read_file("menu.dta");          // Expected<Ref<Array>>
-if (!root) return report(root.error());
-
-const moira::Array* eggs = (*root)->try_get("menu.'bacon and eggs'");   // null if absent
-auto price = eggs->find_float("price");             // Expected<double>: 12.75
-auto fat   = eggs->find<int>("fat", 0);             // absent: the fallback
-auto same  = (*root)->get<float>("menu.'bacon and eggs'.price");
-std::string text = moira::to_dta(**root);           // (std_interop.hpp) reads back equal
+<!-- file: examples/quickstart/default.dta -->
+```dta
+; The values the game reads, by path: player.speed is 4.5 here.
+(player
+   (speed 4.5 (range 0 10) (desc "Run speed, in m/s")))
 ```
 
-Scripting (`examples/calculator`):
+**3. Replace the constant.** `examples/quickstart/main.cpp` is the whole program. A
+`Tweak` registers itself when the program starts; the `Config` binds every tweak to the
+value at its path, and binds them again on each reload. A missing path is not an error:
+the default stands.
 
+<!-- file: examples/quickstart/main.cpp -->
 ```cpp
-moira::Context ctx;
-ctx.func("hypot", [](double a, double b) { return std::hypot(a, b); });  // types deduced
-ctx.eval("{hypot 3 4}");                            // 5.0
-ctx.eval("{func square ($x) {* $x $x}}");           // a script function
-ctx.var("difficulty") = 3;
+// The five-minute path: a constant becomes a tweak, read from default.dta and reloaded.
+#include <moira/config.hpp>
 
-// (enemy (hp {* 100 $difficulty}))
-auto hp = enemy.find_int("hp");                     // 300: typed lookups evaluate
-auto report = moira::check(*tree, ctx);             // wrong arity, found without running
-```
+#include <cstdio>
+#include <iostream>
+#include <string>
 
-`if` is an ordinary function: its branches are passed unevaluated, so the evaluator needs
-no special forms (`docs/script-reference.md` lists every built-in).
+// Before: const float kPlayerSpeed = 4.0f;
+static moira::Tweak<float> kPlayerSpeed{"player.speed", 4.0f};
 
-Objects (`moira/object.hpp`):
-
-```cpp
-struct Person : moira::Object<Person> {
-    float height = 6.0f;
-    float on_grow(float amount) { return height += amount; }
-    static void bind(moira::Binder<Person>& b) {
-        b.method("grow", &Person::on_grow);
-        b.property("height", &Person::height);
+int main() {
+    moira::Config cfg;  // binds every Tweak in the program
+    if (auto r = cfg.push_layer("default", "default.dta"); !r) {
+        std::printf("%s\n", moira::to_string(r.error()).data());
+        return 1;
     }
-};
+    std::printf("player speed %g\n", double(kPlayerSpeed));
 
-Person bob;
-ctx.add(bob, "bob");
-ctx.eval("{bob grow 10}");                          // script calls C++
-ctx.eval("{class Person (miss {set [height] 0})}"); // script handlers for a C++ type
-ctx.call(bob, "miss");                              // C++ calls script
+    // Edit default.dta, save, and press Enter. A game calls reload() once a frame instead.
+    for (std::string line; std::getline(std::cin, line);) {
+        if (auto r = cfg.reload(); !r) std::printf("%s\n", moira::to_string(r.error()).data());
+        std::printf("player speed %g\n", double(kPlayerSpeed));
+    }
+    return 0;
+}
 ```
 
-A failed lookup says what, where, and how it got there:
+Every call that can fail returns `Expected<T>`, which holds the value or a located
+`Error`; Moira never throws.
 
+**4. Run it, then change the data.**
+
+```sh
+cd examples/quickstart
+../../build/examples/moira_example_quickstart
 ```
-moira: 'price' is float, not int  (menu.dta:3, at menu/'bacon and eggs')
+
+It prints `player speed 4.5`. Change `4.5` to `6` in `default.dta`, save, and press
+Enter: it prints `player speed 6`. Break the file (delete a parenthesis) and press Enter:
+the reload reports the file and line, and the old value stays. Your program never
+restarted.
+
+**5. Use it in your own project.**
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(moira GIT_REPOSITORY https://github.com/zach/moira-dev.git GIT_TAG main)
+FetchContent_MakeAvailable(moira)
+target_link_libraries(game PRIVATE moira::moira)
 ```
 
-What exists:
+Call `cfg.reload()` once a frame, or when a file watcher fires. That is the loop: edit,
+save, see it.
 
-- `Node` (16 bytes; 64-bit ints and doubles), interned `Symbol`, `String` and `Array` with
-  children inline, every array tagged with its source file and line. A load's tree lives
-  in one arena, counted as a whole (D64).
-- A parser that never crashes on bad input: every error has a file and line.
-- The preprocessor: `#include`, `#include_opt`, `#merge`, `#ifdef`/`#ifndef`/`#else`/
-  `#endif`, `#define`, `#undef`, `#autorun`, and `[NAME ...]` macros.
-- A pretty-printer whose output parses back to an equal tree.
-- Lookup: `try_find` (the child array, or null) and `find<T>` by tag, `find_int`/
-  `find_float`/`find_sym`/`find_str`/`find_array`, fallbacks, `get<T>` by `Path`,
-  `Convert<T>` for your own types (vectors and fixed arrays built in; see `array.hpp`),
-  opt-in `sort_for_lookup()` binary search, and `subarrays()`.
-  `find_float` on a 20-child array takes about 10 ns and never allocates.
-- `Config`: named layers merged bottom to top (optional and disabled layers, toggles),
-  provenance (`source()`: layer, file, line), hot reload with per-group migrate-or-punt
-  callbacks, reload telemetry in six timed stages with an injectable time source, live
-  edits in a `scratch` layer with an allocation-free fast path, write-back that replaces
-  only the changed tokens (or inserts an entry beside its siblings) and refuses, with a
-  location, what it cannot edit exactly, `layer_effect`, `diff`, `promote`, and snapshots.
-  Patterns are in `docs/cookbook.md`.
-- `Tweak<T>`: one-line tunables with code- or data-side metadata (`range`, `step`, `desc`,
-  `note`, `kind`, `group`), `on_change`, and `dev_only` for `MOIRA_SHIPPING`.
-- Edit-mode parsing (`SourceMap`): the byte span of every node, beside an unchanged tree.
-- `Context` (`moira::script`): lazy evaluation with no special forms, native functions
-  bound from their signatures (`Raw<T>` for unevaluated parameters, `std::optional` for
-  optional ones, `Args` for the rest, overload sets), dynamically scoped `$variables`,
-  script functions (`{func}`, with `stub`/`provisional`/`deprecated` status), `eval` of
-  text, a generated reference (`docs/script-reference.md`), and `check` with a demand
-  report. A native call with two scalar arguments takes about 30 ns and never allocates.
-- Objects: `Object<T>` and `Binder<T>` for methods (overloads, docs, status) and
-  properties, inheritance flattened at bind time, salted handles that make a reference to
-  a destroyed object a clean error, script handlers attached to C++ types (`{class}`),
-  script classes and `{new}`/`{delete}`, `$this`, `[property]` paths, and loose
-  per-object parameters.
-- Typed messages: plain aggregates bound with `b.on<M>`, sent with `obj.handle(msg)` in
-  about 9 ns with no allocation, or to many objects with `handle_all`. The same handler
-  answers `{bob hit 20}`, and a script handler `(hit ($points) ...)` answers C++.
-- Tasks: C++20 coroutines (`co_await delay(t)`, `until(...)`, `next_tick()`) whose frames
-  come from a per-Scheduler pool, never the heap, and the script side's
-  `{scheduler delay_task|interp_task|thread_task ...}` with variables captured by value.
-  The host drives time with `tick(dt)`; a tick with 10,000 sleeping tasks costs ~5 ns.
-- Debugging: the script call stack in every error (`describe`, `script_backtrace`), call
-  statistics (`stats`, `hardening_candidates`, timing behind `set_profiling`), and a trace
-  hook, all compiled out under `MOIRA_SHIPPING`.
-- Tests, a hand-written corpus, benchmarks, and libFuzzer harnesses for parsing and lookup
-  (`-DMOIRA_BUILD_FUZZERS=ON`).
+## What else is there
+
+- **Lookup.** `find_float("price")`, `get<int>("menu.eggs.price")`, and `Convert<T>` for
+  your own types; every failure says what, where, and how it got there:
+  `moira: 'price' is float, not int  (menu.dta:3, at menu/eggs)`.
+  [Language guide](docs/language.md#data).
+- **Layers and write-back.** Stack `default`, `platform`, a per-user `local` layer, and
+  live-ops overlays; ask any value where it came from (`source()`); tune it live and write
+  it back to its file as a one-line diff; flip experiment layers A/B; snapshot and restore.
+  [Cookbook](docs/cookbook.md), [`examples/config`](examples/config).
+- **Live ops.** Overlays pushed into a shipped build, frozen except for what
+  `live_layers` allows, rolled back with one call. [Cookbook: live ops](docs/cookbook.md#live-ops),
+  [`examples/live-ops`](examples/live-ops).
+- **Script.** Commands like `{* $x 2}` evaluate lazily, so `if` is an ordinary function.
+  Native functions bind in one line with types deduced; `{func}` defines script ones;
+  `check` finds bad calls before anything runs; `eval` serves consoles.
+  [Language guide](docs/language.md#script), [reference](docs/script-reference.md),
+  [`examples/scripting`](examples/scripting), [`examples/remote-console`](examples/remote-console).
+- **Objects and messages.** `Object<T>` makes a C++ type callable from script, with
+  methods, properties, and script handlers attached by `{class}`; typed messages go C++ to
+  C++ without building a node. [`examples/objects`](examples/objects).
+- **Tasks.** C++20 coroutines (`co_await delay(t)`) whose frames come from a pool, and
+  script tasks (`delay_task`, `interp_task`, `thread_task`); the host calls `tick(dt)`.
+  [`examples/tasks`](examples/tasks).
+- **The binary cache.** A tree written as it lies in memory and loaded in one read; a
+  Config with `cache_dir` keeps one per layer, and `moira_bake` makes them in a build step.
+  [Cookbook](docs/cookbook.md#the-binary-cache-in-a-build-step).
+- **Packs and levels.** `#require` reads a shared file once per session; a pack declares
+  its level (`engine`, `game`, `task`), and a harder pack using a softer one's macro or
+  function is warned about. [Language guide](docs/language.md#packs-and-levels).
+- **Shapes.** `(shapes (boss_phase (enter_at float (range 0 1)) ...))` declares what data
+  should look like; a Config validator reports violations at load, located.
+  [Language guide](docs/language.md#shapes).
+- **A tuning harness.** Dear ImGui panels generated from the tweaks and shapes, an `eval`
+  console, provenance on hover, write-back, and reload telemetry.
+  [`examples/harness-imgui`](examples/harness-imgui).
+
+Public headers include no standard containers or strings (an engine that bans the STL can
+use them); text comes out through a `TextSink`. `<moira/std_interop.hpp>` and
+`<moira/std_script.hpp>` add `std::string` forms for hosts that want them.
+
+## Measured
+
+Release builds, GCC 13 on the development container (Xeon, 2.8 GHz); the method and the
+full tables are in [`docs/decisions.md`](docs/decisions.md).
+
+| | | |
+|---|---:|---|
+| Reading a `Tweak<float>` | one load | checked in the generated assembly |
+| `find_float` on a 20-child array, warm | ~9 ns | no allocation (D77) |
+| A native call, `{add 1 2}` | ~31 ns | no allocation (D78) |
+| A typed message, `bob.handle(HitMsg{1})` | ~9 ns | no allocation (D66) |
+| `tick` with 10,000 tasks asleep | 5–7 ns | (D68) |
+| Parsing text | 121–131 MB/s | (D82) |
+| A 6.2 MB tree from the binary cache | 2.3–2.5 ms | one allocation (D79) |
+| An 18 MB layer from text into a Config | 45 ms | (D75) |
+| Checking 50,000 shaped instances | 6.5 ms | (D85) |
 
 ## Building
 
@@ -175,31 +168,35 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Targets: `moira::data` (data layer, usable alone), `moira::script` (script layer,
-depends on data), `moira::moira` (both). Build the data layer by itself with
-`-DMOIRA_BUILD_SCRIPT=OFF`.
+Targets: `moira::data` (data, lookup, config, tweaks, the cache; usable alone),
+`moira::script` (evaluation, objects, tasks), `moira::shape` (shapes), and `moira::moira`
+(all of them).
 
 | Option | Default | Effect |
 |--------|---------|--------|
 | `MOIRA_BUILD_SCRIPT` | `ON` | Build `moira::script` |
-| `MOIRA_BUILD_TESTS` | `ON` when top-level | Build the test suite |
-| `MOIRA_ATOMIC_REFCOUNT` | `ON` | Atomic refcounts; `OFF` for single-threaded programs |
+| `MOIRA_BUILD_SHAPE` | `ON` | Build `moira::shape` |
+| `MOIRA_BUILD_TESTS` | `ON` when top-level | The test suite |
+| `MOIRA_BUILD_EXAMPLES` | `ON` when top-level | `examples/`, each run by CTest |
+| `MOIRA_BUILD_HARNESS` | `OFF` | `examples/harness-imgui`; fetches Dear ImGui and GLFW |
+| `MOIRA_BUILD_TOOLS` | `ON` when top-level | `moira_parse_corpus`, `moira_bake` |
+| `MOIRA_BUILD_BENCH` | `OFF` | `bench/` |
+| `MOIRA_BUILD_FUZZERS` | `OFF` | libFuzzer targets (Clang) |
+| `MOIRA_ATOMIC_REFCOUNT` | `ON` | `OFF` for single-threaded programs |
 | `MOIRA_SHIPPING` | `OFF` | Reload and live edits inert; `dev_only` tweaks keep defaults |
+| `MOIRA_USE_EASTL` | `OFF` | Internal containers from EASTL (fetched) |
 | `MOIRA_SANITIZE` | empty | e.g. `address,undefined` |
-| `MOIRA_BUILD_TOOLS` | `ON` when top-level | `moira_parse_corpus` |
-| `MOIRA_BUILD_EXAMPLES` | `ON` when top-level | `examples/` (run by CTest) |
-| `MOIRA_BUILD_BENCH` | `OFF` | `moira_bench_parse`, `moira_bench_lookup`, `moira_bench_call` |
-| `MOIRA_BUILD_FUZZERS` | `OFF` | `moira_parse_fuzzer`, `moira_lookup_fuzzer` (Clang) |
 
-Android: clang defaults to C++17. CMake builds get C++20 from the targets; with
-`ndk-build`, add `APP_CPPFLAGS += -std=c++20`.
+Android: CMake builds get C++20 from the targets; with `ndk-build`, add
+`APP_CPPFLAGS += -std=c++20`.
 
-To check the parser against a local DTA corpus (none is included; see
-`docs/decisions.md` D3):
+## Documentation
 
-```sh
-build/moira_parse_corpus --roundtrip path/to/corpus
-```
+- [`docs/language.md`](docs/language.md): the language, from data to script.
+- [`docs/cookbook.md`](docs/cookbook.md): patterns, live ops among them.
+- [`docs/script-reference.md`](docs/script-reference.md): every built-in, generated.
+- [`docs/spec.md`](docs/spec.md): the design; [`docs/decisions.md`](docs/decisions.md):
+  every deviation from it, and the results of each step.
 
 ## License
 
