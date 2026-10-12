@@ -2240,3 +2240,21 @@ structurally equal trees.*
 - `docs/m8-plan.md` is deleted; its answers are D70 and D72.
 - **Naming.** Commits called M8's steps M8a–M8d; this file calls them M8.1–M8.4, because
   the spec's milestone M8b is `moira::shape`, which is next.
+
+## D80. M8b: shapes and packs, answers
+
+*`docs/m8b-plan.md` Q1–Q4, answered by the project owner 2026-10-12, each as recommended.*
+
+- **Q1, what a shape governs:** every array tagged with the shape's name, anywhere in the
+  tree; `(at path)` in the declaration narrows it to arrays under a path.
+- **Q2, "reported at load":** Config runs a validator after each merge (a callback
+  moira::data defines and moira::shape provides), so pushes, reloads, and restores report
+  violations, located, through the Config's warning sink. moira::data knows nothing of
+  shapes.
+- **Q3, the name:** what spec §1 calls a pack's *layer* is its **level**:
+  `(pack name (level game))`, `session.set_pack_levels({"engine", "game", "task"})`. A
+  Config's layers are its stack of files, and `Tier` already names a function's
+  implementation. This deviates from the spec's wording.
+- **Q4, the one-way rule's warnings:** macro uses, found while parsing, are warnings on
+  the `LoadSession` (`session.warnings()`), which Config forwards to its warning sink;
+  calls to a softer pack's function are a third list in `CheckReport`.
