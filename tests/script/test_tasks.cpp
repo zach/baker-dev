@@ -191,11 +191,11 @@ TEST_CASE("spawning and stepping allocate nothing once the pool is warm") {
         }
     };
     int n = 0;
-    for (int i = 0; i < 64; ++i) ok(s.spawn(step(s, &n)));
+    for (int i = 0; i < 64; ++i) ok(s.spawn(step(s, &n), "stepper"));
     for (int i = 0; i < 5; ++i) s.tick(1);
     REQUIRE(n == 192);
     test::AllocationScope scope;
-    for (int i = 0; i < 64; ++i) (void)s.spawn(step(s, &n));
+    for (int i = 0; i < 64; ++i) (void)s.spawn(step(s, &n), "stepper");  // named: no string built
     for (int i = 0; i < 5; ++i) s.tick(1);
     CHECK(scope.count() == 0);
     CHECK(n == 384);

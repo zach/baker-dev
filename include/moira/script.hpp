@@ -652,7 +652,7 @@ public:
 
     // --- Tasks (task.hpp). ---
 
-    // The default Scheduler, made on first use from the Context's allocator.
+    // The default Scheduler, from the Context's allocator; scripts call it `scheduler`.
     [[nodiscard]] Scheduler& scheduler();
     // Evaluates each node of `nodes` in order and returns the last value: runs a script.
     [[nodiscard]] Expected<Node> run(std::span<const Node> nodes);

@@ -18,9 +18,18 @@
 // parameters, or it does not compile. A frame larger than the pool's budget makes spawn()
 // fail with a Limit error. A spawned task starts at the next tick. The library owns no
 // thread and no clock: the host calls tick().
+//
+// Scripts reach a Scheduler as an object: a Context's default one is named `scheduler`.
+//   {scheduler delay_task 2 {play_sfx "ding"}}           ; once, 2 units from now
+//   {scheduler interp_task $frame 0 100 {seek $frame}}   ; $frame 0..100 over 100 units
+//   {scheduler thread_task {open_door} {wait {door_open}} {wait_for 1} {close_door}}
+// A script task captures, when made, the value of every bound $variable it names (not
+// globals), and sees those values each step (D67). Made in a handler, it ends when its
+// $this object is removed. Each returns a handle for {scheduler cancel $h}.
 
 #include <moira/error.hpp>
 #include <moira/node.hpp>
+#include <moira/object.hpp>
 
 #include <coroutine>
 #include <cstddef>
@@ -195,7 +204,7 @@ struct SchedulerStats {
 
 // Runs tasks on one timeline, in time units the host chooses (D67). A Context has a default
 // Scheduler (Context::scheduler()); a game with game time and UI time makes another.
-class Scheduler {
+class Scheduler : public Object<Scheduler> {
 public:
     explicit Scheduler(Context& ctx, SchedulerOptions options = {});
     ~Scheduler();  // destroys every task's frame, running its locals' destructors
@@ -214,7 +223,7 @@ public:
     void tick(double dt);
     [[nodiscard]] double now() const noexcept;
     [[nodiscard]] SchedulerStats stats() const noexcept;
-    [[nodiscard]] Context& context() const noexcept;
+    static void bind(Binder<Scheduler>& b);  // the script commands (script_tasks.cpp)
 
     struct Impl;
     [[nodiscard]] Impl& impl() const noexcept { return *impl_; }

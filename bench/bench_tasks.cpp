@@ -1,5 +1,6 @@
 // Tasks (M7 plan, D58, D67). Targets: a tick with 10,000 tasks asleep and none due under
 // 100 ns; resuming a C++ task <= 20 ns; spawning allocates nothing once the pool is warm.
+#include <moira/parse.hpp>
 #include <moira/script.hpp>
 #include <moira/task.hpp>
 
@@ -74,6 +75,35 @@ int main() {
         });
         std::printf("%-44s %8.2f ns   %zu allocations\n", "spawn + run to completion, per task", ns,
                     scope.count());
+    }
+    {
+        // Script tasks: a thread_task's step, beside the same command evaluated directly.
+        if (!ctx.func("add", [](int64_t a, int64_t b) { return a + b; })) return 1;
+        auto tree = moira::read_string(
+            "{add 1 2} {scheduler thread_task {add 1 2} {wait_tick} {add 1 2} {wait_tick} "
+            "{add 1 2} {wait_tick} {add 1 2} {wait_tick} {add 1 2}} "
+            "{do (($a 1) ($b 2)) {scheduler delay_task 1e9 {add $a $b}}}",
+            "bench.dta");
+        if (!tree) return 1;
+        const moira::Node& add = (**tree)[0];
+        const moira::Node& thread = (**tree)[1];
+        const moira::Node& later = (**tree)[2];
+        std::printf("%-44s %8.2f ns\n", "{add 1 2}, evaluated directly", best_ns(7, 100'000, [&] {
+                        for (int i = 0; i < 100'000; ++i) (void)ctx.eval(add);
+                    }));
+        moira::Scheduler& s = ctx.scheduler();
+        for (int i = 0; i < 1'000; ++i) (void)ctx.eval(thread);
+        s.tick(0);
+        const double step = best_ns(1, 1'000 * 4, [&] {
+            for (int i = 0; i < 4; ++i) s.tick(1);
+        });
+        std::printf("%-44s %8.2f ns\n", "thread_task step: {add 1 2} then {wait_tick}", step);
+        moira::test::AllocationScope scope;
+        const double make = best_ns(1, 1'000, [&] {
+            for (int i = 0; i < 1'000; ++i) (void)ctx.eval(later);
+        });
+        std::printf("%-44s %8.2f ns   %zu allocations\n",
+                    "making a delay_task capturing 2 variables", make, scope.count());
     }
     return 0;
 }

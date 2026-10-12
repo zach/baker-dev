@@ -421,6 +421,10 @@ Context::Context(const Allocator& allocator)
     impl_->trace_sink = &stderr_trace;
     register_builtins(*this);
     register_object_builtins(*this);
+    register_task_builtins(*this);
+    // The default Scheduler, which scripts call `scheduler`.
+    impl_->scheduler = Own<Scheduler>::make(impl_->alloc, *this);
+    (void)add(*impl_->scheduler, "scheduler");
 }
 
 Context::~Context() {

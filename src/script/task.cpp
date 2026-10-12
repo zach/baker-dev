@@ -206,19 +206,20 @@ Scheduler::~Scheduler() {
 
 Expected<TaskHandle> Scheduler::spawn(Task task, Symbol name) {
     Impl& s = *impl_;
-    const Str who = name.empty() ? Str("a task") : "task '" + Str(name.str()) + "'";
+    // Built only on the error paths: spawning allocates nothing.
+    auto who = [&] { return name.empty() ? Str("a task") : "task '" + Str(name.str()) + "'"; };
     if (!task)
-        return Unexpected(make_error(ErrorCode::Limit, who + " needs a frame of " +
+        return Unexpected(make_error(ErrorCode::Limit, who() + " needs a frame of " +
                                                            detail::decimal(s.refused) +
                                                            " bytes; the Scheduler's budget is " +
                                                            detail::decimal(s.options.frame_bytes)));
     if (task.h_.promise().scheduler != this)
-        return Unexpected(make_error(ErrorCode::Refused,
-                                     who + " was made for another Scheduler, whose pool holds it"));
+        return Unexpected(make_error(
+            ErrorCode::Refused, who() + " was made for another Scheduler, whose pool holds it"));
     if (s.options.max_tasks && s.stats.live >= s.options.max_tasks)
         return Unexpected(make_error(
             ErrorCode::Limit,
-            who + " would exceed max_tasks (" + detail::decimal(s.options.max_tasks) + ")"));
+            who() + " would exceed max_tasks (" + detail::decimal(s.options.max_tasks) + ")"));
     uint32_t i;
     if (!s.free_slots.empty()) {
         i = s.free_slots.back();
@@ -307,7 +308,6 @@ void Scheduler::tick(double dt) {
 }
 
 Scheduler& Context::scheduler() {
-    if (!impl_->scheduler) impl_->scheduler = Own<Scheduler>::make(impl_->alloc, *this);
     return *impl_->scheduler;
 }
 
@@ -317,10 +317,6 @@ double Scheduler::now() const noexcept {
 
 SchedulerStats Scheduler::stats() const noexcept {
     return impl_->stats;
-}
-
-Context& Scheduler::context() const noexcept {
-    return impl_->ctx;
 }
 
 }  // namespace moira

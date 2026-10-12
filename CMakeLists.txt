@@ -138,6 +138,7 @@ if(MOIRA_BUILD_SCRIPT)
     src/script/context.cpp
     src/script/object.cpp
     src/script/reference.cpp
+    src/script/script_tasks.cpp
     src/script/task.cpp)
   add_library(moira::script ALIAS moira_script)
   moira_configure_library(moira_script)

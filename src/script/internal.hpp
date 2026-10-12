@@ -129,6 +129,7 @@ void record_stack(Error& e);
 // Registers the functions every Context starts with (builtins.cpp, object.cpp).
 void register_builtins(Context& ctx);
 void register_object_builtins(Context& ctx);
+void register_task_builtins(Context& ctx);  // {wait}, {wait_for}, {wait_tick} (script_tasks.cpp)
 // Parses a {func}-style parameter list and body from a definition array, starting at
 // `params` (the index of the ($a ...) list).
 [[nodiscard]] bool parse_params(const Array& params, ScriptBody& body);
@@ -248,7 +249,7 @@ struct Context::Impl {
     Context::TraceSink trace_sink = nullptr;
     void* trace_user = nullptr;
 
-    Own<Scheduler> scheduler;  // the default one, made on first use
+    Own<Scheduler> scheduler;  // the default one, the object `scheduler`
 };
 
 // Restores every variable bound since it was made: dynamic scope, undone even on error.

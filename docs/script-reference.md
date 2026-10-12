@@ -148,3 +148,33 @@ A parameter in [brackets] is optional, `unevaluated` is passed as written, and
 - `{set $variable value}` → value
 
 *Native.* `{set $var value}` or, in a method, `{set [property] value}`: stores the value and returns it.
+
+### `wait`
+
+- `{wait values...}` → value
+
+*Native.* Suspends a `{scheduler thread_task ...}`; only as one of its commands.
+
+### `wait_for`
+
+- `{wait_for values...}` → value
+
+*Native.* Suspends a `{scheduler thread_task ...}`; only as one of its commands.
+
+### `wait_tick`
+
+- `{wait_tick values...}` → value
+
+*Native.* Suspends a `{scheduler thread_task ...}`; only as one of its commands.
+
+## Types
+
+Every object also has `{obj get name}`, `{obj set name value}`, `{obj type}` and `{obj name}`.
+
+### `Scheduler`
+
+- `{<Scheduler> cancel int}` → nothing: `{scheduler cancel handle}`: ends a task a *_task command returned.
+- `{<Scheduler> delay_task float values...}` → value: `{scheduler delay_task t body...}`: runs `body` once, `t` units from now.
+- `{<Scheduler> interp_task $variable float float values...}` → value: `{scheduler interp_task $var from to body...}`: steps `$var` from `from` to `to` over |to - from| units, running `body` each tick, the last time at exactly `to`.
+- `{<Scheduler> now}` → float: `{scheduler now}`: the Scheduler's time.
+- `{<Scheduler> thread_task values...}` → value: `{scheduler thread_task cmd...}`: runs its commands in order across ticks. `{wait cond}`, `{wait_for t}`, and `{wait_tick}` suspend it, as its own commands.

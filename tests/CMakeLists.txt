@@ -40,6 +40,7 @@ if(MOIRA_BUILD_SCRIPT)
     script/test_eval.cpp
     script/test_messages.cpp
     script/test_object.cpp
+    script/test_script_tasks.cpp
     script/test_stats.cpp
     script/test_tasks.cpp
     support/alloc_counter.cpp)
