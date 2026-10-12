@@ -151,19 +151,11 @@ asked for it since).
 
 ### Shipping (Q5)
 
-Under `MOIRA_SHIPPING`:
-
-- **The runtime instrumentation compiles out** (§1, §2): `mark_visible()` does nothing,
-  `loop_stats()` and the journal are empty.
-- **So do the tools** (Q5, beyond the spec): `check` returns an empty report,
-  `find_repeats` finds nothing, `write_json` writes an empty report of the current schema,
-  and `reference` writes nothing. That changes what exists: `check` and the reference work
-  in shipping builds today. Their tests, and the reference's drift test, move under
-  `if constexpr (!kShipping)`, and the docs say that data is checked in a development
-  build (a build step or CI), with the same defines.
-- **What is data stays** (§3, §4): pack metadata and `origin` are read in every build,
-  as packs are now, and `source()` reports them.
-- `moira::shape`'s validator is not part of this; it stays as it is.
+Under `MOIRA_SHIPPING`, the runtime instrumentation compiles out (§1, §2):
+`mark_visible()` does nothing, and `loop_stats()` and the journal are empty. The tools
+(§5–§7) stay in every build, as `check` and the reference do now: they cost nothing
+unless called, and a build step or CI can run them against shipping defines. What is data
+(§3, §4) is read in every build, as packs are now, and `source()` reports it.
 
 ## Review (acton-review)
 
@@ -175,7 +167,7 @@ Under `MOIRA_SHIPPING`:
 | journal append | tool, with M3b's allocation-free contract on `set` | one ring slot, no allocation (Q2) |
 | pack metadata, `origin` | load | one form per file, kept in the session |
 | `Source` +16 bytes | tool | `source()` is not on a gameplay path |
-| repetition, owners, JSON | tool | a walk and a hash table per `check`; nothing at gameplay time; compiled out of shipping builds (Q5) |
+| repetition, owners, JSON | tool | a walk and a hash table per `check`; nothing at gameplay time |
 
 - **Nothing touches lookup, evaluation, dispatch, or tweak reads.** The codegen test
   (one load per `Tweak<float>` read) and every allocation test stay as they are; M10 adds
@@ -187,9 +179,9 @@ Under `MOIRA_SHIPPING`:
 - **The ring-flooding finding** (M9) is the reason Q1 recommends samples kept apart from
   the history: a statistic that a polling host silently truncates to a minute is wrong
   data, not slow data.
-- **Gap 10 (tooling in the core)** grows, and Q5 answers it for shipping: the repetition
-  report (moira::data) and JSON (moira::script) are tool code that adds no field to a hot
-  structure, and they, `check`, and the reference compile out of shipping builds.
+- **Gap 10 (tooling in the core)** grows: the repetition report (moira::data) and JSON
+  (moira::script) are tool code. They add no field to a hot structure and cost nothing
+  unless called; shipping builds keep them (Q5), as they keep `check` now.
 
 ## Budget
 
@@ -201,12 +193,11 @@ Under `MOIRA_SHIPPING`:
 | `origin`: parser, session, caches, `Source` | 80 |
 | Reference: packs and origins | 50 |
 | Repetition report (moira::data) | 200 |
-| Shipping stubs for the tools, and their tests moved | 40 |
 | Owner findings | 30 |
 | JSON writer | 180 |
-| **Core total** | **~940** |
+| **Core total** | **~900** |
 
-The core goes from 10,116 to about 11,060 of 15,000 (D69): the fallback in criterion 8 is
+The core goes from 10,116 to about 11,000 of 15,000 (D69): the fallback in criterion 8 is
 not needed.
 
 ## Order
@@ -215,15 +206,13 @@ not needed.
 2. Loop statistics and `mark_visible`.
 3. The edit journal.
 4. The repetition report (moira::data), and `check`'s owner findings.
-5. The tools compile out of shipping builds (Q5).
-6. JSON output and its schema document; the reference's packs and origins.
-7. The harness's Loop panel shows `loop_stats()`, and a Journal list joins it; results
+5. JSON output and its schema document; the reference's packs and origins.
+6. The harness's Loop panel shows `loop_stats()`, and a Journal list joins it; results
    (D-entry), and this file deleted.
 
 ## Open questions
 
-**Answered 2026-10-12 (D90):** Q1, Q2, and Q4 as recommended; Q3 in moira::data; Q5 the
-tools too.
+**Answered 2026-10-12 (D90):** Q1, Q2, Q4, and Q5 as recommended; Q3 in moira::data.
 
 **Q1. Where loop statistics keep their samples.**
 - **Recommended.** A fixed table, allocated once: up to 32 files and 16 layers, each with

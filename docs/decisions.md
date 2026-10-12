@@ -2517,9 +2517,9 @@ personal `local` layer by the convention in spec §4.*
   data-only projects have it; `check` calls it and reports the result in `CheckReport`.
 - **Q4, owner findings (as recommended):** packs that declare `(owners ...)` with fewer
   than two names. A pack without the form is not reported.
-- **Q5, shipping: the tools compile out too,** beyond the spec's "all instrumentation":
-  under `MOIRA_SHIPPING`, `check`, `find_repeats`, `write_json`, and `reference` become
-  stubs (an empty report, nothing found, an empty report of the current schema, nothing
-  written), as well as `mark_visible`, the statistics, and the journal. This changes M4's
-  and M8b's tools, which work in shipping builds today: data is checked in a development
-  build, with the same defines. `moira::shape`'s validator is not affected.
+- **Q5, shipping (as recommended, on reconsideration):** the runtime instrumentation
+  (`mark_visible`, the statistics, the journal) compiles out, as the spec says. `check`,
+  `find_repeats`, `write_json`, and the reference stay in every build, as `check` and the
+  reference do now: they cost nothing unless called, and CI can run them against shipping
+  defines. The owner first chose to compile the tools out too, then reconsidered the same
+  day.
