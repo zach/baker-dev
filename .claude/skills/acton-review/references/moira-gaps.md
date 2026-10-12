@@ -12,9 +12,11 @@
 | 7, coroutine frames | per-Scheduler pool with a frame budget (D58, D68) | **done** |
 | 8, exceptions | throwing forms removed entirely (D54) | **done** (D59) |
 | 9, `Error` size | `Error` becomes a handle (D55) | **done** (D60) |
+| 10, tooling in the core | `check`, the reports, JSON, and the reference compile out of shipping builds (D90) | M10 |
 | 11, the STL in public headers | header-only vocabulary types only (D60); `MOIRA_USE_EASTL` inside (D62) | **done** |
 
-Still open: 6 (objects' vtable and parameters) and 10 (tooling in the core). Update this
+Still open: 6 (objects' vtable and parameters). 10 (tooling in the core) is planned for
+M10 (D90). Update this
 table as work lands.
 
 Audited 2026-10-11 at M6 step 1 (commit `23f4142`). Sizes were measured with GCC 13 on

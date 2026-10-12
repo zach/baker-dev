@@ -2499,3 +2499,27 @@ personal `local` layer by the convention in spec §4.*
   runs per tweak on each merge. The core is 10,116 lines of 15,000 (10,103 before; D88),
   and `moira::shape` 400 of 600.
 - `docs/m9-plan.md` is deleted; its answers are D87.
+
+## D90. M10: harness instrumentation, answers
+
+*`docs/m10-plan.md` Q1–Q5, answered by the project owner 2026-10-12.*
+
+- **Q1, loop statistics' samples (as recommended):** a fixed table allocated once, up to
+  32 files and 16 layers, each with its last 32 edit-to-see and reload times (about 10 KB
+  per Config); the least recently changed file gives up its row. Only reloads that changed
+  something feed it, because a host polling four times a second fills M3b's 256-record
+  history with `Unchanged` records in about a minute (found in M9's harness).
+- **Q2, journal values (as recommended):** inline, up to four nodes each for the old and
+  new values, with the true count; about 160 bytes an entry in a ring allocated once, so
+  `set`'s fast path stays allocation-free.
+- **Q3, the repetition report: in moira::data,** not in `check` as the spec puts it and
+  the plan recommended. `moira::find_repeats(trees, options, out)` needs no Context, so
+  data-only projects have it; `check` calls it and reports the result in `CheckReport`.
+- **Q4, owner findings (as recommended):** packs that declare `(owners ...)` with fewer
+  than two names. A pack without the form is not reported.
+- **Q5, shipping: the tools compile out too,** beyond the spec's "all instrumentation":
+  under `MOIRA_SHIPPING`, `check`, `find_repeats`, `write_json`, and `reference` become
+  stubs (an empty report, nothing found, an empty report of the current schema, nothing
+  written), as well as `mark_visible`, the statistics, and the journal. This changes M4's
+  and M8b's tools, which work in shipping builds today: data is checked in a development
+  build, with the same defines. `moira::shape`'s validator is not affected.
