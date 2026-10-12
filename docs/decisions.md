@@ -2210,3 +2210,31 @@ warm row unchanged within noise (`{add 1 2}` 31.0–32.9 ns).
 - **A correction to D77:** the tag run costs a cold script call about 10 ns (larger
   command arrays, and a node address that waits on `size_`). D77's `bench_call` rows were
   all warm; this step's cold rows found it, and the split recovers most of it.
+
+## D79. M8 results
+
+*M8 (spec §10): binary cache: write, load, fixups, staleness detection, `Cipher` hook.
+Done when the cache-load benchmark meets §7 and cache and text loads produce
+structurally equal trees.*
+
+- **§7, a 5 MB tree in ≤ 10 ms with ≤ 2 allocations: met.** With the tag run (D77) the
+  generated tree for 1.2 MB of text is 6.2 MB. It loads warm in 2.3–2.5 ms with one
+  allocation, and in a fresh process in 7.7 and 8.0 ms, with one run at 13.8 ms. That run
+  was on a busier machine (parse read 110 MB/s, against 125 the same day). Scaled to
+  5 MB, the fresh-process load is about 6–6.5 ms.
+- **Structural equality: met.** Every corpus file and every input the fuzz harness parses
+  round-trips through a cache with the same files, lines, heights, sorted flags, sharing,
+  and tag runs (`test_cache.cpp`, `fuzz/parse_harness.cpp`).
+- **Staleness, `Cipher`, and the rest.** Staleness is checked by content hashes and the
+  defines (D73), a cache load replays its session effects (D72), and Config has
+  `cache_dir` (D74). The `Cipher` hook is in, with no implementation shipped; the
+  anecdote is in `cache.hpp`.
+- **D57's layout work, measured first (D70):** cold rows for lookup and calls (D76, D78),
+  the tag run (D77), and the dispatch split for functions (D78). Methods were not split:
+  nothing measured asks for it.
+- **Found on the way:** Config's merge was quadratic on flat layers (D75, fixed: an 18 MB
+  layer from text in 45 ms, not 450), and the arena's empty `Vec` allocated under MSVC
+  (D71).
+- **The core** is 9,850 lines of the 15,000 budget (D69), against the plan's ~9,690.
+  `moira_bake` is in `tools/`, outside the core.
+- `docs/m8-plan.md` is deleted; its answers are D70 and D72.
