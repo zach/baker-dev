@@ -2409,3 +2409,21 @@ enumeration API) and `#require`.*
 - **Sizes:** the core is 10,103 lines (of 15,000; the plan estimated about 10,060), and
   `moira::shape` 400 (of 600, outside the core).
 - `docs/m8b-plan.md` is deleted; its answers are D80 and D84.
+
+## D87. M9: the docs and examples, answers
+
+*`docs/m9-plan.md` Q1–Q4, answered by the project owner 2026-10-12, each as recommended.*
+
+- **Q1, `harness-imgui`:** Dear ImGui fetched at a pinned release (as EASTL is), GLFW and
+  OpenGL 3 for the window, behind `MOIRA_BUILD_HARNESS` (off by default). The panels are
+  plain functions over a `Config`, `TweakRegistry`, and `Context`, so CI runs them
+  headless: ImGui with no backend, a few frames, and assertions on what changed.
+- **Q2, `remote-console`:** portable, with BSD sockets and a small Winsock shim, built and
+  tested on every CI platform; the test connects over loopback, sends three commands, and
+  checks the replies.
+- **Q3, the README:** short. The pitch, the five-minute path to a working tweak, one
+  paragraph per feature with links, the build table, and the measured numbers; the long
+  feature list moves into `docs/language.md` and the cookbook.
+- **Q4, doc tests:** the README's five-minute path is also a CTest program
+  (`examples/quickstart`), and a script checks that the README's code block matches it
+  line for line.

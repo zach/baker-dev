@@ -2,10 +2,10 @@
 
 Read `docs/spec.md` for what Moira is (§10 lists the milestones), `docs/decisions.md` for
 every deviation from it and the results of each step, and the current milestone plan
-(`docs/m<N>-plan.md`) if one exists. M8b is done (D86); M9, the docs, is next and has no
-plan yet: write one first, and put its open questions to the owner. The core's soft line
-budget is 15,000 (D69); `tools/count_lines.py` reports it, and `moira::shape` apart. CI
-also checks `clang-format-18 --dry-run --Werror` over every source file.
+(`docs/m<N>-plan.md`) if one exists. M8b is done (D86); M9, the docs and examples, follows
+`docs/m9-plan.md` (answers in D87). The core's soft line budget is 15,000 (D69);
+`tools/count_lines.py` reports it, and `moira::shape` apart. CI also checks
+`clang-format-18 --dry-run --Werror` over every source file.
 
 ## Rules
 
