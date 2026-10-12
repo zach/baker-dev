@@ -211,6 +211,8 @@ M10's core instrumentation.
 
 ## Open questions
 
+**Answered 2026-10-12 (D67):** Q1–Q4, each as recommended. Q5–Q7 remain open.
+
 **Q1. Time.** What does `tick(dt)` advance?
 - **Recommended.** A `double` in units the host picks, one timeline per Scheduler. Beats,
   seconds, and frames are all one type, and a game with two clocks makes two Schedulers.

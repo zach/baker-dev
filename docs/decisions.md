@@ -1749,3 +1749,23 @@ answers. The call stack was step 1 (D52). M6 is done, and `docs/m6-plan.md` is d
   - statistics add no allocations and compile out under shipping.
 - **Size.** The core is 8,439 of 10,000 lines. M6 after step 1 added about 380 against
   the plan's ~390 for the same parts.
+
+## D67. M7: tasks, first answers
+
+*M7 plan (`docs/m7-plan.md`) Q1–Q4, answered by the project owner 2026-10-12. Q5–Q7 are
+still open.*
+
+- **Q1, time.** `Scheduler::tick(dt)` advances a `double` in units the host chooses. There
+  is one timeline per Scheduler; a game with game time and UI time makes two.
+- **Q2, script variables.** A script task captures by value, when it is made, every bound
+  `$variable` its body names, except globals. Each step re-binds them, and the task's own
+  `{set}`s persist in its copy. This closes the original's open problem ("variable
+  preservation", Appendix A) without explicit `(preserve ...)`.
+- **Q3, the sync point.**
+  - Deferred to the end of the tick (or `ctx.sync()`): spawning (a task starts at the next
+    tick), `{delete}` and `remove`, and `cancel`, except a task cancelling itself.
+  - Not deferred: `{new}` and registration.
+  - This narrows D58's list, which also named `{new}` and registration: deferring `{new}`
+    would stop a script from using an object it just made.
+- **Q4, tasks and their object.** A task made with `$this` bound captures it, and is
+  cancelled when that object is removed, as in the original.
