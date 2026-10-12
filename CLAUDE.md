@@ -2,8 +2,8 @@
 
 Read `docs/spec.md` for what Moira is (§10 lists the milestones), `docs/decisions.md` for
 every deviation from it and the results of each step, and the current milestone plan
-(`docs/m<N>-plan.md`) if one exists. M6 is done (D66); M7, tasks, is next and has no plan
-yet: write one first, carrying D58's answers.
+(`docs/m<N>-plan.md`) if one exists. M6 is done (D66); M7, tasks, is planned in
+`docs/m7-plan.md`, whose open questions wait for the owner.
 
 ## Rules
 
