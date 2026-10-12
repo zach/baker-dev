@@ -40,6 +40,20 @@ void check_same(const Array& a, const Array& b, std::map<const void*, const void
     CHECK(a.sorted_for_lookup() == b.sorted_for_lookup());
     for (uint32_t i = 0; i < a.size(); ++i) {
         const Node &x = a[i], &y = b[i];
+        // The tag run came through (D77): each tag finds the same child in both.
+        if (const auto tag = x.try_array() && !x.try_array()->empty()
+                                 ? x.try_array()->nodes()[0].try_sym()
+                                 : std::nullopt) {
+            const Array* in_a = a.try_find(*tag);
+            const Array* in_b = b.try_find(*tag);
+            REQUIRE((in_a && in_b));
+            auto at = [](const Array& in, const Array* found) {
+                uint32_t k = 0;
+                while (in[k].array() != found) ++k;
+                return k;
+            };
+            CHECK(at(a, in_a) == at(b, in_b));
+        }
         REQUIRE(x.type() == y.type());
         if (x.array()) {
             check_same(*x.array(), *y.array(), seen);

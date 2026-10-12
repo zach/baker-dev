@@ -268,6 +268,7 @@ void Array::sort_for_lookup() {
         }
         std::move(buf.begin(), buf.end(), d);
     }
+    finish();  // the tag run follows the nodes
     flags_ = static_cast<uint16_t>(flags_ | kSortedForLookup);
 }
 

@@ -442,3 +442,34 @@ TEST_CASE("a Path holds its segments inline, up to kMaxSegments") {
     CHECK(p.size() == 3);
     if (test::counting_allocations()) CHECK(scope.count() == 0);
 }
+
+TEST_CASE("the tag run follows set(), sorting, and the documented re-tag rule (D77)") {
+    auto root = moira::read_string("(a 1) (b 2) 7 (c 3) ()", "run.dta");
+    REQUIRE(root);
+    Array& r = *const_cast<Array*>(root->get());
+    CHECK(r.try_find("b") == r[1].array());
+    CHECK(r.try_find("zz") == nullptr);
+    // set() replaces a child, and its tag.
+    r.set(1, Node(Array::make_copy((*moira::read_string("(z 9)"))->nodes()[0].array()->nodes())));
+    CHECK(r.try_find("b") == nullptr);
+    REQUIRE(r.try_find("z"));
+    CHECK((*r.try_find("z"))[1].try_int() == 9);
+    // A non-array, or an untagged array, has no tag.
+    r.set(0, Node(5));
+    CHECK(r.try_find("a") == nullptr);
+    // Re-tagging a child in place: the parent finds it under neither tag until it sets the
+    // child again.
+    auto* c = const_cast<Array*>(r[3].array());
+    c->set(0, Node(Symbol("renamed")));
+    CHECK(r.try_find("renamed") == nullptr);
+    CHECK(r.try_find("c") == nullptr);
+    r.set(3, r[3]);
+    CHECK(r.try_find("renamed") == c);
+    CHECK(r.try_find("c") == nullptr);
+    // Sorting moves the run with the nodes; set() turns sorting off, and the run still finds.
+    r.sort_for_lookup();
+    CHECK(r.try_find("renamed") == c);
+    r.set(0, Node(Symbol("x")));
+    CHECK(r.try_find("z"));
+    CHECK(r.try_find("renamed") == c);
+}

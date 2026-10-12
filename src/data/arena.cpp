@@ -102,14 +102,13 @@ void Arena::adopt(Node* slot, Node&& n, bool building) {
 Ref<Array> Arena::make_array(std::span<Node> nodes, Symbol file, int32_t line) {
     if (nodes.size() > UINT32_MAX) std::abort();
     const auto size = static_cast<uint32_t>(nodes.size());
-    const size_t slots = size ? size : 1;
     uint32_t offset = 0;
-    void* mem = take(sizeof(Array) + slots * sizeof(Node), offset);
+    void* mem = take(Array::bytes(size), offset);
     auto* a = ::new (mem) Array(offset, size, file, line);
     Node* d = a->data();
     if (size == 0) ::new (d) Node();
     for (uint32_t i = 0; i < size; ++i) adopt(d + i, std::move(nodes[i]));
-    a->compute_height();
+    a->finish();
     own_retain();
     return Ref<Array>::adopt(a);
 }
@@ -186,8 +185,7 @@ void free_owner(Owner& owner) noexcept {
             for (uint32_t i = 0; i < size; ++i) d[i].~Node();
             a->~Array();
             block->~SoloBlock();
-            default_free(block,
-                         sizeof(SoloBlock) + sizeof(Array) + (size ? size : 1) * sizeof(Node));
+            default_free(block, sizeof(SoloBlock) + Array::bytes(size));
             return;
         }
         case kSoloString: {

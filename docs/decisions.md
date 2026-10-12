@@ -2120,3 +2120,56 @@ cache-loaded one (release, this machine, best of 7 runs of 2M calls):
 - **So the tag run is built (D70's condition holds):** each array keeps its children's
   tags beside its nodes, and the scan reads 4-byte keys from the parent's own memory. Its
   design note and results are the next entry.
+
+## D77. M8d, step 2: the tag run
+
+*D70 (Q1) said to build it if the cold rows showed child loads dominating; D76 showed
+they do. The owner chose its rule for re-tagged children, 2026-10-12, as recommended:
+the same rule as sorted mode.*
+
+- **Layout.** Each array is its 24-byte header, then a run of one 32-bit key per node
+  (padded to 8), then its nodes. A key is 32 bits of the tag's Symbol pointer
+  (`(p >> 3) | 1`), so making one loads nothing; 0 means the node is not an array with
+  a symbol first. `try_find` scans the run and loads only the child a key matches, then
+  confirms the child's tag, since two symbols can share a key. Misses are exact.
+- **The run before the nodes, not after.** It was first placed after the nodes. That cut
+  instructions and simulated misses but made the text-loaded cold row *slower* (325–393
+  ns against 232–307): a lookup is a chain of dependent misses (header for `size_`, then
+  the run, the node, the child), and a run after the nodes adds a link. Placed after the
+  header, the run's address needs no load and shares the header's line. The price is
+  that a node's address now depends on `size_`.
+- **Keys from the Symbol's index, first tried,** cost a load from the symbol table per
+  lookup: the 4-segment Path row went from 13.6 ns to 20 ns. Pointer-derived keys
+  removed it.
+- **A four-at-a-time scan, also tried,** halved the 200- and 1000-child scans but cost
+  small arrays 3 ns and the cold rows 50 ns; the simple loop stays.
+- **Kept by** `finish()` (every way of building an array: `make`, `make_from`,
+  `make_copy`, a load's arena), `set()`, and `sort_for_lookup()`. A cache stores the run
+  as its own symbol indexes, which the fixup pass turns into keys.
+- **The rule (D77's question).** A child's tag is captured when it is placed. After a child
+  is re-tagged in place, its parent's lookups may find it under neither tag until the
+  parent sets it again. A parse, a merge, and a cache never re-tag in place; a test pins
+  the rule.
+
+**Benchmarks** (release, this machine, against the previous commit, two runs each):
+
+| | before | after |
+|---|---:|---:|
+| `try_find`, 20 children, avg | 11.2–11.8 ns | **6.6–6.7 ns** |
+| `find_float`, avg / last | 13.6 / 22.2–23.1 ns | **9.2–9.4 / 12.1–12.3 ns** |
+| `find<float>`, avg | 13.0–13.2 ns | 10.7–11.1 ns |
+| `find_float`, cold, text-loaded | 224–293 ns | **149–187 ns** |
+| `find_float`, cold, cache-loaded | 262–280 ns | **138–154 ns** |
+| `try_find`, 1000 children, linear | 367–392 ns | 292–313 ns |
+| `get<int>(Path)`, 4 segments | 18.4–19.0 ns | 20.5–21.7 ns |
+| `try_find`, 1000 children, sorted | 58–61 ns | 70–76 ns |
+| tree size, 1.2 MB of text | 5.3 MB | 6.2 MB (+17%) |
+| `read_cache`, that tree | 1.89 ms | 2.16–2.29 ms |
+
+- **Where it costs, counted** with cachegrind in a small driver: a 4-segment path takes
+  325 instructions (253 before) and a 1000-child sorted search 399 (360): computing a
+  node's address from `size_` on each access, and a binary search is a chain of such
+  accesses. Cold lookups take 140 instructions and 6.4 L1 read misses, against 183 and
+  14.8.
+- Parse speed is unchanged (123–125 MB/s), with 43 allocations instead of 40 (larger
+  blocks fill sooner). `bench_call` and the Config rows are unchanged within noise.

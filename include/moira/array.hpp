@@ -18,9 +18,12 @@
 //   float  same  = root->get<float>("menu.'bacon and eggs'.price");   // by path
 //   int    cals  = root->get<int>("menu.'bacon and eggs'.fat", 0);    // absent: 0
 //
-// find() scans the direct children with one pointer comparison each, which is the right
+// find() scans the direct children's tags, which each array keeps in a run of 4-byte keys
+// beside its nodes, so a scan reads only the array's own memory (D77). That is the right
 // default for the small arrays config is made of; sort_for_lookup() switches an array to
-// binary search. Only Symbol tags match (docs/decisions.md D6).
+// binary search. Only Symbol tags match (docs/decisions.md D6). A child's tag is captured
+// when the child is placed: after re-tagging a child in place (child.set(0, ...)), its
+// parent's lookups may find it under neither tag until the parent sets it again.
 //
 // Raw versus typed: try_at(i), operator[], and try_find() return raw nodes and arrays and
 // never evaluate anything. Typed reads (find_int, find<T>, get<T>, ...) convert values through
@@ -420,12 +423,16 @@ public:
     // The child array tagged `tag`, or null.
     [[nodiscard]] const Array* try_find(Symbol tag) const noexcept {
         if (flags_ & kSortedForLookup) return find_sorted(tag);
-        for (const Node& n : nodes()) {
-            if (n.type() != Type::Array) continue;
-            // data()[0] is readable even in an empty array (see allocate()).
-            const Array* a = n.try_array();
-            if (a->data()[0].is(tag)) return a;
-        }
+        // The tag run (D77): the scan reads 4-byte keys from this array's own memory, and
+        // loads only the child a key matches, which the caller reads next anyway. The child's
+        // own tag confirms it: two symbols can share a key.
+        const uint32_t want = key_of(tag);
+        const uint32_t* tags = tag_run();
+        for (uint32_t i = 0; i < size_; ++i)
+            if (tags[i] == want) {
+                const auto* a = static_cast<const Array*>(data()[i].array());
+                if (a->data()[0].is(tag)) return a;
+            }
         return nullptr;
     }
     // The values of the child tagged `tag`, read as T.
@@ -494,6 +501,12 @@ public:
     // Bounds every recursive walk over a parsed tree. Saturates at 65535.
     [[nodiscard]] uint16_t height() const noexcept { return height_; }
 
+    // The bytes an array of `size` nodes takes: the header, the run of its children's tags,
+    // padded to 8 (D77), and the nodes (one, Int 0, when empty).
+    [[nodiscard]] static constexpr size_t bytes(uint32_t size) noexcept {
+        return sizeof(Array) + run_bytes(size) + size_t{size ? size : 1u} * sizeof(Node);
+    }
+
     void ref() const noexcept { detail::retain_payload(this); }
     void unref() const noexcept { detail::release_payload(this); }
     // The count of the array's owner (D64): for a solo array, its own; for an array read
@@ -519,12 +532,41 @@ private:
     friend void detail::free_owner(detail::Owner&) noexcept;
     friend class detail::Arena;
     friend struct detail::CacheLayout;
-    void compute_height() noexcept;
+    // Sets the height and the tag run from the nodes: every way of building an array ends
+    // here.
+    void finish() noexcept;
+
+    // The tag run: for each node, the key of its tag if it is an Array whose first node is
+    // a Symbol, else kNoTag. A key is 32 bits of the symbol's identity, made without loading
+    // anything, and never kNoTag. Kept by finish(), set(), and sort_for_lookup(); a child
+    // re-tagged in place is not seen until it is set again (D77).
+    static constexpr uint32_t kNoTag = 0;
+    [[nodiscard]] static uint32_t key_of(Symbol s) noexcept {
+        return static_cast<uint32_t>(reinterpret_cast<uintptr_t>(s.id()) >> 3) | 1u;
+    }
+    [[nodiscard]] static uint32_t tag_key(const Node& n) noexcept {
+        // data()[0] is readable even in an empty array (see allocate()).
+        const Array* a = n.try_array();
+        const auto tag = a ? a->data()[0].try_sym() : std::nullopt;
+        return tag ? key_of(*tag) : kNoTag;
+    }
+    // The run follows the header, so a scan needs no load to find it and shares the
+    // header's cache line; the nodes follow the run.
+    [[nodiscard]] const uint32_t* tag_run() const noexcept {
+        return reinterpret_cast<const uint32_t*>(this + 1);
+    }
+    [[nodiscard]] uint32_t* tag_run() noexcept { return reinterpret_cast<uint32_t*>(this + 1); }
+    [[nodiscard]] static constexpr size_t run_bytes(uint32_t size) noexcept {
+        return (size_t{size} * sizeof(uint32_t) + 7) & ~size_t{7};
+    }
     [[nodiscard]] const Array* find_sorted(Symbol tag) const noexcept;
 
-    [[nodiscard]] Node* data() noexcept { return reinterpret_cast<Node*>(this + 1); }
+    [[nodiscard]] Node* data() noexcept {
+        return reinterpret_cast<Node*>(reinterpret_cast<char*>(this + 1) + run_bytes(size_));
+    }
     [[nodiscard]] const Node* data() const noexcept {
-        return reinterpret_cast<const Node*>(this + 1);
+        return reinterpret_cast<const Node*>(reinterpret_cast<const char*>(this + 1) +
+                                             run_bytes(size_));
     }
 
     uint32_t block_;  // the offset back to the block that holds it
@@ -533,7 +575,7 @@ private:
     int32_t line_;
     uint16_t height_ = 1;
     uint16_t flags_ = 0;  // kSortedForLookup
-    // Node nodes[size_] follows.
+    // uint32_t tags[size_], padded to 8, follows (D77), then Node nodes[size_].
 };
 
 static_assert(sizeof(Array) == 24, "Array header must stay 24 bytes");

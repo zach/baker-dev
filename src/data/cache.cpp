@@ -24,6 +24,7 @@ struct CacheLayout {
     static constexpr size_t kSize = offsetof(Array, size_);
     static constexpr size_t kFile = offsetof(Array, file_);
     static const Node* slots(const Array& a) noexcept { return a.data(); }
+    static uint32_t key_of(Symbol s) noexcept { return Array::key_of(s); }
 };
 
 namespace {
@@ -69,9 +70,14 @@ constexpr uint8_t kEnciphered = 1;
 constexpr uint32_t round8(size_t n) noexcept {
     return static_cast<uint32_t>((n + 7) & ~size_t{7});
 }
-uint32_t array_bytes(uint32_t size) noexcept {
-    return static_cast<uint32_t>(sizeof(Array) + (size ? size : 1) * sizeof(Node));
+size_t array_bytes(uint32_t size) noexcept {
+    return Array::bytes(size);
 }
+// Where an array's nodes start, from the array: after its header and tag run (D77).
+size_t nodes_at(uint32_t size) noexcept {
+    return sizeof(Array) + ((size_t{size} * 4 + 7) & ~size_t{7});
+}
+constexpr uint32_t kNoTag = UINT32_MAX;  // in the file; the process's is Array::kNoTag
 
 // A checksum, not a cipher: four lanes of multiply and rotate, near memory speed.
 uint64_t hash_bytes(const char* p, size_t n) noexcept {
@@ -174,9 +180,9 @@ private:
         return Unexpected(make_error(ErrorCode::Limit, "a cache holds at most 4 GB"));
     }
     bool place(const Array* a, uint32_t& end) {
-        if (end + size_t{array_bytes(a->size())} > UINT32_MAX) return false;
+        if (end + array_bytes(a->size()) > UINT32_MAX) return false;
         at_[a] = end;
-        end += array_bytes(a->size());
+        end += static_cast<uint32_t>(array_bytes(a->size()));
         arrays_.push_back(a);
         return true;
     }
@@ -193,7 +199,7 @@ private:
         const Node* nodes = L::slots(a);
         for (uint32_t i = 0; i < (a.size() ? a.size() : 1); ++i) {
             const Node& n = nodes[i];
-            const size_t p = at + sizeof(Array) + i * sizeof(Node);
+            const size_t p = at + nodes_at(a.size()) + i * sizeof(Node);
             std::memcpy(out.data() + p, &n, L::kType + 1);  // the payload and type; aux stays 0
             switch (n.type()) {
                 case Type::Symbol: put(out, p, symbol(*n.try_sym())); break;
@@ -204,6 +210,13 @@ private:
                 case Type::Property: put(out, p, uint64_t{at_[n.array()]}); break;
                 default: break;
             }
+        }
+        // The tag run, as symbol indexes of this file (D77).
+        for (uint32_t i = 0; i < a.size(); ++i) {
+            const Array* c = nodes[i].try_array();
+            const auto tag = c && !c->empty() ? c->nodes()[0].try_sym() : std::nullopt;
+            const uint32_t key = tag ? static_cast<uint32_t>(symbol(*tag)) : kNoTag;
+            put(out, at + sizeof(Array) + i * 4, key);
         }
     }
 
@@ -282,10 +295,10 @@ Expected<Ref<Array>> load(char* file, size_t bytes, std::string_view name, const
     for (size_t a = sizeof h; a < h.arrays_end;) {
         uint32_t size;
         std::memcpy(&size, file + a + L::kSize, 4);
-        const size_t end = a + array_bytes(size);
+        const size_t end = a + array_bytes(size), run = a + sizeof(Array);
         if (h.arrays_end - a < sizeof(Array) || end > h.arrays_end || !symbol(file + a + L::kFile))
             return bad(name, "is damaged");
-        for (char* n = file + a + sizeof(Array); n < file + end; n += sizeof(Node)) {
+        for (char* n = file + a + nodes_at(size); n < file + end; n += sizeof(Node)) {
             bool ok = true;
             switch (static_cast<Type>(n[L::kType])) {
                 case Type::Int:
@@ -299,6 +312,21 @@ Expected<Ref<Array>> load(char* file, size_t bytes, std::string_view name, const
                 default: ok = false;
             }
             if (!ok) return bad(name, "is damaged");
+        }
+        // The tag run: this file's symbol indexes become the process's (D77).
+        for (size_t i = 0; i < size; ++i) {
+            uint32_t key;
+            std::memcpy(&key, file + run + i * 4, 4);
+            if (key == kNoTag) {
+                key = 0;  // Array::kNoTag
+                std::memcpy(file + run + i * 4, &key, 4);
+                continue;
+            }
+            if (key >= h.symbol_count) return bad(name, "is damaged");
+            const void* id;
+            std::memcpy(&id, slots + size_t{key} * 8, 8);
+            key = CacheLayout::key_of(Symbol::from_id(id));
+            std::memcpy(file + run + i * 4, &key, 4);
         }
         a = end;
     }

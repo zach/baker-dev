@@ -22,9 +22,8 @@ uint16_t above(uint16_t h) noexcept {
 }  // namespace
 
 Array* Array::allocate(uint32_t size, Symbol file, int32_t line) {
-    const size_t slots = size ? size : 1;
     // A solo block, from the default allocator (D64).
-    void* mem = detail::solo_payload(detail::kSoloArray, sizeof(Array) + slots * sizeof(Node));
+    void* mem = detail::solo_payload(detail::kSoloArray, bytes(size));
     auto* a = new (mem) Array(detail::kSoloOffset, size, file, line);
     if (size == 0) new (a->data()) Node();  // Int 0 owns nothing, so it is never destroyed
     return a;
@@ -34,6 +33,7 @@ Ref<Array> Array::make(uint32_t size, Symbol file, int32_t line) {
     Array* a = allocate(size, file, line);
     Node* d = a->data();
     for (uint32_t i = 0; i < size; ++i) new (d + i) Node();
+    a->finish();
     return Ref<Array>::adopt(a);
 }
 
@@ -43,7 +43,7 @@ Ref<Array> Array::make_from(std::span<Node> nodes, Symbol file, int32_t line) {
     Array* a = allocate(size, file, line);
     Node* d = a->data();
     for (uint32_t i = 0; i < size; ++i) new (d + i) Node(std::move(nodes[i]));
-    a->compute_height();
+    a->finish();
     return Ref<Array>::adopt(a);
 }
 
@@ -53,15 +53,17 @@ Ref<Array> Array::make_copy(std::span<const Node> nodes, Symbol file, int32_t li
     Array* a = allocate(size, file, line);
     Node* d = a->data();
     for (uint32_t i = 0; i < size; ++i) new (d + i) Node(nodes[i]);
-    a->compute_height();
+    a->finish();
     return Ref<Array>::adopt(a);
 }
 
-void Array::compute_height() noexcept {
+void Array::finish() noexcept {
     uint16_t h = 0;
-    for (const Node& n : nodes()) {
-        const uint16_t c = child_height(n);
+    uint32_t* tags = tag_run();
+    for (uint32_t i = 0; i < size_; ++i) {
+        const uint16_t c = child_height(data()[i]);
         if (c > h) h = c;
+        tags[i] = tag_key(data()[i]);
     }
     height_ = above(h);
 }
@@ -71,6 +73,7 @@ void Array::set(size_t i, Node node) noexcept {
     const uint16_t h = above(child_height(node));
     if (h > height_) height_ = h;
     flags_ = static_cast<uint16_t>(flags_ & ~kSortedForLookup);
+    tag_run()[i] = tag_key(node);
     detail::Owner& owner = detail::owner_of(this);
     if (owner.kind != detail::kArena) {
         data()[i] = std::move(node);
