@@ -2388,3 +2388,24 @@ structurally equal trees.*
 - **Cost**, measured in a small driver: checking 50,000 instances (3.2 MB of text)
   takes 6.5 ms. Shapes cost nothing unless a validator is set or `check` is called; the
   Config change is one null test per merge.
+
+## D86. M8b results
+
+*M8b (spec §10): `moira::shape` (shape declarations, shape-aware `check`, the
+enumeration API) and `#require`.*
+
+- **1. A shape violation in corpus-style data is reported at load, with file and line:
+  met.** Config's validator (D85) reports an out-of-range value at `bosses.dta:23` and a
+  missing field at `bosses.dta:30`, each with its path, on the push that loads the file.
+- **2. Extra fields warn without failing: met.** The golem's `taunts` is a warning, and
+  the layer loads.
+- **3. A pack required from three files defines its macros once: met** (D81): it is read
+  once, and its macro serves all three.
+- **4. A game-level pack referencing a task-level function warns: met** (D83), as does
+  one expanding a task-level macro (D82).
+- **Deviations:** *level* for the spec's pack *layer* (D80), and `(shapes (name ...))`
+  for the spec's `(shape name ...)` (D84). Matching by tag does not reach keyed children
+  (D85).
+- **Sizes:** the core is 10,103 lines (of 15,000; the plan estimated about 10,060), and
+  `moira::shape` 400 (of 600, outside the core).
+- `docs/m8b-plan.md` is deleted; its answers are D80 and D84.
