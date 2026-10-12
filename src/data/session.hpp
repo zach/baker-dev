@@ -49,6 +49,9 @@ struct SessionAccess {
     // known; and attributes a macro to the pack declared by `file`.
     static void add_pack(LoadSession& s, const Pack& pack);
     static void set_macro_pack(LoadSession& s, Symbol macro, Symbol file);
+    // Origins (D91): those the last recorded read declared; and one a cache recorded.
+    [[nodiscard]] static std::span<const Origin> new_origins(const LoadSession& s) noexcept;
+    static void add_origin(LoadSession& s, const Origin& origin);
 };
 
 }  // namespace moira::detail

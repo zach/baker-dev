@@ -170,8 +170,19 @@ cfg.session().set_pack_levels({"engine", "game", "task"});
 ```
 
 The form is recorded (`session.packs()`, `session.pack_of(file)`) and left out of the
-tree. A pack without a level, or with a level not in the list, is an error at load. Other
-children (`owners`, `for`, `stage`) are accepted and kept.
+tree. A pack without a level, or with a level not in the list, is an error at load.
+
+**Harness metadata.** A pack may also say who keeps it, whom it is for, and how far it has
+evolved, from an idea to a commodity:
+
+```dta
+(pack boss_tools (level task) (requires combat_core)
+   (owners "td-encounter" "td-combat") (for designers) (stage custom))
+```
+
+`owners` and `for` list names (strings or symbols); `stage` is `genesis`, `custom`,
+`product`, or `commodity`, and anything else is an error at load. They are kept in the
+`Pack` the session records, for tools and reports; nothing else depends on them.
 
 **The one-way rule.** A harder pack may not depend on a softer one: engine code does not
 reach into one task's harness. Moira warns, never fails, on two kinds of reach:
@@ -187,6 +198,21 @@ Softer using harder is the point of the levels, and passes silently; so does eve
 in files that declare no pack, so a small project pays nothing. By convention a pack's
 names carry a dotted prefix (`boss.restart_phase`), which the reference and tuning panels
 group by.
+
+### Generated files: `origin`
+
+A file that a tool generates, such as an export from a spreadsheet, says so in its first
+form (or the first after its pack declaration):
+
+```dta
+(origin "economy.xlsx" (tool sheets-export))
+(econ (price 5) (tax 2))
+```
+
+The form is recorded (`session.origin_of(file)`) and left out of the tree, and a Config's
+`source()` reports `origin` and `tool` for every value the file supplies, so a number can
+be traced to the spreadsheet it came from. The first value must be a string, so ordinary
+data such as `(origin 0 0 0)` is not taken for one (D91).
 
 ## Shapes
 

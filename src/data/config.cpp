@@ -643,8 +643,21 @@ struct Config::Impl {
         detail::Resolved r;
         if (detail::resolve(*l.root, path, r) != detail::ResolveStatus::Ok)
             return {Symbol(l.name), {}, 0};
-        const Array& holder = *r.values.source();
-        return {Symbol(l.name), holder.file(), holder.line()};
+        return located(l, *r.values.source());
+    }
+    // The source of a value `holder` holds in layer `l`: with its file's origin, if the
+    // file declared one (D91).
+    [[nodiscard]] static Source located(const LayerState& l, const Array& holder) {
+        Source s{Symbol(l.name), holder.file(), holder.line()};
+        if (const Origin* o = l.after ? l.after->origin_of(holder.file()) : nullptr) {
+            s.origin = o->source;
+            s.tool = o->tool;
+        }
+        return s;
+    }
+    [[nodiscard]] Source located(std::string_view layer, const Array& holder) const {
+        if (const auto i = find_layer(layer)) return located(layers[*i], holder);
+        return {Symbol(layer), holder.file(), holder.line()};
     }
 
     // --- Write-back ---
@@ -1330,8 +1343,8 @@ Expected<List<LayerEffectEntry>> Config::layer_effect(std::string_view layer) co
         const Path path(leaf.path);
         e.path = Symbol(leaf.path);
         e.value = pack(leaf.values);
-        e.source = is_scratch ? Source{Symbol("scratch"), {}, 0}
-                              : Source{Symbol(layer), leaf.holder->file(), leaf.holder->line()};
+        e.source =
+            is_scratch ? Source{Symbol("scratch"), {}, 0} : impl_->located(layer, *leaf.holder);
         Vec<Node> below;
         if (value_nodes(*without, path, below)) e.below = pack(below);
         const bool scratch_has = !is_scratch && impl_->scratch_entry(path);
@@ -1362,9 +1375,9 @@ Expected<List<DiffEntry>> Config::diff(std::string_view a, std::string_view b) c
     if (!ta) return Unexpected(std::move(ta).error());
     if (!tb) return Unexpected(std::move(tb).error());
     const Vec<Leaf> la = leaves_of(**ta), lb = leaves_of(**tb);
-    auto source = [](std::string_view layer, const Leaf& l) {
+    auto source = [&](std::string_view layer, const Leaf& l) {
         return layer == "scratch" ? Source{Symbol("scratch"), {}, 0}
-                                  : Source{Symbol(layer), l.holder->file(), l.holder->line()};
+                                  : impl_->located(layer, *l.holder);
     };
     Vec<DiffEntry> out;
     for (const Leaf& x : la) {

@@ -97,10 +97,16 @@ enum class MergePolicy : uint8_t {
                                MergePolicy policy = MergePolicy::Overwrite);
 
 // Where a value came from.
+// Every member has its own initializer, so that {layer, file, line} leaves the rest empty
+// without -Wmissing-field-initializers.
 struct Source {
-    Symbol layer;  // "scratch" for an unsaved live edit
-    Symbol file;   // empty for a layer with no file (an overlay, scratch)
+    Symbol layer{};  // "scratch" for an unsaved live edit
+    Symbol file{};   // empty for a layer with no file (an overlay, scratch)
     int32_t line = 0;
+    // When the file declares (origin "economy.xlsx" (tool sheets-export)): what it was
+    // generated from, and by what (parse.hpp). Empty otherwise.
+    Symbol origin{};
+    Symbol tool{};
 };
 
 enum class Reload : uint8_t { Migrated, Punt };

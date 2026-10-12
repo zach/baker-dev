@@ -34,7 +34,7 @@ static_assert(L::kValue == 0 && L::kType == 8 && L::kSize == 4 && L::kFile == 8)
 static_assert(sizeof(String) == 8 && sizeof(Symbol) == 8);
 
 constexpr char kMagic[10] = {'M', 'O', 'I', 'R', 'A', '.', 'D', 'A', 'T', 'B'};
-constexpr uint16_t kVersion = 1;
+constexpr uint16_t kVersion = 2;  // 2: packs' harness metadata, origins (D91)
 constexpr uint32_t kEndian = 0x01020304;
 
 // Offsets count from the start of the file. The blob follows the header: arrays from the
@@ -50,8 +50,10 @@ constexpr uint32_t kEndian = 0x01020304;
 //   (required "path" ...)              files #require had read when the load began
 //   (require "path" ...)               files the load #required
 //   (levels L ...)                     the session's pack levels (D80)
-//   (packs (name level file (requires ...)) ...)   packs the load declared
+//   (packs (name level file (requires ...) (owners ...) (for ...) stage-or-0) ...)
+//                                      packs the load declared
 //   (macro_packs NAME file ...)        the pack each macro the load defined came from
+//   (origins (file "source" tool-or-0) ...)   origins the load's files declared (D91)
 struct Header {
     char magic[10];
     uint16_t version;
@@ -357,7 +359,8 @@ Ref<Array> record_of(const LoadSession& s) {
         define{Node(Symbol("define"))}, undefine{Node(Symbol("undefine"))},
         autorun{Node(Symbol("autorun"))}, required{Node(Symbol("required"))},
         require{Node(Symbol("require"))}, levels{Node(Symbol("levels"))},
-        packs{Node(Symbol("packs"))}, macro_packs{Node(Symbol("macro_packs"))};
+        packs{Node(Symbol("packs"))}, macro_packs{Node(Symbol("macro_packs"))},
+        origins{Node(Symbol("origins"))};
     for (const CacheFile& f : A::files(s)) {
         Vec<Node> entry{Node(String::make(f.path)), Node(f.size), Node(f.hash)};
         files.push_back(list(entry));
@@ -386,11 +389,26 @@ Ref<Array> record_of(const LoadSession& s) {
     for (const Pack& p : A::new_packs(s)) {
         Vec<Node> deps{Node(Symbol("requires"))};
         for (const Symbol d : p.requires_packs) deps.push_back(Node(d));
-        Vec<Node> entry{Node(p.name), Node(p.level), Node(p.file), list(deps)};
+        Vec<Node> owners{Node(Symbol("owners"))}, audience{Node(Symbol("for"))};
+        for (const Symbol o : p.owners) owners.push_back(Node(o));
+        for (const Symbol a : p.audience) audience.push_back(Node(a));
+        Vec<Node> entry{Node(p.name),
+                        Node(p.level),
+                        Node(p.file),
+                        list(deps),
+                        list(owners),
+                        list(audience),
+                        p.stage.empty() ? Node(0) : Node(p.stage)};
         packs.push_back(list(entry));
     }
-    Vec<Node> meta{list(files),    list(before),  list(define), list(undefine), list(autorun),
-                   list(required), list(require), list(levels), list(packs),    list(macro_packs)};
+    for (const Origin& o : A::new_origins(s)) {
+        Vec<Node> entry{Node(o.file), Node(String::make(o.source.str())),
+                        o.tool.empty() ? Node(0) : Node(o.tool)};
+        origins.push_back(list(entry));
+    }
+    Vec<Node> meta{list(files),   list(before),      list(define),  list(undefine),
+                   list(autorun), list(required),    list(require), list(levels),
+                   list(packs),   list(macro_packs), list(origins)};
     return Array::make_from({meta.data(), meta.size()});
 }
 
@@ -456,15 +474,27 @@ void replay(const Array& meta, LoadSession& s) {
     if (const Array* ps = meta.try_find("packs"))
         for (const Node& n : ps->values()) {
             const Array* p = n.array();
-            if (!p || p->size() != 4) continue;
-            Vec<Symbol> deps;
-            if (const Array* d = (*p)[3].array())
-                for (const Node& x : d->values())
-                    if (const auto sym = x.try_sym()) deps.push_back(*sym);
+            if (!p || p->size() != 7) continue;
+            Vec<Symbol> lists[3];  // requires, owners, for
+            for (uint32_t k = 0; k < 3; ++k)
+                if (const Array* d = (*p)[3 + k].array())
+                    for (const Node& x : d->values())
+                        if (const auto sym = x.try_sym()) lists[k].push_back(*sym);
             SessionAccess::add_pack(
                 s, Pack{(*p)[0].try_sym().value_or(Symbol()), (*p)[1].try_sym().value_or(Symbol()),
                         0, (*p)[2].try_sym().value_or(Symbol()),
-                        List<Symbol>({deps.data(), deps.size()})});
+                        List<Symbol>({lists[0].data(), lists[0].size()}),
+                        List<Symbol>({lists[1].data(), lists[1].size()}),
+                        List<Symbol>({lists[2].data(), lists[2].size()}),
+                        (*p)[6].try_sym().value_or(Symbol())});
+        }
+    if (const Array* os = meta.try_find("origins"))
+        for (const Node& n : os->values()) {
+            const Array* o = n.array();
+            if (!o || o->size() != 3 || !(*o)[1].string()) continue;
+            SessionAccess::add_origin(
+                s, Origin{(*o)[0].try_sym().value_or(Symbol()), Symbol((*o)[1].string()->view()),
+                          (*o)[2].try_sym().value_or(Symbol())});
         }
     if (const Array* m = meta.try_find("macro_packs"))
         for (uint32_t i = 1; i + 1 < m->size(); i += 2)

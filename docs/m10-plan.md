@@ -92,7 +92,7 @@ asked for it since).
 
 ### 3. Pack harness metadata (moira::data, the parser)
 
-- `Pack` gains `owners` (strings), `for_whom` (symbols; `for` is a keyword), and
+- `Pack` gains `owners`, `audience` (the `for` form; `for` is a keyword), and
   `stage` (`genesis`, `custom`, `product`, or `commodity`; another symbol is a located
   error at load). Absent forms are empty. Caches (D72) record and replay them with the
   rest of the declaration.

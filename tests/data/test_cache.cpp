@@ -386,3 +386,32 @@ TEST_CASE("a cache replays packs, and is stale for other pack levels") {
     other.set_pack_levels({"task", "game"});
     CHECK_FALSE(cache_fresh(cache, other));
 }
+
+TEST_CASE("a cache replays packs' harness metadata and files' origins (D91)") {
+    test::TempDir dir;
+    dir.write("task.dta",
+              "(pack boss (level task) (owners \"td-a\") (for designers) (stage genesis))\n"
+              "(origin \"bosses.xlsx\" (tool export))\n(a 1)");
+    const std::string main = dir.write("main.dta", "#require task.dta\n(b 2)");
+    const std::string cache = dir.path("main.datb");
+    LoadSession text;
+    text.set_pack_levels({"task"});
+    text.record_for_cache = true;
+    ok(write_cache(*ok(read_file(main, text)), cache, &text));
+
+    LoadSession cached;
+    cached.set_pack_levels({"task"});
+    (void)ok(read_cache(cache, cached));
+    const Symbol task(dir.path("task.dta"));
+    const Pack* p = cached.pack_of(task);
+    REQUIRE(p);
+    REQUIRE(p->owners.size() == 1);
+    CHECK(p->owners[0] == Symbol("td-a"));
+    REQUIRE(p->audience.size() == 1);
+    CHECK(p->audience[0] == Symbol("designers"));
+    CHECK(p->stage == Symbol("genesis"));
+    const Origin* o = cached.origin_of(task);
+    REQUIRE(o);
+    CHECK(o->source == Symbol("bosses.xlsx"));
+    CHECK(o->tool == Symbol("export"));
+}

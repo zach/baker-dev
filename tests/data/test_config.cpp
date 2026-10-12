@@ -245,6 +245,32 @@ TEST_CASE("source names the layer, file, and line") {
     CHECK(cfg.source("a..b").error().code() == ErrorCode::Syntax);
 }
 
+TEST_CASE("source names a generated file's origin and tool (D91)") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    dir.write("econ.dta", "(origin \"economy.xlsx\" (tool sheets-export))\n(econ (price 5))\n");
+    REQUIRE(
+        cfg.push_layer("default", dir.write("default.dta", "(shop (tax 2))\n#include econ.dta\n")));
+    REQUIRE(cfg.push_layer("patch", dir.write("patch.dta", "(shop (tax 3))\n")));
+
+    Source s = *cfg.source("econ.price");
+    CHECK(s.layer == "default");
+    CHECK(s.file.str().ends_with("econ.dta"));
+    CHECK(s.line == 2);
+    CHECK(s.origin == Symbol("economy.xlsx"));
+    CHECK(s.tool == Symbol("sheets-export"));
+    s = *cfg.source("shop.tax");  // written by hand
+    CHECK(s.origin.empty());
+    CHECK(s.tool.empty());
+    // Layer tooling reports it too.
+    const auto effect = *cfg.layer_effect("default");
+    const auto price = std::find_if(effect.begin(), effect.end(), [](const LayerEffectEntry& e) {
+        return e.path == Symbol("econ.price");
+    });
+    REQUIRE(price != effect.end());
+    CHECK(price->source.tool == Symbol("sheets-export"));
+}
+
 #if !MOIRA_SHIPPING  // reload is inert under MOIRA_SHIPPING (tested below)
 TEST_CASE("reload sees a file changed on disk") {
     TempDir dir;

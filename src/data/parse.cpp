@@ -267,6 +267,7 @@ struct LoadSession::State {
     Vec<Str> required;                     // the files #require has read, normalized (spec §1)
     Vec<Symbol> pack_levels;               // hardest first
     Vec<Pack> packs;                       // in the order they were read
+    Vec<Origin> origins;                   // files that declared one, in the order read
     HashMap<Symbol, uint32_t> macro_pack;  // the pack that defined each macro, by index
     Vec<Error> warnings;
     // What the last top-level read did, if recorded (record_for_cache).
@@ -276,6 +277,7 @@ struct LoadSession::State {
     size_t autorun_from = 0;
     size_t required_from = 0;
     size_t packs_from = 0;
+    size_t origins_from = 0;
     // Per top-level read.
     Vec<Str> include_stack;
     uint64_t nodes = 0;
@@ -480,6 +482,10 @@ private:
                 if (frames_.size() == 1 && f.start == 0 && pack_ < 0 && !arr->empty() &&
                     (*arr)[0].is(sym_pack()))
                     return declare_pack(*arr);
+                // So may (origin "source" ...), first or after the pack declaration (D91).
+                if (frames_.size() == 1 && f.start == 0 && !origin_ && arr->size() >= 2 &&
+                    (*arr)[0].is(sym_origin()) && (*arr)[1].type() == Type::String)
+                    return declare_origin(*arr);
                 return push(Node(std::move(arr)), span);
         }
     }
@@ -487,6 +493,53 @@ private:
     static const Symbol& sym_pack() {
         static const Symbol s("pack");
         return s;
+    }
+    static const Symbol& sym_origin() {
+        static const Symbol s("origin");
+        return s;
+    }
+
+    // A name written as a symbol or a string: (owners "td-combat" td-encounter).
+    static std::optional<Symbol> name_of(const Node& n) {
+        if (const auto s = n.try_sym()) return *s;
+        if (const auto s = n.try_str()) return Symbol(*s);
+        return std::nullopt;
+    }
+
+    // The names a pack declaration lists under `key`, into `out`; false if one is not a name.
+    bool names(const Array& decl, const char* key, Symbol pack, Vec<Symbol>& out) {
+        const Array* a = decl.try_find(key);
+        if (!a) return true;
+        for (const Node& n : a->values()) {
+            const auto x = name_of(n);
+            if (!x)
+                return fail(ErrorCode::Syntax,
+                            "pack '" + Str(pack.str()) + "': (" + key + " ...) lists names",
+                            a->line());
+            out.push_back(*x);
+        }
+        return true;
+    }
+
+    // (origin "economy.xlsx" (tool sheets-export)): recorded for this file, left out of the
+    // tree.
+    bool declare_origin(const Array& decl) {
+        origin_ = true;
+        Symbol tool;
+        if (const Array* t = decl.try_find("tool")) {
+            const auto x = t->size() == 2 ? name_of((*t)[1]) : std::nullopt;
+            if (!x)
+                return fail(ErrorCode::Syntax, "write (origin \"source\" (tool name))", t->line());
+            tool = *x;
+        }
+        const Origin o{file_, Symbol(*decl[1].try_str()), tool};
+        for (Origin& e : s_.st_->origins)
+            if (e.file == file_) {  // read again
+                e = o;
+                return true;
+            }
+        s_.st_->origins.push_back(o);
+        return true;
     }
 
     // (pack name (level L) (requires other ...)): other children are metadata for later.
@@ -509,10 +562,22 @@ private:
                             "', which is not one of the session's pack levels (" + levels + ")",
                         decl.line());
         }
-        Vec<Symbol> needs;
+        Vec<Symbol> needs, owners, audience;
         if (const Array* r = decl.try_find("requires"))
             for (const Node& n : r->values())
                 if (const auto x = n.try_sym()) needs.push_back(*x);
+        if (!names(decl, "owners", *name, owners) || !names(decl, "for", *name, audience))
+            return false;
+        Symbol stage;
+        if (const Array* s = decl.try_find("stage")) {
+            const auto x = s->size() == 2 ? (*s)[1].try_sym() : std::nullopt;
+            if (!x || !(*x == "genesis" || *x == "custom" || *x == "product" || *x == "commodity"))
+                return fail(ErrorCode::Directive,
+                            "pack '" + Str(name->str()) +
+                                "': (stage S) is genesis, custom, product, or commodity",
+                            s->line());
+            stage = *x;
+        }
         for (size_t i = 0; i < st.packs.size(); ++i)
             if (st.packs[i].file == file_) {  // read again
                 pack_ = static_cast<int32_t>(i);
@@ -520,7 +585,9 @@ private:
             }
         pack_ = static_cast<int32_t>(st.packs.size());
         st.packs.push_back(Pack{*name, *l, static_cast<uint32_t>(rank - st.pack_levels.begin()),
-                                file_, List<Symbol>({needs.data(), needs.size()})});
+                                file_, List<Symbol>({needs.data(), needs.size()}),
+                                List<Symbol>({owners.data(), owners.size()}),
+                                List<Symbol>({audience.data(), audience.size()}), stage});
         return true;
     }
 
@@ -725,8 +792,9 @@ private:
     Vec<SourceSpan> spans_;  // parallel to scratch_ in edit mode
     Vec<FrameInfo> frames_;
     Vec<Cond> conds_;
-    int32_t pack_ = -1;   // the pack this file declared, as an index; -1 for none
-    Vec<Symbol> warned_;  // macros this file has been warned about
+    int32_t pack_ = -1;    // the pack this file declared, as an index; -1 for none
+    bool origin_ = false;  // this file declared its origin
+    Vec<Symbol> warned_;   // macros this file has been warned about
 };
 
 }  // namespace detail
@@ -825,6 +893,14 @@ const Pack* LoadSession::pack_of(Symbol file) const noexcept {
         if (p.file == file) return &p;
     return nullptr;
 }
+std::span<const Origin> LoadSession::origins() const noexcept {
+    return {st_->origins.data(), st_->origins.size()};
+}
+const Origin* LoadSession::origin_of(Symbol file) const noexcept {
+    for (const Origin& o : st_->origins)
+        if (o.file == file) return &o;
+    return nullptr;
+}
 std::span<const Error> LoadSession::warnings() const noexcept {
     return {st_->warnings.data(), st_->warnings.size()};
 }
@@ -880,6 +956,18 @@ void SessionAccess::add_pack(LoadSession& s, const Pack& pack) {
         static_cast<uint32_t>(std::find(levels.begin(), levels.end(), p.level) - levels.begin());
     s.st_->packs.push_back(std::move(p));
 }
+std::span<const Origin> SessionAccess::new_origins(const LoadSession& s) noexcept {
+    const auto& o = s.st_->origins;
+    return {o.data() + std::min(s.st_->origins_from, o.size()), o.data() + o.size()};
+}
+void SessionAccess::add_origin(LoadSession& s, const Origin& origin) {
+    for (Origin& o : s.st_->origins)
+        if (o.file == origin.file) {
+            o = origin;
+            return;
+        }
+    s.st_->origins.push_back(origin);
+}
 void SessionAccess::set_macro_pack(LoadSession& s, Symbol macro, Symbol file) {
     const auto& packs = s.st_->packs;
     for (size_t i = 0; i < packs.size(); ++i)
@@ -906,6 +994,7 @@ Expected<Ref<Array>> read_string(std::string_view text, std::string_view name,
             st.autorun_from = st.autorun.size();
             st.required_from = st.required.size();
             st.packs_from = st.packs.size();
+            st.origins_from = st.origins.size();
         }
     }
     const Str file = detail::normalize_path(name);

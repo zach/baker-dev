@@ -337,6 +337,79 @@ TEST_CASE("packs declare a level, and the one-way rule warns on softer macros (D
     CHECK(fs.session.warnings().empty());
 }
 
+TEST_CASE("packs carry harness metadata: owners, audience, stage (spec §1)") {
+    Files fs;
+    fs.session.set_pack_levels({"game", "task"});
+    fs.files["boss.dta"] =
+        "(pack boss (level task) (requires combat)\n"
+        "      (owners \"td-encounter\" td-combat) (for designers testers) (stage custom))\n"
+        "(x 1)";
+    CHECK(fs.load("boss.dta") == "((x 1))");
+    const Pack* p = fs.session.pack_of(Symbol("boss.dta"));
+    REQUIRE(p);
+    REQUIRE(p->owners.size() == 2);
+    CHECK(p->owners[0] == Symbol("td-encounter"));
+    CHECK(p->owners[1] == Symbol("td-combat"));
+    REQUIRE(p->audience.size() == 2);
+    CHECK(p->audience[1] == Symbol("testers"));
+    CHECK(p->stage == Symbol("custom"));
+    // None declared: empty.
+    fs.files["plain.dta"] = "(pack plain (level game))";
+    (void)fs.load("plain.dta");
+    const Pack* q = fs.session.pack_of(Symbol("plain.dta"));
+    REQUIRE(q);
+    CHECK(q->owners.empty());
+    CHECK(q->audience.empty());
+    CHECK(q->stage.empty());
+
+    fs.files["bad.dta"] = "(pack bad (level game) (stage finished))";
+    CHECK(to_string(fs.fail("bad.dta")) ==
+          "moira: pack 'bad': (stage S) is genesis, custom, product, or commodity  (bad.dta:1)");
+    fs.files["bad2.dta"] = "(pack bad2 (level game)\n(owners \"a\" 3))";
+    CHECK(to_string(fs.fail("bad2.dta")) ==
+          "moira: pack 'bad2': (owners ...) lists names  (bad2.dta:2)");
+}
+
+TEST_CASE("a file's origin is recorded and left out of the tree (D91)") {
+    Files fs;
+    fs.session.set_pack_levels({"game"});
+    fs.files["econ.dta"] =
+        "; generated: do not edit\n"
+        "(origin \"economy.xlsx\" (tool sheets-export))\n"
+        "(econ (price 5))";
+    CHECK(fs.load("econ.dta") == "((econ (price 5)))");
+    const Origin* o = fs.session.origin_of(Symbol("econ.dta"));
+    REQUIRE(o);
+    CHECK(o->source == Symbol("economy.xlsx"));
+    CHECK(o->tool == Symbol("sheets-export"));
+    CHECK(fs.session.origins().size() == 1);
+
+    // After a pack declaration too; the tool is optional.
+    fs.files["p.dta"] = "(pack p (level game))\n(origin \"levels.csv\")\n(a 1)";
+    CHECK(fs.load("p.dta") == "((a 1))");
+    REQUIRE(fs.session.origin_of(Symbol("p.dta")));
+    CHECK(fs.session.origin_of(Symbol("p.dta"))->tool.empty());
+
+    // An included file declares its own.
+    fs.files["main.dta"] = "(b 2)\n#include econ.dta";
+    CHECK(fs.load("main.dta") == "((b 2) (econ (price 5)))");
+    CHECK_FALSE(fs.session.origin_of(Symbol("main.dta")));
+
+    // Ordinary data is not taken for one: a value that is not a string, a later form, a
+    // second origin.
+    fs.files["d.dta"] = "(origin 0 0 0)";
+    CHECK(fs.load("d.dta") == "((origin 0 0 0))");
+    fs.files["e.dta"] = "(x 1)\n(origin \"a.xlsx\")";
+    CHECK(fs.load("e.dta") == "((x 1) (origin \"a.xlsx\"))");
+    fs.files["f.dta"] = "(origin \"a.xlsx\")\n(origin \"b.xlsx\")";
+    CHECK(fs.load("f.dta") == "((origin \"b.xlsx\"))");
+    CHECK(fs.session.origin_of(Symbol("f.dta"))->source == Symbol("a.xlsx"));
+    CHECK_FALSE(fs.session.origin_of(Symbol("d.dta")));
+
+    fs.files["g.dta"] = "(origin \"a.xlsx\" (tool))";
+    CHECK(to_string(fs.fail("g.dta")) == "moira: write (origin \"source\" (tool name))  (g.dta:1)");
+}
+
 TEST_CASE("a pack's level must be one of the session's") {
     Files fs;
     fs.files["p.dta"] = "(pack p (level nowhere))";

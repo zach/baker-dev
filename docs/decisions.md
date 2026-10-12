@@ -2523,3 +2523,35 @@ personal `local` layer by the convention in spec §4.*
   reference do now: they cost nothing unless called, and CI can run them against shipping
   defines. The owner first chose to compile the tools out too, then reconsidered the same
   day.
+
+## D91. M10, step 1: pack harness metadata and `origin`
+
+*Results of `docs/m10-plan.md` §3 and §4 (D90).*
+
+- **Pack metadata.** `(owners ...)` and `(for ...)` list names, as strings or symbols;
+  `(stage S)` is `genesis`, `custom`, `product`, or `commodity`, and anything else is a
+  located error at load. `Pack` gains `owners`, `audience` (the `for` form; `for` is a C++
+  keyword), and `stage`, empty when not declared.
+- **`origin`, a settlement of the spec's "as a top-level form".** Spec §1 lets
+  `(origin "economy.xlsx" (tool sheets-export))` appear anywhere at the top level, but
+  `origin` is an ordinary tag in existing data (a spawn point's `(origin 0 0 0)`).
+  As with packs (D82), it is a declaration only as the file's first form, or the first
+  after its pack declaration, and only when its first value is a string; one per file.
+  Anything else is data. The parser records it in the session (`origins()`,
+  `origin_of(file)`) and leaves it out of the tree. An included file declares its own.
+- **`Source`** gains `origin` and `tool` (24 to 40 bytes), filled from the session the
+  supplying layer was read with, by `source()`, `layer_effect`, and `diff`. Every member
+  now has an initializer, so `{layer, file, line}` still builds one.
+- **Caches (D72).** A recorded load records each pack's metadata and the origins its files
+  declared, and a cache load replays them. The format version goes from 1 to 2, so an old
+  cache is stale (`read_cached` and Config re-read the text).
+- **Tests:** metadata and its errors; origins first, after a pack, in an included file,
+  without a tool, and the data that is not taken for one; a cache round trip; `source()`
+  and `layer_effect` naming the origin of a value from an included generated file.
+- **Benchmarks** (release, against `9dbcd38`, alternating runs): `bench_parse` 131–136
+  MB/s before and after. `bench_cache`'s text parse overlaps (94–125 MB/s before, 107–121
+  after). Its `read_cache` row read 2.29–2.48 ms before and 2.43–2.84 after, though
+  `read_cache` runs none of the changed code. Counted with cachegrind, five loads of the
+  6.2 MB tree take 80.78 M instructions and 1.01 M D1 misses in both builds, so the
+  difference is timing noise.
+- **Size:** the core is 10,250 lines (10,116 before; the plan estimated 130 for this step).
