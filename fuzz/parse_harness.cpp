@@ -1,5 +1,6 @@
 #include "parse_harness.hpp"
 
+#include <moira/cache.hpp>
 #include <moira/parse.hpp>
 #include <moira/source_map.hpp>
 #include <moira/std_interop.hpp>
@@ -78,6 +79,12 @@ bool check_parse(std::string_view data) {
     if (!edited || !structurally_equal(**first, **edited)) return false;
     uint64_t span_budget = 2000;
     if (!spans_hold(Node(*edited), map, data, span_budget)) return false;
+
+    // The binary cache gives the same tree back.
+    std::string bytes;
+    if (!write_cache(**first, string_out(bytes))) return false;
+    auto cached = read_cache_bytes(bytes);
+    if (!cached || !structurally_equal(**first, **cached)) return false;
 
     const std::string printed = to_dta(**first);
     LoadSession s2 = make_session();

@@ -1906,3 +1906,61 @@ recommended.*
   `read_cached`, which rewrites a stale cache in development.
 - **Q4, Config.** `ConfigOptions::cache_dir`: outside edit mode, file layers load through
   `read_cached`, and reload rewrites the caches of changed files. Edit mode reads text.
+
+## D71. M8a: the cache writer and the in-place load
+
+*Results of M8a (`docs/m8-plan.md` §1–2).* `include/moira/cache.hpp`: `write_cache` (to a
+path or a `TextSink`), `read_cache` (a path, through a session), and `read_cache_bytes`.
+
+- **The file is the arena block.** `Arena::create_holding` makes the arena, a block
+  header, and the file one allocation. Each array's and string's block offset is written
+  as `kBlockHeader` plus its offset in the file, so the loaded tree has the owner model of
+  a parsed one (D64): one count, freed as one block, and `Array::set` on it adds
+  dependencies as usual.
+- **Layout.** A 72-byte header, then the arrays breadth first from the root (siblings
+  together, so a lookup's child loads are adjacent), then the strings, then the symbol
+  section: an 8-byte slot per symbol and the names. Arrays and strings the tree shares
+  (macro expansions, D1) are written once and stay shared. The `aux` bits are written as
+  zero.
+- **Load.** Check the header, hash the file, intern each name into its slot, then one
+  linear pass over the arrays: a node's offset becomes a pointer, and a symbol index (a
+  symbol, a variable, an array's file) the slot's Symbol. Strings need no fixup. The
+  slots live in the file, so the fixup pass needs no table: **one allocation**, against
+  the spec's two (§7 counted one for the fixup pass).
+- **Checks, and a deviation.** The pass checks every offset against its region, every
+  symbol index against the count, and every node type. With the hash (a four-lane
+  multiply-rotate checksum, about 8 GB/s), a damaged, truncated, or foreign file is an
+  error. But a cache is build output, not input: a forged file with a valid hash can still
+  point a node into the middle of another array. The parser's promise that nothing in a
+  file can crash the reader holds for text, which comes from untrusted sources; the
+  header comment says so.
+- **Not in a cache:** the session's `#autorun` commands, which are not part of the tree.
+  M8b decides whether `read_cached` keeps them.
+- **Allocations on the path.** `read_cache(path, session)` opens the file from a stack
+  copy of the path (a heap copy only beyond 511 bytes) and reads it unbuffered straight
+  into the arena. A custom reader costs a temporary copy.
+- **Tests.** Every corpus file, and every input the fuzz harness parses, loads from a
+  cache structurally equal to its text load, with the same files, lines, heights, sorted
+  flags, and sharing; damaged files fail with errors; the load is one allocation and the
+  teardown none.
+
+**Benchmarks** (`bench_cache`, release, this machine, best of 10; the generated text of
+`bench_parse`, whose tree is about 4.3 bytes per byte of text):
+
+| | 1.2 MB text, 5.3 MB tree | 4.2 MB text, 18.0 MB tree |
+|---|---:|---:|
+| text parse | 10.3 ms | 34.0 ms |
+| `read_cache` from a file, warm symbols | **1.90 ms, 1 allocation** | 7.58 ms, 1 allocation |
+| `read_cache_bytes`, warm symbols | 1.73 ms | 6.94 ms |
+| `read_cache`, cold symbols (a fresh process) | 6.56 ms | 24.2 ms |
+| freeing the tree | 0.001 ms | 0.001 ms |
+| `write_cache` | 24.2 ms | 138 ms |
+
+- §7's target, a 5 MB tree in ≤ 10 ms with ≤ 2 allocations, is met warm (1.9 ms) and in a
+  fresh process (6.6 ms, which includes the process's first touch of its heap and the
+  symbol table's growth).
+- Of the 18 MB load, hashing is 2.6 ms and a copy of the file 1.8 ms (measured alone).
+- `write_cache` is offline work (a hash map per array, string, and symbol) and not
+  timed against a target; it matters for M8b's `read_cached`, which writes after a parse.
+- `bench_parse` and `bench_lookup` against the previous commit: unchanged within noise
+  (parse 110–117 MB/s before, 114–119 after; lookup rows within ±1.5 ns).

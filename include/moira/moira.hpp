@@ -4,6 +4,7 @@
 
 #include <moira/allocator.hpp>
 #include <moira/array.hpp>
+#include <moira/cache.hpp>
 #include <moira/config.hpp>
 #include <moira/error.hpp>
 #include <moira/node.hpp>

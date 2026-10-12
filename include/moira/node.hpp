@@ -110,6 +110,7 @@ private:
     ~String() = default;
     friend void detail::free_owner(detail::Owner&) noexcept;
     friend class detail::Arena;
+    friend struct detail::CacheLayout;
 
     uint32_t block_;  // the offset back to the block that holds it
     uint32_t size_;
@@ -335,6 +336,7 @@ private:
         detail::retain_payload(value_.p);
     }
 
+    friend struct detail::CacheLayout;
     union Value {
         int64_t i;
         double f;

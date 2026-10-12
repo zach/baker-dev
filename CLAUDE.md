@@ -2,9 +2,9 @@
 
 Read `docs/spec.md` for what Moira is (§10 lists the milestones), `docs/decisions.md` for
 every deviation from it and the results of each step, and the current milestone plan
-(`docs/m<N>-plan.md`) if one exists. M7 is done (D68); M8, the binary cache, is planned in
-`docs/m8-plan.md`; its open questions go to the owner. The core's soft line budget is
-15,000 (D69); `tools/count_lines.py` reports it.
+(`docs/m<N>-plan.md`) if one exists. M7 is done (D68); M8, the binary cache, follows
+`docs/m8-plan.md` (answers in D70); M8a, writing and loading, is done (D71). The core's
+soft line budget is 15,000 (D69); `tools/count_lines.py` reports it.
 
 ## Rules
 

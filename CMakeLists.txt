@@ -113,6 +113,7 @@ add_library(moira_data
   src/data/arena.cpp
   src/data/clock.cpp
   src/data/array.cpp
+  src/data/cache.cpp
   src/data/config.cpp
   src/data/error.cpp
   src/data/lookup.cpp
@@ -197,6 +198,9 @@ if(MOIRA_BUILD_BENCH)
   add_executable(moira_bench_parse bench/bench_parse.cpp tests/support/alloc_counter.cpp)
   target_include_directories(moira_bench_parse PRIVATE tests/support)
   target_link_libraries(moira_bench_parse PRIVATE moira::data)
+  add_executable(moira_bench_cache bench/bench_cache.cpp tests/support/alloc_counter.cpp)
+  target_include_directories(moira_bench_cache PRIVATE tests/support)
+  target_link_libraries(moira_bench_cache PRIVATE moira::data)
   add_executable(moira_bench_lookup bench/bench_lookup.cpp)
   target_link_libraries(moira_bench_lookup PRIVATE moira::data)
   if(MOIRA_BUILD_SCRIPT)

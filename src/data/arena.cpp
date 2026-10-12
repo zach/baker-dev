@@ -28,9 +28,22 @@ Arena* Arena::create(const Allocator& alloc, size_t expected_bytes) {
     return a;
 }
 
+Arena* Arena::create_holding(const Allocator& alloc, size_t bytes, char*& payload) {
+    const size_t self = round_up(sizeof(Arena));
+    const size_t whole = self + kBlockHeader + round_up(bytes);
+    char* mem = static_cast<char*>(allocate(alloc, whole, kAlign));
+    auto* a = ::new (mem) Arena(alloc);
+    a->next_ = kMinBlock;
+    a->whole_ = whole;
+    ::new (mem + self) Block{&a->head_.owner, nullptr, whole - self};
+    payload = mem + self + kBlockHeader;
+    return a;
+}
+
 void* Arena::take(size_t bytes, uint32_t& offset) {
     bytes = round_up(bytes);
-    constexpr size_t header = round_up(sizeof(Block));
+    constexpr size_t header = kBlockHeader;
+    static_assert(round_up(sizeof(Block)) == kBlockHeader);
     if (bytes > left_) {
         // A payload larger than half a block gets a block of its own, which leaves the
         // current block open.
@@ -133,8 +146,9 @@ void Arena::free() noexcept {
         b = next;
     }
     const Allocator alloc = alloc_;
+    const size_t whole = whole_;
     this->~Arena();
-    detail::deallocate(alloc, this, sizeof(Arena));
+    detail::deallocate(alloc, this, whole);
 }
 
 void* solo_payload(OwnerKind kind, size_t bytes) {

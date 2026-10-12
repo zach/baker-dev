@@ -38,9 +38,12 @@
 
 namespace moira {
 
+class LoadSession;
 namespace detail {
 class Parser;
-}
+// True if the session reads files with the default reader (cache.cpp reads them directly).
+[[nodiscard]] bool reads_disk(const LoadSession& session) noexcept;
+}  // namespace detail
 
 struct ParseLimits {
     uint32_t max_depth = 256;                // array nesting, including spliced macro arrays
@@ -95,6 +98,7 @@ public:
 
 private:
     friend class detail::Parser;
+    friend bool detail::reads_disk(const LoadSession&) noexcept;
     friend Expected<Ref<Array>> read_string(std::string_view, std::string_view, LoadSession&);
     friend Expected<Ref<Array>> read_file(std::string_view, LoadSession&);
 

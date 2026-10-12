@@ -259,6 +259,7 @@ bool read_with(const LoadSession::Reader& reader, std::string_view path, Str& te
 struct LoadSession::State {
     HashMap<Symbol, Ref<Array>> defines;
     Reader reader = detail::read_disk_file;
+    bool disk = true;  // `reader` is the default
     Vec<Str> include_dirs;
     Vec<Node> autorun;
     // Per top-level read.
@@ -677,6 +678,7 @@ const Array* LoadSession::macro(Symbol name) const {
     return it == st_->defines.end() ? nullptr : it->second.get();
 }
 void LoadSession::set_reader(Reader reader) {
+    st_->disk = !reader;
     st_->reader = reader ? std::move(reader) : Reader(detail::read_disk_file);
 }
 const LoadSession::Reader& LoadSession::reader() const noexcept {
@@ -693,6 +695,10 @@ std::span<const Node> LoadSession::autorun() const noexcept {
 }
 void LoadSession::clear_autorun() {
     st_->autorun.clear();
+}
+
+bool detail::reads_disk(const LoadSession& session) noexcept {
+    return session.st_->disk;
 }
 
 Expected<Ref<Array>> read_string(std::string_view text, std::string_view name,

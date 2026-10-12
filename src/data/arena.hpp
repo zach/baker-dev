@@ -36,6 +36,13 @@ class Arena {
 public:
     // A new arena. Its count starts at 1, held by the Handle the caller wraps it in.
     [[nodiscard]] static Arena* create(const Allocator& alloc, size_t expected_bytes = 0);
+    // A new arena whose first block shares its allocation: `bytes` of payload, at `payload`,
+    // kBlockHeader bytes into the block (a cache's file, D70). Later storage takes blocks
+    // as usual.
+    [[nodiscard]] static Arena* create_holding(const Allocator& alloc, size_t bytes,
+                                               char*& payload);
+    // From the start of a block to its first payload.
+    static constexpr uint32_t kBlockHeader = 24;
 
     // An array of `nodes`, moved from; the Ref counts this arena.
     [[nodiscard]] Ref<Array> make_array(std::span<Node> nodes, Symbol file, int32_t line);
@@ -96,6 +103,7 @@ private:
     size_t left_ = 0;
     size_t next_ = 0;  // the size of the next block
     Vec<Owner*> deps_;
+    size_t whole_ = sizeof(Arena);  // this allocation's size: more if it holds a block
 };
 
 inline Arena& Arena::of(Owner& owner) noexcept {

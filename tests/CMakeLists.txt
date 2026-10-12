@@ -9,6 +9,7 @@ target_compile_definitions(moira_doctest_main PUBLIC DOCTEST_CONFIG_NO_EXCEPTION
 
 add_executable(moira_data_tests
   data/test_arena.cpp
+  data/test_cache.cpp
   data/test_config.cpp
   data/test_core.cpp
   data/test_corpus.cpp

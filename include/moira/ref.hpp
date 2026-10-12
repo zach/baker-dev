@@ -68,6 +68,7 @@ enum OwnerKind : uint32_t { kSoloArray, kSoloString, kArena };
     return *owner;
 }
 class Arena;
+struct CacheLayout;  // the binary cache's view of the layouts (cache.cpp)
 // Frees an owner whose count reached zero.
 void free_owner(Owner& owner) noexcept;
 inline void retain_payload(const void* payload) noexcept {
