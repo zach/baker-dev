@@ -1907,9 +1907,9 @@ recommended.*
 - **Q4, Config.** `ConfigOptions::cache_dir`: outside edit mode, file layers load through
   `read_cached`, and reload rewrites the caches of changed files. Edit mode reads text.
 
-## D71. M8a: the cache writer and the in-place load
+## D71. M8.1: the cache writer and the in-place load
 
-*Results of M8a (`docs/m8-plan.md` §1–2).* `include/moira/cache.hpp`: `write_cache` (to a
+*Results of M8.1 (`docs/m8-plan.md` §1–2).* `include/moira/cache.hpp`: `write_cache` (to a
 path or a `TextSink`), `read_cache` (a path, through a session), and `read_cache_bytes`.
 
 - **The file is the arena block.** `Arena::create_holding` makes the arena, a block
@@ -1935,7 +1935,7 @@ path or a `TextSink`), `read_cache` (a path, through a session), and `read_cache
   file can crash the reader holds for text, which comes from untrusted sources; the
   header comment says so.
 - **Not in a cache:** the session's `#autorun` commands, which are not part of the tree.
-  M8b decides whether `read_cached` keeps them.
+  M8.2 decides whether `read_cached` keeps them.
 - **An arena allocates nothing beyond itself.** Its list of dependencies was a `Vec`,
   which MSVC's debug library allocates even when empty (D62; CI caught the second
   allocation). It is now a raw array grown from the arena's allocator on the first
@@ -1965,11 +1965,11 @@ path or a `TextSink`), `read_cache` (a path, through a session), and `read_cache
   symbol table's growth).
 - Of the 18 MB load, hashing is 2.6 ms and a copy of the file 1.8 ms (measured alone).
 - `write_cache` is offline work (a hash map per array, string, and symbol) and not
-  timed against a target; it matters for M8b's `read_cached`, which writes after a parse.
+  timed against a target; it matters for M8.2's `read_cached`, which writes after a parse.
 - `bench_parse` and `bench_lookup` against the previous commit: unchanged within noise
   (parse 110–117 MB/s before, 114–119 after; lookup rows within ±1.5 ns).
 
-## D72. M8b: a cache load replays the session
+## D72. M8.2: a cache load replays the session
 
 *Answered by the project owner 2026-10-12, as recommended.* A text load can change its
 `LoadSession` as well as return a tree: its `#define`, `#undef`, and macros stay for later
@@ -1977,9 +1977,9 @@ files, and its `#autorun` commands are collected. The cache records those effect
 (defines and macros added or removed, and the autorun commands) and loading it applies
 them, so a cache load leaves the session as the text load did.
 
-## D73. M8b: staleness, replay, `read_cached`, the `Cipher`, `moira_bake`
+## D73. M8.2: staleness, replay, `read_cached`, the `Cipher`, `moira_bake`
 
-*Results of M8b (`docs/m8-plan.md` §3–4, D70, D72).*
+*Results of M8.2 (`docs/m8-plan.md` §3–4, D70, D72).*
 
 - **Recording a load.** `LoadSession::record_for_cache`, when set, makes each top-level
   read record every file it read (path, size, content hash), every include candidate it
@@ -2023,16 +2023,16 @@ them, so a cache load leaves the session as the text load did.
 | text parse alone | 9.6–12.5 ms | 33–38 ms |
 | `read_cache`, cold symbols, three fresh processes | 5.5–5.8 ms | 19–27 ms |
 
-- The cold row was one process per run, and one run in M8b's first measurement read
+- The cold row was one process per run, and one run in M8.2's first measurement read
   18 ms where the previous commit read 5.9; repeated, both read 5.8–6.1 ms. The bench now
   runs three processes.
 - `write_cache` dominates a miss (about 26 ms of 41 for the 5 MB tree): hash maps of
   every array, string, and symbol. It runs once per changed file in development.
 - `bench_parse` against the previous commit: 119–126 MB/s before and after (noise).
 
-## D74. M8c: Config's `cache_dir`
+## D74. M8.3: Config's `cache_dir`
 
-*Results of M8c (`docs/m8-plan.md` §5, D70 Q4).*
+*Results of M8.3 (`docs/m8-plan.md` §5, D70 Q4).*
 
 - **`ConfigOptions::cache_dir`** (copied by the Config): outside edit mode, each file
   layer loads through `<cache_dir>/<hash of its path, hex>.datb`. A fresh cache gives the
@@ -2099,7 +2099,7 @@ Config's merge quadratic on flat layers; results here.*
   costs more than the cache saves. Shipping skips the check.
 - `bench_parse`: 126 MB/s before and after (`#merge` takes the same path).
 
-## D76. M8d, step 1: cold lookup rows
+## D76. M8.4, step 1: cold lookup rows
 
 *D57's measurement, as D70 (Q1) ordered it: cold rows before any layout change.*
 
@@ -2121,7 +2121,7 @@ cache-loaded one (release, this machine, best of 7 runs of 2M calls):
   tags beside its nodes, and the scan reads 4-byte keys from the parent's own memory. Its
   design note and results are the next entry.
 
-## D77. M8d, step 2: the tag run
+## D77. M8.4, step 2: the tag run
 
 *D70 (Q1) said to build it if the cold rows showed child loads dominating; D76 showed
 they do. The owner chose its rule for re-tagged children, 2026-10-12, as recommended:
@@ -2174,7 +2174,7 @@ the same rule as sorted mode.*
 - Parse speed is unchanged (123–125 MB/s), with 43 allocations instead of 40 (larger
   blocks fill sooner). `bench_call` and the Config rows are unchanged within noise.
 
-## D78. M8d, step 3: the dispatch split
+## D78. M8.4, step 3: the dispatch split
 
 *D57's last item, narrowed by D70 (Q1) to what measurement supports.*
 
@@ -2238,3 +2238,5 @@ structurally equal trees.*
 - **The core** is 9,850 lines of the 15,000 budget (D69), against the plan's ~9,690.
   `moira_bake` is in `tools/`, outside the core.
 - `docs/m8-plan.md` is deleted; its answers are D70 and D72.
+- **Naming.** Commits called M8's steps M8a–M8d; this file calls them M8.1–M8.4, because
+  the spec's milestone M8b is `moira::shape`, which is next.
