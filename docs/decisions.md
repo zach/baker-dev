@@ -2173,3 +2173,40 @@ the same rule as sorted mode.*
   14.8.
 - Parse speed is unchanged (123–125 MB/s), with 43 allocations instead of 40 (larger
   blocks fill sooner). `bench_call` and the Config rows are unchanged within noise.
+
+## D78. M8d, step 3: the dispatch split
+
+*D57's last item, narrowed by D70 (Q1) to what measurement supports.*
+
+- **Cold rows first.** `bench_call` gains two: one of 20,000 native functions, and one of
+  2,000 named objects, each called in a shuffled order.
+- **`Function`'s hot fields come first:** its name, then the single overload's thunk,
+  callable, and arity, the overload count, and the call counters, about one cache line.
+  The docs, status, overload list, and source location follow. A call with one overload
+  reads only these; `refresh()` copies them from the overload list after each change (a
+  script `{func}` and `add_overload`). An overload set still goes through the list.
+- **Not in the name table, as D57 proposed.** Entries there would be indexed by every
+  Symbol in the process (seven times the table's memory, and every Context pays it), and
+  the counters a running call points at would move when the table grew. In the record,
+  they cost the one load of the record, which a call made anyway.
+- **Methods are not split.** The cold object row stays within about 22 ns of the warm one,
+  and finding the object, not the method table, is most of it. Nothing measured asks for
+  it; it waits for a workload that does.
+
+**Measurements** (release, this machine). A small driver making 200,000 cold calls of
+`{fN 1 2}`, counted with cachegrind, per call:
+
+| | instructions | D1 misses |
+|---|---:|---:|
+| before the tag run (`675eb12`) | 323 | 8.00 |
+| the tag run (D77, `e4b641e`) | 328 | 8.25 |
+| the split (this step) | 331 | 6.74 |
+
+Timed in the same driver, three runs each (best of 15 per run): 103–110 ns before the
+tag run, 112–129 ns with it, 100–127 ns with the split. `bench_call`, against the tag
+run's commit: cold natives 118–130 ns before, 103–117 ns after; cold objects and every
+warm row unchanged within noise (`{add 1 2}` 31.0–32.9 ns).
+
+- **A correction to D77:** the tag run costs a cold script call about 10 ns (larger
+  command arrays, and a node address that waits on `size_`). D77's `bench_call` rows were
+  all warm; this step's cold rows found it, and the split recovers most of it.

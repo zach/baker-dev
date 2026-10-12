@@ -77,6 +77,15 @@ struct Counters {
 struct Function : FuncRecord {
     explicit Function(const Allocator& a) : doc(a), overloads(a) {}
 
+    // Hot (D78): what a call reads, first, beside the name. A function with one overload
+    // is called from these without touching the overload list.
+    detail::Overload::Thunk thunk = nullptr;  // the only overload's; null for none or a set
+    const void* callable = nullptr;
+    uint32_t min_args = 0, max_args = 0;
+    uint32_t overload_count = 0;
+    mutable Counters counters;
+
+    // Cold.
     Tier tier = Tier::Native;
     Status status = Status::Normal;
     Symbol replacement;  // for Deprecated
@@ -84,7 +93,16 @@ struct Function : FuncRecord {
     Vec<detail::Overload> overloads;
     Symbol file;  // where a script function is defined
     int32_t line = 0;
-    mutable Counters counters;
+
+    // Copies the hot fields from `overloads`: after every change to it.
+    void refresh() noexcept {
+        overload_count = static_cast<uint32_t>(overloads.size());
+        const bool one = overloads.size() == 1;
+        thunk = one ? overloads[0].thunk : nullptr;
+        callable = one ? overloads[0].callable.get() : nullptr;
+        min_args = one ? overloads[0].min_args : 0;
+        max_args = one ? overloads[0].max_args : 0;
+    }
 };
 
 // A {func} body: run with the parameters bound.

@@ -4,7 +4,7 @@ Read `docs/spec.md` for what Moira is (§10 lists the milestones), `docs/decisio
 every deviation from it and the results of each step, and the current milestone plan
 (`docs/m<N>-plan.md`) if one exists. M7 is done (D68); M8, the binary cache, follows
 `docs/m8-plan.md` (answers in D70); M8a–M8c are done (D71, D73, D74), and M8d's tag run
-(D77); the dispatch split is next. The core's soft line budget is 15,000 (D69); `tools/count_lines.py`
+and dispatch split (D77, D78); M8's results entry is next. The core's soft line budget is 15,000 (D69); `tools/count_lines.py`
 reports it. CI also checks `clang-format-18 --dry-run --Werror` over every source file.
 
 ## Rules

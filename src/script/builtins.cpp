@@ -87,6 +87,7 @@ Expected<Node> define(Args a, bool override) {
     f.line = a.command().line();
     f.overloads.clear();
     f.overloads.push_back(std::move(o));
+    f.refresh();
     return Node(name);
 }
 

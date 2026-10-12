@@ -260,7 +260,7 @@ MOIRA_INLINE Expected<Node> Context::Impl::call_body(const Array& command, Count
     if (head.type() == Type::Symbol) {
         name = *head.try_sym();
         f = find(name);
-        if (!f || f->overloads.empty()) {
+        if (!f || f->overload_count == 0) {
             f = nullptr;
             target = named(name);
             if (!target.bits) return not_function(command, name);
@@ -307,13 +307,14 @@ MOIRA_INLINE Expected<Node> Context::Impl::call_body(const Array& command, Count
         ++f->counters.calls;
         if (counted) *counted = &f->counters;
     }
-    if (f->overloads.size() > 1) return invoke_set(name, f->overloads, command, 1, nullptr);
-    // One overload: the common case, kept inline.
-    const detail::Overload& o = f->overloads[0];
+    if (f->overload_count > 1) return invoke_set(name, f->overloads, command, 1, nullptr);
+    // One overload: the common case, kept inline, from the record's hot fields (D78).
     const size_t n = command.size() - 1;
-    if (n < o.min_args || n > o.max_args) return bad_arity(command, name, o, n);
+    if (n < f->min_args || n > f->max_args) return bad_arity(command, name, f->overloads[0], n);
     Args args(self, command, command.begin() + 1, n, 0, false);
-    return invoke(o, args, command);
+    Expected<Node> r = f->thunk(f->callable, args);
+    if (!r) locate(r.error(), command);
+    return r;
 }
 
 Expected<Node> Context::Impl::call(const Array& command) {
@@ -602,6 +603,7 @@ Expected<FuncRef> Context::add_overload(Symbol name, detail::Overload o) {
                           ", the native takes " + arity_text(o.min_args, o.max_args));
         notice(std::move(e));
         f.overloads.clear();
+        f.refresh();
         f.status = Status::Normal;
         f.doc.clear();
     }
@@ -618,6 +620,7 @@ Expected<FuncRef> Context::add_overload(Symbol name, detail::Overload o) {
     }
     f.tier = Tier::Native;
     f.overloads.push_back(std::move(o));
+    f.refresh();
     return FuncRef(&f);
 }
 

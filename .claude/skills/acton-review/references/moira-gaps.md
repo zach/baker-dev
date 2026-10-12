@@ -6,7 +6,7 @@
 |---|---|---|
 | 1, allocator hook | per-Context allocators (D62), an arena per load (D64, D65) | **done** |
 | 2b, tag lookup | the tag run beside each array's nodes (D76, D77) | **done** |
-| 2, 3, hot/cold layout, dispatch loads | the dispatch split, measured cold and warm (D57, D70) | M8 |
+| 2, 3, hot/cold layout, dispatch loads | functions: hot fields first in the record (D78); methods wait for a measured need | **done** for functions |
 | 4, one item at a time | `handle_all` broadcast, one lookup per run of a type (D53, D66) | **done** |
 | 5, per-array refcounts | one count per load (D64, D65) | **done** |
 | 7, coroutine frames | per-Scheduler pool with a frame budget (D58, D68) | **done** |

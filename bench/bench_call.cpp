@@ -4,6 +4,9 @@
 // Each row evaluates a parsed command node with Context::eval, as a game evaluating
 // its data would. The last rows compare the per-Context table that resolves a function
 // name (docs/decisions.md D44) with a hash map, the lookup D5's in-node cache would save.
+//
+// Cold rows (D57, D70): 20,000 native functions, and 2,000 named objects, each called in a
+// shuffled order, so the commands, function records, and objects are not in cache.
 #include <moira/object.hpp>
 #include <moira/parse.hpp>
 #include <moira/script.hpp>
@@ -14,6 +17,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <random>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -176,6 +180,43 @@ int main() {
                 return r ? r->try_float().value_or(0) : -1.0;
             },
             "");
+    }
+
+    // Cold: many functions and objects, called in a shuffled order.
+    std::printf("\ncold: calls in a shuffled order (best of 7, 2M calls each)\n");
+    {
+        constexpr int kFunctions = 20'000, kObjects = 2'000;
+        std::string text;
+        for (int i = 0; i < kFunctions; ++i) {
+            const std::string name = "f" + std::to_string(i);
+            if (!ctx.func(moira::Symbol(name), [](int64_t a, int64_t b) { return a + b; }))
+                return 1;
+            text += "{" + name + " 1 2} ";
+        }
+        std::vector<Person> people(kObjects);
+        for (int i = 0; i < kObjects; ++i) {
+            if (!ctx.add(people[static_cast<size_t>(i)], moira::Symbol("p" + std::to_string(i))))
+                return 1;
+            text += "{p" + std::to_string(i) + " grow 0} ";
+        }
+        auto cold = moira::read_string(text, "cold.dta");
+        if (!cold) return 1;
+        std::mt19937 rng(42);
+        std::vector<uint32_t> order(kFunctions), objects(kObjects);
+        for (uint32_t i = 0; i < kFunctions; ++i) order[i] = i;
+        for (uint32_t i = 0; i < kObjects; ++i) objects[i] = kFunctions + i;
+        std::shuffle(order.begin(), order.end(), rng);
+        std::shuffle(objects.begin(), objects.end(), rng);
+        auto run = [&](const std::vector<uint32_t>& which) {
+            return ns_per_call([&](int i) {
+                const auto u = static_cast<unsigned>(i);
+                auto r = ctx.eval((**cold)[which[u % which.size()]]);
+                return r ? static_cast<double>(r->try_float().value_or(0)) : -1.0;
+            });
+        };
+        std::printf("%-38s %7.2f ns\n", "{fN 1 2}: one of 20,000 natives", run(order));
+        std::printf("%-38s %7.2f ns\n", "{pN grow 0}: one of 2,000 objects", run(objects));
+        for (Person& p : people) ctx.remove(p);
     }
 
     // Resolving a name: the Context's table, indexed by Symbol::index(), against a hash map.
