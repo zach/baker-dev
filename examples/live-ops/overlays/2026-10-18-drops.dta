@@ -1,0 +1,3 @@
+; Meant to raise rare drops to 15%, typed as a percentage.
+(event
+   (drop_rate 15))

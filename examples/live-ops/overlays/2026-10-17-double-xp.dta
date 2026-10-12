@@ -1,0 +1,4 @@
+; Double-XP weekend. Ships Friday 17:00 UTC; roll back Monday.
+(event
+   (xp_multiplier 2)
+   (banner "Double XP all weekend!"))

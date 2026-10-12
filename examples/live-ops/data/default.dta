@@ -1,0 +1,10 @@
+; What the build shipped with. The shapes say what an overlay may set.
+(shapes
+   (event
+      (xp_multiplier float (range 1 5) (desc "Experience multiplier"))
+      (drop_rate float (range 0 1) (desc "Chance of a rare drop"))
+      (banner string (optional))))
+
+(event
+   (xp_multiplier 1)
+   (drop_rate 0.05))
