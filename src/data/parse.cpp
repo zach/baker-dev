@@ -7,6 +7,7 @@
 #include "session.hpp"
 #include "text.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <utility>
@@ -263,11 +264,13 @@ struct LoadSession::State {
     bool disk = true;  // `reader` is the default
     Vec<Str> include_dirs;
     Vec<Node> autorun;
+    Vec<Str> required;  // the files #require has read, normalized (spec §1)
     // What the last top-level read did, if recorded (record_for_cache).
     bool recorded = false;
     Vec<detail::CacheFile> files;
     HashMap<Symbol, Ref<Array>> defines_before;
     size_t autorun_from = 0;
+    size_t required_from = 0;
     // Per top-level read.
     Vec<Str> include_stack;
     uint64_t nodes = 0;
@@ -520,12 +523,12 @@ private:
         const std::string_view d = t.text;
         if (d == "ifdef" || d == "ifndef") return conditional(t, true);
         if (d == "else" || d == "endif") return else_or_endif(t);
-        if (d == "include" || d == "include_opt" || d == "merge") {
+        if (d == "include" || d == "include_opt" || d == "merge" || d == "require") {
             Str path;
             if (!path_arg(d, path)) return false;
             Ref<Array> root;
-            if (!load(path, d == "include_opt", t.line, root)) return false;
-            if (!root) return true;  // optional and missing
+            if (!load(path, d == "include_opt", t.line, root, d == "require")) return false;
+            if (!root) return true;  // optional and missing, or already required
             if (d == "merge") {
                 merge_into(scratch_, map_ ? &spans_ : nullptr, frames_.back().start, *root, 0,
                            MergePolicy::FillMissing, map_, &arena_);
@@ -572,8 +575,8 @@ private:
     }
 
     // Resolves and parses an included or merged file. Leaves `out` null if `optional`
-    // and the file does not exist.
-    bool load(const Str& path, bool optional, int32_t line, Ref<Array>& out) {
+    // and the file does not exist, or if `require` and the session has read it already.
+    bool load(const Str& path, bool optional, int32_t line, Ref<Array>& out, bool require = false) {
         if (include_depth_ + 1 > s_.limits.max_include_depth)
             return fail(
                 ErrorCode::Limit,
@@ -594,7 +597,12 @@ private:
         }
         Str text;
         const Str* found = nullptr;
+        Vec<Str>& required = s_.st_->required;
         for (const Str& c : candidates) {
+            // A required file is not read again: the first candidate the session has
+            // required already ends the search.
+            if (require && std::find(required.begin(), required.end(), c) != required.end())
+                return true;
             const bool read = read_with(s_.st_->reader, c, text);
             if (s_.st_->recorded)
                 s_.st_->files.push_back({c, read ? static_cast<int64_t>(text.size()) : -1,
@@ -611,6 +619,7 @@ private:
         for (const Str& open_file : s_.st_->include_stack)
             if (open_file == *found)
                 return fail(ErrorCode::Directive, "'" + path + "' includes itself", line);
+        if (require) required.push_back(*found);
 
         ++s_.st_->includes;
         s_.st_->include_stack.push_back(*found);
@@ -741,6 +750,16 @@ std::span<const Node> SessionAccess::new_autorun(const LoadSession& s) noexcept 
 void SessionAccess::add_autorun(LoadSession& s, Node command) {
     s.st_->autorun.push_back(std::move(command));
 }
+std::span<const Str> SessionAccess::required(const LoadSession& s) noexcept {
+    return {s.st_->required.data(), s.st_->required.size()};
+}
+size_t SessionAccess::required_before(const LoadSession& s) noexcept {
+    return s.st_->recorded ? s.st_->required_from : s.st_->required.size();
+}
+void SessionAccess::add_required(LoadSession& s, std::string_view path) {
+    Vec<Str>& done = s.st_->required;
+    if (std::find(done.begin(), done.end(), path) == done.end()) done.emplace_back(path);
+}
 }  // namespace detail
 
 Expected<Ref<Array>> read_string(std::string_view text, std::string_view name,
@@ -756,6 +775,7 @@ Expected<Ref<Array>> read_string(std::string_view text, std::string_view name,
         if (st.recorded) {
             st.defines_before = st.defines;
             st.autorun_from = st.autorun.size();
+            st.required_from = st.required.size();
         }
     }
     const Str file = detail::normalize_path(name);

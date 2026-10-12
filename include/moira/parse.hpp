@@ -9,6 +9,8 @@
 //
 //   #include path        splice another file's top-level nodes here
 //   #include_opt path    the same, but a missing file is not an error
+//   #require path        the same, once per session: later #requires of that file, from
+//                        any file the session reads, are no-ops (for packs, spec §1)
 //   #merge path          merge another file into the enclosing array, keeping existing
 //                        keys and adding missing ones (docs/decisions.md D1)
 //   #ifdef N / #ifndef N / #else / #endif

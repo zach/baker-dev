@@ -47,6 +47,8 @@ constexpr uint32_t kEndian = 0x01020304;
 //   (files ("path" size hash) ...)     size -1: looked for and absent
 //   (before NAME hash ...)             0 for a flag, else the hash of the macro's text
 //   (define NAME body-or-0 ...) (undefine NAME ...) (autorun {command} ...)
+//   (required "path" ...)              files #require had read when the load began
+//   (require "path" ...)               files the load #required
 struct Header {
     char magic[10];
     uint16_t version;
@@ -350,7 +352,8 @@ Ref<Array> record_of(const LoadSession& s) {
     if (!A::recorded(s)) return nullptr;
     Vec<Node> files{Node(Symbol("files"))}, before{Node(Symbol("before"))},
         define{Node(Symbol("define"))}, undefine{Node(Symbol("undefine"))},
-        autorun{Node(Symbol("autorun"))};
+        autorun{Node(Symbol("autorun"))}, required{Node(Symbol("required"))},
+        require{Node(Symbol("require"))};
     for (const CacheFile& f : A::files(s)) {
         Vec<Node> entry{Node(String::make(f.path)), Node(f.size), Node(f.hash)};
         files.push_back(list(entry));
@@ -368,7 +371,11 @@ Ref<Array> record_of(const LoadSession& s) {
         define.push_back(body ? Node(body) : Node(0));
     }
     for (const Node& n : A::new_autorun(s)) autorun.push_back(n);
-    Vec<Node> meta{list(files), list(before), list(define), list(undefine), list(autorun)};
+    const auto paths = A::required(s);
+    for (size_t i = 0; i < paths.size(); ++i)
+        (i < A::required_before(s) ? required : require).push_back(Node(String::make(paths[i])));
+    Vec<Node> meta{list(files),   list(before),   list(define), list(undefine),
+                   list(autorun), list(required), list(require)};
     return Array::make_from({meta.data(), meta.size()});
 }
 
@@ -390,6 +397,14 @@ bool fresh(const Array& meta, LoadSession& s) {
                 ? read
                 : !read || static_cast<int64_t>(text.size()) != size || content_hash(text) != hash)
             return false;
+    }
+    // The files #require had read decide what a #require splices.
+    const Array* required = meta.try_find("required");
+    const auto paths = SessionAccess::required(s);
+    if (!required || required->size() - 1 != paths.size()) return false;
+    for (size_t i = 0; i < paths.size(); ++i) {
+        const String* p = (*required)[static_cast<uint32_t>(i + 1)].string();
+        if (!p || p->view() != paths[i].view()) return false;
     }
     const SessionAccess::Defines& now = SessionAccess::defines(s);
     if (before->size() % 2 == 0 || (before->size() - 1) / 2 != now.size()) return false;
@@ -417,6 +432,9 @@ void replay(const Array& meta, LoadSession& s) {
             if (const auto name = n.try_sym()) s.undefine(*name);
     if (const Array* a = meta.try_find("autorun"))
         for (const Node& n : a->values()) SessionAccess::add_autorun(s, n);
+    if (const Array* r = meta.try_find("require"))
+        for (const Node& n : r->values())
+            if (const String* p = n.string()) SessionAccess::add_required(s, p->view());
 }
 
 const Allocator& allocator_of(const LoadSession& s) noexcept {

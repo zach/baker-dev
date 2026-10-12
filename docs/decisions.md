@@ -2258,3 +2258,22 @@ structurally equal trees.*
 - **Q4, the one-way rule's warnings:** macro uses, found while parsing, are warnings on
   the `LoadSession` (`session.warnings()`), which Config forwards to its warning sink;
   calls to a softer pack's function are a third list in `CheckReport`.
+
+## D81. M8b, step 1: `#require`
+
+*Results of `docs/m8b-plan.md` §1.*
+
+- `#require path` resolves like `#include` and splices the file the first time a session
+  sees it; afterwards, from any file and any later top-level read through that session,
+  it is a no-op that does not read the file again. The set is the session's, copied with
+  it. `#include` of a required file still splices it.
+- Resolution stops at the first candidate path the session has required, before reading
+  anything; otherwise the first candidate that exists is read and joins the set.
+- **Caches (D72).** A recorded load's record gains `(required ...)`, the files required
+  when it began, and `(require ...)`, the ones it required. A cache is stale for a session
+  whose required set differs from the first (a `#require` would splice differently), and
+  loading one adds the second to the session.
+- **Tests:** a pack required from three included files is read once, and its macro serves
+  all three (the plan's third criterion); later reads, copies, and fresh sessions; a
+  missing file; a cache round trip and its staleness.
+- `bench_parse`: 121–126 MB/s, unchanged. The core is 9,886 lines.

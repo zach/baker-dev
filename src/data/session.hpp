@@ -35,6 +35,11 @@ struct SessionAccess {
     // The #autorun commands the last top-level read added.
     [[nodiscard]] static std::span<const Node> new_autorun(const LoadSession& s) noexcept;
     static void add_autorun(LoadSession& s, Node command);
+    // The files #require has read, in order; the first required_before() were read before
+    // the last recorded top-level read began.
+    [[nodiscard]] static std::span<const Str> required(const LoadSession& s) noexcept;
+    [[nodiscard]] static size_t required_before(const LoadSession& s) noexcept;
+    static void add_required(LoadSession& s, std::string_view path);
 };
 
 }  // namespace moira::detail

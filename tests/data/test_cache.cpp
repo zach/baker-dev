@@ -337,3 +337,25 @@ TEST_CASE("a Cipher enciphers what it writes and deciphers what it reads") {
     CHECK(without.error().code() == ErrorCode::Refused);
     CHECK(to_string(without.error()).find("Cipher") != std::string::npos);
 }
+
+TEST_CASE("a cache records the files #require read, and which it found already read") {
+    test::TempDir dir;
+    dir.write("pack.dta", "#define SPEED (3)\n(pack_read)");
+    const std::string main = dir.write("main.dta", "#require pack.dta\n(a SPEED)");
+    const std::string cache = dir.path("main.datb");
+    LoadSession text;
+    text.record_for_cache = true;
+    ok(write_cache(*ok(read_file(main, text)), cache, &text));
+
+    // Read from the cache, the pack counts as required, as after the text load.
+    LoadSession cached;
+    auto tree = ok(read_cache(cache, cached));
+    CHECK(to_string(*tree) == "((pack_read) (a 3))");
+    CHECK(to_string(*ok(read_string("#require pack.dta\n(b SPEED)", dir.path("x.dta"), cached))) ==
+          "((b 3))");
+    // A session that has already required the pack would splice nothing: the cache is stale
+    // for it.
+    CHECK_FALSE(cache_fresh(cache, cached));
+    LoadSession clean;
+    CHECK(cache_fresh(cache, clean));
+}

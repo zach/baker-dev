@@ -4,6 +4,7 @@
 #include <moira/std_interop.hpp>
 #include <moira/write.hpp>
 
+#include <algorithm>
 #include <map>
 #include <string>
 
@@ -269,4 +270,30 @@ TEST_CASE("size limits stop macro blow-ups") {
     auto deep = read_string(chain);
     REQUIRE_FALSE(deep.has_value());
     CHECK(deep.error().code() == ErrorCode::Limit);
+}
+
+TEST_CASE("#require reads a file once per session (spec §1)") {
+    Files fs;
+    // A pack: a macro, and a node that shows each time the pack is read.
+    fs.files["pack.dta"] = "#define SPEED (speed 3)\n(pack_read)";
+    for (const char* f : {"a.dta", "b.dta", "c.dta"})
+        fs.files[f] = std::string("#require pack.dta\n(") + f[0] + " SPEED)";
+    fs.files["main.dta"] = "#include a.dta\n#include b.dta\n#include c.dta";
+    // The pack is read once, from three files, and its macro serves all three.
+    CHECK(fs.load("main.dta") == "((pack_read) (a speed 3) (b speed 3) (c speed 3))");
+    CHECK(std::count(fs.reads.begin(), fs.reads.end(), "pack.dta") == 1);
+
+    // Later top-level reads through the session skip it too; #include still splices it.
+    CHECK(fs.load("a.dta") == "((a speed 3))");
+    fs.files["d.dta"] = "#include pack.dta";
+    CHECK(fs.load("d.dta") == "((pack_read))");
+    // A copied session keeps the set; a fresh one does not.
+    LoadSession copy = fs.session;
+    CHECK(to_string(**read_file("a.dta", copy)) == "((a speed 3))");
+    Files fresh;
+    fresh.files = fs.files;
+    CHECK(fresh.load("a.dta") == "((pack_read) (a speed 3))");
+    // A missing required file is an error, as for #include.
+    fs.files["e.dta"] = "#require nope.dta";
+    CHECK(fs.fail("e.dta").code() == ErrorCode::Io);
 }
