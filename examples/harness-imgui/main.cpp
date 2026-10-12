@@ -25,12 +25,7 @@
 #include <string>
 
 static moira::Tweak<float> kRadius{"scene.ball.radius", 24.0f};
-// A value of several numbers keeps its metadata in the code: in the data, metadata arrays
-// after the numbers would be read as more values (docs/decisions.md D88).
-static moira::Tweak<std::array<float, 3>> kColor{
-    "scene.ball.color",
-    {1.0f, 0.5f, 0.2f},
-    {.range = {0, 1}, .desc = "Ball color", .kind = "color"}};
+static moira::Tweak<std::array<float, 3>> kColor{"scene.ball.color", {1.0f, 0.5f, 0.2f}};
 static moira::Tweak<float> kBounce{"scene.ball.bounce", 0.8f};
 static moira::Tweak<float> kGravity{"scene.gravity", 900.0f};
 
