@@ -69,6 +69,7 @@
 // root() (a Ref) and read that.
 
 #include <moira/array.hpp>
+#include <moira/clock.hpp>
 #include <moira/parse.hpp>
 #include <moira/path.hpp>
 #include <moira/source_map.hpp>
@@ -117,9 +118,6 @@ struct LayerOptions {
 };
 
 // --- Telemetry ---
-
-// Monotonic nanoseconds from an arbitrary origin.
-using TimeSource = uint64_t (*)(void* user);
 
 enum class ReloadOutcome : uint8_t { Ok, Unchanged, ParseError, Refused };
 
@@ -190,7 +188,9 @@ public:
     using Writer = Callback<bool(std::string_view path, std::string_view text)>;
     using ReloadId = uint32_t;
 
-    explicit Config(ConfigOptions options = {});
+    // Everything the Config keeps comes from `allocator`, which must outlive it and its
+    // snapshots (D61).
+    explicit Config(ConfigOptions options = {}, const Allocator& allocator = default_allocator());
     ~Config();
     Config(const Config&) = delete;
     Config& operator=(const Config&) = delete;

@@ -2,6 +2,9 @@
 #include <moira/node.hpp>
 #include <moira/write.hpp>
 
+#include "common/containers.hpp"
+
+#include "arena.hpp"
 #include "text.hpp"
 
 #include <cstdlib>
@@ -33,27 +36,15 @@ Ref<String> String::make(std::string_view text) {
     // A string this large cannot come from a parse (inputs are bounded long before).
     if (text.size() >= UINT32_MAX) std::abort();
     const auto size = static_cast<uint32_t>(text.size());
-    void* mem = ::operator new(sizeof(String) + size + 1);
-    auto* s = new (mem) String(size);
+    void* mem = detail::solo_payload(detail::kSoloString, sizeof(String) + size + 1);
+    auto* s = new (mem) String(detail::kSoloOffset, size);
     char* chars = reinterpret_cast<char*>(s + 1);
     if (size) std::memcpy(chars, text.data(), size);
     chars[size] = '\0';
     return Ref<String>::adopt(s);
 }
 
-void String::destroy(const String* s) noexcept {
-    s->~String();
-    ::operator delete(const_cast<String*>(s));
-}
-
 namespace detail {
-
-void destroy_counted(const void* payload, Type type) noexcept {
-    if (type == Type::String)
-        String::destroy(static_cast<const String*>(payload));
-    else
-        Array::destroy(static_cast<const Array*>(payload));
-}
 
 std::optional<int64_t> float_to_int(double f) noexcept {
     // [-2^63, 2^63) are exactly the doubles that convert to int64 without overflow. NaN
@@ -67,9 +58,9 @@ std::optional<int64_t> float_to_int(double f) noexcept {
 }  // namespace detail
 
 Error Node::type_error(Type expected) const {
-    const std::string text = detail::preview(*this);
-    Error e = make_error(ErrorCode::Type, text + " is " + std::string(type_name(type_)) + ", not " +
-                                              std::string(type_name(expected)));
+    const Str text = detail::preview(*this);
+    Error e = make_error(ErrorCode::Type, text + " is " + Str(type_name(type_)) + ", not " +
+                                              Str(type_name(expected)));
     if (const auto* a = array()) {
         e.set_location(a->file(), a->line());
     }

@@ -4,7 +4,10 @@
 // a list of layers). Built once from a span and never resized; copying copies the items.
 // Not a container to build with: Moira returns these, it does not ask for them.
 
+#include <moira/allocator.hpp>
+
 #include <cstddef>
+#include <new>
 #include <span>
 #include <utility>
 
@@ -14,9 +17,11 @@ template <class T>
 class List {
 public:
     List() noexcept = default;
-    explicit List(std::span<const T> items)
-        : data_(items.empty() ? nullptr : new T[items.size()]), size_(items.size()) {
-        for (size_t i = 0; i < size_; ++i) data_[i] = items[i];
+    // From the default allocator (D61): a result outlives whoever made it.
+    explicit List(std::span<const T> items) : size_(items.size()) {
+        if (items.empty()) return;
+        data_ = static_cast<T*>(detail::default_alloc(sizeof(T) * size_, alignof(T)));
+        for (size_t i = 0; i < size_; ++i) ::new (data_ + i) T(items[i]);
     }
     List(const List& other) : List(other.items()) {}
     List(List&& other) noexcept : data_(other.data_), size_(other.size_) {
@@ -28,7 +33,11 @@ public:
         std::swap(size_, other.size_);
         return *this;
     }
-    ~List() { delete[] data_; }
+    ~List() {
+        if (!data_) return;
+        for (size_t i = 0; i < size_; ++i) data_[i].~T();
+        detail::default_free(data_, sizeof(T) * size_);
+    }
 
     [[nodiscard]] size_t size() const noexcept { return size_; }
     [[nodiscard]] bool empty() const noexcept { return size_ == 0; }

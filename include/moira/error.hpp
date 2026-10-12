@@ -111,7 +111,7 @@ private:
 //     in {bob attack}  (boss.dta:4)
 [[nodiscard]] std::string_view describe(const Error& error);
 // Writes "{bob attack}  (boss.dta:4)".
-void write(const StackEntry& entry, TextOut out);
+void write(const StackEntry& entry, TextSink out);
 
 template <class T>
 using Expected = expected<T, Error>;

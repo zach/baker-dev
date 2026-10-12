@@ -1384,3 +1384,368 @@ L2) to measure them.
 - **Size.** The core is 7,633 lines, up 700 in step 2. The plan estimated +150, without
   counting the new small types, opaque implementations, or interop headers. With step 1's
   −329, M5b so far is +371 against the plan's +450 for all four steps. Steps 3–4 remain.
+
+## D61. M5b step 3 design: who allocates from which allocator
+
+*Recorded 2026-10-11, before step 3's code. Settles the handoff's open point (which
+allocator the header types use) and the rules step 3 follows. Implements D55's alias layer
+and the first half of D56.*
+
+- **The rule.** What an owner keeps comes from the owner's allocator. What it hands back,
+  and what has no owner, comes from the process-wide default allocator.
+  - **The owner's allocator** (`Context(alloc)`, `Config(options, alloc)`): the `Impl`
+    itself, every table and record it keeps (functions, variable pages, object slots,
+    classes; layers, sources, edits, tweak bindings), and their containers.
+  - **The default allocator:**
+    - the header types `List`, `Callback`, `detail::NodeBuffer`, and `detail::Shared`;
+    - `Error` records;
+    - snapshots and other results handed to the host;
+    - temporaries that die before the call returns;
+    - process-wide state: the symbol table, `TypeRecord`s, and the global tweak registry;
+    - host-made objects with no owner: `LoadSession`, `SourceMap`, a `Tweak`'s side data;
+    - trees (`Array`, `String`), until step 4 gives each load an arena.
+- **Why the default allocator for the header types.** They are built where no owner is in
+  reach: a `List` is returned, a `Callback` is made by the host before it is passed in, a
+  `NodeBuffer` spills during evaluation. Asking for an owner would add a pointer to each
+  and a choice at every copy (whose allocator does the copy use?). Results also outlive
+  their owner: a host may keep a `List` or an `Error` after the `Context` is gone, so they
+  must not depend on the owner's allocator living that long. The headers call two
+  out-of-line functions, `detail::default_alloc` and `detail::default_free`, so they still
+  include nothing new.
+- **The interface** is D56's struct, in `<moira/allocator.hpp>`. An allocator must not
+  return null. If one does, Moira aborts, as `operator new` failing did with exceptions
+  off. `free` receives the size that was allocated.
+- **The default allocator** is `operator new` unless the host calls
+  `set_default_allocator()` before Moira first allocates. After that it returns false and
+  changes nothing, because blocks already handed out must be freed where they came from.
+- **Lifetime.** An owner's allocator must outlive the owner and anything copied out of it
+  (a `ConfigSnapshot`). Copies keep their source's allocator, as both the STL and EASTL
+  do, so no copy ever frees into the wrong heap.
+- **Attribution is by table, not by every byte.** The owner passes its allocator to its
+  tables and to the records it creates. A container that is built elsewhere and moved
+  into a record (a temporary, a parsed name) keeps the allocator it was built with,
+  usually the default. Plumbing the owner into every nested string would mean an
+  allocator argument at every construction, for no change in what reaches the heap.
+- **The alias layer** is `src/common/containers.hpp`. `Vec<T>`, `Str`, and `HashMap<K, V>`
+  are the STL's by default, or EASTL's with `MOIRA_USE_EASTL=ON`. Each holds a pointer to
+  a Moira `Allocator`, which is the default allocator unless the owner passes its own.
+  `Str` is a thin class over the backend string, because EASTL's string does not convert
+  to `std::string_view`. Naked `std::` containers and `std::string` are gone from `src/`,
+  along with `std::to_string`, `make_unique`/`make_shared`, and the `std_*.hpp` interop
+  headers.
+- **Tested** in its own test binary, whose `main` installs a counting default allocator
+  before anything else runs. A `Context` and a `Config`, each given its own counting
+  allocator, are built, loaded, evaluated, reloaded, and destroyed. Global `operator new`
+  sees no allocation, each owner's allocator sees some, and each is balanced at the end.
+
+## D62. M5b step 3 results: allocators and the container alias layer
+
+*Recorded 2026-10-11. Implements D61, D55's alias layer, and D56's allocators. Arenas are
+step 4.*
+
+- **The API.**
+  - `<moira/allocator.hpp>` has `Allocator`, `default_allocator()`, and
+    `set_default_allocator()`, which returns false once Moira has allocated.
+  - `Context(alloc)` and `Config(options, alloc)` each take one, defaulting to the
+    default allocator.
+  - `{new T}` objects come from the Context's allocator. A type record now carries a
+    destroy function beside `create`, because only the type knows its size.
+- **What moved off `operator new`:**
+  - **Onto the owner's allocator:** the Context and Config `Impl`s and every table in
+    them, function records, script classes, variable pages, `{new}` objects, snapshots,
+    and each layer's shared session and source map.
+  - **Onto the default allocator:**
+    - `List`, `Callback`, `NodeBuffer`, `Shared`, and `Array`/`String` trees;
+    - `Error` records, sessions, source maps, a `Tweak`'s side data, and loose object
+      parameters;
+    - the symbol table, whose blocks and slots are now raw default-allocator memory, and
+      `TypeRecord`s.
+- **The alias layer.** `src/common/containers.hpp` has `Vec`, `Str`, `HashMap`, `Own`
+  (for `unique_ptr`), and `Rc` (for `shared_ptr`).
+  - `src/` names no STL container, `std::string`, smart pointer, or `std::to_string`.
+    It no longer includes the `std_*.hpp` interop headers; `detail::text_of`,
+    `dta_of`, `str_out`, and `decimal` replace them inside.
+  - `std::stable_sort` (`sort_for_lookup`) became a bottom-up merge sort, because its
+    buffer comes from `operator new`.
+  - EASTL needs pointer ranges, not `std::span` iterators, without its
+    std-iterator-category switch. Four call sites changed.
+- **EASTL.** `MOIRA_USE_EASTL=ON` fetches EASTL 3.27.01 at a pinned commit with
+  FetchContent. EASTL in turn fetches EABase. A host that already has an `EASTL` target
+  uses its own. Neither is vendored; `THIRD_PARTY.md` lists them.
+  - EASTL is private to the two libraries. Public headers are unchanged, so a host
+    built either way sees the same API.
+  - The STL and EASTL builds run the same assertions, with the same results (75,978 data,
+    674 script, 11 allocator).
+  - There is a CI job (`eastl`) and a local-matrix entry for it.
+  - It is not built on MSVC in CI.
+- **The test** is `moira_alloc_tests`. Its `main` installs a malloc default allocator
+  before anything runs. In a separate file, because doctest's implementation brings in
+  `<windows.h>`, whose `TextOut` macro renames `moira::TextOut`.
+  - A Config pushes, reads, sets, snapshots, reloads, restores, and removes layers with a
+    bound tweak. A Context registers a native, adds an object, defines a function and a
+    class, runs `{new}` and `{delete}`, and fails a call.
+  - In both, global `operator new` sees 0 allocations. The owner's allocator sees 14
+    (Config) and 100 (Context), and is balanced after destruction.
+- **Performance,** on this container, against `b60a411` built alongside. The hot paths
+  allocate nothing, as before.
+
+  Calls were measured at one sitting, three runs each, alternating builds:
+
+  | Row | before | after |
+  |---|---:|---:|
+  | `{add 1 2}` | 31–32 ns | 31–35 ns |
+  | `{+ 1 2}`, an overload set | 46–48 ns | 47–48 ns |
+  | `{+ 1.5 2}`, promoted | 51–54 ns | 48–49 ns |
+  | `{add $x 1}` | 35–38 ns | 35–36 ns |
+  | `{add1 1}`, a script function | 70–72 ns | 71–74 ns |
+  | `{bob grow 0}` | 53 ns | 53–56 ns |
+
+  The lookup rows came from an earlier sitting:
+
+  | Row | before | after |
+  |---|---:|---:|
+  | `find_float`, 20 children, avg | 10.6–12.1 ns | 11.5–13.4 ns |
+  | `find_float`, last | 15–17 ns | 18–20 ns |
+  | `try_find`, 50 children, linear | 14–15 ns | 19–21 ns |
+
+  - **Cachegrind shows the same work per call:**
+    - `{add 1 2}`: 360 instructions before and after;
+    - `{add $x 1}`: 499 and 499;
+    - `{add1 1}`: 991 and 990;
+    - `{+ 1 2}`: 590 and 598;
+    - `{+ 1.5 2}`: 769 and 774.
+  - **One real regression was found and fixed.** With variable pages behind `Own<Page>`,
+    GCC copied a cell's tag bytes with four byte stores instead of one. The load that
+    followed stalled on store forwarding, and `{add $x 1}` lost 4–6 ns at the same
+    instruction count. Pages are plain pointers again, and the code matches the old
+    code.
+  - **MSVC's CI found a second regression.** The overload-set path held its spill
+    buffer in a `Vec<Node>`. MSVC's debug library allocates even for an empty
+    `std::vector`, so every overload-set call allocated through the default allocator,
+    and two zero-allocation tests failed. It is a stack array again, with a guard for the
+    rare call of more than eight arguments. `NodeBuffer` would also have worked, but it
+    cost 70 instructions a call. A `Vec` constructed on a hot path is a finding for this
+    reason, even when it stays empty.
+  - **The lookup rows are layout, not work.** `try_find` is inline in the benchmark's own
+    file and unchanged. A separate driver linked against each library measures linear
+    `try_find` on 50 children at 20 ns for both, with equal instruction counts and the
+    same spacing between child arrays. This is the same code-layout effect D59 and D60
+    saw.
+  - The §7 targets hold: `{add 1 2}` ≤ 40 ns, and `find_float` ≤ 25 ns on average.
+- **Size.** The core is 7,792 lines, up 159 in step 3 against a plan of +200.
+- **Found on the way: `TextOut` collides with Win32.** `<windows.h>` defines `TextOut` as
+  `TextOutA`/`TextOutW`. A Windows host that includes it before a Moira header calls
+  functions that do not exist in the library, and fails to link. Step 2 introduced the
+  name. Renaming it is a public API change, so it waits for the owner.
+
+## D63. No compatibility layers; `TextOut` becomes `TextSink`
+
+*Decided by the project owner 2026-10-11.*
+
+- **The rule.** Breaking changes are allowed and encouraged. Moira keeps no
+  backward-compatibility layers, deprecated aliases, or unused legacy code paths. An API
+  change updates every caller in the repository and deletes the old form. `CLAUDE.md`
+  states the rule for every session.
+  - Script-level `Status::Deprecated` stays: it lets script authors mark their own
+    functions, and is not a compatibility layer in Moira's API.
+  - A search of the code found no other compatibility layer to remove.
+- **`TextOut` is renamed `TextSink`** with no alias, which settles D62's open question.
+  `<windows.h>` defines `TextOut` as a macro, so a Windows host that included it before a
+  Moira header failed to link. `TextSink` matches `NoticeSink`. Functions that return
+  one keep their names (`str_out`, `string_out`).
+
+## D64. M5b step 4 design: one refcount per load
+
+*Recorded 2026-10-11, before step 4's code. Answers D56's open point (how a value that
+outlives its load keeps its tree alive), choosing D56's named fallback.*
+
+- **Where sharing comes from.** Trees are not owned by one load today. Three kinds of
+  holder share subtrees across loads, and each must keep working:
+  - **trees built from trees:** a merged config tree reuses subtrees of every layer, and
+    a macro body read by one file is spliced into the arrays of every later file in the
+    session;
+  - **holders of values:** a Context's variables and function bodies, a tweak's bound
+    values, a snapshot's layers, a source map's keys;
+  - **the host:** a `Ref<Array>` from `read_file` or `Config::root()`, or a `Node` from
+    `eval`.
+
+  So "a tree has one owner" (D56) does not describe the data. What can be true is that
+  each array has one *allocation owner*, the load it was read in, which frees it with
+  everything else of that load.
+- **The owner is found from the array.** An `Array` or `String` header keeps 32 bits
+  where its refcount was: the offset back to the start of its block. A block starts with
+  a pointer to its arena, and an arena starts with its refcount. So retaining an array
+  retains its arena, one more dependent load than today, usually in a line the block
+  shares. Headers stay 24 and 8 bytes.
+- **References inside a load are not counted.** A node stored in an arena does not count
+  its own arena, which would never reach zero otherwise. A node that points into another
+  arena counts it once per arena, not once per node: the arena keeps a short list of the
+  arenas it depends on, released when it is freed. Freeing an arena runs no node
+  destructors; it releases its dependencies and frees its blocks.
+- **A one-off array is an arena of one.** `Array::make`, `make_from`, and `make_copy`
+  without an arena build a solo block: its header, the array, and a count. A solo array
+  owns its children as today: each child counts its target, and freeing the block
+  releases them. Script-built values, `set` values, merge results, and host-built arrays
+  are solo. That is one allocation per array, the same as now.
+  - **This deviates from D56,** which put arrays built after load into an owner's scratch
+    arena. A scratch arena only grows unless something copies its live values out, which
+    is a collector. Solo blocks cost what arrays cost today, and nothing measured asks
+    for more. Revisit if call statistics (M6) show script-built arrays in a profile.
+- **Loads use arenas.** `read_string` and `read_file` build the whole tree, includes and
+  macro bodies too, in one arena. Blocks grow from 4 KB, doubling to 1 MB, and an array
+  larger than half a block gets a block of its own. The arena comes from the session's
+  allocator, which a Config or Context sets to its own, so the alloc test (D61) now
+  covers trees.
+- **What changes for a caller.**
+  - `Array::ref_count()` reports the owner's count. For a solo array that is the array's
+    own count, as before.
+  - `Array::set` on an arena array records a dependency if the new node points into
+    another arena. The node it replaces stays alive until the arena is freed, because
+    arena nodes are not counted.
+  - Holding any node of a load holds the whole load. A Context that keeps one function
+    defined by a large `eval` keeps that text's tree. That is the price of not counting
+    per array, and the reason D56's per-array frees go away.
+- **What a TD gets.** A parse makes one allocation per block rather than one per array,
+  and teardown frees blocks without visiting nodes, closing gap 5's cost. Node copies
+  outside a tree still touch a counter, the load's rather than the array's. Threads that
+  copy nodes of one load all touch one line, where today they touch many. Most reads
+  (`find`, `get`, tweaks) copy no node.
+- **Measured before and after:** `bench_parse` (MB/s), the allocation count of a parse,
+  teardown of a large tree, and the call rows, where an array-valued node is copied.
+
+## D65. M5b step 4 results: an arena per load
+
+*Recorded 2026-10-11. Implements D64. M5b is done, and `docs/m5b-plan.md` is deleted.*
+
+- **What was built.**
+  - **Owners.** An `Array` or `String` header keeps a 32-bit offset to its block where its
+    count was. A block starts with its owner, and the owner holds the count. Headers stay
+    24 and 8 bytes. `ref_count()` reports the owner's count.
+  - **Solo blocks.** Arrays and strings built outside a load are solo blocks, an owner of
+    one, from the default allocator. They own their children as before.
+  - **Arenas.** `read_string`, `read_file`, includes, macro bodies, and `#merge` results
+    build one arena per top-level read, from `LoadSession::allocator`. A Config and a
+    Context set that to their own allocator.
+    - A node stored in an arena counts nothing if it points into the same arena. If it
+      points elsewhere, the arena counts that owner once.
+    - Freeing releases those owners and frees the blocks, without visiting a node.
+    - Until the load is returned, the arena's own count changes without atomics, because
+      no other thread can see it.
+    - `Array::set` on an arena array counts a foreign node's owner atomically.
+  - `bench_parse` reports allocations and the time to free the tree. `bench_call` gains
+    two rows that copy an array-valued variable.
+- **Found on the way.** A `#merge` inside a load made solo arrays that pointed into the
+  arena being built. The arena then adopted them, so each counted the other and neither
+  was ever freed. ASan's leak check caught it. `#merge` now builds in the load's arena,
+  and a test checks that a load with `#merge` has a count of 1.
+- **Tests:**
+  - `test_arena.cpp`:
+    - a 4,001-object parse makes 18 allocations, and freeing its tree makes none;
+    - a node outlives its load and holds all of it;
+    - a macro body from an earlier load keeps that load alive after the session drops it;
+    - `set` counts a foreign arena once;
+    - `#merge` makes no self-dependency;
+    - host-built arrays keep solo counts.
+  - `moira_alloc_tests` checks that 50 reloads of a changing file keep the Config's live
+    bytes flat, and that everything is freed after.
+  - The alloc test (D61) now covers trees, which come from the owner's allocator: 19
+    allocations for the Config scenario and 110 for the Context.
+- **Performance,** against `d7feb82` built alongside, with the same benchmark files:
+
+  | Row | before | after |
+  |---|---:|---:|
+  | parse, 4.2 MB | 110–122 MB/s | 127–129 MB/s |
+  | allocations in that parse | 248,393 | 40 |
+  | freeing that tree | 9.1–9.7 ms | < 0.01 ms |
+  | `$loaded` (copy an array from a load) | 16.5–16.7 ns | 16.0–17.6 ns |
+  | `$solo` (copy a host-built array) | 16.1–17.4 ns | 17.2–19.4 ns |
+  | `{add 1 2}` | 27.6–31.4 ns | 26.8–28.8 ns |
+  | `{add1 1}` | 66.5–69.6 ns | 64.9–65.3 ns |
+
+  - The other call rows are unchanged within noise.
+  - Copying an array-valued node now loads its block's owner pointer before the count.
+    At most that costs about 1 ns, on the solo row.
+  - Parse gained less than the allocation count suggests: lexing dominates, and glibc's
+    malloc was fast for these small blocks. The memory a TD cares about, a few large
+    blocks per load from the owner's allocator, is the real change.
+- **Not done, by decision (D64):** arrays built after a load are solo, not in a scratch
+  arena. The binary cache (M8) can load a whole tree into one arena block.
+- **Size.** The core is 8,059 lines, up 267 in step 4 against a plan of +250. M5b as a
+  whole is +797 against a plan of ~+450. Steps 2 and 3 added small types and the alias
+  layer that the plan did not count (D60, D62).
+
+## D66. M6 results: typed messages, call statistics, and the trace hook
+
+*Recorded 2026-10-11. Implements spec §5's typed messages and debugging aids, with D53's
+answers. The call stack was step 1 (D52). M6 is done, and `docs/m6-plan.md` is deleted.*
+
+- **Typed messages.**
+  - **What a message is.** An aggregate with `static constexpr auto name`.
+    - Its fields are counted by a brace-initialization probe, at most 8; a ninth is a
+      compile error.
+    - They are read by structured binding.
+    - Its identity is the address of `detail::message_key<M>`, an inline variable: no
+      RTTI and no string compare. Across a DLL boundary on Windows each module would have
+      its own address, so a host that sends messages across DLLs must define them in one.
+  - **`b.on<M>(handler)`** records a typed entry and binds a method named `M::name` whose
+    parameters are `M`'s fields, so `{bob hit 20}`, `check`, and the reference see an
+    ordinary method. The reference marks it with the message type.
+  - **`obj.handle(msg)`** returns `Expected<Node>` and follows D50's order:
+    1. a script handler for the name, ruled out with one load from a per-Context bitmap of
+       the names `{class}` handles;
+    2. the typed entry, found by binary search over a few keys and called through one
+       pointer, with no `Node` built;
+    3. a method of that name, through the Context.
+
+    Otherwise it returns a `NotFound` error naming the type and message. `handles<M>()`
+    allocates nothing.
+  - **Inheritance.** Entries are copied when a type's table is built, and a derived type's
+    entry replaces its base's, for the C++ path and the script face alike.
+  - **`handle_all(span, msg)`** looks the handler up once for each run of one type,
+    without sorting or allocating. A span sorted by type pays one search per type, which
+    is D53's "grouped by type" without a buffer. It skips objects that do not handle the
+    message, returns how many did, and stops at the first error.
+- **Call statistics.**
+  - **What is counted.** Each function and each `{class}` handler keeps `calls`,
+    `total_ns`, and `self_ns` in place. Native methods are not counted (their tables are
+    shared between Contexts, D49).
+  - **When.** Outside shipping, calls are always counted: one flag test and one increment
+    per call, 4 instructions by cachegrind.
+  - **Timing** waits for `set_profiling(true)` and reads a `TimeSource`, now in
+    `<moira/clock.hpp>`. Self time subtracts what callees took.
+  - **Reading.** `stats()` sorts by self time, then calls. `reset_stats()` clears the
+    counters, and `hardening_candidates(threshold)` lists the script entries at or above
+    the threshold. Reading allocates; counting and timing do not, which a test checks.
+- **Tracing.** `trace(true)` reports each call to a sink on entry (with depth) and on exit
+  (with its result or error). The default sink prints indented lines to stderr:
+  ```
+  {twice {add 1 2}}  (demo.dta:1)
+    {add 1 2}  (demo.dta:1)
+    -> 3
+    {add $a $a}  (<eval>:1)
+    -> 6
+  -> 6
+  ```
+- **Shipping.** Counting, timing, and tracing are removed by `if constexpr`. `stats()` and
+  `hardening_candidates()` are empty, and the switches do nothing; the tests check this
+  in the shipping job.
+- **Performance,** on this container, against `b4a8166` (messages, before statistics):
+
+  | Row | before | after |
+  |---|---:|---:|
+  | `{add 1 2}` | 27.7–29.6 ns | 26.3–27.7 ns |
+  | `{add1 1}` | 62.0–67.8 ns | 62.4–66.1 ns |
+  | `{add 1 2}` with profiling on | – | 95–101 ns |
+  | `{add 1 2}` tracing to an empty sink | – | 34–36 ns |
+  | `bob.handle(HitMsg{1})` (target 15 ns, 0 allocations) | – | 8.2–9.3 ns |
+  | `handle_all`, 64 objects | – | 424–437 ns (6.7 ns each) |
+  | `ctx.call(bob, "grow", 1.5f)`, for comparison | – | 142–148 ns, 2 allocations |
+
+  Two `steady_clock` reads cost about 70 ns here, which is why D53 put timing behind a
+  switch.
+- **Done-when criteria (spec §10):**
+  - the message benchmark meets §7;
+  - an error four frames deep renders its stack (D52's tests);
+  - statistics add no allocations and compile out under shipping.
+- **Size.** The core is 8,439 of 10,000 lines. M6 after step 1 added about 380 against
+  the plan's ~390 for the same parts.

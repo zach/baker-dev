@@ -3,8 +3,9 @@
 // when a lookup has already failed.
 #include <moira/array.hpp>
 #include <moira/path.hpp>
-#include <moira/std_interop.hpp>
 #include <moira/write.hpp>
+
+#include "common/containers.hpp"
 
 #include "text.hpp"
 
@@ -12,6 +13,7 @@
 #include <atomic>
 #include <charconv>
 #include <cmath>
+#include <iterator>
 #include <optional>
 
 namespace moira {
@@ -31,16 +33,16 @@ bool tag_less(Symbol a, Symbol b) noexcept {
 }
 
 // A path segment as text: bare where it reads back as one, otherwise 'quoted'.
-void append_name(std::string& out, Symbol s) {
+void append_name(Str& out, Symbol s) {
     detail::append_path_name(out, s.str());
 }
 
-std::string quoted(Symbol s) {
-    return "'" + std::string(s.str()) + "'";
+Str quoted(Symbol s) {
+    return "'" + Str(s.str()) + "'";
 }
 
-std::string label_of(const Path::Segment& seg) {
-    return seg.is_index ? "element " + std::to_string(seg.index) : quoted(seg.name);
+Str label_of(const Path::Segment& seg) {
+    return seg.is_index ? "element " + detail::decimal(seg.index) : quoted(seg.name);
 }
 
 void locate(Error& e, const Array* a) {
@@ -58,13 +60,13 @@ bool ascii_iequal(std::string_view a, std::string_view b) noexcept {
 // "'x' not found", plus a hint for the two likeliest mistakes (D6, D23): the key was
 // written as a "string", or with different capitalization.
 Error not_found(Symbol tag, std::span<const Node> siblings) {
-    std::string msg = quoted(tag) + " not found";
+    Str msg = quoted(tag) + " not found";
     std::optional<Symbol> variant;
     for (const Node& n : siblings) {
         const Array* a = n.try_array();
         if (!a || a->empty()) continue;
         if (auto s = (*a)[0].try_str(); s && *s == tag.str()) {
-            msg += "; \"" + std::string(*s) + "\" at line " + std::to_string(a->line()) +
+            msg += "; \"" + Str(*s) + "\" at line " + detail::decimal(a->line()) +
                    " is a string, but keys are symbols: write " + quoted(tag);
             return make_error(ErrorCode::NotFound, std::move(msg));
         }
@@ -75,8 +77,8 @@ Error not_found(Symbol tag, std::span<const Node> siblings) {
     return make_error(ErrorCode::NotFound, std::move(msg));
 }
 
-std::string preview_values(const Values& v) {
-    std::string out = "(";
+Str preview_values(const Values& v) {
+    Str out = "(";
     for (size_t i = 0; i < v.size() && i < 4; ++i) {
         if (i) out += ' ';
         out += detail::preview(v[i], 20);
@@ -86,11 +88,11 @@ std::string preview_values(const Values& v) {
 }
 
 // `label` was found, but its values are not what `info` asked for.
-Error conversion_error(const std::string& label, const Values& v, const detail::ConvertInfo& info) {
+Error conversion_error(const Str& label, const Values& v, const detail::ConvertInfo& info) {
     using detail::ConvertKind;
     if (v.empty()) return make_error(ErrorCode::Type, label + " has no value");
     const Node& n = v[0];
-    const std::string actual(type_name(n.type()));
+    const Str actual(type_name(n.type()));
     if (n.type() == Type::Command || n.type() == Type::Var)
         return make_error(ErrorCode::Type, label + " is a " + actual +
                                                "; reading it as a value needs moira::script");
@@ -99,22 +101,19 @@ Error conversion_error(const std::string& label, const Values& v, const detail::
         case ConvertKind::Float: {
             const std::string_view want = info.kind == ConvertKind::Int ? "int" : "float";
             if (!n.is_number())
-                return make_error(ErrorCode::Type,
-                                  label + " is " + actual + ", not " + std::string(want));
+                return make_error(ErrorCode::Type, label + " is " + actual + ", not " + Str(want));
             const double f = *n.try_float();
             if (info.kind == ConvertKind::Int && n.type() == Type::Float && std::trunc(f) != f)
                 return make_error(ErrorCode::Type, label + " is float, not int");
             return make_error(ErrorCode::Range, label + " value " + detail::preview(n) +
-                                                    " is out of range for " +
-                                                    std::string(info.name));
+                                                    " is out of range for " + Str(info.name));
         }
         case ConvertKind::Scalar:
-            return make_error(ErrorCode::Type,
-                              label + " is " + actual + ", not " + std::string(info.name));
+            return make_error(ErrorCode::Type, label + " is " + actual + ", not " + Str(info.name));
         case ConvertKind::Compound: break;
     }
-    return make_error(ErrorCode::Type, label + " " + preview_values(v) + " does not read as " +
-                                           std::string(info.name));
+    return make_error(ErrorCode::Type,
+                      label + " " + preview_values(v) + " does not read as " + Str(info.name));
 }
 
 // One path step from `v` (whose array is `arr`, or null for a leaf). False if missing.
@@ -186,16 +185,16 @@ bool Path::parse(std::string_view text) {
     return true;
 }
 
-void Path::write(TextOut out, size_t count, char separator) const {
+void Path::write(TextSink out, size_t count, char separator) const {
     if (!valid_) {
         out(std::string_view(bad_text_, bad_size_));
         return;
     }
-    std::string text;
+    Str text;
     for (size_t i = 0; i < size_ && i < count; ++i) {
         if (i) text += separator;
         if (segments_[i].is_index)
-            text += std::to_string(segments_[i].index);
+            text += detail::decimal(segments_[i].index);
         else
             append_name(text, segments_[i].name);
     }
@@ -250,12 +249,25 @@ Expected<const Array*> Array::find_array(Symbol tag) const {
 }
 
 void Array::sort_for_lookup() {
-    std::stable_sort(data(), data() + size_, [](const Node& a, const Node& b) {
+    // A stable merge sort. std::stable_sort would take its buffer from operator new.
+    const auto less = [](const Node& a, const Node& b) {
         const auto tb = tag_of(b);
         if (!tb) return false;
         const auto ta = tag_of(a);
         return !ta || tag_less(*ta, *tb);
-    });
+    };
+    Node* d = data();
+    const size_t n = size_;
+    Vec<Node> buf(n);
+    for (size_t width = 1; width < n; width *= 2) {
+        for (size_t lo = 0; lo < n; lo += 2 * width) {
+            const size_t mid = std::min(lo + width, n), hi = std::min(lo + 2 * width, n);
+            std::merge(std::make_move_iterator(d + lo), std::make_move_iterator(d + mid),
+                       std::make_move_iterator(d + mid), std::make_move_iterator(d + hi),
+                       buf.begin() + static_cast<ptrdiff_t>(lo), less);
+        }
+        std::move(buf.begin(), buf.end(), d);
+    }
     flags_ = static_cast<uint16_t>(flags_ | kSortedForLookup);
 }
 
@@ -277,7 +289,7 @@ Error find_error(const Array& container, Symbol tag, const Array* found, const C
     locate(e, found ? found : &container);
     if (!container.empty())
         if (auto t = container[0].try_sym()) {
-            std::string path(e.path());
+            Str path(e.path());
             append_name(path, *t);
             e.set_path(path);
         }
@@ -326,7 +338,7 @@ ResolveStatus resolve(const Array& root, const Path& path, Resolved& out) noexce
 Error get_error(const Array& root, const Path& path, const ConvertInfo* info,
                 const Values* values) {
     if (!path.valid()) {
-        Error e = make_error(ErrorCode::Syntax, "malformed path '" + to_string(path) + "'");
+        Error e = make_error(ErrorCode::Syntax, "malformed path '" + detail::text_of(path) + "'");
         locate(e, &root);
         return e;
     }
@@ -339,17 +351,17 @@ Error get_error(const Array& root, const Path& path, const ConvertInfo* info,
         const Path::Segment& seg = path[i];
         Error e = seg.is_index ? make_error(ErrorCode::NotFound,
                                             label_of(seg) + " is out of range (" +
-                                                std::to_string(before.size()) + " values)")
+                                                detail::decimal(before.size()) + " values)")
                                : not_found(seg.name, before.nodes());
         locate(e, before_arr ? before_arr : before.source());
-        e.set_path(to_string(path, i));
+        e.set_path(detail::text_of(path, i));
         return e;
     }
     // The path resolved, so the value did not convert.
-    const std::string label = path.empty() ? "the array" : label_of(path[path.size() - 1]);
+    const Str label = path.empty() ? "the array" : label_of(path[path.size() - 1]);
     Error e = conversion_error(label, values ? *values : v, info ? *info : kArrayInfo);
     locate(e, v.source());
-    e.set_path(to_string(path, path.empty() ? 0 : path.size() - 1));
+    e.set_path(detail::text_of(path, path.empty() ? 0 : path.size() - 1));
     return e;
 }
 

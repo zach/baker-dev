@@ -56,7 +56,7 @@ class LoadSession {
 public:
     // Writes the whole file at `path` to `out` and returns true, or returns false if it
     // cannot read it.
-    using Reader = Callback<bool(std::string_view path, TextOut out)>;
+    using Reader = Callback<bool(std::string_view path, TextSink out)>;
 
     LoadSession();
     LoadSession(const LoadSession& other);
@@ -87,6 +87,9 @@ public:
     // Set for an edit-mode parse: records source text and node spans (source_map.hpp).
     // Null (the default) is a gameplay parse, which keeps only the tree.
     SourceMap* source_map = nullptr;
+    // Where the trees read through this session come from: each read is one arena from
+    // it (docs/decisions.md D64), which must outlive the tree. Null: the default allocator.
+    const Allocator* allocator = nullptr;
 
     struct State;  // defined in parse.cpp
 

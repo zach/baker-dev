@@ -2,7 +2,9 @@
 #include "internal.hpp"
 
 #include <moira/parse.hpp>
-#include <moira/std_interop.hpp>
+
+#include "common/containers.hpp"
+#include "data/text.hpp"
 
 #include <cstdio>
 #if defined(_MSC_VER)
@@ -22,8 +24,8 @@ bool is_unset(const Node& n) noexcept {
     return n.type() == Type::Func && !n.func_record();
 }
 
-std::string quoted(Symbol s) {
-    return "'" + std::string(s.str()) + "'";
+Str quoted(Symbol s) {
+    return "'" + Str(s.str()) + "'";
 }
 
 // Errors are built out of line, so the evaluator's frames, which nest once per script call,
@@ -32,6 +34,12 @@ std::string quoted(Symbol s) {
 #define MOIRA_COLD __declspec(noinline)
 #else
 #define MOIRA_COLD [[gnu::noinline, gnu::cold]]
+#endif
+// Context::Impl::call's body, inlined where it is plain and where it is instrumented.
+#if defined(_MSC_VER)
+#define MOIRA_INLINE __forceinline
+#else
+#define MOIRA_INLINE [[gnu::always_inline]] inline
 #endif
 
 }  // namespace
@@ -54,7 +62,7 @@ MOIRA_COLD void locate(Error& e, const Array& at) {
     record_stack(e);
 }
 
-MOIRA_COLD Expected<Node> fail(const Array& at, ErrorCode code, std::string message) {
+MOIRA_COLD Expected<Node> fail(const Array& at, ErrorCode code, Str message) {
     Error e = make_error(code, std::move(message), at.file(), at.line());
     record_stack(e);
     return Unexpected(std::move(e));
@@ -64,7 +72,7 @@ MOIRA_COLD Expected<Node> bad_head(const Array& command) {
     if (command.empty()) return fail(command, ErrorCode::Syntax, "empty command {}");
     return fail(command, ErrorCode::Type,
                 "a command starts with a function or an object, not a " +
-                    std::string(type_name(command[0].type())));
+                    Str(type_name(command[0].type())));
 }
 
 MOIRA_COLD Expected<Node> not_function(const Array& command, Symbol name) {
@@ -73,40 +81,39 @@ MOIRA_COLD Expected<Node> not_function(const Array& command, Symbol name) {
 
 MOIRA_COLD Expected<Node> too_deep(const Array& command, uint32_t depth, uintptr_t used) {
     return fail(command, ErrorCode::Limit,
-                "calls nested too deep (" + std::to_string(depth) + " calls, " +
-                    std::to_string(used / 1024) + " KB of stack)");
+                "calls nested too deep (" + detail::decimal(depth) + " calls, " +
+                    detail::decimal(used / 1024) + " KB of stack)");
 }
 
 MOIRA_COLD Expected<Node> bad_arity(const Array& command, Symbol name, const detail::Overload& o,
                                     size_t n) {
     return fail(command, ErrorCode::Type,
                 quoted(name) + " takes " + arity_text(o.min_args, o.max_args) + ", given " +
-                    std::to_string(n));
+                    detail::decimal(n));
 }
 
 MOIRA_COLD Expected<Node> no_overload(const Array& command, Symbol name,
-                                      const std::vector<detail::Overload>& overloads,
-                                      const Node* values, size_t n) {
-    std::string given;
+                                      const Vec<detail::Overload>& overloads, const Node* values,
+                                      size_t n) {
+    Str given;
     for (size_t i = 0; i < n; ++i) {
         if (i) given += ' ';
         given += type_name(values[i].type());
     }
-    std::string have;
+    Str have;
     for (const detail::Overload& o : overloads) have += " " + signature_text(o);
     return fail(command, ErrorCode::Type,
                 "no overload of " + quoted(name) + " takes (" + given + "); it has" + have);
 }
 
 MOIRA_COLD Expected<Node> not_object(const Array& command, const Node& head) {
-    return fail(command, ErrorCode::Type,
-                "a command starts with a function or an object, not a " +
-                    std::string(type_name(head.type())));
+    return fail(
+        command, ErrorCode::Type,
+        "a command starts with a function or an object, not a " + Str(type_name(head.type())));
 }
 
 MOIRA_COLD Expected<Node> not_set(Symbol name) {
-    return Unexpected(
-        make_error(ErrorCode::NotFound, "$" + std::string(name.str()) + " is not set"));
+    return Unexpected(make_error(ErrorCode::NotFound, "$" + Str(name.str()) + " is not set"));
 }
 
 // Calls `o`, locating an error at the call. One return, so the result is never moved.
@@ -120,7 +127,7 @@ Expected<Node> invoke(const detail::Overload& o, Args& args, const Array& comman
 Expected<Node> evaluate_for_data(const Node& n) {
     if (!t_current)
         return Unexpected(make_error(ErrorCode::NotFound,
-                                     "a " + std::string(type_name(n.type())) +
+                                     "a " + Str(type_name(n.type())) +
                                          " value needs a current moira::Context on this thread"));
     return t_current->eval(n);
 }
@@ -130,12 +137,47 @@ void stderr_sink(void*, const Error& notice) {
     std::fprintf(stderr, "%.*s\n", static_cast<int>(text.size()), text.data());
 }
 
+// The default trace sink: each call on entry, indented by depth, with where it is written;
+// on exit its result or error.
+void stderr_trace(void*, const TraceEvent& e) {
+    Str line(2 * size_t{e.depth}, ' ');
+    if (!e.result) {
+        line += detail::preview(Node(Ref<Array>(const_cast<Array*>(e.command)), Type::Command), 60);
+        if (!e.command->file().empty())
+            line += "  (" + Str(e.command->file().str()) + ":" +
+                    detail::decimal(e.command->line()) + ")";
+    } else if (*e.result) {
+        line += "-> " + detail::preview(**e.result, 60);
+    } else {
+        line += "-> error: " + Str(e.result->error().message());
+    }
+    std::fprintf(stderr, "%.*s\n", static_cast<int>(line.size()), line.data());
+}
+
+// Every counted call, as CallStats, ordered by self time, then calls.
+Vec<CallStats> collect(const Context::Impl& impl, bool script_only, uint64_t threshold) {
+    Vec<CallStats> out;
+    auto add = [&](const Counters& c, Symbol name, Symbol on, Tier tier) {
+        if (c.calls == 0 || (script_only && (tier != Tier::Script || c.self_ns < threshold)))
+            return;
+        out.push_back(CallStats{name, on, tier, c.calls, c.total_ns, c.self_ns});
+    };
+    for (const auto& f : impl.functions) add(f->counters, f->name, {}, f->tier);
+    for (const auto& c : impl.classes)
+        for (const ScriptClass::Handler& h : c->handlers)
+            add(h.counters, h.name, c->name, Tier::Script);
+    std::sort(out.begin(), out.end(), [](const CallStats& a, const CallStats& b) {
+        return a.self_ns != b.self_ns ? a.self_ns > b.self_ns : a.calls > b.calls;
+    });
+    return out;
+}
+
 }  // namespace
 
 // --- Signatures ---
 
-std::string signature_text(const detail::Overload& o) {
-    std::string out = "(";
+Str signature_text(const detail::Overload& o) {
+    Str out = "(";
     for (const detail::ParamInfo& p : o.params) {
         if (out.size() > 1) out += ' ';
         if (p.kind == detail::ParamKind::Optional) {
@@ -149,14 +191,14 @@ std::string signature_text(const detail::Overload& o) {
     return out + ")";
 }
 
-std::string arity_text(uint32_t min, uint32_t max) {
-    std::string n;
+Str arity_text(uint32_t min, uint32_t max) {
+    Str n;
     if (max == UINT32_MAX)
-        n = "at least " + std::to_string(min);
+        n = "at least " + detail::decimal(min);
     else if (min == max)
-        n = std::to_string(min);
+        n = detail::decimal(min);
     else
-        n = std::to_string(min) + " to " + std::to_string(max);
+        n = detail::decimal(min) + " to " + detail::decimal(max);
     return n + (n == "1" || n == "at least 1" ? " argument" : " arguments");
 }
 
@@ -167,15 +209,26 @@ Node* Context::Impl::cell(Symbol name) {
     const uint32_t page = i >> kPageBits;
     if (page >= pages.size()) pages.resize(page + 1);
     if (!pages[page]) {
-        pages[page] = std::make_unique<Node[]>(size_t{1} << kPageBits);
-        for (size_t k = 0; k < (size_t{1} << kPageBits); ++k) pages[page][k] = kUnset;
+        constexpr size_t cells = size_t{1} << kPageBits;
+        auto* p = static_cast<Node*>(detail::allocate(alloc, cells * sizeof(Node), alignof(Node)));
+        for (size_t k = 0; k < cells; ++k) ::new (p + k) Node(kUnset);
+        pages[page] = p;
     }
     return &pages[page][i & ((1u << kPageBits) - 1)];
 }
 
+Context::Impl::~Impl() {
+    constexpr size_t cells = size_t{1} << kPageBits;
+    for (Node* p : pages) {
+        if (!p) continue;
+        for (size_t k = 0; k < cells; ++k) p[k].~Node();
+        detail::deallocate(alloc, p, cells * sizeof(Node));
+    }
+}
+
 Function& Context::Impl::function(Symbol name) {
     if (Function* f = find(name)) return *f;
-    functions.push_back(std::make_unique<Function>());
+    functions.push_back(Own<Function>::make(alloc, alloc));
     Function& f = *functions.back();
     f.name = name;
     if (name.index() >= by_index.size()) by_index.resize(name.index() + 1, nullptr);
@@ -196,7 +249,7 @@ Expected<Node> Context::Impl::eval(const Node& n) {
     }
 }
 
-Expected<Node> Context::Impl::call(const Array& command) {
+MOIRA_INLINE Expected<Node> Context::Impl::call_body(const Array& command, Counters** counted) {
     if (command.empty()) return bad_head(command);
     // The head names a function, or is an object: named, an Object node, or a command or
     // variable that evaluates to one (spec §5, "Object commands evaluate slot 0").
@@ -249,7 +302,11 @@ Expected<Node> Context::Impl::call(const Array& command) {
     } frame{*this, kept.size(), {&command, top}};
     top = &frame.call;
     ++depth;
-    if (!f) return send(target, command);
+    if (!f) return send(target, command, counted);
+    if constexpr (!kShipping) {
+        ++f->counters.calls;
+        if (counted) *counted = &f->counters;
+    }
     if (f->overloads.size() > 1) return invoke_set(name, f->overloads, command, 1, nullptr);
     // One overload: the common case, kept inline.
     const detail::Overload& o = f->overloads[0];
@@ -259,11 +316,39 @@ Expected<Node> Context::Impl::call(const Array& command) {
     return invoke(o, args, command);
 }
 
+Expected<Node> Context::Impl::call(const Array& command) {
+    if constexpr (!kShipping)
+        if (instrumented) return call_instrumented(command);
+    return call_body(command, nullptr);
+}
+
+MOIRA_COLD Expected<Node> Context::Impl::call_instrumented(const Array& command) {
+    const uint32_t level = depth;
+    if (tracing && trace_sink) trace_sink(trace_user, TraceEvent{&command, level, nullptr});
+    Counters* counters = nullptr;
+    uint64_t callees = 0;
+    uint64_t* outer = child_ns;
+    child_ns = &callees;
+    const bool timed = profiling;
+    const uint64_t start = timed ? clock(clock_user) : 0;
+    Expected<Node> r = call_body(command, &counters);
+    child_ns = outer;
+    if (timed) {
+        const uint64_t elapsed = clock(clock_user) - start;
+        if (outer) *outer += elapsed;
+        if (counters) {
+            counters->total_ns += elapsed;
+            counters->self_ns += elapsed > callees ? elapsed - callees : 0;
+        }
+    }
+    if (tracing && trace_sink) trace_sink(trace_user, TraceEvent{&command, level, &r});
+    return r;
+}
+
 // One overload is called directly, its arguments evaluated only as it reads them. An
 // overload set evaluates every argument first, then picks the first overload whose
 // parameter types fit: exactly, then with Int read as Float.
-Expected<Node> Context::Impl::invoke_set(Symbol name,
-                                         const std::vector<detail::Overload>& overloads,
+Expected<Node> Context::Impl::invoke_set(Symbol name, const Vec<detail::Overload>& overloads,
                                          const Array& command, size_t first, ObjectBase* object) {
     const size_t n = command.size() - first;
     if (overloads.size() == 1) {
@@ -272,9 +357,23 @@ Expected<Node> Context::Impl::invoke_set(Symbol name,
         Args args(self, command, command.begin() + first, n, 0, false, first, object);
         return invoke(o, args, command);
     }
+    // Eight on the stack, more from the default allocator. Not a Vec: an empty std::vector
+    // allocates in MSVC's debug library. Not a NodeBuffer: it costs 70 instructions a call.
+    struct Spill {
+        Node* p = nullptr;
+        size_t n = 0;
+        ~Spill() {
+            for (size_t i = 0; i < n; ++i) p[i].~Node();
+            if (p) detail::default_free(p, n * sizeof(Node));
+        }
+    } spill;
     Node small[8];
-    std::unique_ptr<Node[]> large;
-    Node* values = n <= 8 ? small : (large = std::make_unique<Node[]>(n)).get();
+    Node* values = small;
+    if (n > 8) {
+        spill.p = static_cast<Node*>(detail::default_alloc(n * sizeof(Node), alignof(Node)));
+        for (; spill.n < n; ++spill.n) ::new (spill.p + spill.n) Node();
+        values = spill.p;
+    }
     for (size_t i = 0; i < n; ++i) {
         auto r = eval(command[i + first]);
         if (!r) {
@@ -314,10 +413,12 @@ Expected<Node> Context::Impl::run(std::span<const Node> nodes) {
 
 // --- Context ---
 
-Context::Context() : impl_(new Impl(*this)) {
+Context::Context(const Allocator& allocator)
+    : impl_(detail::create<Impl>(allocator, *this, allocator)) {
     detail::set_evaluator(&evaluate_for_data);
     if (!t_current) t_current = this;
     impl_->sink = &stderr_sink;
+    impl_->trace_sink = &stderr_trace;
     register_builtins(*this);
     register_object_builtins(*this);
 }
@@ -327,10 +428,11 @@ Context::~Context() {
     for (Impl::Slot& s : impl_->slots) {
         if (!s.object) continue;
         s.object->ctx_ = nullptr;
-        if (s.owned) delete s.object;
+        if (s.owned) impl_->destroy_owned(s.object);
     }
     if (t_current == this) t_current = nullptr;
-    delete impl_;
+    const Allocator alloc = impl_->alloc;
+    detail::destroy(alloc, impl_);
 }
 
 Context::Scope::Scope(Context& ctx) noexcept : previous_(t_current) {
@@ -356,7 +458,9 @@ Expected<Node> Context::run(std::span<const Node> nodes) {
 }
 
 Expected<Node> Context::eval(std::string_view text, std::string_view name) {
-    auto tree = read_string(text, name);
+    LoadSession session;
+    session.allocator = &impl_->alloc;  // the tree is the Context's (D64)
+    auto tree = read_string(text, name, session);
     if (!tree) return Unexpected(std::move(tree).error());
     return run((*tree)->nodes());
 }
@@ -378,7 +482,7 @@ VarRef Context::global(Symbol name, Node initial, std::string_view doc) {
             g.doc = doc;
             return v;
         }
-    impl_->globals.push_back({name, std::string(doc)});
+    impl_->globals.push_back({name, Str(doc)});
     return v;
 }
 
@@ -412,18 +516,58 @@ StackEntry Context::stack_entry(const CallFrame& frame) const {
 }
 
 List<StackEntry> Context::backtrace() const {
-    std::vector<StackEntry> out;
+    Vec<StackEntry> out;
     for (const CallFrame* c = impl_->top; c; c = c->parent) out.push_back(stack_entry(*c));
     return List<StackEntry>(out);
 }
 
-void script_backtrace(TextOut out) {
+void script_backtrace(TextSink out) {
     if (const Context* ctx = Context::current())
         for (const CallFrame* c = ctx->top_frame(); c; c = c->parent) {
             out("in ");
             write(ctx->stack_entry(*c), out);
             out("\n");
         }
+}
+
+void Context::set_profiling(bool on) noexcept {
+    if constexpr (kShipping) return;
+    impl_->profiling = on;
+    impl_->instrumented = impl_->profiling || impl_->tracing;
+}
+
+void Context::set_time_source(TimeSource fn, void* user) noexcept {
+    impl_->clock = fn ? fn : steady_now;
+    impl_->clock_user = user;
+}
+
+List<CallStats> Context::stats() const {
+    if constexpr (kShipping) return {};
+    const Vec<CallStats> all = collect(*impl_, false, 0);
+    return List<CallStats>(std::span<const CallStats>(all.data(), all.size()));
+}
+
+void Context::reset_stats() noexcept {
+    for (const auto& f : impl_->functions) f->counters = {};
+    for (const auto& c : impl_->classes)
+        for (const ScriptClass::Handler& h : c->handlers) h.counters = {};
+}
+
+List<CallStats> Context::hardening_candidates(uint64_t threshold_ns) const {
+    if constexpr (kShipping) return {};
+    const Vec<CallStats> found = collect(*impl_, true, threshold_ns);
+    return List<CallStats>(std::span<const CallStats>(found.data(), found.size()));
+}
+
+void Context::trace(bool on) noexcept {
+    if constexpr (kShipping) return;
+    impl_->tracing = on;
+    impl_->instrumented = impl_->profiling || impl_->tracing;
+}
+
+void Context::set_trace_sink(TraceSink sink, void* user) noexcept {
+    impl_->trace_sink = sink;
+    impl_->trace_user = user;
 }
 
 void Context::set_notice_sink(NoticeSink sink, void* user) noexcept {
@@ -448,7 +592,7 @@ Expected<FuncRef> Context::add_overload(Symbol name, detail::Overload o) {
                              "native " + quoted(name) + " replaces the script definition", f.file,
                              f.line);
         if (n < o.min_args || n > o.max_args)
-            e.set_message(std::string(e.message()) + "; the script took " + arity_text(n, n) +
+            e.set_message(Str(e.message()) + "; the script took " + arity_text(n, n) +
                           ", the native takes " + arity_text(o.min_args, o.max_args));
         notice(std::move(e));
         f.overloads.clear();
@@ -521,11 +665,10 @@ Error Args::error(std::string_view message, ErrorCode code) const {
 }
 
 Error Args::type_error(size_t i, const Node& n, std::string_view want) const {
-    const std::string which =
-        "argument " + std::to_string(offset_ + i + 1) + " of " + quoted(name());
+    const Str which = "argument " + detail::decimal(offset_ + i + 1) + " of " + quoted(name());
     if (i >= size_)
         return error(quoted(name()) + " is missing " + which.substr(0, which.find(" of")));
-    return error(which + " is " + std::string(type_name(n.type())) + ", not " + std::string(want));
+    return error(which + " is " + Str(type_name(n.type())) + ", not " + Str(want));
 }
 
 void Args::keep(Node n) const {
@@ -537,8 +680,8 @@ Expected<Raw<Var>> read_var(const Args& a, size_t i) {
     const Node& n = a.raw(i);
     if (n.type() == Type::Property) return Raw<Var>(a.context(), *n.array());
     if (n.type() != Type::Var)
-        return Unexpected(a.error("argument " + std::to_string(i + 1) + " of " + quoted(a.name()) +
-                                  " must be a $variable, not " + std::string(type_name(n.type()))));
+        return Unexpected(a.error("argument " + detail::decimal(i + 1) + " of " + quoted(a.name()) +
+                                  " must be a $variable, not " + Str(type_name(n.type()))));
     return Raw<Var>(a.context().impl().cell(n.var_name()), n.var_name());
 }
 }  // namespace detail

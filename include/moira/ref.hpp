@@ -7,10 +7,12 @@
 // -DMOIRA_ATOMIC_REFCOUNT=OFF) for plain counters in single-threaded programs
 // (docs/decisions.md D20). Every translation unit must agree on the setting.
 //
-// A refcounted type T keeps a detail::RefCount as its first data member, is
-// standard-layout, and provides ref() / unref() members.
+// Arrays and strings are not counted one by one: each belongs to an owner, a load's arena or
+// a solo block of one, and a reference counts the owner (docs/decisions.md D64). A Ref<T>
+// calls T's ref() / unref() members.
 
 #include <cstdint>
+#include <cstring>
 #include <utility>
 
 #if !defined(MOIRA_ATOMIC_REFCOUNT) || MOIRA_ATOMIC_REFCOUNT
@@ -49,10 +51,31 @@ inline void retain(RefCount& c) noexcept {
 }
 #endif
 
-// The count lives at offset 0 of every refcounted object (first member of a
-// standard-layout class), so it can be reached from an untyped pointer.
-[[nodiscard]] inline RefCount& count_of(const void* object) noexcept {
-    return *static_cast<RefCount*>(const_cast<void*>(object));
+// What frees arrays and strings: a load's arena, or a solo block holding one of them.
+struct Owner {
+    RefCount refs{1};
+    uint32_t kind;  // OwnerKind
+};
+enum OwnerKind : uint32_t { kSoloArray, kSoloString, kArena };
+
+// An array or string starts with the 32-bit offset back to its block, and a block starts
+// with a pointer to its owner.
+[[nodiscard]] inline Owner& owner_of(const void* payload) noexcept {
+    uint32_t offset;
+    std::memcpy(&offset, payload, sizeof offset);
+    Owner* owner;
+    std::memcpy(&owner, static_cast<const char*>(payload) - offset, sizeof owner);
+    return *owner;
+}
+class Arena;
+// Frees an owner whose count reached zero.
+void free_owner(Owner& owner) noexcept;
+inline void retain_payload(const void* payload) noexcept {
+    retain(owner_of(payload).refs);
+}
+inline void release_payload(const void* payload) noexcept {
+    Owner& owner = owner_of(payload);
+    if (release(owner.refs)) free_owner(owner);
 }
 
 }  // namespace detail

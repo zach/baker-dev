@@ -25,7 +25,7 @@ below leave most of the checks out.
 
 Its public headers include no standard containers, strings, or `<functional>`: only
 language support and `string_view`/`span`/`optional`/`expected` (D55, D60). Text comes
-out through a `TextOut` sink. A host that uses the STL includes `<moira/std_interop.hpp>`
+out through a `TextSink`. A host that uses the STL includes `<moira/std_interop.hpp>`
 and `<moira/std_script.hpp>`, which add `std::string` forms (`to_string`, `to_dta`,
 `reference`), `Convert<>` for standard containers, and `std::hash<Symbol>`.
 
@@ -121,8 +121,9 @@ moira: 'price' is float, not int  (menu.dta:3, at menu/'bacon and eggs')
 
 What exists:
 
-- `Node` (16 bytes; 64-bit ints and doubles), interned `Symbol`, refcounted `String` and `Array` (one allocation
-  per array, children inline), every array tagged with its source file and line.
+- `Node` (16 bytes; 64-bit ints and doubles), interned `Symbol`, `String` and `Array` with
+  children inline, every array tagged with its source file and line. A load's tree lives
+  in one arena, counted as a whole (D64).
 - A parser that never crashes on bad input: every error has a file and line.
 - The preprocessor: `#include`, `#include_opt`, `#merge`, `#ifdef`/`#ifndef`/`#else`/
   `#endif`, `#define`, `#undef`, `#autorun`, and `[NAME ...]` macros.
@@ -153,6 +154,12 @@ What exists:
   a destroyed object a clean error, script handlers attached to C++ types (`{class}`),
   script classes and `{new}`/`{delete}`, `$this`, `[property]` paths, and loose
   per-object parameters.
+- Typed messages: plain aggregates bound with `b.on<M>`, sent with `obj.handle(msg)` in
+  about 9 ns with no allocation, or to many objects with `handle_all`. The same handler
+  answers `{bob hit 20}`, and a script handler `(hit ($points) ...)` answers C++.
+- Debugging: the script call stack in every error (`describe`, `script_backtrace`), call
+  statistics (`stats`, `hardening_candidates`, timing behind `set_profiling`), and a trace
+  hook, all compiled out under `MOIRA_SHIPPING`.
 - Tests, a hand-written corpus, benchmarks, and libFuzzer harnesses for parsing and lookup
   (`-DMOIRA_BUILD_FUZZERS=ON`).
 

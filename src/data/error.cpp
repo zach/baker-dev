@@ -1,29 +1,37 @@
+#include <moira/allocator.hpp>
 #include <moira/error.hpp>
-#include <moira/std_interop.hpp>
+
+#include "common/containers.hpp"
 
 #include <charconv>
-#include <string>
-#include <vector>
 
 namespace moira {
 
 namespace detail {
 struct ErrorRecord {
     ErrorCode code = ErrorCode::Syntax;
-    std::string message;
+    Str message;
     Symbol file;
     int32_t line = 0;
-    std::string path;
-    std::vector<StackEntry> stack;
+    Str path;
+    Vec<StackEntry> stack;
     // The formatted forms, made on first request and cleared by any change.
-    std::string text;
-    std::string described;
+    Str text;
+    Str described;
 };
 }  // namespace detail
 
 namespace {
+// Records come from the default allocator: an error may outlive whatever made it (D61).
+template <class... A>
+detail::ErrorRecord* new_record(A&&... a) {
+    return detail::create<detail::ErrorRecord>(default_allocator(), std::forward<A>(a)...);
+}
+void free_record(detail::ErrorRecord* r) noexcept {
+    detail::destroy(default_allocator(), r);
+}
 detail::ErrorRecord* copy_of(const detail::ErrorRecord* r) {
-    return r ? new detail::ErrorRecord(*r) : nullptr;
+    return r ? new_record(*r) : nullptr;
 }
 }  // namespace
 
@@ -42,14 +50,19 @@ std::string_view error_code_name(ErrorCode code) noexcept {
 }
 
 Error::Error(ErrorCode code, std::string_view message, Symbol file, int32_t line)
-    : r_(new detail::ErrorRecord{code, std::string(message), file, line, {}, {}, {}, {}}) {}
+    : r_(new_record()) {
+    r_->code = code;
+    r_->message = message;
+    r_->file = file;
+    r_->line = line;
+}
 
 Error::Error(const Error& other) : r_(copy_of(other.r_)) {}
 
 Error& Error::operator=(const Error& other) {
     if (this != &other) {
         detail::ErrorRecord* r = copy_of(other.r_);
-        delete r_;
+        free_record(r_);
         r_ = r;
     }
     return *this;
@@ -57,7 +70,7 @@ Error& Error::operator=(const Error& other) {
 
 Error& Error::operator=(Error&& other) noexcept {
     if (this != &other) {
-        delete r_;
+        free_record(r_);
         r_ = other.r_;
         other.r_ = nullptr;
     }
@@ -65,7 +78,7 @@ Error& Error::operator=(Error&& other) noexcept {
 }
 
 Error::~Error() {
-    delete r_;
+    free_record(r_);
 }
 
 ErrorCode Error::code() const noexcept {
@@ -89,7 +102,7 @@ std::span<const StackEntry> Error::stack() const noexcept {
 
 namespace {
 detail::ErrorRecord& edit(detail::ErrorRecord*& r) {
-    if (!r) r = new detail::ErrorRecord();
+    if (!r) r = new_record();
     r->text.clear();
     r->described.clear();
     return *r;
@@ -119,7 +132,7 @@ std::string_view to_string(const Error& e) {
     if (!e.r_) return "moira: no error";
     detail::ErrorRecord& r = *e.r_;
     if (!r.text.empty()) return r.text;
-    std::string& out = r.text;
+    Str& out = r.text;
     out = "moira: ";
     out += r.message;
     const bool has_file = !r.file.empty();
@@ -130,7 +143,7 @@ std::string_view to_string(const Error& e) {
             out += r.file.str();
             if (r.line > 0) {
                 out += ':';
-                out += std::to_string(r.line);
+                out += detail::decimal(r.line);
             }
         }
         if (has_path) {
@@ -143,7 +156,7 @@ std::string_view to_string(const Error& e) {
     return out;
 }
 
-void write(const StackEntry& entry, TextOut out) {
+void write(const StackEntry& entry, TextSink out) {
     out("{");
     if (!entry.on.empty()) {
         out(entry.on.str());
@@ -168,10 +181,10 @@ std::string_view describe(const Error& e) {
     if (!e.r_ || e.r_->stack.empty()) return to_string(e);
     detail::ErrorRecord& r = *e.r_;
     if (!r.described.empty()) return r.described;
-    std::string out(to_string(e));
+    Str out(to_string(e));
     for (const StackEntry& s : r.stack) {
         out += "\n  in ";
-        write(s, string_out(out));
+        write(s, detail::str_out(out));
     }
     r.described = std::move(out);
     return r.described;

@@ -52,7 +52,7 @@ public:
     // Writes the first `count` segments, '/'-separated and quoted where needed, as in
     // errors: menu/'bacon and eggs'. An invalid path writes (the start of) the text it was
     // parsed from. <moira/std_interop.hpp> has to_string(path).
-    void write(TextOut out, size_t count = SIZE_MAX, char separator = '/') const;
+    void write(TextSink out, size_t count = SIZE_MAX, char separator = '/') const;
 
     // Whether `text` parses to this path; never allocates or interns.
     [[nodiscard]] bool matches(std::string_view text) const noexcept;

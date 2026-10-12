@@ -1,7 +1,7 @@
 #pragma once
 
 // Opt-in interop between moira::script and the C++ standard library: the std::string forms
-// of what moira::script writes through TextOut. The moira::script counterpart of
+// of what moira::script writes through TextSink. The moira::script counterpart of
 // <moira/std_interop.hpp>, kept apart so moira::data never includes script headers.
 
 #include <moira/script.hpp>

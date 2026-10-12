@@ -1,9 +1,6 @@
 #include <moira/source_map.hpp>
-#include <moira/std_interop.hpp>
 
-#include <string>
-#include <unordered_map>
-#include <vector>
+#include "common/containers.hpp"
 
 namespace moira {
 
@@ -11,15 +8,16 @@ struct SourceMap::Tables {
     struct Entry {
         Ref<Array> keep;  // keeps the address from being reused while it is a key
         SourceSpan extent;
-        std::vector<SourceSpan> spans;
+        Vec<SourceSpan> spans;
     };
-    std::unordered_map<const Array*, Entry> arrays;
-    std::unordered_map<Symbol, std::string> texts;
+    HashMap<const Array*, Entry> arrays;
+    HashMap<Symbol, Str> texts;
 };
 
-SourceMap::SourceMap() : t_(new Tables()) {}
+// From the default allocator: a map has no owner, and snapshots share it (D61).
+SourceMap::SourceMap() : t_(detail::create<Tables>(default_allocator())) {}
 SourceMap::~SourceMap() {
-    delete t_;
+    detail::destroy(default_allocator(), t_);
 }
 
 std::optional<std::span<const SourceSpan>> SourceMap::spans(const Array& a) const {
@@ -51,11 +49,11 @@ bool SourceMap::empty() const noexcept {
 void SourceMap::record(const Ref<Array>& a, const SourceSpan& extent,
                        std::span<const SourceSpan> spans) {
     t_->arrays[a.get()] =
-        Tables::Entry{a, extent, std::vector<SourceSpan>(spans.begin(), spans.end())};
+        Tables::Entry{a, extent, Vec<SourceSpan>(spans.data(), spans.data() + spans.size())};
 }
 
 void SourceMap::record_text(Symbol file, std::string_view text) {
-    t_->texts.emplace(file, std::string(text));
+    t_->texts.emplace(file, Str(text));
 }
 
 }  // namespace moira

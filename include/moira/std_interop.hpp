@@ -28,8 +28,8 @@ struct std::hash<moira::Symbol> {
 
 namespace moira {
 
-// A TextOut that appends to `s`.
-inline TextOut string_out(std::string& s) {
+// A TextSink that appends to `s`.
+inline TextSink string_out(std::string& s) {
     return {[](void* u, std::string_view t) { static_cast<std::string*>(u)->append(t); }, &s};
 }
 

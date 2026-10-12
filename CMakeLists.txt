@@ -9,6 +9,7 @@ option(MOIRA_BUILD_TOOLS      "Build command-line tools (moira_parse_corpus)" ${
 option(MOIRA_BUILD_BENCH      "Build benchmarks" OFF)
 option(MOIRA_BUILD_EXAMPLES   "Build the examples" ${PROJECT_IS_TOP_LEVEL})
 option(MOIRA_BUILD_FUZZERS    "Build libFuzzer targets (Clang only)" OFF)
+option(MOIRA_USE_EASTL        "Internal containers from EASTL instead of the STL (D55, D61)" OFF)
 set(MOIRA_SANITIZE "" CACHE STRING "Sanitizers to enable, e.g. address,undefined")
 
 if(NOT DEFINED CMAKE_CXX_STANDARD)
@@ -61,11 +62,35 @@ if(MOIRA_SANITIZE)
   add_link_options(-fsanitize=${MOIRA_SANITIZE})
 endif()
 
+# EASTL for src/'s containers (src/common/containers.hpp). A host that builds EASTL itself
+# provides the EASTL target first; otherwise it is fetched at a pinned commit, never vendored.
+if(MOIRA_USE_EASTL AND NOT TARGET EASTL)
+  include(FetchContent)
+  FetchContent_Declare(EASTL
+    GIT_REPOSITORY https://github.com/electronicarts/EASTL.git
+    GIT_TAG        e323f67e5d93fdadcd44f7998069d804697b1945)  # 3.27.01
+  FetchContent_MakeAvailable(EASTL)
+  # Its headers are not ours to warn about, and its sources are not ours to fix.
+  foreach(t EASTL EABase)
+    if(TARGET ${t})
+      get_target_property(dirs ${t} INTERFACE_INCLUDE_DIRECTORIES)
+      set_target_properties(${t} PROPERTIES INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${dirs}")
+    endif()
+  endforeach()
+  set_target_properties(EASTL PROPERTIES COMPILE_WARNING_AS_ERROR OFF)
+  target_compile_options(EASTL PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/w,-w>)
+endif()
+
 function(moira_configure_library target)
   target_include_directories(${target} PUBLIC
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>)
   target_compile_features(${target} PUBLIC cxx_std_20)
+  target_include_directories(${target} PRIVATE ${PROJECT_SOURCE_DIR}/src)
+  if(MOIRA_USE_EASTL)
+    target_compile_definitions(${target} PRIVATE MOIRA_USE_EASTL=1)
+    target_link_libraries(${target} PRIVATE EASTL)
+  endif()
   # Always explicit: mixing atomic and plain refcounts across translation units is an ODR
   # violation, so consumers must see the library's choice.
   if(MOIRA_ATOMIC_REFCOUNT)
@@ -84,6 +109,9 @@ endfunction()
 # --- moira::data: nodes, arrays, parsing, lookup, config, tweaks, binary cache.
 #     Must never depend on moira::script.
 add_library(moira_data
+  src/data/allocator.cpp
+  src/data/arena.cpp
+  src/data/clock.cpp
   src/data/array.cpp
   src/data/config.cpp
   src/data/error.cpp
@@ -164,7 +192,8 @@ if(MOIRA_BUILD_EXAMPLES AND MOIRA_BUILD_SCRIPT)
 endif()
 
 if(MOIRA_BUILD_BENCH)
-  add_executable(moira_bench_parse bench/bench_parse.cpp)
+  add_executable(moira_bench_parse bench/bench_parse.cpp tests/support/alloc_counter.cpp)
+  target_include_directories(moira_bench_parse PRIVATE tests/support)
   target_link_libraries(moira_bench_parse PRIVATE moira::data)
   add_executable(moira_bench_lookup bench/bench_lookup.cpp)
   target_link_libraries(moira_bench_lookup PRIVATE moira::data)

@@ -1,22 +1,21 @@
+#include <moira/allocator.hpp>
 #include <moira/symbol.hpp>
 
 #include <cstring>
-#include <memory>
 #include <mutex>
-#include <vector>
 
 namespace moira {
 namespace {
 
-// Append-only arena + open-addressed hash table of entry pointers. Never destroyed:
-// symbols are immortal, and leaking the table keeps them valid during static
-// destruction too.
+// Append-only arena + open-addressed hash table of entry pointers, from the default
+// allocator. Never destroyed: symbols are immortal, and leaking the table keeps them valid
+// during static destruction too.
 class SymbolTable {
 public:
     const detail::SymbolEntry* intern(std::string_view text) {
         const uint64_t hash = detail::hash_symbol_text(text);
         std::lock_guard lock(mutex_);
-        size_t mask = slots_.size() - 1;
+        size_t mask = capacity_ - 1;
         for (size_t i = static_cast<size_t>(hash) & mask;; i = (i + 1) & mask) {
             const detail::SymbolEntry* e = slots_[i];
             if (!e) break;
@@ -24,7 +23,7 @@ public:
                 std::memcmp(e->text, text.data(), text.size()) == 0)
                 return e;
         }
-        if ((count_ + 1) * 2 > slots_.size()) grow();
+        if ((count_ + 1) * 2 > capacity_) grow();
         const detail::SymbolEntry* e = make_entry(text, hash);
         insert(e);
         ++count_;
@@ -39,18 +38,29 @@ public:
 private:
     static constexpr size_t kBlockSize = 64 * 1024;
 
+    using Slot = const detail::SymbolEntry*;
+
+    static Slot* new_slots(size_t n) {
+        auto* s = static_cast<Slot*>(detail::default_alloc(n * sizeof(Slot), alignof(Slot)));
+        for (size_t i = 0; i < n; ++i) s[i] = nullptr;
+        return s;
+    }
+
     void insert(const detail::SymbolEntry* e) {
-        size_t mask = slots_.size() - 1;
+        size_t mask = capacity_ - 1;
         size_t i = static_cast<size_t>(e->hash) & mask;
         while (slots_[i]) i = (i + 1) & mask;
         slots_[i] = e;
     }
 
     void grow() {
-        std::vector<const detail::SymbolEntry*> old(slots_.size() * 2, nullptr);
-        old.swap(slots_);
-        for (const detail::SymbolEntry* e : old)
-            if (e) insert(e);
+        Slot* old = slots_;
+        const size_t old_capacity = capacity_;
+        slots_ = new_slots(capacity_ * 2);
+        capacity_ *= 2;
+        for (size_t i = 0; i < old_capacity; ++i)
+            if (old[i]) insert(old[i]);
+        detail::default_free(old, old_capacity * sizeof(Slot));
     }
 
     const detail::SymbolEntry* make_entry(std::string_view text, uint64_t hash) {
@@ -65,13 +75,10 @@ private:
 
     char* alloc(size_t n) {
         n = (n + alignof(detail::SymbolEntry) - 1) & ~(alignof(detail::SymbolEntry) - 1);
-        if (n > kBlockSize / 4) {
-            blocks_.push_back(std::make_unique<char[]>(n));
-            return blocks_.back().get();
-        }
+        constexpr size_t align = alignof(detail::SymbolEntry);
+        if (n > kBlockSize / 4) return static_cast<char*>(detail::default_alloc(n, align));
         if (!cur_ || used_ + n > kBlockSize) {
-            blocks_.push_back(std::make_unique<char[]>(kBlockSize));
-            cur_ = blocks_.back().get();
+            cur_ = static_cast<char*>(detail::default_alloc(kBlockSize, align));
             used_ = 0;
         }
         char* p = cur_ + used_;
@@ -80,15 +87,15 @@ private:
     }
 
     std::mutex mutex_;
-    std::vector<const detail::SymbolEntry*> slots_ = std::vector<const detail::SymbolEntry*>(1024);
+    size_t capacity_ = 1024;
+    Slot* slots_ = new_slots(capacity_);
     size_t count_ = 0;
-    std::vector<std::unique_ptr<char[]>> blocks_;
-    char* cur_ = nullptr;
+    char* cur_ = nullptr;  // blocks are never freed
     size_t used_ = 0;
 };
 
 SymbolTable& table() {
-    static SymbolTable* t = new SymbolTable;  // intentionally leaked; see above
+    static SymbolTable* t = detail::create<SymbolTable>(default_allocator());  // leaked; see above
     return *t;
 }
 

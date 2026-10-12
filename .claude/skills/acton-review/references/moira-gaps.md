@@ -4,14 +4,14 @@
 
 | Gap | Decision | When |
 |---|---|---|
-| 1, allocator hook | per-Context allocators, an arena per load (D56) | M5b, steps 3–4 |
+| 1, allocator hook | per-Context allocators (D62), an arena per load (D64, D65) | **done** |
 | 2, 2b, 3, hot/cold layout, tag lookup, dispatch loads | done with the binary cache (D57) | M8 |
-| 4, one item at a time | `handle_all` broadcast, grouped by type (D53) | M6 |
-| 5, per-array refcounts | removed by arenas per load (D56) | M5b, step 4 |
+| 4, one item at a time | `handle_all` broadcast, one lookup per run of a type (D53, D66) | **done** |
+| 5, per-array refcounts | one count per load (D64, D65) | **done** |
 | 7, coroutine frames | per-Scheduler pool with a frame budget (D58) | M7 |
 | 8, exceptions | throwing forms removed entirely (D54) | **done** (D59) |
 | 9, `Error` size | `Error` becomes a handle (D55) | **done** (D60) |
-| 11, the STL in public headers | header-only vocabulary types only (**done**, D60); EASTL switch inside | M5b, step 3 |
+| 11, the STL in public headers | header-only vocabulary types only (D60); `MOIRA_USE_EASTL` inside (D62) | **done** |
 
 Still open: 6 (objects' vtable and parameters) and 10 (tooling in the core). Update this
 table as work lands.

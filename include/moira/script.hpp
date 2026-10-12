@@ -29,6 +29,7 @@
 // because evaluation never modifies a tree.
 
 #include <moira/array.hpp>
+#include <moira/clock.hpp>
 #include <moira/list.hpp>
 #include <moira/node.hpp>
 #include <moira/text.hpp>
@@ -206,13 +207,14 @@ template <class T>
 inline constexpr bool is_raw<std::optional<Raw<T>>> = true;
 
 // A refcounted, type-erased, immutable object: the callable behind a function. get() is
-// one load, as std::shared_ptr's is.
+// one load, as std::shared_ptr's is. From the default allocator (D61).
 class Shared {
 public:
     Shared() noexcept = default;
     template <class T, class... A>
     [[nodiscard]] static Shared make(A&&... a) {
-        auto* box = new Box<T>(std::forward<A>(a)...);
+        auto* box =
+            ::new (default_alloc(sizeof(Box<T>), alignof(Box<T>))) Box<T>(std::forward<A>(a)...);
         Shared s;
         s.base_ = box;
         s.object_ = &box->value;
@@ -249,7 +251,10 @@ private:
     struct Box : Base {
         template <class... A>
         explicit Box(A&&... a) : value(std::forward<A>(a)...) {
-            this->destroy = [](Base* b) { delete static_cast<Box*>(b); };
+            this->destroy = [](Base* b) {
+                static_cast<Box*>(b)->~Box();
+                default_free(b, sizeof(Box));
+            };
         }
         T value;
     };
@@ -599,7 +604,27 @@ struct CheckReport {
 
 // Writes the report: errors first, then the demand report, one line each.
 // <moira/std_interop.hpp> has to_string(report).
-void write(const CheckReport& report, TextOut out);
+void write(const CheckReport& report, TextSink out);
+
+// What one function, or one script handler of a {class}, has cost (spec §5, "Call
+// statistics"). Times are in TimeSource nanoseconds: `total_ns` includes the calls it made,
+// `self_ns` does not. A recursive function's total counts each level.
+struct CallStats {
+    Symbol name;
+    Symbol on;  // the {class} of a script handler; empty for a function
+    Tier tier;
+    uint64_t calls;
+    uint64_t total_ns;
+    uint64_t self_ns;
+};
+
+// One call, as the trace hook sees it: on entry `result` is null; on exit it is the call's
+// result or error.
+struct TraceEvent {
+    const Array* command;
+    uint32_t depth;  // 0 for a call made from C++
+    const Expected<Node>* result;
+};
 
 // A call in progress, on the C++ stack: the frames of a Context form a list from the
 // innermost call out (Context::top_frame). Read-only, and valid only while the call runs.
@@ -610,7 +635,8 @@ struct CallFrame {
 
 class Context {
 public:
-    Context();
+    // Everything the Context keeps comes from `allocator`, which must outlive it (D61).
+    explicit Context(const Allocator& allocator = default_allocator());
     ~Context();
     Context(const Context&) = delete;
     Context& operator=(const Context&) = delete;
@@ -688,6 +714,27 @@ public:
     [[nodiscard]] List<StackEntry> backtrace() const;
     [[nodiscard]] StackEntry stack_entry(const CallFrame& frame) const;
 
+    // --- Call statistics and tracing. Development aids: under MOIRA_SHIPPING they are
+    // compiled out, stats() is empty, and the switches do nothing. ---
+
+    // Calls are always counted (one increment each). Timing them takes two clock reads per
+    // call, so it waits for set_profiling(true).
+    void set_profiling(bool on) noexcept;
+    void set_time_source(TimeSource fn, void* user = nullptr) noexcept;
+    // Every function and script handler called since the last reset, by self time, then
+    // by calls. Reading allocates; counting does not.
+    [[nodiscard]] List<CallStats> stats() const;
+    void reset_stats() noexcept;
+    // The script functions and handlers whose self time is at least `threshold_ns`: the
+    // measured list of what to move to C++.
+    [[nodiscard]] List<CallStats> hardening_candidates(uint64_t threshold_ns) const;
+
+    // While on, every call is reported to the trace sink, on entry and on exit. By default
+    // the sink prints each call to stderr, indented by depth.
+    using TraceSink = void (*)(void* user, const TraceEvent& event);
+    void trace(bool on) noexcept;
+    void set_trace_sink(TraceSink sink, void* user) noexcept;
+
     // --- Notices: things worth saying that are not errors, such as a native function
     // replacing a script one. By default they go to stderr. ---
     using NoticeSink = void (*)(void* user, const Error& notice);
@@ -721,7 +768,7 @@ private:
 // Writes the script calls in progress on this thread's current Context
 // (Context::current), one line each, innermost first; nothing if there are none. For an
 // assert handler or crash reporter to print beside the C++ stack. Allocates nothing.
-void script_backtrace(TextOut out);
+void script_backtrace(TextSink out);
 
 // Walks `tree` without evaluating anything and reports, located, every call to a
 // registered function with the wrong number of arguments for every overload, or a literal
@@ -736,7 +783,7 @@ void check(const Array& tree, const Context& ctx, CheckReport& report);
 // Writes the script reference (spec §5): every function with its overloads, tier, status,
 // and documentation, and every documented global, as Markdown. <moira/std_interop.hpp>
 // has reference(ctx) returning a string.
-void reference(const Context& ctx, TextOut out);
+void reference(const Context& ctx, TextSink out);
 [[nodiscard]] Expected<void> write_reference(const Context& ctx, std::string_view path);
 
 // --- Template definitions. ---

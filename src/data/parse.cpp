@@ -1,16 +1,14 @@
 #include <moira/parse.hpp>
 
+#include "arena.hpp"
+#include "common/containers.hpp"
+
 #include "merge.hpp"
 #include "text.hpp"
 
-#include <moira/std_interop.hpp>
-
 #include <cstdio>
 #include <cstring>
-#include <string>
-#include <unordered_map>
 #include <utility>
-#include <vector>
 
 namespace moira {
 namespace detail {
@@ -66,7 +64,7 @@ public:
     }
 
 private:
-    bool fail(Error& err, ErrorCode code, std::string msg, int32_t line) {
+    bool fail(Error& err, ErrorCode code, Str msg, int32_t line) {
         err = make_error(code, std::move(msg), file_, line);
         return false;
     }
@@ -217,10 +215,10 @@ private:
                 return true;
             case NumberKind::IntOutOfRange:
                 return fail(err, ErrorCode::Range,
-                            "integer " + std::string(atom) + " is out of 64-bit range", t.line);
+                            "integer " + Str(atom) + " is out of 64-bit range", t.line);
             case NumberKind::FloatOutOfRange:
-                return fail(err, ErrorCode::Range,
-                            "float " + std::string(atom) + " is out of double range", t.line);
+                return fail(err, ErrorCode::Range, "float " + Str(atom) + " is out of double range",
+                            t.line);
             case NumberKind::NotNumber: break;
         }
         t.kind = Tok::Symbol;
@@ -232,13 +230,13 @@ private:
     Symbol file_;
     size_t pos_ = 0;
     int32_t line_ = 1;
-    std::string buf_;  // decoded string with escapes; valid until the next string token
+    Str buf_;  // decoded string with escapes; valid until the next string token
     bool has_peek_ = false;
     Token peeked_;
 };
 
-bool read_disk_file(std::string_view path, TextOut out) {
-    std::FILE* f = std::fopen(std::string(path).c_str(), "rb");
+bool read_disk_file(std::string_view path, TextSink out) {
+    std::FILE* f = std::fopen(Str(path).c_str(), "rb");
     if (!f) return false;
     char buf[65536];
     size_t got = 0;
@@ -251,20 +249,20 @@ bool read_disk_file(std::string_view path, TextOut out) {
 }  // namespace
 
 // Reads `path` through `reader` into `text`, replacing what it held.
-bool read_with(const LoadSession::Reader& reader, std::string_view path, std::string& text) {
+bool read_with(const LoadSession::Reader& reader, std::string_view path, Str& text) {
     text.clear();
-    return reader(path, string_out(text));
+    return reader(path, detail::str_out(text));
 }
 
 }  // namespace detail
 
 struct LoadSession::State {
-    std::unordered_map<Symbol, Ref<Array>> defines;
+    HashMap<Symbol, Ref<Array>> defines;
     Reader reader = detail::read_disk_file;
-    std::vector<std::string> include_dirs;
-    std::vector<Node> autorun;
+    Vec<Str> include_dirs;
+    Vec<Node> autorun;
     // Per top-level read.
-    std::vector<std::string> include_stack;
+    Vec<Str> include_stack;
     uint64_t nodes = 0;
     uint32_t includes = 0;
 };
@@ -273,8 +271,10 @@ namespace detail {
 
 class Parser {
 public:
-    Parser(LoadSession& session, std::string_view text, Symbol file, uint32_t include_depth)
+    Parser(LoadSession& session, Arena& arena, std::string_view text, Symbol file,
+           uint32_t include_depth)
         : s_(session),
+          arena_(arena),
           lex_(text, file),
           file_(file),
           include_depth_(include_depth),
@@ -301,7 +301,7 @@ public:
                 case Tok::Close: ok = close(t); break;
                 case Tok::Int: ok = push(Node(t.i), here(t)); break;
                 case Tok::Float: ok = push(Node(t.f), here(t)); break;
-                case Tok::String: ok = push(Node(String::make(t.text)), here(t)); break;
+                case Tok::String: ok = push(Node(arena_.make_string(t.text)), here(t)); break;
                 case Tok::Symbol: ok = symbol(t); break;
                 case Tok::Var: ok = push(Node::var(Symbol(t.text)), here(t)); break;
                 case Tok::Directive: ok = directive(t); break;
@@ -310,16 +310,15 @@ public:
             if (!ok) return false;
         }
         if (!conds_.empty())
-            return fail(ErrorCode::Directive,
-                        "#" + std::string(conds_.back().negated ? "ifndef" : "ifdef") +
-                            " has no matching #endif",
-                        conds_.back().line);
+            return fail(
+                ErrorCode::Directive,
+                "#" + Str(conds_.back().negated ? "ifndef" : "ifdef") + " has no matching #endif",
+                conds_.back().line);
         if (frames_.size() > 1) {
             const FrameInfo& f = frames_.back();
-            return fail(ErrorCode::Syntax, std::string(bracket_name(f.open)) + " is never closed",
-                        f.line);
+            return fail(ErrorCode::Syntax, Str(bracket_name(f.open)) + " is never closed", f.line);
         }
-        Ref<Array> root = Array::make_from(scratch_, file_, 1);
+        Ref<Array> root = arena_.make_array(scratch_, file_, 1);
         if (root->height() > s_.limits.max_depth + 1) return too_deep(1);
         if (map_) map_->record(root, {file_, 0, size_, {}}, spans_);
         out = std::move(root);
@@ -345,13 +344,14 @@ private:
         int32_t line;
     };
 
-    bool fail(ErrorCode code, std::string msg, int32_t line) {
+    bool fail(ErrorCode code, Str msg, int32_t line) {
         *err_ = make_error(code, std::move(msg), file_, line);
         return false;
     }
     bool too_deep(int32_t line) {
         return fail(ErrorCode::Limit,
-                    "nesting deeper than " + std::to_string(s_.limits.max_depth) + " levels", line);
+                    "nesting deeper than " + detail::decimal(s_.limits.max_depth) + " levels",
+                    line);
     }
     [[nodiscard]] bool active() const noexcept { return conds_.empty() || conds_.back().active; }
 
@@ -363,7 +363,7 @@ private:
     bool push(Node n, const SourceSpan& span = {}) {
         if (++s_.st_->nodes > s_.limits.max_nodes)
             return fail(ErrorCode::Limit,
-                        "more than " + std::to_string(s_.limits.max_nodes) + " nodes", line_);
+                        "more than " + detail::decimal(s_.limits.max_nodes) + " nodes", line_);
         if (frames_.back().kind == Frame::Root && n.type() == Type::Property)
             return fail(ErrorCode::Syntax,
                         "a [property] cannot appear at top level, where '[' defines a macro",
@@ -422,12 +422,11 @@ private:
     bool close(const Token& t) {
         const FrameInfo f = frames_.back();
         if (f.kind == Frame::Root)
-            return fail(ErrorCode::Syntax, "unexpected " + std::string(bracket_name(t.bracket)),
-                        t.line);
+            return fail(ErrorCode::Syntax, "unexpected " + Str(bracket_name(t.bracket)), t.line);
         if (t.bracket != closer(f.kind))
             return fail(ErrorCode::Syntax,
-                        std::string(bracket_name(f.open)) + " from line " + std::to_string(f.line) +
-                            " is closed by " + std::string(bracket_name(t.bracket)),
+                        Str(bracket_name(f.open)) + " from line " + detail::decimal(f.line) +
+                            " is closed by " + Str(bracket_name(t.bracket)),
                         t.line);
         frames_.pop_back();
         std::span<Node> kids(scratch_.data() + f.start, scratch_.size() - f.start);
@@ -436,7 +435,7 @@ private:
             const auto name = kids.empty() ? std::nullopt : kids[0].try_sym();
             if (!name)
                 return fail(ErrorCode::Syntax, "macro definition needs a symbol name", f.line);
-            Ref<Array> body = Array::make_from(kids.subspan(1), file_, f.line);
+            Ref<Array> body = arena_.make_array(kids.subspan(1), file_, f.line);
             record(body, f.start + 1, f.begin, t.end);
             truncate(f.start);
             if (body->height() > s_.limits.max_depth) return too_deep(f.line);
@@ -444,7 +443,7 @@ private:
             return true;
         }
 
-        Ref<Array> arr = Array::make_from(kids, file_, f.line);
+        Ref<Array> arr = arena_.make_array(kids, file_, f.line);
         record(arr, f.start, f.begin, t.end);
         truncate(f.start);
         if (arr->height() > s_.limits.max_depth) return too_deep(f.line);
@@ -464,17 +463,15 @@ private:
     bool name_arg(std::string_view directive, Token& t) {
         if (!lex_.next(t, *err_)) return false;
         if (t.kind != Tok::Symbol)
-            return fail(ErrorCode::Directive, "#" + std::string(directive) + " needs a name",
-                        t.line);
+            return fail(ErrorCode::Directive, "#" + Str(directive) + " needs a name", t.line);
         return true;
     }
 
-    bool path_arg(std::string_view directive, std::string& path) {
+    bool path_arg(std::string_view directive, Str& path) {
         Token t;
         if (!lex_.next(t, *err_)) return false;
         if (t.kind != Tok::Symbol && t.kind != Tok::String)
-            return fail(ErrorCode::Directive, "#" + std::string(directive) + " needs a file path",
-                        t.line);
+            return fail(ErrorCode::Directive, "#" + Str(directive) + " needs a file path", t.line);
         path.assign(t.text);
         return true;
     }
@@ -493,8 +490,7 @@ private:
 
     bool else_or_endif(const Token& t) {
         if (conds_.empty())
-            return fail(ErrorCode::Directive, "#" + std::string(t.text) + " without #ifdef",
-                        t.line);
+            return fail(ErrorCode::Directive, "#" + Str(t.text) + " without #ifdef", t.line);
         if (t.text == "endif") {
             conds_.pop_back();
             return true;
@@ -518,14 +514,14 @@ private:
         if (d == "ifdef" || d == "ifndef") return conditional(t, true);
         if (d == "else" || d == "endif") return else_or_endif(t);
         if (d == "include" || d == "include_opt" || d == "merge") {
-            std::string path;
+            Str path;
             if (!path_arg(d, path)) return false;
             Ref<Array> root;
             if (!load(path, d == "include_opt", t.line, root)) return false;
             if (!root) return true;  // optional and missing
             if (d == "merge") {
                 merge_into(scratch_, map_ ? &spans_ : nullptr, frames_.back().start, *root, 0,
-                           MergePolicy::FillMissing, map_);
+                           MergePolicy::FillMissing, map_, &arena_);
                 return true;
             }
             for (size_t i = 0; i < root->size(); ++i) {
@@ -565,32 +561,33 @@ private:
             frames_.back().kind = Frame::Autorun;
             return true;
         }
-        return fail(ErrorCode::Directive, "unknown directive '#" + std::string(d) + "'", t.line);
+        return fail(ErrorCode::Directive, "unknown directive '#" + Str(d) + "'", t.line);
     }
 
     // Resolves and parses an included or merged file. Leaves `out` null if `optional`
     // and the file does not exist.
-    bool load(const std::string& path, bool optional, int32_t line, Ref<Array>& out) {
+    bool load(const Str& path, bool optional, int32_t line, Ref<Array>& out) {
         if (include_depth_ + 1 > s_.limits.max_include_depth)
             return fail(
                 ErrorCode::Limit,
-                "includes nested deeper than " + std::to_string(s_.limits.max_include_depth), line);
+                "includes nested deeper than " + detail::decimal(s_.limits.max_include_depth),
+                line);
         if (s_.st_->includes >= s_.limits.max_includes)
             return fail(ErrorCode::Limit,
-                        "more than " + std::to_string(s_.limits.max_includes) + " included files",
+                        "more than " + detail::decimal(s_.limits.max_includes) + " included files",
                         line);
 
-        std::vector<std::string> candidates;
+        Vec<Str> candidates;
         if (is_absolute_path(path)) {
             candidates.push_back(normalize_path(path));
         } else {
             candidates.push_back(normalize_path(join_path(parent_path(file_.str()), path)));
-            for (const std::string& dir : s_.st_->include_dirs)
+            for (const Str& dir : s_.st_->include_dirs)
                 candidates.push_back(normalize_path(join_path(dir, path)));
         }
-        std::string text;
-        const std::string* found = nullptr;
-        for (const std::string& c : candidates) {
+        Str text;
+        const Str* found = nullptr;
+        for (const Str& c : candidates) {
             if (read_with(s_.st_->reader, c, text)) {
                 found = &c;
                 break;
@@ -600,19 +597,20 @@ private:
             if (optional) return true;
             return fail(ErrorCode::Io, "cannot read included file '" + path + "'", line);
         }
-        for (const std::string& open_file : s_.st_->include_stack)
+        for (const Str& open_file : s_.st_->include_stack)
             if (open_file == *found)
                 return fail(ErrorCode::Directive, "'" + path + "' includes itself", line);
 
         ++s_.st_->includes;
         s_.st_->include_stack.push_back(*found);
-        Parser sub(s_, text, Symbol(*found), include_depth_ + 1);
+        Parser sub(s_, arena_, text, Symbol(*found), include_depth_ + 1);
         const bool ok = sub.run(out, *err_);
         s_.st_->include_stack.pop_back();
         return ok;
     }
 
     LoadSession& s_;
+    Arena& arena_;  // the whole load, includes and macro bodies too (D64)
     Lexer lex_;
     Symbol file_;
     uint32_t include_depth_;
@@ -620,28 +618,34 @@ private:
     int32_t line_ = 1;
     SourceMap* map_;
     uint32_t size_;
-    std::vector<Node> scratch_;
-    std::vector<SourceSpan> spans_;  // parallel to scratch_ in edit mode
-    std::vector<FrameInfo> frames_;
-    std::vector<Cond> conds_;
+    Vec<Node> scratch_;
+    Vec<SourceSpan> spans_;  // parallel to scratch_ in edit mode
+    Vec<FrameInfo> frames_;
+    Vec<Cond> conds_;
 };
 
 }  // namespace detail
 
-LoadSession::LoadSession() : st_(new State()) {}
+// Sessions belong to whoever made them: from the default allocator (D61).
+LoadSession::LoadSession() : st_(detail::create<State>(default_allocator())) {}
 LoadSession::LoadSession(const LoadSession& o)
-    : limits(o.limits), source_map(o.source_map), st_(new State(*o.st_)) {}
+    : limits(o.limits),
+      source_map(o.source_map),
+      allocator(o.allocator),
+      st_(detail::create<State>(default_allocator(), *o.st_)) {}
 LoadSession::LoadSession(LoadSession&& o) noexcept
-    : limits(o.limits), source_map(o.source_map), st_(o.st_) {
-    o.st_ = new State();  // the moved-from session stays usable, and empty
+    : limits(o.limits), source_map(o.source_map), allocator(o.allocator), st_(o.st_) {
+    o.st_ = detail::create<State>(
+        default_allocator());  // the moved-from session stays usable, and empty
 }
 LoadSession& LoadSession::operator=(const LoadSession& o) {
     if (this != &o) {
-        State* st = new State(*o.st_);
-        delete st_;
+        State* st = detail::create<State>(default_allocator(), *o.st_);
+        detail::destroy(default_allocator(), st_);
         st_ = st;
         limits = o.limits;
         source_map = o.source_map;
+        allocator = o.allocator;
     }
     return *this;
 }
@@ -649,10 +653,11 @@ LoadSession& LoadSession::operator=(LoadSession&& o) noexcept {
     std::swap(st_, o.st_);
     limits = o.limits;
     source_map = o.source_map;
+    allocator = o.allocator;
     return *this;
 }
 LoadSession::~LoadSession() {
-    delete st_;
+    detail::destroy(default_allocator(), st_);
 }
 
 void LoadSession::define(Symbol name) {
@@ -697,14 +702,18 @@ Expected<Ref<Array>> read_string(std::string_view text, std::string_view name,
         session.st_->nodes = 0;
         session.st_->includes = 0;
     }
-    const std::string file = detail::normalize_path(name);
+    const Str file = detail::normalize_path(name);
     session.st_->include_stack.push_back(file);
     struct Pop {
-        std::vector<std::string>& stack;
+        Vec<Str>& stack;
         ~Pop() { stack.pop_back(); }
     } pop{session.st_->include_stack};
 
-    detail::Parser parser(session, text, Symbol(file), 0);
+    // One arena per top-level read; a nested read (an include) has its own parser, not this.
+    // About 4 bytes of tree per byte of text, for the first block.
+    const detail::Arena::Handle arena(detail::Arena::create(
+        session.allocator ? *session.allocator : default_allocator(), text.size() * 4));
+    detail::Parser parser(session, *arena, text, Symbol(file), 0);
     Ref<Array> root;
     Error err;
     if (!parser.run(root, err)) return Unexpected(std::move(err));
@@ -717,8 +726,8 @@ Expected<Ref<Array>> read_string(std::string_view text, std::string_view name) {
 }
 
 Expected<Ref<Array>> read_file(std::string_view path, LoadSession& session) {
-    const std::string file = detail::normalize_path(path);
-    std::string text;
+    const Str file = detail::normalize_path(path);
+    Str text;
     if (!detail::read_with(session.st_->reader, file, text))
         return Unexpected(make_error(ErrorCode::Io, "cannot read '" + file + "'"));
     return read_string(text, file, session);

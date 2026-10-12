@@ -1,8 +1,9 @@
 #include <moira/array.hpp>
 
+#include "arena.hpp"
+
 #include <cstdlib>
 #include <new>
-#include <string>
 #include <type_traits>
 
 namespace moira {
@@ -22,8 +23,9 @@ uint16_t above(uint16_t h) noexcept {
 
 Array* Array::allocate(uint32_t size, Symbol file, int32_t line) {
     const size_t slots = size ? size : 1;
-    void* mem = ::operator new(sizeof(Array) + slots * sizeof(Node));
-    auto* a = new (mem) Array(size, file, line);
+    // A solo block, from the default allocator (D64).
+    void* mem = detail::solo_payload(detail::kSoloArray, sizeof(Array) + slots * sizeof(Node));
+    auto* a = new (mem) Array(detail::kSoloOffset, size, file, line);
     if (size == 0) new (a->data()) Node();  // Int 0 owns nothing, so it is never destroyed
     return a;
 }
@@ -55,14 +57,6 @@ Ref<Array> Array::make_copy(std::span<const Node> nodes, Symbol file, int32_t li
     return Ref<Array>::adopt(a);
 }
 
-void Array::destroy(const Array* a) noexcept {
-    auto* self = const_cast<Array*>(a);
-    Node* d = self->data();
-    for (uint32_t i = 0; i < self->size_; ++i) d[i].~Node();
-    self->~Array();
-    ::operator delete(self);
-}
-
 void Array::compute_height() noexcept {
     uint16_t h = 0;
     for (const Node& n : nodes()) {
@@ -77,7 +71,14 @@ void Array::set(size_t i, Node node) noexcept {
     const uint16_t h = above(child_height(node));
     if (h > height_) height_ = h;
     flags_ = static_cast<uint16_t>(flags_ & ~kSortedForLookup);
-    data()[i] = std::move(node);
+    detail::Owner& owner = detail::owner_of(this);
+    if (owner.kind != detail::kArena) {
+        data()[i] = std::move(node);
+        return;
+    }
+    // Arena nodes count nothing: the old node is dropped as it is, and the arena counts
+    // the new one's owner if it is another (D64).
+    detail::Arena::of(owner).adopt(data() + i, std::move(node), false);
 }
 
 bool structurally_equal(const Node& a, const Node& b) noexcept {
