@@ -23,7 +23,8 @@ jobs:
           - { name: plain refcounts,    os: ubuntu-24.04,  cc: gcc-13,   cxx: g++-13,     std: 20, flags: "-DMOIRA_ATOMIC_REFCOUNT=OFF" }
           - { name: shipping,           os: ubuntu-24.04,  cc: gcc-13,   cxx: g++-13,     std: 20, flags: "-DMOIRA_SHIPPING=ON" }
           - { name: eastl,              os: ubuntu-24.04,  cc: gcc-13,   cxx: g++-13,     std: 20, flags: "-DMOIRA_USE_EASTL=ON" }
-          - { name: msvc C++20,         os: windows-2022,  cc: cl,       cxx: cl,         std: 20, flags: "" }
+          - { name: harness,            os: ubuntu-24.04,  cc: gcc-13,   cxx: g++-13,     std: 20, flags: "-DMOIRA_BUILD_HARNESS=ON", packages: "libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgl-dev" }
+          - { name: msvc C++20,         os: windows-2022,  cc: cl,       cxx: cl,         std: 20, flags: "-DMOIRA_BUILD_HARNESS=ON" }
           - { name: msvc C++latest,     os: windows-2022,  cc: cl,       cxx: cl,         std: 23, flags: "" }
     env:
       UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1

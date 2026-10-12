@@ -25,8 +25,8 @@ every deviation from it and the results of each step, and the current milestone 
 ## How the work is done
 
 - **Commit each sub-step green.** Before every commit, run `tools/local_matrix.sh`:
-  debug, release, C++23, shipping, ASan+UBSan, Clang, data-only, plain refcounts, and
-  EASTL (which needs the network the first time). Shipping refuses live edits and
+  debug, release, C++23, shipping, ASan+UBSan, Clang, data-only, plain refcounts, EASTL,
+  and the ImGui harness (the last two need the network the first time). Shipping refuses live edits and
   reloads, so test those under `if constexpr (!kShipping)`.
 - **Containers in `src/`** are `Vec`, `Str`, `HashMap`, `Own`, and `Rc` from
   `src/common/containers.hpp`, never the STL's directly (D55, D61). An owner passes its

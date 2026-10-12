@@ -9,6 +9,7 @@ option(MOIRA_SHIPPING         "Freeze config and compile out dev instrumentation
 option(MOIRA_BUILD_TOOLS      "Build command-line tools (moira_parse_corpus, moira_bake)" ${PROJECT_IS_TOP_LEVEL})
 option(MOIRA_BUILD_BENCH      "Build benchmarks" OFF)
 option(MOIRA_BUILD_EXAMPLES   "Build the examples" ${PROJECT_IS_TOP_LEVEL})
+option(MOIRA_BUILD_HARNESS    "Build examples/harness-imgui (fetches Dear ImGui and GLFW)" OFF)
 option(MOIRA_BUILD_FUZZERS    "Build libFuzzer targets (Clang only)" OFF)
 option(MOIRA_USE_EASTL        "Internal containers from EASTL instead of the STL (D55, D61)" OFF)
 set(MOIRA_SANITIZE "" CACHE STRING "Sanitizers to enable, e.g. address,undefined")

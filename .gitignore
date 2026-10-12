@@ -7,3 +7,4 @@ compile_commands.json
 .vs/
 .vscode/
 /build-matrix/
+/examples/harness-imgui/data/local/

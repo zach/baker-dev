@@ -4,7 +4,8 @@
 # Build directories go under $MOIRA_MATRIX_DIR (default: build-matrix/, ignored by git).
 #
 # Clang's ASan runtime is often not installed; the asan configuration uses GCC.
-# The eastl configuration needs network access the first time, to fetch EASTL.
+# The eastl and harness configurations need network access the first time, to fetch EASTL,
+# Dear ImGui, and GLFW; the harness also needs the X11 and OpenGL development headers.
 set -u
 cd "$(dirname "$0")/.."
 root=${MOIRA_MATRIX_DIR:-build-matrix}
@@ -18,6 +19,7 @@ declare -A cfg=(
   [data]="-DMOIRA_BUILD_SCRIPT=OFF"
   [plain]="-DMOIRA_ATOMIC_REFCOUNT=OFF"
   [eastl]="-DMOIRA_USE_EASTL=ON"  # fetches EASTL at configure time
+  [harness]="-DMOIRA_BUILD_HARNESS=ON"  # fetches Dear ImGui and GLFW; needs X11 and GL headers
 )
 status=0
 for n in "${!cfg[@]}"; do

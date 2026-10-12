@@ -103,3 +103,12 @@ if(MOIRA_BUILD_SCRIPT)
       --test)
   endif()
 endif()
+
+# --- harness-imgui: the reference tuning harness (D87 Q1). Off by default: it fetches Dear
+# ImGui and GLFW, and its window needs OpenGL.
+if(MOIRA_BUILD_HARNESS)
+  if(NOT MOIRA_BUILD_SCRIPT OR NOT MOIRA_BUILD_SHAPE)
+    message(FATAL_ERROR "MOIRA_BUILD_HARNESS needs MOIRA_BUILD_SCRIPT and MOIRA_BUILD_SHAPE")
+  endif()
+  add_subdirectory(harness-imgui)
+endif()

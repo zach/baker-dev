@@ -42,7 +42,7 @@ void Console::poll() {
 bool Console::serve(Client& c) {
     char buffer[512];
     for (;;) {
-        const auto n = recv(c.socket, buffer, sizeof buffer, 0);
+        const auto n = recv(c.socket, buffer, static_cast<int>(sizeof buffer), 0);
         if (n == 0) return false;  // closed
         if (n < 0) {
             if (!would_block()) return false;
