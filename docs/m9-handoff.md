@@ -15,9 +15,9 @@ owner answered in `docs/decisions.md` D87 (all as recommended). M9's spec row is
 - M0 through M8b are done. The last results entries are D79 (M8, the binary cache) and
   D86 (M8b: `#require`, packs and levels, the one-way rule, `moira::shape`). Decisions go
   up to D87; the next entry is D88.
-- The work is on branch `claude/zealous-goodall-rtindg`, CI green through `f68e4c4`.
-  `main` is at `a638b2b` (the end of M8) and does not have M8b yet; merge only when the
-  owner asks.
+- `main` holds everything through M8b, this plan, and this handoff (fast-forwarded from
+  `claude/zealous-goodall-rtindg`; CI green on the last code change, `f68e4c4`). Develop
+  M9 on the branch your session is given, and merge to `main` only when the owner asks.
 - The core is 10,103 lines of the 15,000 soft budget (D69), and `moira::shape` 400 of its
   600, outside the core (`tools/count_lines.py`).
 
