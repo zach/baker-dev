@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <fstream>
+#include <map>
 #include <sstream>
 #include <string>
 #include "ok.hpp"
@@ -133,4 +134,53 @@ TEST_CASE("docs/script-reference.md matches the code") {
     CHECK_MESSAGE(on_disk == generated,
                   "docs/script-reference.md is out of date: run the script tests with "
                   "MOIRA_UPDATE_REFERENCE=1 to regenerate it");
+}
+
+TEST_CASE("check applies the one-way rule to calls across packs (D80)") {
+    // An in-memory file system: three packs and a loose file.
+    std::map<std::string, std::string> files{
+        {"task.dta",
+         "(pack boss_task (level task))\n{func boss.restart_phase () 1}\n"
+         "{func boss.use_engine () {engine.shake}}"},
+        {"engine.dta", "(pack engine_core (level engine))\n{func engine.shake () 0}"},
+        {"game.dta",
+         "(pack game_rules (level game))\n#require engine.dta\n#require task.dta\n"
+         "{func game.tick () {boss.restart_phase}}\n{boss.restart_phase}"},
+        {"loose.dta", "#require task.dta\n{boss.restart_phase}"},
+    };
+    LoadSession session;
+    session.set_reader([&](std::string_view path, TextSink out) {
+        auto it = files.find(std::string(path));
+        if (it == files.end()) return false;
+        out(it->second);
+        return true;
+    });
+    session.set_pack_levels({"engine", "game", "task"});
+    Context ctx;
+    auto game = test::ok(read_file("game.dta", session));
+    const CheckReport report = check(*game, ctx, &session);
+    // game_rules calls boss.restart_phase twice (lines 4 and 5): warned once, at the first.
+    // boss_task calling engine.shake is softer calling harder: fine.
+    REQUIRE(report.warnings.size() == 1);
+    CHECK(report.warnings[0].file() == Symbol("game.dta"));
+    CHECK(report.warnings[0].line() == 4);
+    CHECK(to_string(report.warnings[0])
+              .find("pack 'game_rules' (level game) calls 'boss.restart_phase' from the softer "
+                    "pack 'boss_task' (level task)") != std::string::npos);
+    CHECK(report.errors.empty());
+    CHECK(to_string(report).find("warning: moira: pack 'game_rules'") != std::string::npos);
+
+    // Without the session, or from a file that declares no pack, nothing is warned.
+    CHECK(check(*game, ctx).warnings.empty());
+    auto loose = test::ok(read_file("loose.dta", session));
+    CHECK(check(*loose, ctx, &session).warnings.empty());
+
+    // A script function the Context has registered is attributed by its file too.
+    auto task = test::ok(read_file("task.dta", session));
+    for (const Node& n : *task) (void)test::ok(ctx.eval(n));
+    files["call.dta"] = "(pack more_rules (level game))\n{boss.restart_phase}";
+    auto call = test::ok(read_file("call.dta", session));
+    const CheckReport registered = check(*call, ctx, &session);
+    REQUIRE(registered.warnings.size() == 1);
+    CHECK(registered.warnings[0].file() == Symbol("call.dta"));
 }

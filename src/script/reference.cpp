@@ -23,6 +23,7 @@ struct Checker {
     struct Defined {
         uint32_t arity;
         bool stub;
+        Symbol file;
     };
 
     // What check() accumulates, as growable lists; it becomes the CheckReport at the end.
@@ -35,14 +36,17 @@ struct Checker {
     struct Build {
         Vec<Error> errors;
         Vec<DemandBuild> demand;
+        Vec<Error> warnings;
     };
 
     Context::Impl& impl;
     Build& report;
+    const LoadSession* packs;
     HashMap<Symbol, Defined> defined;
     HashMap<Symbol, Vec<Symbol>> classes;  // {class} in the tree: handlers
     HashMap<Symbol, Symbol> objects;       // {new Class name} in the tree
     HashMap<Str, size_t> demand_index;
+    Vec<std::pair<Symbol, Symbol>> warned;  // (pack, function)
 
     static Str key(Symbol name, Symbol on) { return Str(on.str()) + "." + Str(name.str()); }
 
@@ -83,7 +87,7 @@ struct Checker {
             if (!m || m->size() < 2) break;
             if ((*m)[0].is("status")) stub = (*m)[1].is("stub");
         }
-        defined[*name] = {params->size(), stub};
+        defined[*name] = {params->size(), stub, a.file()};
     }
 
     // Whether `o` accepts every literal argument of `command`, from index `first`.
@@ -155,11 +159,33 @@ struct Checker {
         demand(*method, false, command, cls);
     }
 
+    // The one-way rule (D80): softer may call harder, never the reverse.
+    void one_way(const Array& command, Symbol name, Symbol defined_in) {
+        const Pack* mine = packs->pack_of(command.file());
+        const Pack* theirs = mine ? packs->pack_of(defined_in) : nullptr;
+        if (!theirs || theirs->rank <= mine->rank) return;
+        const std::pair<Symbol, Symbol> key{mine->name, name};
+        if (std::find(warned.begin(), warned.end(), key) != warned.end()) return;
+        warned.push_back(key);
+        report.warnings.push_back(
+            make_error(ErrorCode::Refused,
+                       "pack " + quoted(mine->name) + " (level " + Str(mine->level.str()) +
+                           ") calls " + quoted(name) + " from the softer pack " +
+                           quoted(theirs->name) + " (level " + Str(theirs->level.str()) + ")",
+                       command.file(), command.line()));
+    }
+
     void call(const Array& command) {
         const auto name = command[0].try_sym();
         if (!name) return;  // an object computed at run time
         const uint32_t n = command.size() - 1;
         const Function* f = impl.find(*name);
+        if (packs) {
+            if (auto it = defined.find(*name); it != defined.end())
+                one_way(command, *name, it->second.file);
+            else if (f && f->tier == Tier::Script)
+                one_way(command, *name, f->file);
+        }
         if (f && !f->overloads.empty()) {
             if (f->status == Status::Stub) demand(*name, true, command);
             overloads(*name, f->overloads, command, 1);
@@ -194,13 +220,14 @@ struct Checker {
 
 }  // namespace
 
-void check(const Array& tree, const Context& ctx, CheckReport& report) {
+void check(const Array& tree, const Context& ctx, CheckReport& report, const LoadSession* packs) {
     // The report accumulates: start from what it holds.
     Checker::Build b;
     b.errors.assign(report.errors.begin(), report.errors.end());
+    b.warnings.assign(report.warnings.begin(), report.warnings.end());
     for (const CheckReport::Demand& d : report.demand)
         b.demand.push_back({d.name, d.stub, {d.sites.begin(), d.sites.end()}, d.on});
-    Checker c{ctx.impl(), b, {}, {}, {}, {}};
+    Checker c{ctx.impl(), b, packs, {}, {}, {}, {}, {}};
     for (size_t i = 0; i < b.demand.size(); ++i)
         c.demand_index[Checker::key(b.demand[i].name, b.demand[i].on)] = i;
     c.collect(tree, false);
@@ -209,18 +236,20 @@ void check(const Array& tree, const Context& ctx, CheckReport& report) {
     for (const Checker::DemandBuild& d : b.demand)
         demand.push_back({d.name, d.stub, List<CheckReport::Site>(d.sites), d.on});
     report.errors = List<Error>(b.errors);
+    report.warnings = List<Error>(b.warnings);
     report.demand = List<CheckReport::Demand>(demand);
 }
 
-CheckReport check(const Array& tree, const Context& ctx) {
+CheckReport check(const Array& tree, const Context& ctx, const LoadSession* packs) {
     CheckReport report;
-    check(tree, ctx, report);
+    check(tree, ctx, report, packs);
     return report;
 }
 
 void write(const CheckReport& report, TextSink text) {
     Str out;
     for (const Error& e : report.errors) out += Str(moira::to_string(e)) + "\n";
+    for (const Error& w : report.warnings) out += "warning: " + Str(moira::to_string(w)) + "\n";
     for (const CheckReport::Demand& d : report.demand) {
         out += "demand: " + quoted(d.name);
         if (!d.on.empty()) out += " on " + Str(d.on.str());

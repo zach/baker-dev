@@ -32,6 +32,7 @@
 #include <moira/clock.hpp>
 #include <moira/list.hpp>
 #include <moira/node.hpp>
+#include <moira/parse.hpp>
 #include <moira/text.hpp>
 
 #include <atomic>
@@ -598,12 +599,13 @@ struct CheckReport {
         Symbol on;  // for a method: the class of the object it was sent to
     };
     List<Error> errors;
-    List<Demand> demand;  // in order of first appearance
+    List<Demand> demand;   // in order of first appearance
+    List<Error> warnings;  // the one-way rule (D80): never an error
 
     [[nodiscard]] bool ok() const noexcept { return errors.empty(); }
 };
 
-// Writes the report: errors first, then the demand report, one line each.
+// Writes the report: errors first, then warnings, then the demand report, one line each.
 // <moira/std_interop.hpp> has to_string(report).
 void write(const CheckReport& report, TextSink out);
 
@@ -788,8 +790,14 @@ void script_backtrace(TextSink out);
 // heads, arguments that are commands or variables, and unevaluated or rest parameters are
 // not checked: their types are unknown until run. Accumulates into `report`, so one
 // report can cover many files.
-void check(const Array& tree, const Context& ctx, CheckReport& report);
-[[nodiscard]] CheckReport check(const Array& tree, const Context& ctx);
+//
+// Given `packs`, the session that loaded the tree, it also applies the one-way rule to
+// calls (spec §5, D80): a call, in a pack's file, to a script function defined in a softer
+// pack's file is a warning, once per pack and function.
+void check(const Array& tree, const Context& ctx, CheckReport& report,
+           const LoadSession* packs = nullptr);
+[[nodiscard]] CheckReport check(const Array& tree, const Context& ctx,
+                                const LoadSession* packs = nullptr);
 
 // Writes the script reference (spec §5): every function with its overloads, tier, status,
 // and documentation, and every documented global, as Markdown. <moira/std_interop.hpp>

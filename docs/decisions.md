@@ -2303,3 +2303,20 @@ structurally equal trees.*
   cache replay and staleness, and Config's forwarding.
 - `bench_parse`: 128–131 MB/s (121–126 before; noise). The core is 10,064 lines, about 70
   more than the plan's estimate for this part.
+
+## D83. M8b, step 3: the one-way rule for calls
+
+*Results of `docs/m8b-plan.md` §2, its last bullet (D80, Q4).*
+
+- `check(tree, ctx, report, &session)` takes, optionally, the session that loaded the
+  tree. With it, a call in a pack's file to a script function defined in a softer pack's
+  file is a warning in the new `CheckReport::warnings`, once per pack and function, at the
+  first call. The callee's file is its `{func}` in the checked tree, else the file the
+  Context recorded when the function was defined. Native functions belong to no pack.
+- `write(report)` prints warnings after errors, prefixed `warning: `.
+- `script.hpp` includes `parse.hpp` for `LoadSession`.
+- **Tests:** the plan's fourth criterion (a game-level pack calling a task-level function
+  is warned, once, located; the task pack calling the engine pack is not), and the same
+  for a function the Context already registered; nothing without the session or from a
+  file that declares no pack.
+- No hot path changes: `check` is a tool. The core is 10,095 lines.
