@@ -1862,6 +1862,10 @@ done, and `docs/m7-plan.md` is deleted.*
   failure. MSVC, libc++, TSan, and the fuzzers have not run on M7. The local matrix
   (debug, release, C++23, shipping, ASan+UBSan, Clang, data-only, plain refcounts, EASTL)
   passed before every commit.
+  - *Update, 2026-10-12:* the cause was the repository being private. Once it was made
+    public, CI ran again. MSVC reported one warning, an unused pack parameter in
+    `task_home` (C4100), fatal under `-WX`; `[[maybe_unused]]` fixed it (`6064270`). All
+    16 jobs then passed.
 - **Size.** The core is 9,126 of 10,000 lines, up 687 in M7 against the plan's ~530. The
   script side and its tests of the sync point took the difference. That leaves 874 lines
   for M8 (~400) and M10's core instrumentation; M8's plan must say what M10 gives up if it
