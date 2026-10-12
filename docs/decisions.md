@@ -2320,3 +2320,71 @@ structurally equal trees.*
   for a function the Context already registered; nothing without the session or from a
   file that declares no pack.
 - No hot path changes: `check` is a tool. The core is 10,095 lines.
+
+## D84. M8b, step 4: shapes are declared in `(shapes ...)`
+
+*Answered by the project owner 2026-10-12, as recommended; with the design note for
+`moira::shape` (`docs/m8b-plan.md` §3, D80).*
+
+- **The deviation.** Spec §6 writes `(shape boss_phase (field ...) ...)` at the top level.
+  Config merges layers by tag, so every such form would be tagged `shape`, and a second
+  layer's `(shape other ...)` would merge into the first's, its name overwriting
+  `boss_phase` as a value. Shapes are declared instead in one container, each tagged by
+  its own name:
+
+  ```
+  (shapes
+    (boss_phase (at bosses * phases)
+      (enter_at float (range 0 1) (kind percent) (desc "HP fraction that starts it"))
+      (attacks  (list symbol))
+      (cadence  float (range 0.2 5) (optional))))
+  ```
+
+  Layers merge it like any data: a later layer adds a shape, adds a field, or retunes one
+  field's range.
+- **The library.** `moira_shape` (`include/moira/shape.hpp`, `src/shape/`), namespace
+  `moira::shape`, depends only on moira::data, built unless `MOIRA_BUILD_SHAPE=OFF`, and
+  counted apart from the core against spec §6's 600 lines.
+  - `Set`: the shapes read from trees' `(shapes ...)`; a later declaration of a field
+    replaces an earlier one. Malformed declarations are located errors.
+  - A field: a name, a type (`int`, `float`, `bool`, `symbol`, `string`, `any`, `(list T)`,
+    or a shape's name), `range`, `step`, `kind`, `desc`, `note`, and `optional`.
+  - **What a shape governs (D80 Q1):** every array tagged with its name; `(at ...)` narrows
+    it to those whose ancestors' tags, from the root, are the given ones (`*` matches any).
+  - `check(tree, set, report)`: a field of the wrong type or out of range, or a required
+    field missing, is an error; a field the shape does not declare is a warning (spec §6).
+    Commands and variables are not checked: their values are unknown until run. Each
+    finding names the file, line, and path.
+  - Enumeration: `set.shapes()`, each shape with its fields and their metadata.
+- **"At load" (D80 Q2).** Config gains `set_validator(...)`, called after every merge
+  with the merged root and the warning handler; `moira::shape::validator()` returns one
+  that reads the root's `(shapes ...)` and checks the root against them.
+
+## D85. M8b, step 4: `moira::shape`
+
+*Results of `docs/m8b-plan.md` §3 (D80, D84).*
+
+- **The library** is `moira_shape` (`include/moira/shape.hpp`, `src/shape/shape.cpp`):
+  400 lines of spec §6's 600, outside the core, which `tools/count_lines.py` now reports
+  separately. It links moira::data only; the data-only build builds it too.
+- **What D84 described, built**, with two settlements:
+  - A field declared again (by `Set::add` of another tree) keeps the metadata the new
+    declaration does not restate, as Config's merge of two layers would.
+  - `bool` is what `Convert<bool>` reads: numbers, not the symbol `TRUE` (DTA defines
+    `TRUE` as a macro for 1).
+- **Matching by tag (D80 Q1) does not reach keyed children.** In `(bosses (dragon ...)
+  (golem ...))` the children are tagged by their names, so no shape governs them; the
+  data must write `(boss (name dragon) ...)`. Recorded as a limitation, for the owner to
+  revisit if real data asks.
+- **Config.** `cfg.set_validator(moira::shape::validator())` checks every merge: each
+  push, pop, toggle, reload, and restore reports errors and warnings, located, through the
+  warning handler. The load itself never fails on a shape.
+- **Tests** (`tests/shape/`): corpus-style boss data and a patch layer loaded through
+  Config. An out-of-range value and a missing field are reported with file, line, and
+  path; an extra field warns. The patch retunes a range and declares the field, and one
+  error remains (the plan's first two criteria). Also types, lists, nested and listed
+  shapes, commands and `any` passing, malformed declarations, unknown shapes, enumeration
+  with metadata, and copies.
+- **Cost**, measured in a small driver: checking 50,000 instances (3.2 MB of text)
+  takes 6.5 ms. Shapes cost nothing unless a validator is set or `check` is called; the
+  Config change is one null test per merge.

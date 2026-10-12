@@ -53,6 +53,14 @@ if(MOIRA_BUILD_SCRIPT)
   add_test(NAME moira_script_tests COMMAND moira_script_tests)
 endif()
 
+if(MOIRA_BUILD_SHAPE)
+  add_executable(moira_shape_tests shape/test_shape.cpp)
+  target_link_libraries(moira_shape_tests PRIVATE moira::shape moira_doctest_main)
+  target_include_directories(moira_shape_tests PRIVATE support)
+  target_compile_definitions(moira_shape_tests PRIVATE MOIRA_SHAPE_DIR="${PROJECT_SOURCE_DIR}/tests/shape")
+  add_test(NAME moira_shape_tests COMMAND moira_shape_tests)
+endif()
+
 if(MOIRA_BUILD_SCRIPT)
   # D61: its own binary, because main installs the default allocator before anything runs.
   add_executable(moira_alloc_tests alloc/main.cpp alloc/test_allocators.cpp support/alloc_counter.cpp)

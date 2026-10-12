@@ -12,6 +12,7 @@
 #include <moira/parse.hpp>
 #include <moira/path.hpp>
 #include <moira/script.hpp>
+#include <moira/shape.hpp>
 #include <moira/source_map.hpp>
 #include <moira/symbol.hpp>
 #include <moira/task.hpp>

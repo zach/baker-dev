@@ -298,6 +298,7 @@ struct Config::Impl {
     LoadSession base;
     Writer writer = write_disk_file;
     Callback<void(const Error&)> warn;
+    Config::Validator validator;
     Vec<LayerState> layers{alloc};
     Vec<ScratchEntry> scratch{alloc};
     bool scratch_enabled = true;
@@ -584,6 +585,7 @@ struct Config::Impl {
         const Ref<Array> before = std::move(c.root_);
         c.root_ = merged();
         c.scratch_dirty_ = false;
+        if (validator) validator(*c.root_, warn);
         lap(rec.merge_ns, t);
         ++c.epoch_;
         Vec<TweakBase*> moved;
@@ -915,6 +917,10 @@ void Config::set_writer(Writer writer) {
 
 void Config::set_warning_handler(Callback<void(const Error&)> handler) {
     impl_->warn = std::move(handler);
+}
+
+void Config::set_validator(Validator validator) {
+    impl_->validator = std::move(validator);
 }
 
 void Config::bind(TweakBase& t) {

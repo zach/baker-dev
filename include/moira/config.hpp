@@ -259,6 +259,11 @@ public:
     // Called with a located error for each tweak whose value does not convert (the tweak
     // keeps its default) and each bad tweak path. Default: ignored.
     void set_warning_handler(Callback<void(const Error&)> handler);
+    // Called after every merge (a layer pushed, popped, removed, or toggled; a reload; a
+    // restore) with the merged root and the warning handler, to report on the data:
+    // moira::shape::validator() checks shapes this way (D84). Null: none.
+    using Validator = Callback<void(const Array& root, const Callback<void(const Error&)>& warn)>;
+    void set_validator(Validator validator);
     void freeze() noexcept { frozen_ = true; }
     [[nodiscard]] bool frozen() const noexcept { return frozen_; }
 

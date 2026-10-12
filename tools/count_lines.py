@@ -64,11 +64,18 @@ def is_script_header(p):
     return p.name.startswith(SCRIPT_HEADERS)
 
 
+def is_shape_header(p):
+    return p.name.startswith("shape")
+
+
 data = count(sources("src/data", lambda p: True) +
-             sources("include/moira", lambda p: not is_script_header(p)))
+             sources("include/moira",
+                     lambda p: not is_script_header(p) and not is_shape_header(p)))
+shape = count(sources("src/shape", lambda p: True) + sources("include/moira", is_shape_header))
 script = count(sources("src/script", lambda p: True) +
                sources("include/moira", is_script_header))
 print(f"moira::data   {data}")
 print(f"moira::script {script}")
 print(f"core total    {data + script} / {BUDGET} (soft budget)")
+print(f"moira::shape  {shape} / 600 (spec §6, outside the core)")
 sys.exit(0)

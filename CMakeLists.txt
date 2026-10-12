@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(moira VERSION 0.0.1 LANGUAGES CXX)
 
 option(MOIRA_BUILD_SCRIPT     "Build moira::script (evaluation, objects, tasks)" ON)
+option(MOIRA_BUILD_SHAPE      "Build moira::shape (data-declared shapes, D84)" ON)
 option(MOIRA_BUILD_TESTS      "Build the test suite" ${PROJECT_IS_TOP_LEVEL})
 option(MOIRA_ATOMIC_REFCOUNT  "Atomic refcounts (OFF: plain counters, single-threaded use only)" ON)
 option(MOIRA_SHIPPING         "Freeze config and compile out dev instrumentation" OFF)
@@ -146,12 +147,24 @@ if(MOIRA_BUILD_SCRIPT)
   target_link_libraries(moira_script PUBLIC moira::data)
 endif()
 
+# --- moira::shape: shapes declared in data, checked at load (spec §6, D84). Depends only
+#     on moira::data.
+if(MOIRA_BUILD_SHAPE)
+  add_library(moira_shape src/shape/shape.cpp)
+  add_library(moira::shape ALIAS moira_shape)
+  moira_configure_library(moira_shape)
+  target_link_libraries(moira_shape PUBLIC moira::data)
+endif()
+
 # --- moira::moira: umbrella.
 add_library(moira INTERFACE)
 add_library(moira::moira ALIAS moira)
 target_link_libraries(moira INTERFACE moira::data)
 if(MOIRA_BUILD_SCRIPT)
   target_link_libraries(moira INTERFACE moira::script)
+endif()
+if(MOIRA_BUILD_SHAPE)
+  target_link_libraries(moira INTERFACE moira::shape)
 endif()
 
 if(MOIRA_BUILD_TESTS OR MOIRA_BUILD_FUZZERS)
