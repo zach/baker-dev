@@ -7,7 +7,6 @@
 #include <moira/node.hpp>
 #include <moira/ref.hpp>
 
-
 #include <cstddef>
 #include <cstdint>
 #include <span>
