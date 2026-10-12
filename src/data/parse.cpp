@@ -4,6 +4,7 @@
 #include "common/containers.hpp"
 
 #include "merge.hpp"
+#include "session.hpp"
 #include "text.hpp"
 
 #include <cstdio>
@@ -262,6 +263,11 @@ struct LoadSession::State {
     bool disk = true;  // `reader` is the default
     Vec<Str> include_dirs;
     Vec<Node> autorun;
+    // What the last top-level read did, if recorded (record_for_cache).
+    bool recorded = false;
+    Vec<detail::CacheFile> files;
+    HashMap<Symbol, Ref<Array>> defines_before;
+    size_t autorun_from = 0;
     // Per top-level read.
     Vec<Str> include_stack;
     uint64_t nodes = 0;
@@ -589,7 +595,11 @@ private:
         Str text;
         const Str* found = nullptr;
         for (const Str& c : candidates) {
-            if (read_with(s_.st_->reader, c, text)) {
+            const bool read = read_with(s_.st_->reader, c, text);
+            if (s_.st_->recorded)
+                s_.st_->files.push_back({c, read ? static_cast<int64_t>(text.size()) : -1,
+                                         read ? content_hash(text) : 0});
+            if (read) {
                 found = &c;
                 break;
             }
@@ -632,10 +642,17 @@ LoadSession::LoadSession() : st_(detail::create<State>(default_allocator())) {}
 LoadSession::LoadSession(const LoadSession& o)
     : limits(o.limits),
       source_map(o.source_map),
+      record_for_cache(o.record_for_cache),
+      cipher(o.cipher),
       allocator(o.allocator),
       st_(detail::create<State>(default_allocator(), *o.st_)) {}
 LoadSession::LoadSession(LoadSession&& o) noexcept
-    : limits(o.limits), source_map(o.source_map), allocator(o.allocator), st_(o.st_) {
+    : limits(o.limits),
+      source_map(o.source_map),
+      record_for_cache(o.record_for_cache),
+      cipher(o.cipher),
+      allocator(o.allocator),
+      st_(o.st_) {
     o.st_ = detail::create<State>(
         default_allocator());  // the moved-from session stays usable, and empty
 }
@@ -646,6 +663,8 @@ LoadSession& LoadSession::operator=(const LoadSession& o) {
         st_ = st;
         limits = o.limits;
         source_map = o.source_map;
+        record_for_cache = o.record_for_cache;
+        cipher = o.cipher;
         allocator = o.allocator;
     }
     return *this;
@@ -654,6 +673,8 @@ LoadSession& LoadSession::operator=(LoadSession&& o) noexcept {
     std::swap(st_, o.st_);
     limits = o.limits;
     source_map = o.source_map;
+    record_for_cache = o.record_for_cache;
+    cipher = o.cipher;
     allocator = o.allocator;
     return *this;
 }
@@ -697,16 +718,45 @@ void LoadSession::clear_autorun() {
     st_->autorun.clear();
 }
 
-bool detail::reads_disk(const LoadSession& session) noexcept {
-    return session.st_->disk;
+namespace detail {
+bool SessionAccess::reads_disk(const LoadSession& s) noexcept {
+    return s.st_->disk;
 }
+bool SessionAccess::recorded(const LoadSession& s) noexcept {
+    return s.st_->recorded;
+}
+std::span<const CacheFile> SessionAccess::files(const LoadSession& s) noexcept {
+    return {s.st_->files.data(), s.st_->files.size()};
+}
+const SessionAccess::Defines& SessionAccess::defines(const LoadSession& s) noexcept {
+    return s.st_->defines;
+}
+const SessionAccess::Defines& SessionAccess::defines_before(const LoadSession& s) noexcept {
+    return s.st_->defines_before;
+}
+std::span<const Node> SessionAccess::new_autorun(const LoadSession& s) noexcept {
+    const Vec<Node>& a = s.st_->autorun;
+    return {a.data() + std::min(s.st_->autorun_from, a.size()), a.data() + a.size()};
+}
+void SessionAccess::add_autorun(LoadSession& s, Node command) {
+    s.st_->autorun.push_back(std::move(command));
+}
+}  // namespace detail
 
 Expected<Ref<Array>> read_string(std::string_view text, std::string_view name,
                                  LoadSession& session) {
     const bool top = session.st_->include_stack.empty();
     if (top) {
-        session.st_->nodes = 0;
-        session.st_->includes = 0;
+        LoadSession::State& st = *session.st_;
+        st.nodes = 0;
+        st.includes = 0;
+        st.recorded = session.record_for_cache;
+        st.files.clear();
+        st.defines_before.clear();
+        if (st.recorded) {
+            st.defines_before = st.defines;
+            st.autorun_from = st.autorun.size();
+        }
     }
     const Str file = detail::normalize_path(name);
     session.st_->include_stack.push_back(file);
@@ -736,7 +786,11 @@ Expected<Ref<Array>> read_file(std::string_view path, LoadSession& session) {
     Str text;
     if (!detail::read_with(session.st_->reader, file, text))
         return Unexpected(make_error(ErrorCode::Io, "cannot read '" + file + "'"));
-    return read_string(text, file, session);
+    auto root = read_string(text, file, session);
+    if (session.st_->recorded && session.st_->include_stack.empty())
+        session.st_->files.push_back(
+            {file, static_cast<int64_t>(text.size()), detail::content_hash(text)});
+    return root;
 }
 
 Expected<Ref<Array>> read_file(std::string_view path) {

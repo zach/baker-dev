@@ -116,10 +116,10 @@ TEST_CASE("a cache-loaded tree is one block") {
     LoadSession session;
     auto root = ok(read_string(text, "big.dta", session));
     const std::string bytes = bytes_of(*root);
-    (void)ok(read_cache_bytes(bytes, "warm.datb"));  // interns the symbols
+    (void)ok(read_cache_bytes(bytes, "warm.datb", session));  // interns the symbols
     if (test::counting_allocations()) {
         test::AllocationScope scope;
-        auto back = ok(read_cache_bytes(bytes, "big.datb"));
+        auto back = ok(read_cache_bytes(bytes, "big.datb", session));
         CHECK(scope.count() == 1);
         test::AllocationScope teardown;
         back.reset();
@@ -211,4 +211,115 @@ TEST_CASE("caches on disk, and through a session's reader") {
     auto unwritable = write_cache(*root, dir.path("no/such/dir/x.datb"));
     REQUIRE_FALSE(unwritable);
     CHECK(unwritable.error().code() == ErrorCode::Io);
+}
+
+TEST_CASE("read_cached uses a fresh cache and rewrites a stale one") {
+    test::TempDir dir;
+    const std::string main =
+        dir.write("main.dta", "#include inc.dta\n#include_opt local.dta\n(a 1)");
+    dir.write("inc.dta", "(b 2)");
+    const std::string cache = dir.path("main.datb");
+
+    // Baked, as moira_bake does: read_cached writes no cache in shipping builds.
+    LoadSession first;
+    first.record_for_cache = true;
+    auto root = ok(read_file(main, first));
+    ok(write_cache(*root, cache, &first));
+    CHECK(to_string(*root) == "((b 2) (a 1))");
+    LoadSession reuse;
+    CHECK(structurally_equal(*root, *ok(read_cached(main, cache, reuse))));
+    LoadSession again;
+    CHECK(cache_fresh(cache, again));
+
+    if constexpr (!kShipping) {
+        SUBCASE("an included file changes") {
+            dir.write("inc.dta", "(b 3)");
+            CHECK_FALSE(cache_fresh(cache, again));
+            CHECK(to_string(*ok(read_cached(main, cache, again))) == "((b 3) (a 1))");
+            LoadSession third;
+            CHECK(cache_fresh(cache, third));
+        }
+        SUBCASE("an optional file that was missing appears") {
+            dir.write("local.dta", "(c 4)");
+            CHECK_FALSE(cache_fresh(cache, again));
+            CHECK(to_string(*ok(read_cached(main, cache, again))) == "((b 2) (c 4) (a 1))");
+        }
+        SUBCASE("the session's defines differ") {
+            LoadSession debug;
+            debug.define("DEBUG");
+            CHECK_FALSE(cache_fresh(cache, debug));
+        }
+    } else {
+        SUBCASE("shipping trusts the cache") {
+            dir.write("inc.dta", "(b 3)");
+            CHECK(to_string(*ok(read_cached(main, cache, again))) == "((b 2) (a 1))");
+        }
+    }
+
+    // A cache written without a recorded load cannot say whether it is fresh.
+    ok(write_cache(*root, dir.path("bare.datb")));
+    CHECK_FALSE(cache_fresh(dir.path("bare.datb"), again));
+}
+
+TEST_CASE("a cache load leaves the session as the text load did") {
+    test::TempDir dir;
+    const std::string main = dir.write("main.dta", R"(
+        #define FLAG
+        #define BODY (x 1)
+        #undef GONE
+        #ifdef PRE (pre yes) #endif
+        #autorun {print "hello"}
+        (a BODY)
+    )");
+    const std::string cache = dir.path("main.datb");
+    auto fresh_session = [] {
+        LoadSession s;
+        s.define("PRE");
+        s.define("GONE");
+        return s;
+    };
+
+    LoadSession text = fresh_session();
+    text.record_for_cache = true;
+    auto from_text = ok(read_file(main, text));
+    ok(write_cache(*from_text, cache, &text));
+
+    LoadSession cached = fresh_session();
+    CHECK(cache_fresh(cache, cached));
+    auto from_cache = ok(read_cache(cache, cached));
+    CHECK(structurally_equal(*from_text, *from_cache));
+    for (const char* name : {"FLAG", "BODY", "GONE", "PRE"}) {
+        CAPTURE(name);
+        CHECK(cached.is_defined(name) == text.is_defined(name));
+    }
+    REQUIRE(cached.macro("BODY"));
+    CHECK(structurally_equal(*cached.macro("BODY"), *text.macro("BODY")));
+    REQUIRE(cached.autorun().size() == 1);
+    CHECK(to_string(cached.autorun()[0]) == "{print \"hello\"}");
+    // The replayed macro keeps the cache's tree alive after the tree is dropped.
+    from_cache.reset();
+    CHECK(to_string(*cached.macro("BODY")) == "(x 1)");
+}
+
+TEST_CASE("a Cipher enciphers what it writes and deciphers what it reads") {
+    // Not a cipher anyone should ship: the hook is what matters.
+    Cipher x{[](void*, std::span<std::byte> b) {
+                 for (std::byte& c : b) c ^= std::byte{0x5A};
+             },
+             [](void*, std::span<std::byte> b) {
+                 for (std::byte& c : b) c ^= std::byte{0x5A};
+             },
+             nullptr};
+    auto root = ok(read_string("(secret \"cheat codes\")", "secret.dta"));
+    LoadSession with;
+    with.cipher = &x;
+    std::string bytes;
+    ok(write_cache(*root, string_out(bytes), &with));
+    CHECK(bytes.find("cheat codes") == std::string::npos);
+    CHECK(structurally_equal(*root, *ok(read_cache_bytes(bytes, "secret.datb", with))));
+
+    auto without = read_cache_bytes(bytes, "secret.datb");
+    REQUIRE_FALSE(without);
+    CHECK(without.error().code() == ErrorCode::Refused);
+    CHECK(to_string(without.error()).find("Cipher") != std::string::npos);
 }

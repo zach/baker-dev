@@ -2,7 +2,8 @@
 // allocations. A cache is the tree as it lies in memory, about 4.3 bytes per byte of
 // bench_parse's text, so 1.2 MB of text is the 5 MB tree; 4 MB is bench_parse's own size.
 // Rows: the text parse beside it, writing the cache, and the load from a file and from
-// memory, with the symbols already interned (warm) and in a fresh process (cold).
+// memory, with the symbols already interned (warm) and in a fresh process (cold); and
+// development's read_cached, which re-hashes the text to know the cache is fresh.
 #include <moira/cache.hpp>
 #include <moira/parse.hpp>
 
@@ -96,7 +97,7 @@ int run(const char* self, size_t text_bytes) {
 
         moira::test::AllocationScope memory;
         t0 = Clock::now();
-        auto m = moira::read_cache_bytes(bytes);
+        auto m = moira::read_cache_bytes(bytes, "bench.datb", session);
         from_memory = std::min(from_memory, ms_since(t0));
         memory_allocations = memory.count();
         if (!m) return 1;
@@ -112,8 +113,40 @@ int run(const char* self, size_t text_bytes) {
     std::printf("  from memory:     %7.2f ms, %zu allocations (warm symbols)\n", from_memory,
                 memory_allocations);
     std::printf("  freeing it:      %7.3f ms\n", free_ms);
+
+    // Development's path: the text on disk, read through read_cached.
+    const std::string text_path =
+        (std::filesystem::temp_directory_path() / "moira_bench_cache.dta").string();
+    if (std::FILE* f = std::fopen(text_path.c_str(), "wb")) {
+        std::fwrite(text.data(), 1, text.size(), f);
+        std::fclose(f);
+    }
+    std::filesystem::remove(path);
+    double miss = 0, hit = 1e9, check = 1e9;
+    {
+        moira::LoadSession s;
+        const auto t0 = Clock::now();
+        if (!moira::read_cached(text_path, path, s)) return 1;
+        miss = ms_since(t0);
+    }
+    for (int rep = 0; rep < 5; ++rep) {
+        moira::LoadSession s;
+        auto t0 = Clock::now();
+        if (!moira::cache_fresh(path, s)) return 1;
+        check = std::min(check, ms_since(t0));
+        t0 = Clock::now();
+        if (!moira::read_cached(text_path, path, s)) return 1;
+        hit = std::min(hit, ms_since(t0));
+    }
+    std::filesystem::remove(text_path);
+    std::printf("  read_cached, no cache (parse, write): %7.2f ms\n", miss);
+    std::printf("  read_cached, fresh (load, re-hash):   %7.2f ms\n", hit);
+    std::printf("  cache_fresh:                          %7.2f ms\n", check);
     std::fflush(stdout);
-    const int r = std::system(("\"" + std::string(self) + "\" --cold \"" + path + "\"").c_str());
+    // One sample per process, so three of them: one can land on a busy moment.
+    int r = 0;
+    for (int rep = 0; rep < 3 && r == 0; ++rep)
+        r = std::system(("\"" + std::string(self) + "\" --cold \"" + path + "\"").c_str());
     std::filesystem::remove(path);
     return r == 0 ? 0 : 1;
 }

@@ -38,11 +38,10 @@
 
 namespace moira {
 
-class LoadSession;
+struct Cipher;  // cache.hpp
 namespace detail {
 class Parser;
-// True if the session reads files with the default reader (cache.cpp reads them directly).
-[[nodiscard]] bool reads_disk(const LoadSession& session) noexcept;
+struct SessionAccess;  // the binary cache's view of a session
 }  // namespace detail
 
 struct ParseLimits {
@@ -90,6 +89,12 @@ public:
     // Set for an edit-mode parse: records source text and node spans (source_map.hpp).
     // Null (the default) is a gameplay parse, which keeps only the tree.
     SourceMap* source_map = nullptr;
+    // Set before a load that will be cached (write_cache): each top-level read then records
+    // the files it read and the defines it began with, so the cache can tell when it is
+    // stale and replay the load's effects on a session (docs/decisions.md D72).
+    bool record_for_cache = false;
+    // Enciphers the caches written with this session and deciphers those read (cache.hpp).
+    const Cipher* cipher = nullptr;
     // Where the trees read through this session come from: each read is one arena from
     // it (docs/decisions.md D64), which must outlive the tree. Null: the default allocator.
     const Allocator* allocator = nullptr;
@@ -98,7 +103,7 @@ public:
 
 private:
     friend class detail::Parser;
-    friend bool detail::reads_disk(const LoadSession&) noexcept;
+    friend struct detail::SessionAccess;
     friend Expected<Ref<Array>> read_string(std::string_view, std::string_view, LoadSession&);
     friend Expected<Ref<Array>> read_file(std::string_view, LoadSession&);
 

@@ -1976,3 +1976,56 @@ path or a `TextSink`), `read_cache` (a path, through a session), and `read_cache
 files, and its `#autorun` commands are collected. The cache records those effects
 (defines and macros added or removed, and the autorun commands) and loading it applies
 them, so a cache load leaves the session as the text load did.
+
+## D73. M8b: staleness, replay, `read_cached`, the `Cipher`, `moira_bake`
+
+*Results of M8b (`docs/m8-plan.md` §3–4, D70, D72).*
+
+- **Recording a load.** `LoadSession::record_for_cache`, when set, makes each top-level
+  read record every file it read (path, size, content hash), every include candidate it
+  looked for and missed, the defines and macros it began with, and where its `#autorun`
+  commands start. Unset (the default), a read only clears two empty tables.
+- **The record is an array in the blob.** `write_cache(root, path, &session)` builds one
+  more array, `meta` (format in `cache.cpp`): `(files ...)`, `(before ...)`, and the
+  load's effects, `(define ...)`, `(undefine ...)`, `(autorun ...)`. It is written beside
+  the tree, so the writer, the fixup pass, and the checks needed nothing new, and a
+  macro body the tree shares is written once. The header's four section fields became
+  one offset; the header is 64 bytes.
+- **`cache_fresh(cache, session)`** loads the cache and re-reads every recorded file
+  through the session's reader: a changed file, or a missed one that now exists, makes it
+  stale, as does any difference in the session's defines or macro bodies (compared by the
+  hash of each body's text). A cache written without a recorded load is never fresh.
+- **Replay (D72).** `read_cache` and `read_cache_bytes` apply the recorded effects to
+  their session. A replayed macro body is an array of the cache's block, so the session
+  keeps that block alive, as it keeps a text load's arena.
+- **`read_cached(text, cache, session)`.** In development: the cache if it is fresh,
+  otherwise the text, recorded, and a new cache written; failing to write it is not an
+  error. Under `MOIRA_SHIPPING`: the cache if it loads, else the text, and nothing is
+  written. Reads go through the session's reader, but caches are written with `fopen`:
+  a host with its own file system writes through `write_cache(root, TextSink, ...)`.
+- **`Cipher`** (spec §9): two functions over the bytes after the header, in place, and a
+  user pointer, set as `LoadSession::cipher`. The hash covers the enciphered bytes, so
+  damage is found before deciphering; an enciphered cache read without a cipher is an
+  error. No implementation ships; the header keeps the anecdote.
+- **`moira_bake [-D NAME]... [-I DIR]... IN.dta OUT.datb`** (`tools/`, outside the core)
+  writes a recorded cache; a ctest bakes a corpus file.
+- **Not recorded:** the session's include directories and reader. A different directory
+  list that finds a different file is caught only through the missed candidates the load
+  recorded.
+
+**Benchmarks** (`bench_cache`, release, this machine):
+
+| | 1.2 MB text, 5.3 MB tree | 4.2 MB text, 18.0 MB tree |
+|---|---:|---:|
+| `read_cached`, fresh cache (load, re-hash the text) | **2.15 ms** | 8.46 ms |
+| `cache_fresh` alone | 2.22 ms | 9.05 ms |
+| `read_cached`, no cache (parse, record, write) | 41.6 ms | 164 ms |
+| text parse alone | 9.6–12.5 ms | 33–38 ms |
+| `read_cache`, cold symbols, three fresh processes | 5.5–5.8 ms | 19–27 ms |
+
+- The cold row was one process per run, and one run in M8b's first measurement read
+  18 ms where the previous commit read 5.9; repeated, both read 5.8–6.1 ms. The bench now
+  runs three processes.
+- `write_cache` dominates a miss (about 26 ms of 41 for the 5 MB tree): hash maps of
+  every array, string, and symbol. It runs once per changed file in development.
+- `bench_parse` against the previous commit: 119–126 MB/s before and after (noise).
