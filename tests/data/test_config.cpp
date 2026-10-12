@@ -81,6 +81,27 @@ TEST_CASE("overwrite merge: leaves win, tagged arrays recurse") {
     CHECK(str_of(*r) == "((a (b 1) (c 2)))");
 }
 
+TEST_CASE("a large merge, indexed, gives what small merges give") {
+    // Past 32 incoming keys merge indexes the existing ones (D75). Merging the same keys
+    // 20 at a time takes the scanning path; both must agree, duplicate tags included.
+    std::string base = "(dup 0) (dup 1) ", over = "(dup 2) (dup 3) ";
+    for (int i = 0; i < 150; ++i)
+        base += "(k" + std::to_string(i) + " " + std::to_string(i) + " (x 1)) ";
+    for (int i = 100; i < 250; ++i)
+        over += "(k" + std::to_string(i) + " -" + std::to_string(i) + " (y 2)) ";
+    over += "(k120 (z 3)) 7";
+    const auto b = parse(base.c_str()), o = parse(over.c_str());
+    for (const MergePolicy policy : {MergePolicy::Overwrite, MergePolicy::FillMissing}) {
+        Ref<Array> step = b;
+        for (uint32_t from = 0; from < o->size(); from += 20) {
+            const auto part =
+                Array::make_copy(o->nodes().subspan(from, std::min<size_t>(20, o->size() - from)));
+            step = merge(*step, *part, policy);
+        }
+        CHECK(str_of(*merge(*b, *o, policy)) == str_of(*step));
+    }
+}
+
 TEST_CASE("edit mode records where every node is written") {
     const std::string text = "[M 5]\n(a 1 \"two\" 'three four' M\n  (b 2.5))\n";
     LoadSession s;

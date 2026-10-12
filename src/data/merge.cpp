@@ -41,13 +41,28 @@ bool merge_into(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const 
         dst.swap(out);
         changed = true;
     }
+    // Each incoming key is found by scanning the existing ones, which is fastest for the
+    // small arrays config is made of; past kIndexed incoming keys, an index of the first
+    // child with each tag keeps a large flat layer linear (D75).
+    constexpr size_t kIndexed = 32;
+    // Made only when used: an empty table allocates under MSVC's debug library (D62).
+    std::optional<HashMap<Symbol, size_t>> index;
+    const bool indexed = src.size() - src_first > kIndexed;
+    if (indexed) {
+        index.emplace();
+        for (size_t i = dst_first; i < dst.size(); ++i)
+            if (const Array* da = dst[i].try_array())
+                if (const auto t = tag_of(*da)) index->emplace(*t, i);
+    }
     for (size_t j = src_first; j < src.size(); ++j) {
         const Array* sa = src[j].try_array();
         if (!sa) continue;
         const auto tag = tag_of(*sa);
         if (!tag && policy == MergePolicy::Overwrite) continue;  // a value, handled above
         size_t found = dst.size();
-        if (tag) {
+        if (tag && indexed) {
+            if (const auto it = index->find(*tag); it != index->end()) found = it->second;
+        } else if (tag) {
             for (size_t i = dst_first; i < dst.size(); ++i) {
                 const Array* da = dst[i].try_array();
                 if (da && tag_of(*da) == tag) {
@@ -57,6 +72,7 @@ bool merge_into(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const 
             }
         }
         if (found == dst.size()) {
+            if (tag && indexed) index->emplace(*tag, dst.size());
             dst.push_back(src[j]);
             if (spans) {
                 const SourceSpan* sp = map->span(src, j);

@@ -2069,3 +2069,32 @@ Config, best of 5):
   about 22 ms, then about 320 ms, for 3.4 times the keys. That predates M8, and a game's
   config is rarely one flat table of 37,000 keys, but it is the next cost on this path.
   It is recorded here and goes to the owner rather than into M8.
+
+## D75. Merge indexes large layers
+
+*Answered by the project owner 2026-10-12 ("fix now", as recommended), after D74 found
+Config's merge quadratic on flat layers; results here.*
+
+- `merge_into` found each incoming key by scanning the existing ones: O(n²) for a flat
+  layer of n keys. Past 32 incoming keys it now builds a table from each tag to its first
+  existing child, once per call, and adds new keys as it appends them. Smaller merges, which
+  is nearly every array of a real config, scan as before. The table is made only when
+  used (an empty table allocates under MSVC's debug library, D62).
+- A test merges 300 keys, duplicate tags included, at once (indexed) and 20 at a time
+  (scanning), under both policies, and compares.
+
+**Benchmarks** (`bench_cache`'s Config rows against the previous commit, release, best of 5):
+
+| | before | after |
+|---|---:|---:|
+| 5.3 MB tree: layer from text | 30.4 ms | **13.1 ms** |
+| 5.3 MB tree: layer, fresh cache | 24.4 ms | **6.7 ms** |
+| 5.3 MB tree: layer, no cache (parse, write) | 101 ms | 55 ms |
+| 18 MB tree: layer from text | 450 ms | **45 ms** |
+| 18 MB tree: layer, fresh cache | 361 ms | 50 ms |
+| 18 MB tree: layer, no cache | 683 ms | 275 ms |
+
+- On the 18 MB tree a fresh cache (50 ms) is no faster than text (45 ms): its freshness
+  check re-reads and hashes the 4.2 MB of text, and its 37,000-key merge into a table
+  costs more than the cache saves. Shipping skips the check.
+- `bench_parse`: 126 MB/s before and after (`#merge` takes the same path).
