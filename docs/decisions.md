@@ -1884,3 +1884,25 @@ lines. The spec and `tools/count_lines.py` say so. The rest of D2, D40, and D48 
 - disproportionate growth is still called out: M7 ran 30% over its estimate;
 - M10's fallback (move the repetition report into a separate tool) applies at the new
   number.
+
+## D70. M8: the binary cache, answers
+
+*M8 plan (`docs/m8-plan.md`) Q1–Q4, answered by the project owner 2026-10-12, each as
+recommended.*
+
+- **Q1, D57's layout work.** Measure first.
+  - Cold-cache rows (a working set larger than L2) come before any layout change.
+  - The cache lays children beside their parent, which may cure gap 2b by itself; the
+    tag run is built only if the cold rows still show child loads dominating.
+  - The dispatch split (hot and cold records, the thunk in the table) is M8's last step,
+    measured cold and warm.
+
+  This narrows D57, which committed to all three.
+- **Q2, staleness.**
+  - What it checks: the header records every file the load read with a content hash,
+    and the session's defines.
+  - Who checks: `cache_fresh` and `read_cached`. Shipping trusts the cache.
+- **Q3, writers.** A `moira_bake` tool (in `tools/`, outside the core) for build steps, and
+  `read_cached`, which rewrites a stale cache in development.
+- **Q4, Config.** `ConfigOptions::cache_dir`: outside edit mode, file layers load through
+  `read_cached`, and reload rewrites the caches of changed files. Edit mode reads text.

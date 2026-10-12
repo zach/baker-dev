@@ -172,6 +172,8 @@ cipher says so in its header, and loading it without one is an error.
 
 ## Open questions
 
+**Answered 2026-10-12 (D70):** Q1–Q4, each as recommended.
+
 **Q1. D57's layout work.**
 - **Recommended.** Measure first. Add the cold rows, build the cache (whose layout may
   cure gap 2b alone), and build the tag run only if the cold rows still show child loads
