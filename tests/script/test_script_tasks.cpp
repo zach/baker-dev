@@ -165,3 +165,38 @@ TEST_CASE("making and running a script task allocates nothing once warm") {
     f.ticks(3);
     CHECK(scope.count() == 0);
 }
+
+TEST_CASE("a {delete} during a tick waits for its end: later tasks in the batch still see it") {
+    Fixture f;
+    ok(
+        f.ctx.eval("{class Ball} {new Ball b} "
+                   "{scheduler thread_task {delete b} {log {b type}}} "
+                   "{scheduler thread_task {log {b type}}}"));
+    f.ticks(1);
+    CHECK(f.log == std::vector<std::string>{"Ball", "Ball"});
+    const auto gone = f.ctx.eval("{b type}");
+    REQUIRE_FALSE(gone);  // removed at the sync point
+    CHECK(gone.error().code() == ErrorCode::NotFound);
+}
+
+TEST_CASE("remove() from a C++ task is deferred too; ctx.sync() applies it") {
+    struct Thing : Object<Thing> {};
+    Context ctx;
+    Thing t;
+    ok(ctx.add(t, "thing"));
+    bool seen_during = false;
+    auto remover = [](Scheduler&, Context& c, Thing& th, bool* seen) -> Task {
+        c.remove(th);
+        *seen = c.object("thing").type() == Type::Object;
+        co_return;
+    };
+    ok(ctx.scheduler().spawn(remover(ctx.scheduler(), ctx, t, &seen_during)));
+    ctx.scheduler().tick(1);
+    CHECK(seen_during);
+    CHECK(ctx.object("thing").type() == Type::Int);  // gone after the tick
+    CHECK(t.context() == nullptr);
+    ok(ctx.add(t, "thing"));
+    ctx.remove(t);  // outside a tick: at once
+    CHECK(t.context() == nullptr);
+    ctx.sync();  // nothing waiting: harmless
+}

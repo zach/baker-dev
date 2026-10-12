@@ -256,6 +256,7 @@ void Scheduler::tick(double dt) {
     Impl& s = *impl_;
     s.now += dt;
     s.ticking = true;
+    ++s.ctx.impl().ticking;
     s.stats.resumed = 0;
     s.ready.clear();
     // Times accumulate rounding (ten ticks of 0.1 make 0.9999999999999999), so a wake time
@@ -305,6 +306,7 @@ void Scheduler::tick(double dt) {
     }
     s.ticking = false;
     s.sync();
+    if (--s.ctx.impl().ticking == 0) s.ctx.sync();
 }
 
 Scheduler& Context::scheduler() {

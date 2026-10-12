@@ -1778,3 +1778,91 @@ answers. The call stack was step 1 (D52). M6 is done, and `docs/m6-plan.md` is d
   especially) fit without tuning, at four times the memory per live task. Chunks of 64
   blocks, and no cap on live tasks unless `max_tasks` sets one. The first step still
   measures real frames on GCC, Clang, and MSVC and records the numbers.
+
+## D68. M7 results: tasks
+
+*Recorded 2026-10-12. Implements spec §5's tasks with D58's pool and D67's answers. M7 is
+done, and `docs/m7-plan.md` is deleted.*
+
+- **The C++ side** is `<moira/task.hpp>`: `Task`, `Scheduler`, `TaskHandle`, and the
+  awaitables `delay(t)`, `until(predicate)`, and `next_tick()`.
+  - **Frames come from the Scheduler's pool, never the heap.** The pool hands out blocks
+    of the frame budget (4 KB by default), in chunks of 64 taken from the Context's
+    allocator.
+  - **Two guards make that a compile error.** A coroutine must take a `Scheduler&` or a
+    `Context&` among its parameters, which a member coroutine's object does not hide.
+    The promise's only constructor and its only `operator new` both require one, because
+    Clang 18 falls back to the global `operator new` past the latter alone.
+  - **Refusals.** A frame over the budget, or a spawn past `max_tasks`, is a `Limit` error
+    naming the task and both sizes. A task made for another Scheduler is refused.
+- **The Scheduler.**
+  - **Waiting.** `tick(dt)` advances a `double` in the host's units. `delay` waiters sit
+    in a heap keyed by wake time, `until` waiters are polled, and `next_tick` waiters are
+    listed. A wake time within 1e-9 (relative) of now counts as due, so ten ticks of 0.1
+    reach 1.0.
+  - **Order.** A tick's batch runs by (wake time, spawn order). It is checked for order
+    before it is sorted, because a batch of next-tick waiters usually comes back in
+    order; sorting every tick cost 9 ns per task.
+  - **Deferral.** A spawned task starts at the next tick, and a cancel made inside a tick
+    waits for its end (D67).
+  - **The default Scheduler** is made with the Context and added as the object
+    `scheduler`. `Scheduler` is an `Object<Scheduler>`, so a host's extra Schedulers
+    answer the same commands under their own names.
+- **The script side.** `delay_task`, `interp_task` (the spec's form), and `thread_task`,
+  with `{wait cond}`, `{wait_for t}`, and `{wait_tick}` as a thread's own commands. Each
+  script task is a coroutine from the same pool.
+  - **Captures.** Up to 16 bound variables are captured by value, kept in the frame, so
+    making a task allocates nothing. Globals are left out.
+  - **Steps** rebind the captures and keep the task's own `{set}`s. A task made with
+    `$this` ends with that object.
+  - **Errors** go to the notice sink with `{thread_task}` (or the kind) on the stack.
+  - **Misplaced waits.** `{wait}` anywhere else is a `Refused` error.
+- **The sync point (D67).** `{delete}` and `ctx.remove()` during any Scheduler's tick wait
+  for the end of the tick. The outermost tick applies them, and `ctx.sync()` applies them
+  on demand. Later tasks in the batch still reach the object. Destroying an object still
+  removes it at once, because its memory is going away.
+- **Deviation from the plan:** no per-body scan cache. Scanning a body for `$variables`
+  takes part of the 230 ns that making a script task costs, and a cache keyed by array
+  address would have to hold each array alive to stay correct. Revisit if call
+  statistics show it.
+- **Found on the way.**
+  - `spawn` built its error prefix (`"task 'name'"`) on every call, which allocated for
+    any named task. The script allocation test caught it; the prefix is now built only on
+    error paths, and the C++ test now spawns named tasks.
+  - A test meant to overflow the budget used an 8 KB local array that Clang's optimizer
+    removed from the frame. The array is now written before a suspend and read after it.
+- **Frames measured** (`SchedulerStats::largest_frame`), on GCC 13 release and debug and
+  on Clang 18 debug alike:
+  - a C++ task with a counter loop: 64 bytes;
+  - a script task: 768 bytes, mostly its 16 capture slots.
+
+  The 4 KB default leaves room for larger C++ tasks and for debug builds. MSVC's sizes are
+  not measured: CI could not run (see below).
+- **Performance,** on this container (`bench/bench_tasks.cpp`, new):
+
+  | Row | Result | Target |
+  |---|---:|---:|
+  | `tick` with 10,000 tasks asleep, none due | 5–7 ns | < 100 ns |
+  | resuming a task on `next_tick`, per task | 12.5–13 ns | ≤ 20 ns |
+  | spawn and run to completion, per task | 26 ns, 0 allocations | 0 allocations |
+  | a `thread_task` step: `{add 1 2}`, then `{wait_tick}` | 66–76 ns | – |
+  | `{add 1 2}` evaluated directly, for comparison | 30–31 ns | – |
+  | making a `delay_task` that captures two variables | 230 ns | – |
+
+  The call rows (`{add 1 2}`, `{add1 1}`, `{bob grow 0}`, `handle(HitMsg)`) match `main`
+  within noise, so making the default Scheduler with every Context costs calls nothing.
+- **Tests:**
+  - `test_tasks.cpp` (C++) and `test_script_tasks.cpp` (script) cover timing, order,
+    locals and captures across suspends, cancellation, the budget, `max_tasks`, `$this`,
+    waits, errors, the sync point, and zero allocations once warm;
+  - `moira_alloc_tests` runs C++ and script tasks on a Context with a counting allocator:
+    no global `operator new`, and 154 allocations through its allocator, all freed.
+- **CI.** From the M7a push on, every CI job failed within seconds without a runner
+  (`runner_id` 0, no logs). That is an Actions account or service problem, not a build
+  failure. MSVC, libc++, TSan, and the fuzzers have not run on M7. The local matrix
+  (debug, release, C++23, shipping, ASan+UBSan, Clang, data-only, plain refcounts, EASTL)
+  passed before every commit.
+- **Size.** The core is 9,126 of 10,000 lines, up 687 in M7 against the plan's ~530. The
+  script side and its tests of the sync point took the difference. That leaves 874 lines
+  for M8 (~400) and M10's core instrumentation; M8's plan must say what M10 gives up if it
+  overruns, or ask to raise the budget.

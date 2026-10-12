@@ -654,6 +654,10 @@ public:
 
     // The default Scheduler, from the Context's allocator; scripts call it `scheduler`.
     [[nodiscard]] Scheduler& scheduler();
+    // The sync point (D67): applies the removals ({delete}, remove()) made while a
+    // Scheduler was ticking. tick() calls it at its end; a host that ticks several
+    // Schedulers can call it once after them all.
+    void sync();
     // Evaluates each node of `nodes` in order and returns the last value: runs a script.
     [[nodiscard]] Expected<Node> run(std::span<const Node> nodes);
 
@@ -684,6 +688,7 @@ public:
     // object removes itself when destroyed. A name must not be a function's or another
     // object's; an object can be in one Context at a time.
     [[nodiscard]] Expected<Node> add(ObjectBase& object, Symbol name = {});
+    // During a Scheduler's tick, waits for the sync point (D67).
     void remove(ObjectBase& object) noexcept;
     // The object `object` (an Object node) refers to; null if it was removed (weak).
     [[nodiscard]] ObjectBase* try_resolve(const Node& object) const noexcept;

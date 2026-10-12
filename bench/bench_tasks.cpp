@@ -104,6 +104,8 @@ int main() {
         });
         std::printf("%-44s %8.2f ns   %zu allocations\n",
                     "making a delay_task capturing 2 variables", make, scope.count());
+        std::printf("%-44s %8u bytes\n", "the largest frame: a script task's",
+                    s.stats().largest_frame);
     }
     return 0;
 }

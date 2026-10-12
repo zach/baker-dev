@@ -191,6 +191,8 @@ struct Context::Impl {
     [[nodiscard]] Expected<Node> add(ObjectBase& object, Symbol name, ScriptClass* script,
                                      bool owned);
     void remove(ObjectHandle h) noexcept;
+    // A removal made during a tick, applied at the sync point (D67).
+    void defer_removal(ObjectHandle h);
     // Deletes an object {new} made: its type knows its size.
     void destroy_owned(ObjectBase* object) noexcept { object->type().destroy(alloc, object); }
     [[nodiscard]] Expected<Node> send(ObjectHandle target, const Array& command,
@@ -250,6 +252,8 @@ struct Context::Impl {
     void* trace_user = nullptr;
 
     Own<Scheduler> scheduler;  // the default one, the object `scheduler`
+    uint32_t ticking = 0;      // Schedulers ticking now: removals wait for the sync point
+    Vec<ObjectHandle> deferred{alloc};
 };
 
 // Restores every variable bound since it was made: dynamic scope, undone even on error.

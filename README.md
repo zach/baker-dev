@@ -157,6 +157,10 @@ What exists:
 - Typed messages: plain aggregates bound with `b.on<M>`, sent with `obj.handle(msg)` in
   about 9 ns with no allocation, or to many objects with `handle_all`. The same handler
   answers `{bob hit 20}`, and a script handler `(hit ($points) ...)` answers C++.
+- Tasks: C++20 coroutines (`co_await delay(t)`, `until(...)`, `next_tick()`) whose frames
+  come from a per-Scheduler pool, never the heap, and the script side's
+  `{scheduler delay_task|interp_task|thread_task ...}` with variables captured by value.
+  The host drives time with `tick(dt)`; a tick with 10,000 sleeping tasks costs ~5 ns.
 - Debugging: the script call stack in every error (`describe`, `script_backtrace`), call
   statistics (`stats`, `hardening_candidates`, timing behind `set_profiling`), and a trace
   hook, all compiled out under `MOIRA_SHIPPING`.

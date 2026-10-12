@@ -7,6 +7,7 @@
 #include <moira/config.hpp>
 #include <moira/object.hpp>
 #include <moira/script.hpp>
+#include <moira/task.hpp>
 #include <moira/tweak.hpp>
 
 #include "alloc_counter.hpp"
@@ -79,6 +80,13 @@ bool read_versioned(std::string_view path, moira::TextSink out) {
         std::snprintf(text, sizeof text, "(speed %d) (list 1 2 3 \"s%d\")", g_version, g_version);
     out(std::string_view(text, static_cast<size_t>(n)));
     return true;
+}
+
+moira::Task counter(moira::Scheduler&, int* n) {
+    for (int i = 0; i < 3; ++i) {
+        ++*n;
+        co_await moira::delay(1);
+    }
 }
 
 int add(int a, int b) {
@@ -175,4 +183,38 @@ TEST_CASE("reloads free the trees they replace") {
     }
     CHECK(ok);
     CHECK(mine.live_bytes == 0);
+}
+
+TEST_CASE("tasks allocate through the Context's allocator, and nothing through operator new") {
+    Counting mine;
+    const moira::Allocator alloc = mine.allocator();
+    size_t global = 0;
+    bool ok = false;
+    int n = 0;
+    {
+        const moira::test::AllocationScope scope;
+        {
+            moira::Context ctx(alloc);
+            moira::Scheduler& s = ctx.scheduler();
+            ok = ctx.func("add", &add).has_value();
+            for (int i = 0; i < 100; ++i) ok = ok && s.spawn(counter(s, &n), "counter").has_value();
+            ok = ok && ctx.eval(
+                              "{do (($a 1)) {scheduler thread_task {add $a 1} {wait_tick} "
+                              "{add $a 2}}} {scheduler interp_task $f 0 3 {add $f 1}} "
+                              "{scheduler delay_task 2 {add 1 1}}")
+                           .has_value();
+            for (int i = 0; i < 6; ++i) s.tick(1);
+            ok = ok && s.stats().live == 0;
+            moira::Scheduler other(ctx, {.frame_bytes = 1024});
+            ok = ok && other.spawn(counter(other, &n)).has_value();  // left running: freed with it
+            other.tick(1);
+        }
+        global = scope.count();
+    }
+    CHECK(ok);
+    CHECK(n == 301);
+    if (moira::test::counting_allocations()) CHECK(global == 0);
+    CHECK(mine.allocs == mine.frees);
+    CHECK(mine.live_bytes == 0);
+    MESSAGE("Context with tasks: " << mine.allocs << " allocations through its allocator");
 }

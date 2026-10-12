@@ -415,7 +415,29 @@ Expected<Node> Context::add(ObjectBase& object, Symbol name) {
 }
 
 void Context::remove(ObjectBase& object) noexcept {
-    if (object.ctx_ == this) impl_->remove(object.handle_);
+    if (object.ctx_ != this) return;
+    if (impl_->ticking)
+        impl_->defer_removal(object.handle_);
+    else
+        impl_->remove(object.handle_);
+}
+
+void Context::Impl::defer_removal(ObjectHandle h) {
+    deferred.push_back(h);
+}
+
+void Context::sync() {
+    Impl& impl = *impl_;
+    for (size_t i = 0; i < impl.deferred.size(); ++i) {  // removals may defer more
+        const ObjectHandle h = impl.deferred[i];
+        Impl::Slot* s = impl.slot(h);
+        if (!s) continue;  // removed already, or destroyed by its owner
+        ObjectBase* o = s->object;
+        const bool owned = s->owned;
+        impl.remove(h);
+        if (owned) impl.destroy_owned(o);
+    }
+    impl.deferred.clear();
 }
 
 ObjectBase* Context::try_resolve(const Node& object) const noexcept {
@@ -591,6 +613,10 @@ void register_object_builtins(Context& ctx) {
                 ErrorCode::Type, "delete takes an object, not a " + Str(type_name(object.type()))));
         Context::Impl::Slot* s = impl.slot(object.object_handle());
         if (!s) return Node();
+        if (impl.ticking) {  // during a tick, at its end (D67): later tasks still reach it
+            impl.defer_removal(object.object_handle());
+            return Node();
+        }
         ObjectBase* o = s->object;
         const bool owned = s->owned;
         impl.remove(object.object_handle());

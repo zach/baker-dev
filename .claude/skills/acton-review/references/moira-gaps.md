@@ -8,7 +8,7 @@
 | 2, 2b, 3, hot/cold layout, tag lookup, dispatch loads | done with the binary cache (D57) | M8 |
 | 4, one item at a time | `handle_all` broadcast, one lookup per run of a type (D53, D66) | **done** |
 | 5, per-array refcounts | one count per load (D64, D65) | **done** |
-| 7, coroutine frames | per-Scheduler pool with a frame budget (D58) | M7 |
+| 7, coroutine frames | per-Scheduler pool with a frame budget (D58, D68) | **done** |
 | 8, exceptions | throwing forms removed entirely (D54) | **done** (D59) |
 | 9, `Error` size | `Error` becomes a handle (D55) | **done** (D60) |
 | 11, the STL in public headers | header-only vocabulary types only (D60); `MOIRA_USE_EASTL` inside (D62) | **done** |
