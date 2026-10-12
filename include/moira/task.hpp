@@ -71,7 +71,7 @@ inline Scheduler& scheduler_of(Scheduler& s) noexcept {
 }
 // The Scheduler named by the first Scheduler& or Context& among a coroutine's arguments.
 template <class First, class... Rest>
-Scheduler& task_home(First& first, Rest&... rest) noexcept {
+Scheduler& task_home(First& first, [[maybe_unused]] Rest&... rest) noexcept {
     if constexpr (is_task_home<First>)
         return scheduler_of(first);
     else
