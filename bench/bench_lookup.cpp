@@ -3,12 +3,19 @@
 // Keys are interned Symbols, as a hot loop should hold them; the string-literal row
 // shows what interning on every call costs instead. "avg" cycles through all 20 keys,
 // "last" always asks for the 20th (the linear scan's worst case).
+//
+// Cold rows (D57, D70): 50,000 such objects, about 76 MB of tree, far beyond L2, visited
+// in a shuffled order, each with a random key; loaded from text and from a binary cache,
+// whose layouts differ (the parse allocates children before their parent; the cache lays
+// arrays out breadth first).
 #include <moira/array.hpp>
+#include <moira/cache.hpp>
 #include <moira/parse.hpp>
 
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -119,6 +126,47 @@ int main() {
                 sorted_big->try_find(opaque(big_keys[static_cast<unsigned>(i) % un]))->size());
         });
         std::printf("try_find, %4d children, avg: linear %7.2f ns, sorted %6.2f ns\n", n, l, s);
+    }
+
+    // Cold: a working set larger than L2.
+    constexpr int kObjects = 50'000;
+    std::string many;
+    for (int o = 0; o < kObjects; ++o) {
+        many += "(o" + std::to_string(o);
+        for (int i = 0; i < 20; ++i)
+            many += " (key" + std::to_string(i) + " " + std::to_string(i) + ".5)";
+        many += ")\n";
+    }
+    auto text_tree = moira::read_string(many, "cold.dta");
+    if (!text_tree) return 1;
+    std::string bytes;
+    if (!moira::write_cache(**text_tree, moira::TextSink{[](void* u, std::string_view t) {
+                                                             static_cast<std::string*>(u)->append(
+                                                                 t);
+                                                         },
+                                                         &bytes}))
+        return 1;
+    auto cache_tree = moira::read_cache_bytes(bytes);
+    if (!cache_tree) return 1;
+    std::mt19937 rng(42);
+    std::vector<uint32_t> order(kObjects);
+    for (uint32_t i = 0; i < kObjects; ++i) order[i] = i;
+    std::shuffle(order.begin(), order.end(), rng);
+    std::vector<uint8_t> which(1 << 16);
+    for (uint8_t& k : which) k = static_cast<uint8_t>(rng() % 20);
+    std::printf("cold: %d objects of 20 keys, %.1f MB of tree, shuffled\n", kObjects,
+                static_cast<double>(bytes.size()) / 1e6);
+    for (const auto* tree : {&*text_tree, &*cache_tree}) {
+        std::vector<const moira::Array*> objs;
+        for (const moira::Node& n : **tree) objs.push_back(n.array());
+        const double ns = ns_per_call([&](int i) {
+            const auto u = static_cast<unsigned>(i);
+            const moira::Array& o = *objs[order[u % kObjects]];
+            return *o.find_float(keys[which[u & 0xFFFF]]);
+        });
+        row(tree == &*text_tree ? "find_float, cold, text-loaded"
+                                : "find_float, cold, cache-loaded",
+            ns);
     }
     return 0;
 }

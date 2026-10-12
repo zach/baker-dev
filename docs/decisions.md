@@ -2098,3 +2098,25 @@ Config's merge quadratic on flat layers; results here.*
   check re-reads and hashes the 4.2 MB of text, and its 37,000-key merge into a table
   costs more than the cache saves. Shipping skips the check.
 - `bench_parse`: 126 MB/s before and after (`#merge` takes the same path).
+
+## D76. M8d, step 1: cold lookup rows
+
+*D57's measurement, as D70 (Q1) ordered it: cold rows before any layout change.*
+
+`bench_lookup` gains cold rows: 50,000 objects of 20 tagged children (75.7 MB of tree),
+visited in a shuffled order with a random key, from a text-loaded tree and from a
+cache-loaded one (release, this machine, best of 7 runs of 2M calls):
+
+| | warm (one object) | cold, text-loaded | cold, cache-loaded |
+|---|---:|---:|---:|
+| `find_float`, avg | 14.2 ns | 298–305 ns | 263–282 ns |
+
+- **The cache's layout cures little:** 5–12% cold. A parse already allocates each array's
+  children next to one another in its arena, so breadth-first order changes little.
+- **Child loads dominate.** In a throwaway experiment over the same objects, reading only
+  the parent's 20 nodes cost 56–81 ns, and the parent plus the one child a key names,
+  23–25 ns (independent iterations overlap). The rest of `find_float`'s 260–300 ns is the
+  linear scan loading each child's first node, one cache line per probe, to compare tags.
+- **So the tag run is built (D70's condition holds):** each array keeps its children's
+  tags beside its nodes, and the scan reads 4-byte keys from the parent's own memory. Its
+  design note and results are the next entry.
