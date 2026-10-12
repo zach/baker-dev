@@ -1,6 +1,6 @@
 # Moira
 
-Moira is a small, MIT-licensed C++20 library for data and scripting, in the spirit of
+Moira is a focused, MIT-licensed C++20 library for data and scripting, in the spirit of
 Harmonix's DataArray (Eric Malafeew, *Data-Driven Programming Made Easy*, GDC 2005). It
 reads a Lisp-like text format into trees, stacks files into layers that reload while the
 program runs, and evaluates commands written in the same format.

@@ -374,6 +374,43 @@ TEST_CASE("tweaks bind, rebind, and fall back to their defaults") {
     CHECK(warnings[0].message() == "'width' is symbol, not float");
 }
 
+TEST_CASE("a tweak's value stops before the metadata written after it (D88)") {
+    TweakRegistry reg;
+    Tweak<std::array<float, 3>> tint{"look.tint", {1, 1, 1}, {}, reg};
+    Tweak<std::vector<int>> sizes{"look.sizes", {}, {}, reg};
+    TempDir dir;
+    Config cfg({.tweaks = &reg});
+    std::vector<Error> warnings;
+    cfg.set_warning_handler([&](const Error& e) { warnings.push_back(e); });
+    REQUIRE(cfg.push_layer(
+        "default", dir.write("default.dta",
+                             "(look\n"
+                             "   (tint 0.9 0.5 0.2 (range 0 1) (desc \"Tint\") (note \"warm\"))\n"
+                             "   (sizes 1 2 3 (step 1)))\n")));
+    CHECK(warnings.empty());
+    REQUIRE(tint.bound());
+    CHECK(tint.value()[0] == 0.9f);
+    CHECK(tint.value()[2] == 0.2f);
+    CHECK(tint.kind() == "color");  // three numbers, ranged 0..1 in the data
+    CHECK(tint.desc() == "Tint");
+    CHECK(sizes.get() == std::vector<int>{1, 2, 3});
+
+    if constexpr (!kShipping) {
+        // A live edit and its write-back change the numbers and keep the metadata.
+        REQUIRE(tint.set({0.8f, 0.5f, 0.25f}));
+        REQUIRE(tint.write_back());
+        CHECK(dir.read("default.dta").find("(tint 0.8 0.5 0.25 (range 0 1) (desc \"Tint\")") !=
+              std::string::npos);
+        CHECK(tint.value()[2] == 0.25f);
+    }
+
+    // Only trailing arrays with a metadata tag are left out: other tagged elements are
+    // the value's own.
+    Tweak<std::vector<Node>> parts{"look.parts", {}, {}, reg};
+    REQUIRE(cfg.push_layer("parts", parse("(look (parts 1 (x 2) (range 0 1)))")));
+    CHECK(parts.get().size() == 2);
+}
+
 TEST_CASE("registering a tweak allocates nothing") {
     TweakRegistry reg;
     test::AllocationScope scope;

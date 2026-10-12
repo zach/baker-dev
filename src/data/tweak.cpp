@@ -13,6 +13,22 @@ namespace {
 
 constinit TweakRegistry g_registry;
 
+// A tweak's value without the metadata written after it: (color 1 0.5 0 (range 0 1)) is
+// three numbers (D88). Only trailing arrays tagged with the keys a tweak reads are left out,
+// so a value whose own elements are tagged arrays reads as before.
+Values without_metadata(const Values& v) {
+    size_t n = v.size();
+    for (; n > 0; --n) {
+        const Array* a = v[n - 1].try_array();
+        if (!a || a->empty()) break;
+        const Node& tag = (*a)[0];
+        if (!(tag.is("range") || tag.is("step") || tag.is("desc") || tag.is("note") ||
+              tag.is("kind") || tag.is("group")))
+            break;
+    }
+    return Values(v.nodes().first(n), v.source());
+}
+
 }  // namespace
 
 // --- TweakRegistry ---
@@ -92,13 +108,14 @@ bool TweakBase::bind(const Array& root, const Callback<void(const Error&)>& warn
             warn(detail::get_error(root, path, nullptr));
         return unbind();
     }
-    const Array* holder = r.values.source();
-    const auto first = static_cast<uint32_t>(r.values.begin() - holder->begin());
-    const auto count = static_cast<uint32_t>(r.values.size());
+    const Values values = without_metadata(r.values);
+    const Array* holder = values.source();
+    const auto first = static_cast<uint32_t>(values.begin() - holder->begin());
+    const auto count = static_cast<uint32_t>(values.size());
     bool same = bound_ && count == count_;
     for (uint32_t i = 0; same && i < count; ++i)
-        same = structurally_equal((*bound_)[first_ + i], r.values[i]);
-    if (!same && !assign(r.values, true)) {
+        same = structurally_equal((*bound_)[first_ + i], values[i]);
+    if (!same && !assign(values, true)) {
         if (warn) {
             const detail::ConvertInfo want = info();
             warn(detail::get_error(root, path, &want));

@@ -4,7 +4,7 @@
 (scene
    (ball
       (radius 24 (range 4 80) (step 1) (desc "Ball radius, in pixels"))
-      (color 0.95 0.55 0.2)   ; its metadata is in the code: see main.cpp
+      (color 0.95 0.55 0.2 (range 0 1) (desc "Ball color"))   ; shown as a color
       (bounce 0.8 (range 0 1) (note "1.0 never settles")))
    (gravity 900 (range 0 3000) (desc "Pixels per second squared")))
 
