@@ -1,7 +1,9 @@
+#include <moira/cache.hpp>
 #include <moira/config.hpp>
 #include <moira/write.hpp>
 
 #include "common/containers.hpp"
+#include "session.hpp"
 
 #include "text.hpp"
 
@@ -292,6 +294,7 @@ struct Config::Impl {
 
     const Allocator alloc;  // first: the containers below take it
     ConfigOptions options;
+    Str cache_dir{alloc};  // options.cache_dir views this
     LoadSession base;
     Writer writer = write_disk_file;
     Callback<void(const Error&)> warn;
@@ -353,6 +356,25 @@ struct Config::Impl {
         return i == 0 ? Rc<LoadSession>::make(alloc, base) : ls[i - 1].after;
     }
 
+    // A fresh cache of `path`, or the text and a new cache, written through the writer: a
+    // cache that cannot be written costs the next read a parse, not this one its tree.
+    Expected<Ref<Array>> read_through_cache(std::string_view path, const Str& cache,
+                                            LoadSession& session) const {
+        if constexpr (kShipping) {  // shipping trusts the cache, and writes none
+            if (auto r = read_cache(cache, session)) return r;
+            return read_file(path, session);
+        } else {
+            if (Ref<Array> fresh = detail::read_fresh_cache(cache, session)) return fresh;
+            session.record_for_cache = true;
+            auto root = read_file(path, session);
+            session.record_for_cache = false;
+            Str bytes(alloc);
+            if (root && write_cache(**root, detail::str_out(bytes), &session))
+                (void)writer(cache, bytes);
+            return root;
+        }
+    }
+
     // Reads a file layer, recording every file it reads (or looks for) for reload, and the
     // time spent reading them into `read_ns`.
     Expected<void> read(LayerState& layer, const LoadSession& before,
@@ -361,18 +383,29 @@ struct Config::Impl {
         session->clear_autorun();
         Vec<Dep> deps;
         const LoadSession::Reader reader = before.reader();
+        // Edit mode reads text, which keeps the source maps write-back needs.
+        Str cache(alloc);
+        if (!options.edit_mode && !cache_dir.empty()) {
+            // The cache's name: the hash of the layer's path, in hex.
+            char name[17];
+            uint64_t h = detail::content_hash(layer.path);
+            for (int i = 15; i >= 0; --i, h >>= 4) name[i] = "0123456789abcdef"[h & 15];
+            name[16] = '\0';
+            cache.append(cache_dir).append("/").append(name).append(".datb");
+        }
         session->set_reader([&](std::string_view p, TextSink out) {
             const uint64_t t0 = read_ns ? now() : 0;
             Str text;
             const bool ok = read_into(reader, p, text);
             if (read_ns) *read_ns += now() - t0;
-            deps.push_back({Str(p), ok, ok ? hash_text(text) : 0});
+            if (p != cache.view()) deps.push_back({Str(p), ok, ok ? hash_text(text) : 0});
             if (ok) out(text);
             return ok;
         });
         auto map = options.edit_mode ? Rc<SourceMap>::make(alloc) : nullptr;
         session->source_map = map.get();
-        auto root = read_file(layer.path, *session);
+        auto root = cache.empty() ? read_file(layer.path, *session)
+                                  : read_through_cache(layer.path, cache, *session);
         session->set_reader(reader);
         session->source_map = nullptr;
         layer.file = deps.empty() ? layer.path : deps.front().path;
@@ -851,6 +884,8 @@ Expected<WriteReport> Config::Impl::write_into(Config& c, size_t li, const Path&
 Config::Config(ConfigOptions options, const Allocator& allocator)
     : root_(Array::make(0)), impl_(detail::create<Impl>(allocator, allocator)) {
     impl_->options = options;
+    impl_->cache_dir.assign(options.cache_dir);
+    impl_->options.cache_dir = impl_->cache_dir;
     if (TweakRegistry* reg = options.tweaks) {
         reg->config_ = this;
         ReloadRecord unused;

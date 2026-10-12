@@ -2029,3 +2029,43 @@ them, so a cache load leaves the session as the text load did.
 - `write_cache` dominates a miss (about 26 ms of 41 for the 5 MB tree): hash maps of
   every array, string, and symbol. It runs once per changed file in development.
 - `bench_parse` against the previous commit: 119–126 MB/s before and after (noise).
+
+## D74. M8c: Config's `cache_dir`
+
+*Results of M8c (`docs/m8-plan.md` §5, D70 Q4).*
+
+- **`ConfigOptions::cache_dir`** (copied by the Config): outside edit mode, each file
+  layer loads through `<cache_dir>/<hash of its path, hex>.datb`. A fresh cache gives the
+  tree and replays the layer's defines on the session the layers above see; otherwise the
+  text is parsed, recorded, and a new cache written through the Config's writer
+  (`set_writer`), so a host's own file system gets it too. A cache that cannot be written
+  is not an error. Under `MOIRA_SHIPPING` a layer trusts its cache, and writes none.
+- **Reload needed no new code.** The layer's reader still records every file read, now
+  except the cache itself: on a fresh cache, the freshness check's re-reads are the
+  layer's dependencies; on a miss, the parse's. A changed file makes `reload()` re-read
+  the layer through `read_cached`'s path, which finds the cache stale and rewrites it.
+  The record lists the main file first (it was last), so a layer's `file` names it either
+  way.
+- **The directory must exist;** the Config does not create it.
+- **Shipping gets its caches from a development build's Config:** a build step pushes the
+  same layers, with the same paths and `cache_dir`, and the directory ships. `moira_bake`
+  would bake each file alone, without the macros the layers below give it.
+- **Edit mode reads text,** as before: write-back needs source maps.
+- The freshness check behind a fresh cache moved into `detail::read_fresh_cache`, which
+  `read_cached` and Config share, so neither loads a cache twice.
+
+**Benchmarks** (`bench_cache`, release, `push_layer` of the generated file into a new
+Config, best of 5):
+
+| | 1.2 MB text, 5.3 MB tree | 4.2 MB text, 18.0 MB tree |
+|---|---:|---:|
+| layer from text | 30.2 ms | 492 ms |
+| layer, `cache_dir`, fresh cache | **24.0 ms** | 329 ms |
+| layer, `cache_dir`, no cache (parse, write, writer) | 82.8 ms | 690 ms |
+
+- **What these show is Config's merge, not the cache.** The cache takes the parse out
+  (about 10 ms of 30, and 160 ms of 490), but merging the layer into the Config dominates,
+  and on this flat tree (11,000 and 37,000 top-level keys) it grows faster than linearly:
+  about 22 ms, then about 320 ms, for 3.4 times the keys. That predates M8, and a game's
+  config is rarely one flat table of 37,000 keys, but it is the next cost on this path.
+  It is recorded here and goes to the owner rather than into M8.

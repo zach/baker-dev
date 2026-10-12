@@ -467,6 +467,14 @@ uint64_t detail::content_hash(std::string_view bytes) noexcept {
     return hash_bytes(bytes.data(), bytes.size());
 }
 
+Ref<Array> detail::read_fresh_cache(std::string_view path, LoadSession& session) {
+    const Array* meta = nullptr;
+    auto r = open(path, session, meta);
+    if (!r || !meta || !fresh(*meta, session)) return nullptr;
+    replay(*meta, session);
+    return std::move(*r);
+}
+
 Expected<void> write_cache(const Array& root, TextSink out, const LoadSession* session) {
     Str bytes;
     if (auto r = detail::bytes_of(root, session, bytes); !r) return r;
@@ -518,17 +526,16 @@ Expected<Ref<Array>> read_cached(std::string_view text_path, std::string_view ca
     if constexpr (kShipping) {  // shipping trusts the cache, and writes none
         if (auto r = read_cache(cache_path, session)) return r;
         return read_file(text_path, session);
+    } else {
+        if (Ref<Array> fresh = detail::read_fresh_cache(cache_path, session)) return fresh;
+        const bool was = std::exchange(session.record_for_cache, true);
+        auto root = read_file(text_path, session);
+        session.record_for_cache = was;
+        // A cache that cannot be written costs the next launch a parse, not this one its
+        // tree.
+        if (root) (void)write_cache(**root, cache_path, &session);
+        return root;
     }
-    const Array* meta = nullptr;
-    if (auto r = detail::open(cache_path, session, meta);
-        r && meta && detail::fresh(*meta, session))
-        return detail::replayed(std::move(r), meta, session);
-    const bool was = std::exchange(session.record_for_cache, true);
-    auto root = read_file(text_path, session);
-    session.record_for_cache = was;
-    // A cache that cannot be written costs the next launch a parse, not this one its tree.
-    if (root) (void)write_cache(**root, cache_path, &session);
-    return root;
 }
 
 }  // namespace moira

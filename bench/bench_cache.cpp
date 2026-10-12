@@ -5,6 +5,7 @@
 // memory, with the symbols already interned (warm) and in a fresh process (cold); and
 // development's read_cached, which re-hashes the text to know the cache is fresh.
 #include <moira/cache.hpp>
+#include <moira/config.hpp>
 #include <moira/parse.hpp>
 
 #include "alloc_counter.hpp"
@@ -138,10 +139,35 @@ int run(const char* self, size_t text_bytes) {
         if (!moira::read_cached(text_path, path, s)) return 1;
         hit = std::min(hit, ms_since(t0));
     }
+    // A Config's file layer, with ConfigOptions::cache_dir (D74).
+    const auto cache_dir = std::filesystem::temp_directory_path() / "moira_bench_cache_dir";
+    std::filesystem::remove_all(cache_dir);
+    std::filesystem::create_directories(cache_dir);
+    const std::string dir_name = cache_dir.string();
+    double layer_text = 1e9, layer_miss = 0, layer_hit = 1e9;
+    for (int rep = 0; rep < 5; ++rep) {
+        moira::Config cfg({.edit_mode = false, .tweaks = nullptr});
+        const auto t0 = Clock::now();
+        if (!cfg.push_layer("bench", text_path)) return 1;
+        layer_text = std::min(layer_text, ms_since(t0));
+    }
+    for (int rep = 0; rep < 6; ++rep) {
+        moira::Config cfg({.edit_mode = false, .tweaks = nullptr, .cache_dir = dir_name});
+        const auto t0 = Clock::now();
+        if (!cfg.push_layer("bench", text_path)) return 1;
+        if (rep == 0)
+            layer_miss = ms_since(t0);
+        else
+            layer_hit = std::min(layer_hit, ms_since(t0));
+    }
+    std::filesystem::remove_all(cache_dir);
     std::filesystem::remove(text_path);
     std::printf("  read_cached, no cache (parse, write): %7.2f ms\n", miss);
     std::printf("  read_cached, fresh (load, re-hash):   %7.2f ms\n", hit);
     std::printf("  cache_fresh:                          %7.2f ms\n", check);
+    std::printf("  Config layer, text:                   %7.2f ms\n", layer_text);
+    std::printf("  Config layer, cache_dir, no cache:    %7.2f ms\n", layer_miss);
+    std::printf("  Config layer, cache_dir, fresh cache: %7.2f ms\n", layer_hit);
     std::fflush(stdout);
     // One sample per process, so three of them: one can land on a busy moment.
     int r = 0;

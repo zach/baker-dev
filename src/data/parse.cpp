@@ -788,8 +788,9 @@ Expected<Ref<Array>> read_file(std::string_view path, LoadSession& session) {
         return Unexpected(make_error(ErrorCode::Io, "cannot read '" + file + "'"));
     auto root = read_string(text, file, session);
     if (session.st_->recorded && session.st_->include_stack.empty())
-        session.st_->files.push_back(
-            {file, static_cast<int64_t>(text.size()), detail::content_hash(text)});
+        session.st_->files.insert(  // first, so the record names the main file first
+            session.st_->files.begin(),
+            detail::CacheFile{file, static_cast<int64_t>(text.size()), detail::content_hash(text)});
     return root;
 }
 

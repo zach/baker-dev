@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <memory>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -610,3 +611,69 @@ TEST_CASE("every corpus config value writes back as one line, or is refused with
     MESSAGE("wrote " << written << ", refused " << refused_count);
 }
 #endif
+
+TEST_CASE("cache_dir: file layers load through caches outside edit mode") {
+    TempDir dir;
+    fs::create_directories(dir.path("cache"));
+    const std::string base =
+        dir.write("base.dta", "#include tuning.dta\n#define WIDE\n(screen (width 1280))");
+    dir.write("tuning.dta", "(speed 3)");
+    const std::string top = dir.write("top.dta", "#ifdef WIDE (screen (width 2560)) #endif");
+    const std::string cache_dir = dir.path("cache");
+    int writes = 0;
+    auto make = [&] {
+        auto cfg = std::make_unique<Config>(
+            ConfigOptions{.edit_mode = false, .tweaks = nullptr, .cache_dir = cache_dir});
+        cfg->set_writer([&](std::string_view path, std::string_view text) {
+            ++writes;
+            std::ofstream(std::string(path), std::ios::binary) << text;
+            return true;
+        });
+        return cfg;
+    };
+
+    auto first = make();
+    REQUIRE(first->push_layer("base", base));
+    REQUIRE(first->push_layer("top", top));  // sees WIDE, replayed or parsed
+    CHECK(first->get<int>("screen.width") == 2560);
+    CHECK(first->get<int>("speed") == 3);
+    if constexpr (kShipping) {  // shipping writes no caches, and reads the text without one
+        CHECK(writes == 0);
+        return;
+    }
+    CHECK(writes == 2);  // one cache per layer
+    CHECK(std::distance(fs::directory_iterator(cache_dir), fs::directory_iterator()) == 2);
+
+    // Another Config reads both layers from their caches, with the same values and sources.
+    auto second = make();
+    REQUIRE(second->push_layer("base", base));
+    REQUIRE(second->push_layer("top", top));
+    CHECK(writes == 2);
+    CHECK(second->get<int>("screen.width") == 2560);
+    CHECK(second->get<int>("speed") == 3);
+    CHECK(ok(second->source("speed")).file == Symbol(dir.path("tuning.dta")));
+    CHECK(ok(second->source("screen.width")).layer == Symbol("top"));
+
+    if constexpr (!kShipping) {
+        // A changed include is read from text on reload, and its layer's cache rewritten.
+        dir.write("tuning.dta", "(speed 4)");
+        REQUIRE(second->reload());
+        CHECK(second->get<int>("speed") == 4);
+        CHECK(writes >= 3);
+        const int after = writes;
+        auto third = make();
+        REQUIRE(third->push_layer("base", base));
+        CHECK(third->get<int>("speed") == 4);
+        CHECK(writes == after);
+    }
+
+    // Edit mode reads text, and writes no cache.
+    Config edit({.edit_mode = true, .tweaks = nullptr, .cache_dir = cache_dir});
+    edit.set_writer([&](std::string_view, std::string_view) {
+        ++writes;
+        return true;
+    });
+    const int before = writes;
+    REQUIRE(edit.push_layer("base", base));
+    CHECK(writes == before);
+}
