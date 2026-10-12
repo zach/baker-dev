@@ -137,7 +137,8 @@ if(MOIRA_BUILD_SCRIPT)
     src/script/builtins.cpp
     src/script/context.cpp
     src/script/object.cpp
-    src/script/reference.cpp)
+    src/script/reference.cpp
+    src/script/task.cpp)
   add_library(moira::script ALIAS moira_script)
   moira_configure_library(moira_script)
   target_link_libraries(moira_script PUBLIC moira::data)
@@ -198,6 +199,9 @@ if(MOIRA_BUILD_BENCH)
   add_executable(moira_bench_lookup bench/bench_lookup.cpp)
   target_link_libraries(moira_bench_lookup PRIVATE moira::data)
   if(MOIRA_BUILD_SCRIPT)
+    add_executable(moira_bench_tasks bench/bench_tasks.cpp tests/support/alloc_counter.cpp)
+    target_include_directories(moira_bench_tasks PRIVATE tests/support)
+    target_link_libraries(moira_bench_tasks PRIVATE moira::script)
     add_executable(moira_bench_call bench/bench_call.cpp tests/support/alloc_counter.cpp)
     target_include_directories(moira_bench_call PRIVATE tests/support)
     target_link_libraries(moira_bench_call PRIVATE moira::script)

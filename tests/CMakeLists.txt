@@ -41,6 +41,7 @@ if(MOIRA_BUILD_SCRIPT)
     script/test_messages.cpp
     script/test_object.cpp
     script/test_stats.cpp
+    script/test_tasks.cpp
     support/alloc_counter.cpp)
   target_link_libraries(moira_script_tests PRIVATE moira::script moira_doctest_main)
   target_include_directories(moira_script_tests PRIVATE support)

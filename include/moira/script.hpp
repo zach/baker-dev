@@ -47,6 +47,7 @@
 namespace moira {
 
 class Context;
+class Scheduler;
 class ObjectBase;
 namespace detail {
 struct TypeRecord;
@@ -648,6 +649,11 @@ public:
     // Parses `text` and evaluates each top-level node in order, returning the last value
     // (Int 0 if there is none). The entry point for consoles and remote commands.
     [[nodiscard]] Expected<Node> eval(std::string_view text, std::string_view name = "<eval>");
+
+    // --- Tasks (task.hpp). ---
+
+    // The default Scheduler, made on first use from the Context's allocator.
+    [[nodiscard]] Scheduler& scheduler();
     // Evaluates each node of `nodes` in order and returns the last value: runs a script.
     [[nodiscard]] Expected<Node> run(std::span<const Node> nodes);
 

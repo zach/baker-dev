@@ -4,6 +4,7 @@
 
 #include <moira/object.hpp>
 #include <moira/script.hpp>
+#include <moira/task.hpp>
 
 #include "common/containers.hpp"
 
@@ -246,6 +247,8 @@ struct Context::Impl {
     uint64_t* child_ns = nullptr;  // the innermost timed call's time spent in its callees
     Context::TraceSink trace_sink = nullptr;
     void* trace_user = nullptr;
+
+    Own<Scheduler> scheduler;  // the default one, made on first use
 };
 
 // Restores every variable bound since it was made: dynamic scope, undone even on error.

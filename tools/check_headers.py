@@ -16,7 +16,7 @@ ALLOWED = {
     # language support and trivial C headers
     "cstddef", "cstdint", "climits", "cstdlib", "cstring", "cassert", "type_traits",
     "new", "bit", "atomic", "initializer_list", "compare", "concepts", "utility", "limits",
-    "version",
+    "version", "coroutine",
     # header-only, non-allocating vocabulary types (D55)
     "string_view", "span", "optional", "expected",
 }

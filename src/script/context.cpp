@@ -424,6 +424,8 @@ Context::Context(const Allocator& allocator)
 }
 
 Context::~Context() {
+    // Tasks first: their frames' destructors may still use the Context and its objects.
+    impl_->scheduler = Own<Scheduler>();
     // Objects the Context created are deleted; the others just forget it.
     for (Impl::Slot& s : impl_->slots) {
         if (!s.object) continue;

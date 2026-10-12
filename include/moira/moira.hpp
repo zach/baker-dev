@@ -13,6 +13,7 @@
 #include <moira/script.hpp>
 #include <moira/source_map.hpp>
 #include <moira/symbol.hpp>
+#include <moira/task.hpp>
 #include <moira/tweak.hpp>
 #include <moira/version.hpp>
 #include <moira/write.hpp>
