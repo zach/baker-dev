@@ -1866,3 +1866,17 @@ done, and `docs/m7-plan.md` is deleted.*
   script side and its tests of the sync point took the difference. That leaves 874 lines
   for M8 (~400) and M10's core instrumentation; M8's plan must say what M10 gives up if it
   overruns, or ask to raise the budget.
+
+## D69. The line budget is 15,000
+
+*Deviates from spec §0 again; supersedes D48's number. Decided by the project owner
+2026-10-12, after M7.*
+
+M7 brought the core to 9,126 lines (D68), leaving 874 of 10,000 for M8 (~400) and M10's
+core instrumentation. The soft budget for the core is now 15,000 non-test, non-comment
+lines. The spec and `tools/count_lines.py` say so. The rest of D2, D40, and D48 stands:
+- the budget is reported, not enforced;
+- each milestone records its count;
+- disproportionate growth is still called out: M7 ran 30% over its estimate;
+- M10's fallback (move the repetition report into a separate tool) applies at the new
+  number.
