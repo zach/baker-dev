@@ -1,14 +1,14 @@
 # Game Stacks on Moira
 
 Six prototype development environments ("stacks") built around Moira, one per kind of
-creative work, for focused agent-assisted development. Every game targets PS4, Windows PC,
-and Switch 2.
+creative work, for focused agent-assisted development. Every game targets Windows PC only,
+for now; §10 keeps what a later console port would need.
 
 Oct 13, 2026. A design proposal; §9 records what the owner has decided and what is open.
 
 Companion to `harness-tree-vision.md` (layers L0–L4, the four properties of a harness),
 `reading-a-studio.md` (loop telemetry, the harness register), and `pushing-up.md`. Code in
-`.dta` blocks follows `docs/language.md`; the vocabulary in it (`fight.`, `econ.`, and
+`.dta` blocks follows `docs/language.md`; the vocabulary in it (`duel.`, `econ.`, and
 so on) is illustrative, not a spec.
 
 ---
@@ -29,9 +29,10 @@ L4  Instance                       levels, fights, tracks, missions, price table
 
 Three rules hold for every stack:
 
-1. **The loop comes first, on target hardware.** No stack's vocabulary is worth building
-   until an edit to a `.dta` file shows on a PS4 and a Switch 2 devkit in seconds (vision
-   doc §5, phase 1). §1 explains why both consoles, not just the PC.
+1. **The loop comes first, on the minimum-spec PC.** No stack's vocabulary is worth
+   building until an edit to a `.dta` file shows in the running game in under a second
+   (vision doc §5, phase 1), measured on the slowest machine the game supports, not the
+   developer's workstation.
 2. **An agent works where a gardener works: L3 and L4, in data.** It writes packs,
    instance files, scenarios, and metrics. It does not edit L0–L2 C++. When it needs a
    word only C++ can provide, that is a push-up, written as a stub (`(status stub)`) that
@@ -42,60 +43,39 @@ Three rules hold for every stack:
 
 ---
 
-## 1. What the three platforms imply
+## 1. What Windows PC alone implies
 
-| | PS4 | Switch 2 | Windows PC |
+**One platform, a range of machines.** The constraint moves from a platform's floor to a
+**minimum-spec PC**, which the owner sets (§9). A working proposal: a 4-core, 8-thread
+x86-64 CPU from about 2019, 16 GB of RAM, a D3D12-class GPU with 4 GB, an SSD, Windows 10
+or 11. Every stack's budget in §4 is a starting point to measure on that machine from the
+first week; a fast workstation hides CPU problems until they are expensive.
+
+**Input.** Mouse and keyboard, and a gamepad (XInput and others, through SDL3). Each stack
+says which comes first: a tycoon game is played with a mouse, a racing or fighting game
+with a pad.
+
+**Toolchain.** MSVC 2022, which Moira's CI already builds and tests (C++20 and
+C++latest); clang-cl as a second compiler if a stack wants one. No porting gate: Moira's
+C++20 coroutines and designated initializers already pass on MSVC.
+
+**The base engine.** The owner chose a thin C++ base of our own (§9) when PS4 was a
+target and ruled out Unreal Engine 5. With PC alone, UE5 is possible again (it has
+defaulted to C++20 since 5.3, so Moira could live in a plugin), as are Unity and Godot. The
+thin base still fits these stacks best:
+
+| | A. Thin C++ base (chosen) | B. Unreal Engine 5, Moira in a plugin | C. Unity or Godot, Moira for data |
 |---|---|---|---|
-| CPU | 8 × AMD Jaguar, 1.6 GHz, two 4-core clusters, x86-64 (Pro: 2.1 GHz) | 8 × Arm Cortex-A78C, clocked low, Arm64 | x86-64, wide range |
-| Memory | 8 GB GDDR5 shared; roughly 5 GB for the game | 12 GB LPDDR5X shared | Varies; set a floor spec |
-| Storage | 5400 rpm HDD on the base model | Game card or internal flash | Assume a SATA SSD |
-| Modes | One | Docked and handheld, switched at run time | Many resolutions |
-| Native graphics API | Sony's, under NDA | Nintendo's, under NDA | D3D12 or Vulkan |
+| Moira's one-line `Tweak` | Everywhere | In C++ gameplay code; Blueprints need a binding | Only in native plugins |
+| Determinism (fighting, racing, puzzle replays) | Ours to guarantee | Hard: Chaos physics and tick order are not ours | Hard, for the same reason |
+| Headless runner for agents | By construction | Possible (`-nullrhi`, commandlets), heavy to start | Batch mode, heavy to start |
+| Agent fit | Text all the way down | Assets are binary `.uasset`s | Scenes are YAML (Unity) or text (Godot) |
+| Time to first playable | Slowest: weeks for the base, shared by six stacks | Fast | Fastest |
+| Acton review (`.claude/skills/acton-review`) | Passes by construction | A large engine around a small library | A managed runtime or a variant type in the core loop |
 
-Platform specifics beyond the public figures above are under NDA; every "verify" below
-means verify with the platform holder's current SDK documentation.
-
-**PS4 is the floor.** Its CPU is the weakest of the three per core, and every stack here is
-CPU-bound before it is GPU-bound: physics, AI, simulation ticks, and script. Set each
-stack's simulation budget on the base PS4 and measure it there from the first week. The
-budgets in §4 are starting points to validate, not measurements.
-
-**Switch 2 is the variant.** Arm64 and a second performance mode. Handheld mode becomes a
-Moira layer the game toggles when the console undocks (§2.3), so one data set serves both
-modes.
-
-**What this rules out.** Unreal Engine 5 does not target PS4; UE 4.27 does, but it is a
-frozen engine built around C++17, and Moira needs C++20. That leaves three paths:
-
-| | A. Thin C++ base (recommended) | B. Unity host, Moira for data | C. Godot host via a porting partner |
-|---|---|---|---|
-| Moira's one-line `Tweak` | Yes, everywhere | Only in native plugins; C# code gets a binding layer | Only in GDExtension code |
-| Console support | Middleware below, each console-proven; we own the integration | Unity's; confirm the version's PS4 and Switch 2 support | A third-party port; PS4 coverage varies by partner |
-| Determinism (fighting, racing, puzzle replays) | Ours to guarantee; Jolt has a cross-platform deterministic mode | Hard: engine physics and update order are not ours | Hard, for the same reason |
-| Time to first playable | Slowest: weeks for the base, shared by six stacks | Fastest | Fast |
-| Acton review (`.claude/skills/acton-review`) | Passes by construction | A managed runtime in the core loop | A scene tree and a variant type in the core loop |
-| Agent fit | Text all the way down; headless by construction | Scenes and prefabs are binary or YAML; headless needs batch mode | Text scenes; headless works |
-
-The owner chose **A** (§9). B is the hedge if the base slips: Moira then holds the data
-(shapes, layers, provenance, write-back, `check`) and the stacks keep most of §3, but lose
+So A stands. B or C is the hedge if the base slips: Moira then holds the data (shapes,
+layers, provenance, write-back, `check`) and the stacks keep most of §3, but lose
 determinism and the one-line promise in gameplay code.
-
-### Gate 0: the PS4 toolchain and C++20
-
-Moira requires C++20. `moira::script` uses coroutines (`include/moira/task.hpp`), and the
-API uses designated initializers. Before anything else, build Moira's test suite with the
-PS4 SDK's compiler and library and run it on a devkit. If coroutines are not available
-there, the fallbacks, in order of preference:
-
-1. A newer PS4 SDK whose compiler supports them.
-2. `MOIRA_BUILD_SCRIPT=OFF` on PS4 (data, config, tweaks, and the cache still work; the
-   script layer, and with it script tasks, does not), which costs four of the six stacks
-   most of their L3 harnesses on PS4. Bad, but it shows early.
-3. A Moira change: a task implementation that does not need coroutines. That is a spec
-   deviation and goes to `docs/decisions.md`.
-
-The same gate covers the Switch 2 toolchain, where the risk is lower. MSVC, GCC 13, and
-Clang 18 already pass CI.
 
 ---
 
@@ -103,73 +83,62 @@ Clang 18 already pass CI.
 
 ### 2.1 Components
 
-Everything is permissively licensed or a console-standard commercial product, and has
-shipped on consoles. Recorded in each stack's `THIRD_PARTY.md`.
+Everything is permissively licensed and recorded in each stack's `THIRD_PARTY.md`.
 
 | Need | Choice | Licence | Notes |
 |---|---|---|---|
 | Data, tuning, script | Moira | MIT | L0. `moira::moira`; `MOIRA_SHIPPING` in release. |
 | Containers | Moira's (`MOIRA_USE_EASTL` if the base adopts EASTL) | MIT / BSD-3 | One container family across base and Moira. |
-| Platform layer (window, input, files, threads) | SDL3 on PC; a thin layer of our own over each console SDK | zlib | SDL's console ports go to registered developers; verify before relying on them. |
-| Rendering | The Forge or bgfx | Apache-2.0 / BSD-2 | Both supply console back ends to platform licensees; confirm Switch 2 coverage. Prototypes need little: lit meshes, debug lines, text. |
-| Physics | Jolt Physics | MIT | Shipped on PS4 and PS5 in *Horizon Forbidden West*. Build with `JPH_CROSS_PLATFORM_DETERMINISTIC` for the stacks that replay (§4). |
+| Platform layer (window, input, gamepads, files, threads) | SDL3 | zlib | Keeps Win32 types out of game code (§10). |
+| Rendering | bgfx | BSD-2 | D3D11, D3D12, and Vulkan back ends. Prototypes need little: lit meshes, debug lines, text. |
+| Physics | Jolt Physics | MIT | Build with `JPH_CROSS_PLATFORM_DETERMINISTIC` for the stacks that replay (§4). |
 | Navigation | Recast/Detour | zlib | Behaviour and exploration stacks. |
-| Audio | FMOD or Wwise | Commercial | Both certified on all three platforms; choose by studio licence. |
-| Tools UI | Dear ImGui | MIT | Moira's `examples/harness-imgui` panels (Tweaks, Shapes, Console, Loop, Layers) are the starting point. |
-| Profiling | Tracy on PC; the platform profilers on devkits | BSD-3 | |
-| Build | CMake presets: `pc`, `ps4`, `switch2`, each × `dev`, `shipping` | | Console toolchain files come from the SDKs. |
+| Audio | miniaudio | MIT-0 / public domain | Enough for prototypes; FMOD or Wwise when a stack needs authored audio. |
+| Tools UI | Dear ImGui | MIT | Moira's `examples/harness-imgui` panels (Tweaks, Shapes, Console, Loop, Layers) are the starting point; it already builds with MSVC in CI. |
+| Profiling | Tracy | BSD-3 | |
+| Build | CMake presets: `dev`, `shipping` | | MSVC 2022. |
 
 **No ECS framework in the base.** Each system owns plain arrays of its own data, laid out
 for its own loop. An ECS can come later in a stack that shows it needs one; it is easy to
 add and hard to remove (Acton review, "entanglement").
 
-### 2.2 The loop on a devkit
+### 2.2 The loop
 
-Moira owns no I/O; the base supplies it. One mechanism serves all three platforms:
+Moira owns no I/O; the base supplies it.
 
-- **Files.** The base sets the session's reader (`LoadSession::set_reader`) and the
-  Config's writer (`Config::set_writer`) to a **host link**: a small server on the
-  developer's PC that serves the project's `data/` over the devkit's network connection.
-  On PC the default local filesystem reader is used.
-- **Change notification.** The host link watches `data/` and sends "changed" with the
-  save time. The game calls `cfg.reload({.trigger = "watcher", .origin_ns = t})` at the
-  start of the next frame and `cfg.mark_visible()` when that frame presents, so
-  `loop_stats()` reports edit-to-feel time per file on each console.
-- **Console.** `examples/remote-console`, bound to the devkit's development interface
-  instead of loopback, in `dev` builds only. The agent and the ImGui console both use it.
-- **Write-back.** A value tuned on the devkit (panel or console) is written back through
-  the host link to the file and line it came from: a one-line diff on the PC.
+- **Change notification.** A directory watcher in the base (`ReadDirectoryChangesW`,
+  behind the platform layer) notes each saved file with its save time. The game calls
+  `cfg.reload({.trigger = "watcher", .origin_ns = t})` at the start of the next frame and
+  `cfg.mark_visible()` when that frame presents, so `loop_stats()` reports edit-to-feel
+  time per file.
+- **Console.** `examples/remote-console`, on loopback as it is, in `dev` builds only. The
+  agent and the ImGui console both use it.
+- **Write-back.** A value tuned in the running game (panel or console) is written back to
+  the file and line it came from, through the default local writer: a one-line diff.
 
-**Acceptance for the base:** a float tweak edited on the PC is visible on the PS4 and the
-Switch 2 in under two seconds, median, measured by `loop_stats()`, and a value tuned on
-each devkit writes back to the right line.
+**Acceptance for the base:** on the minimum-spec PC, a float tweak edited in a text editor
+is visible in the running game in under one second, median, measured by `loop_stats()`;
+and a value tuned in the game writes back to the right line.
 
 ### 2.3 Layers, levels, and defines
 
 Every stack uses the same layer stack, bottom to top:
 
 ```
-default        data/default.dta          the game, every platform
-platform       data/platform/ps4.dta     one of ps4, switch2, pc; picked at start
-handheld       data/platform/handheld.dta   Switch 2 only; toggled on undock, optional
+default        data/default.dta          the game
 local          data/local.dta            per developer, ignored by version control, optional
 agent          data/agent.dta            the agent's experiments (§3.3), optional
 scratch        (Moira's)                 unsaved live edits
 ```
 
-- `cfg.session().define("PS4")` (or `SWITCH2`, `PC`) before the layers, for the rare
-  `#ifdef`; most platform differences belong in the `platform` layer, where `source()`
-  can show them.
-- `cfg.toggle_layer("handheld")` when the console docks or undocks. A Config runs its
-  validators after a toggle, so a handheld value out of a shape's range is reported.
 - `cfg.session().set_pack_levels({"engine", "game", "task"})`: L1, L2, L3. Instance data
   declares no pack.
-- **Shipping.** The same stack, baked with `moira_bake` in the build, once per platform's
-  define set. All three targets are 64-bit and little-endian, so one bake per define set
-  serves its console (D105). `MOIRA_SHIPPING` makes reload, toggles, and live edits
-  inert, so the handheld toggle in a shipped Switch 2 build switches between two baked
-  Configs instead (or `live_layers`, if the game freezes its Config); decide per stack
-  before the first submission build.
+- Graphics quality presets are game settings, not layers; a stack that needs a
+  minimum-spec profile for its simulation (fewer characters, shorter view distance) adds
+  an optional `spec/low.dta` layer and toggles it with `cfg.toggle_layer`, which also
+  re-runs the validators.
+- **Shipping.** The same stack, baked with `moira_bake` in the build and loaded through
+  `ConfigOptions::cache_dir`; under `MOIRA_SHIPPING`, reload and live edits are inert.
 
 ### 2.4 Repository shape
 
@@ -183,7 +152,7 @@ packs/task/      L3 packs: workbenches (level task)       agent-writable, unrevi
 data/            L4 instance data and the layer files     agent.dta only; the rest by PR
 sim/             headless runner; scenarios/*.dta          agent-writable, unreviewed
 metrics/         objectives, as data                       agent proposes by PR
-tools/           host link, agent tool server
+tools/           agent tool server
 .claude/         CLAUDE.md and skills: the stack's vocabulary and loop, for the agent
 ```
 
@@ -202,7 +171,7 @@ fixed timestep as fast as the CPU allows. It takes the same layer stack, a scena
 seed:
 
 ```
-sim --layers default,platform/ps4,agent --scenario sim/scenarios/warden_p3.dta \
+sim --layers default,agent --scenario sim/scenarios/warden_p3.dta \
     --seeds 1-200 --out runs/2026-10-13T1405/
 ```
 
@@ -211,8 +180,11 @@ from, then commands, driven by a fixed-step scheduler. A recorded play session i
 scenario; so is a bot's run. Output is `.dta`, one file per run plus a summary, so the
 agent reads results with the same tools it reads the game's data with.
 
-The runner is what makes agent work trustworthy. It runs on PC and in CI, and the same
-binary, built for each devkit, runs the same scenario there to catch platform divergence.
+The runner is what makes agent work trustworthy. It runs on developers' PCs and in CI on
+Windows runners, built by the same compiler with the same floating-point flags as the
+game (`/fp:precise`, no fast-math), so a scenario that passes in CI replays the same way in
+the game. A Linux build of the runner, for cheaper CI, is a determinism claim across
+compilers and has to be proven per stack before it is relied on.
 
 ### 3.2 Metrics as data
 
@@ -239,11 +211,11 @@ None of this needs a change to Moira:
 |---|---|
 | `check` | `moira::check` with `{.packs = &cfg.session()}`, and `to_json` (`docs/check-json.md`): errors, one-way warnings, demand, repetition, single-owner findings |
 | `reference` | `moira::reference`: every function, shape, pack, and generated file; the vocabulary the agent may use |
-| `eval` | The remote console, on PC or a devkit |
+| `eval` | The remote console, on loopback |
 | `source` | `cfg.source(path)`: where a value came from, origin included |
 | `run` | The headless runner (§3.1) |
 | `loop`, `journal` | `cfg.loop_stats()`, `cfg.journal()`, `cfg.unsaved()` |
-| `capture` | A screenshot or short clip from a running devkit, for a human or a vision model |
+| `capture` | A screenshot or short clip from the running game, for a human or a vision model |
 | `propose` | Writes a change to `data/agent.dta` (or a new pack), reloads, and runs `check` |
 | `diff` | `cfg.layer_effect("agent")`, `cfg.diff(a, b)`: exactly what the agent layer changes |
 | `promote` | `cfg.promote("agent", "default")`: writes the agent layer's effect into the target layer's file, all or nothing. **Human approval required.** |
@@ -260,7 +232,7 @@ goes through review like any other change.
 3. `check`: no errors, no new one-way warnings, no new demand it did not intend.
 4. `run`: the stack's scenarios over a seed range, before and after; compare objectives.
 5. Report to the human: what changed, which objectives moved, what to look at, and how to
-   see it on a devkit (`toggle_layer("agent")`).
+   see it in the running game (`toggle_layer("agent")`).
 6. The human plays it and tunes it live. Their edits land in `scratch` and the journal;
    the agent reads the journal to learn what the human changed after it.
 7. `promote` on approval.
@@ -277,8 +249,8 @@ and L3 task packs. Metrics, L2 packs, and promotion go by pull request.
 ## 4. The six stacks
 
 Each section gives the creative question the stack exists to answer, what it adds to the
-base, its L2 and L3 vocabulary, an instance sample, the agent's loop, and the platform
-concerns that bite first.
+base, its L2 and L3 vocabulary, an instance sample, the agent's loop, and what bites first
+on PC.
 
 ### 4.1 Contraption: physics-based puzzle levels
 
@@ -324,24 +296,24 @@ whether the solution still works.
 ```
 
 **Agent loop.**
-- *Solvability:* run the `intended` solution as a scenario; it must reach the goal on every
-  platform build, bit for bit.
+- *Solvability:* run the `intended` solution as a scenario; it must reach the goal in the
+  runner and in the game, bit for bit.
 - *Cheese search:* a search over the tray (random restarts, then local search over
   placements) looking for solutions with fewer pieces than intended, or none at all. Each
   find is a scenario file a designer can watch.
-- *Robustness:* perturb the intended placements by the precision a controller allows;
-  report the fraction that still solve. Fiddly levels show up as a low number.
+- *Robustness:* perturb the intended placements by the precision the input allows (a
+  mouse with grid snapping, and a gamepad cursor); report the fraction that still solve.
+  Fiddly levels show up as a low number.
 - *Generation:* propose variants of a level by mutating its pieces, keeping the ones
   that stay solvable, uncheesed, and robust, for a designer to play.
 
 **Metrics.** Solved by intended (pass/fail); minimum pieces found; robustness at ±5 mm
 and ±2°; ticks to settle.
 
-**Platforms.** Determinism across x86-64 and Arm64 is the hard requirement. Jolt's
-cross-platform deterministic build exists for this; prove it with the same scenario run
-on all three platforms in CI on day one, compiled with the base's floating-point flags
-(no fast-math, no FMA contraction unless every platform does the same). Budget a start
-of 300 active bodies at 60 Hz on base PS4.
+**On PC.** Mouse first. Replays must match between the runner and the game: one compiler,
+one set of floating-point flags, and a CI job that replays every level's intended
+solution through both. Start with a budget of 500 active bodies at 60 Hz on the
+minimum-spec CPU.
 
 **Push-up signals.** Pieces with behaviour (magnets, conveyors, portals) are native
 functions; a designer asking for them in data appears in the demand report.
@@ -353,8 +325,7 @@ the fortieth hour, with no dominant strategy, no dead ends, and a pace the desig
 intends?
 
 **Adds to the base.** No physics. A tick-based economy simulator in C++ (goods, recipes,
-buildings, demand, prices, upkeep), and bot players with parameterized strategies. UI
-built for controllers first, since two of three targets have no mouse.
+buildings, demand, prices, upkeep), and bot players with parameterized strategies.
 
 **L2: game harness.** Shapes over goods, buildings, and recipes; natives for price and
 demand curves. Keyed children are not reached by shapes (D85), so data a shape should
@@ -410,9 +381,8 @@ scaling.
 strategy (none); unused buildings at hour 10 (none); money supply growth per hour (within
 a band).
 
-**Platforms.** Light on CPU, heavy on UI and on save data: budget save size and save
-time per platform early, and test text and UI scale in handheld mode, where the screen
-is small.
+**On PC.** Mouse and keyboard first: dense UI, tooltips, hotkeys. Light on CPU, so the
+minimum spec is rarely the constraint; save size and save time on a long game are.
 
 **Push-up signals.** Market behaviours that need simulation (competitors, events) start
 as script functions; the repetition report shows when designers are hand-building the
@@ -471,10 +441,11 @@ test households.
 **Metrics.** Stuck, oscillating, and starving events per character-day (zero);
 routine entropy (in band); share of objects used (above a floor).
 
-**Platforms.** The PS4 CPU is the constraint. Score at a staggered decision rate (each
-character re-decides a few times a second, not every frame), keep scoring native, and
-measure a Moira native call on the Jaguar against the 28–31 ns measured on the
-development Xeon. Start with a budget of 60 characters on screen at 30 Hz on base PS4.
+**On PC.** CPU is the constraint, on the minimum-spec machine. Score at a staggered
+decision rate (each character re-decides a few times a second, not every frame), keep
+scoring native, and spread households across worker threads, each with its own Moira
+`Context` (a Config is changed from one thread; others read its `root()`). Start with a
+budget of 150 characters at full simulation on the minimum-spec CPU.
 
 **Push-up signals.** A script function called every frame, or a designer writing scoring
 logic in script, appears in a profile; move it native.
@@ -534,11 +505,11 @@ current save.
 **Metrics.** Softlocks (zero); unreachable objectives (zero); longest stretch without a
 discovery, per bot style (under a target); mission completion time against the design.
 
-**Platforms.** Streaming on the base PS4's hard drive is the risk: set cell size and
-streaming radius by its seek time and bandwidth, and test traversal at the fastest
-movement speed. Load mission data with the world cell (each region's missions a file the
-cell loads through the same session), and keep the full mission graph in memory for the
-director: it is small.
+**On PC.** With an SSD in the minimum spec, streaming is a memory budget more than a
+bandwidth one: stream by cell anyway, so memory stays bounded as the world grows and
+iteration loads stay short. Load mission data with the world cell (each region's
+missions a file the cell loads through the same session), and keep the full mission
+graph in memory for the director: it is small.
 
 **Push-up signals.** Objectives that need spatial queries the natives lack (line of
 sight, "within the storm") appear as demand.
@@ -593,9 +564,10 @@ canyon_jump}` to spawn an AI driver; a ghost of the best lap.
 **Metrics.** Valid (pass/fail); crash rate per piece for the medium AI (under a ceiling);
 airtime share (in band); lap-time spread between AI levels (in band).
 
-**Platforms.** Racing wants 60 frames per second on every target, including base PS4
-and Switch 2 handheld: budget vehicle physics with substeps, and few AI cars on screen.
-Ghosts and replays must match across platforms, so the same determinism proof as 4.1.
+**On PC.** Gamepad first (analog steering and throttle), keyboard supported. Run physics
+at a fixed rate and interpolate rendering, so high-refresh displays look smooth without
+changing the simulation; hold 60 frames per second on the minimum spec. Ghosts must match
+between the runner and the game, as in 4.1.
 
 **Push-up signals.** Pieces with behaviour (boost pads, moving platforms) are natives.
 
@@ -657,10 +629,11 @@ so a designer compares difficulties in one session.
 **Metrics.** Infinites (zero); maximum combo damage (under a ceiling); CPU win rate per
 difficulty against each bot (in band); reaction floor (respected).
 
-**Platforms.** Input latency is the feel: lock 60 Hz on every target, with no frame
-between input poll and simulation; measure input-to-photon on each console and in each
-Switch 2 mode. The simulation is light, so PS4 is not the constraint here; display and
-controller latency are.
+**On PC.** Input latency is the feel, and PC adds variables a console does not have:
+present modes, display refresh rates, and many controllers (pads and arcade sticks through
+SDL3). Poll input immediately before each simulation step, keep the simulation at exactly
+60 Hz whatever the display does, and measure input-to-photon with a high-speed camera on
+the minimum spec and on a high-refresh display. The simulation itself is light.
 
 **Push-up signals.** Move properties the simulation does not yet have (armour,
 invincibility frames, projectiles) appear as undeclared fields in `check` (warnings) and as
@@ -670,14 +643,14 @@ demand.
 
 ## 5. The six at a glance
 
-| Stack | Game | Deterministic replay | Physics | Navigation | Headless metric that matters most | Platform that bites first |
+| Stack | Game | Deterministic replay | Physics | Navigation | Headless metric that matters most | What bites first on PC |
 |---|---|---|---|---|---|---|
-| Contraption | Physics puzzle | Required, cross-platform | Jolt rigid bodies | — | Cheese search: fewest pieces that solve | Determinism, x86-64 against Arm64 |
-| Ledger | Tycoon economy | Seeded, per platform | — | — | Dominant strategy across bot styles | Controller UI, handheld text size |
-| Hearth | Behaviour simulation | Seeded, per platform | — | Recast/Detour | Stuck, oscillating, starving events | PS4 CPU |
-| Wayfarer | Free-roaming exploration | Seeded, per platform | Jolt (character) | Recast/Detour | Softlocks; time between discoveries | PS4 HDD streaming |
-| Stuntline | Stunt racing | Required, cross-platform | Jolt vehicles | — | Crash rate per piece; airtime | 60 Hz on PS4 and handheld |
-| Duel | Fighting vs CPU | Required, cross-platform | Boxes only | — | Infinites; CPU win rate per difficulty | Input latency |
+| Contraption | Physics puzzle | Required: runner and game agree | Jolt rigid bodies | — | Cheese search: fewest pieces that solve | Replays matching across builds |
+| Ledger | Tycoon economy | Seeded | — | — | Dominant strategy across bot styles | Save size and time on long games |
+| Hearth | Behaviour simulation | Seeded | — | Recast/Detour | Stuck, oscillating, starving events | Minimum-spec CPU |
+| Wayfarer | Free-roaming exploration | Seeded | Jolt (character) | Recast/Detour | Softlocks; time between discoveries | Memory as the world grows |
+| Stuntline | Stunt racing | Required: runner and game agree | Jolt vehicles | — | Crash rate per piece; airtime | 60 Hz on the minimum spec |
+| Duel | Fighting vs CPU | Required: runner and game agree | Boxes only | — | Infinites; CPU win rate per difficulty | Input latency across displays |
 
 Shared modules worth building once, in the base or a shared L1 library: the deterministic
 fixed-step core (Contraption, Stuntline, Duel); Jolt integration (Contraption, Wayfarer,
@@ -687,16 +660,15 @@ Stuntline); navigation (Hearth, Wayfarer); bot drivers and the runner's statisti
 
 ## 6. Order of work
 
-1. **Gate 0** (§1): Moira's tests on PS4 and Switch 2 devkits. Days.
-2. **The base and its loop** (§2), with one trivial game (a cube and a tweak), on all three
-   platforms, meeting the two-second acceptance. Then the agent harness (§3) on that
+1. **The base and its loop** (§2), with one trivial game (a cube and a tweak), meeting the
+   one-second acceptance on the minimum-spec PC. Then the agent harness (§3) on that
    trivial game.
-3. **Duel and Ledger first.** Both are small, need no streaming, and have the clearest
+2. **Duel and Ledger first.** Both are small, need no streaming, and have the clearest
    headless metrics; Duel proves the deterministic core and Ledger proves the spreadsheet
    path and bot Monte Carlo. They exercise the two ends of the agent loop: tight numeric
    search and long statistical soak.
-4. **Contraption and Stuntline** next: both reuse Duel's deterministic core and add Jolt.
-5. **Hearth and Wayfarer** last: the largest worlds, the most native code, the most
+3. **Contraption and Stuntline** next: both reuse Duel's deterministic core and add Jolt.
+4. **Hearth and Wayfarer** last: the largest worlds, the most native code, the most
    content.
 
 At each step, run the audit from `reading-a-studio.md` §7 on the stacks in use: the
@@ -707,37 +679,34 @@ from `check`. Record results the way Moira's own steps are recorded: with number
 
 ## 7. Risks
 
-- **Gate 0 fails on PS4.** §1 lists the fallbacks; the worst costs PS4 its script layer.
-- **Determinism across Arm64 and x86-64.** Proven per stack in CI, not assumed. If Jolt's
-  deterministic mode does not hold for a stack's use, Duel's model (our own fixed-point
-  or integer simulation) is the fallback for Contraption; Stuntline would need the same.
-- **Console middleware access.** Renderer and platform-layer console back ends depend on
-  licensee programmes; confirm before committing to The Forge or bgfx, and to SDL3.
+- **Budgeting on a fast workstation.** Every stack measured only on developers' machines
+  will miss the minimum spec. Keep one minimum-spec PC in the loop from week one.
+- **Determinism between the runner and the game.** Proven per stack in CI, not assumed:
+  one compiler, one set of floating-point flags. If Jolt's deterministic mode does not
+  hold for a stack's use, Duel's model (our own fixed-point or integer simulation) is the
+  fallback for Contraption; Stuntline would need the same.
 - **Agents overfit the metrics.** A level that passes every objective can still be dull.
-  Step 6 of §3.4 (a person plays it on a devkit) is not optional, and objectives change
-  apart from the data they judge.
+  Step 6 of §3.4 (a person plays it) is not optional, and objectives change apart from
+  the data they judge.
 - **The fled harness, again.** If designers export from their own spreadsheets around
   Ledger's workbench, `origin` makes it visible; treat it as a signal about the
   workbench, as the vision doc says.
 - **Single gardener.** A pack owned only by `"agent"` is reported by `check`; keep a
   person on every pack.
+- **PC-only habits that make a later port expensive.** §10 lists the few rules that keep
+  consoles cheap to add back.
 
 ---
 
 ## 8. What Moira needs
 
-Nothing in the core, as designed: every stack is built from what Moira already has
-(layers and toggles, shapes, packs and levels, `origin`, `check` and its JSON, the
-reference, the journal, `loop_stats`, `promote`, the reader and writer hooks, the remote
-console, the binary cache). Candidates that the stacks may surface, each to be pushed up
-only when a stack proves the need:
+Nothing in the core: every stack is built from what Moira already has (layers and toggles,
+shapes, packs and levels, `origin`, `check` and its JSON, the reference, the journal,
+`loop_stats`, `promote`, the remote console, the binary cache), and Moira already builds
+and tests with MSVC. One candidate, to be pushed up only when a stack proves the need:
 
-- **A host-link example** (`examples/host-link`): the reader and writer over a socket,
-  with change notification, which is §2.2. Outside the core, like `remote-console`.
 - **A headless-runner example**: a fixed-step scheduler driven from a scenario file, with
-  results written as `.dta`. Outside the core.
-- **Gate 0's outcome**, if coroutines are unavailable on PS4: a spec deviation, recorded in
-  `docs/decisions.md`.
+  results written as `.dta`. Outside the core, like `remote-console`.
 
 ---
 
@@ -745,16 +714,50 @@ only when a stack proves the need:
 
 Decided by the project owner, 2026-10-13:
 
-1. **The base engine:** A, the thin C++ base (§1, §2).
-2. **First stacks:** Duel and Ledger (§6, step 3).
-3. **Agent write scope:** without review, the `agent` layer, `sim/` scenarios, and L3 task
+1. **Platform:** Windows PC only, for now. PS4 and Switch 2 are deferred (§10).
+2. **The base engine:** A, the thin C++ base (§1, §2). Chosen while consoles were targets;
+   §1 rechecks it for PC alone, and it stands.
+3. **First stacks:** Duel and Ledger (§6, step 2).
+4. **Agent write scope:** without review, the `agent` layer, `sim/` scenarios, and L3 task
    packs (`packs/task/`). Metrics, L2 packs, and promotion into the real layers go by
    pull request. Every task pack the agent writes still names a person among its owners
    (§3.4).
 
 Still open:
 
-4. **Rendering middleware:** The Forge or bgfx, once their Switch 2 back ends are
-   confirmed.
-5. **Handheld mode in shipping builds:** two baked Configs, or a frozen Config with
-   `live_layers` for the `handheld` layer.
+5. **The minimum-spec PC** (§1): the working proposal is a 2019-era 4-core, 8-thread CPU,
+   16 GB of RAM, a 4 GB D3D12-class GPU, and an SSD.
+6. **Rendering:** bgfx is proposed (§2.1); direct D3D12 or another permissive renderer
+   would also serve prototypes.
+
+---
+
+## 10. If consoles return
+
+Notes from the first version of this document, which targeted PS4 and Switch 2, kept so
+a port starts informed:
+
+- **PS4 is the floor** for CPU (eight 1.6 GHz Jaguar cores) and storage (a 5400 rpm hard
+  drive on the base model); Switch 2 adds Arm64 and a handheld mode, which fits a Moira
+  layer toggled on undock.
+- **Gate 0:** build and run Moira's tests with each console SDK's compiler first. PS4's
+  support for C++20 coroutines (`moira::script` tasks) is unconfirmed; the fallbacks are a
+  newer SDK, `MOIRA_BUILD_SCRIPT=OFF` there, or a coroutine-free task implementation (a
+  spec deviation).
+- **Unreal Engine 5 does not target PS4**, which is why the base is our own; with PS4
+  out, that reason no longer applies (§1), but the others do.
+- **Devkits need a host link:** `LoadSession::set_reader` and `Config::set_writer` over
+  the devkit's network connection, with change notification from a watcher on the PC.
+- **Binary caches:** all three platforms are 64-bit and little-endian, so one bake per
+  define set serves each (D105).
+- **Cross-platform determinism** (x86-64 against Arm64) becomes a CI requirement for
+  Contraption, Stuntline, and Duel.
+
+What to do now so that a port stays cheap:
+
+- Keep Win32 and D3D types behind SDL3 and the renderer; game code never sees them.
+- Keep platform differences in data: a `platform` layer slots in below `local` later.
+- Build with `/fp:precise` and no fast-math, as determinism already requires.
+- Use Moira's containers (or EASTL) in engine code, not the STL directly.
+- Budget on the minimum spec, and keep the budgets in data, so a console's numbers are a
+  layer, not a rewrite.
