@@ -81,6 +81,10 @@ determinism and the one-line promise in gameplay code.
 
 ## 2. The base: shared by all six stacks
 
+*Built (D106): `stacks/base/`, with the cube game in `stacks/cube/`. Its README records
+what it holds and what was measured; Jolt, Recast/Detour, miniaudio, and Tracy wait for the
+first stack that needs them.*
+
 ### 2.1 Components
 
 Everything is permissively licensed and recorded in each stack's `THIRD_PARTY.md`.
@@ -142,7 +146,9 @@ scratch        (Moira's)                 unsaved live edits
 
 ### 2.4 Repository shape
 
-Each stack is one repository:
+Each stack will be one repository. Until the first stack is ready to move out, the base and
+the stacks live in this repository's `stacks/` directory, one CMake project over Moira
+(§9).
 
 ```
 engine/          the base (L1), shared: a submodule or package, versioned
@@ -662,7 +668,8 @@ Stuntline); navigation (Hearth, Wayfarer); bot drivers and the runner's statisti
 
 1. **The base and its loop** (§2), with one trivial game (a cube and a tweak), meeting the
    one-second acceptance on the minimum-spec PC. Then the agent harness (§3) on that
-   trivial game.
+   trivial game. *The base and the cube are built (D106); the measurement on the
+   minimum-spec PC and the agent harness are next.*
 2. **Duel and Ledger first.** Both are small, need no streaming, and have the clearest
    headless metrics; Duel proves the deterministic core and Ledger proves the spreadsheet
    path and bot Monte Carlo. They exercise the two ends of the agent loop: tight numeric
@@ -725,6 +732,7 @@ Decided by the project owner, 2026-10-13:
 5. **The minimum-spec PC** (§1): a 2019-era 4-core, 8-thread CPU, 16 GB of RAM, a 4 GB
    D3D12-class GPU, an SSD, and Windows 10 or 11.
 6. **Rendering:** bgfx (§2.1).
+7. **Where the code lives:** `stacks/` in this repository for now (§2.4).
 
 ---
 

@@ -3000,3 +3000,29 @@ skipped.*
   console. `.datb` is a memory image for one byte order and pointer size, refused on any
   other. Every current target shares one layout, so no format change: the cookbook's
   binary-cache section now says to bake for the target's layout.
+
+## D106. The game stacks' base
+
+*`docs/background/game-stacks.md` §2 and §6, step 1. Outside Moira: `stacks/` is a
+separate CMake project over this repository's Moira, and nothing in `src/` changed.*
+
+- **What.** `stacks/base/`: `Live` (the Config, the layers `default`, `local`, `agent`,
+  the shape and check validators, pack levels, and the file system's clock as the
+  Config's), `Watcher` (`ReadDirectoryChangesW` on Windows, inotify on Linux), `FixedStep`,
+  a bgfx renderer behind a small API, and `run`, the frame loop over SDL3 with Moira's
+  ImGui panels and remote console, both from `examples/` as they are. `stacks/cube/` is
+  the acceptance game: every value a tweak.
+- **The watcher, not polling.** Moira's harness example polls, reading and hashing every
+  file four times a second; that adds up to 250 ms to every edit and grows with the data.
+  The base reloads only after the system reports a saved `.dta` file, and passes the
+  file's write time as the reload's origin.
+- **Integer time.** `FixedStep` first summed seconds as doubles; its test found 59 steps at
+  144 Hz and 60 at 30 Hz for the same second. It counts nanoseconds now.
+- **Deferred.** Jolt, Recast/Detour, miniaudio, and Tracy (§2.1) come with the first stack
+  that needs them; Duel and Ledger need none.
+- **Measured** (debug, the development container, not the minimum-spec PC): save to the
+  next frame 0.2–0.3 ms headless; save to presented frame 16.6 ms with OpenGL and vsync
+  under Xvfb, one refresh; the reload itself 1.4 ms. Windows: a MinGW cross-build runs 9
+  of the 10 base test cases under Wine (the failure is a file saved in a subdirectory
+  that existed before watching began, which may be Wine's emulation of recursive
+  watches); CI builds and tests with MSVC.
