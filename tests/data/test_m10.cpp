@@ -268,10 +268,10 @@ TEST_CASE("the journal is a ring, and an edit on set's fast path allocates nothi
     CHECK(j[2].after[0].try_int() == 6);
     CHECK(j[1].fate == EditFate::Superseded);
     CHECK(j[2].fate == EditFate::Unsaved);
-    if (test::counting_allocations()) {
+    {
         test::AllocationScope scope;
         for (int i = 0; i < 100; ++i) REQUIRE(cfg.set("a", Node(i)));
-        CHECK(scope.count() == 0);
+        if (test::counting_allocations()) CHECK(scope.count() == 0);
     }
     j = journal(cfg);
     CHECK(j[2].after[0].try_int() == 99);
