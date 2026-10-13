@@ -2809,3 +2809,56 @@ allocator half of acton-review gap 6.*
   noise. Per call in a cachegrind driver (200,000 cold calls): 1,917 instructions before,
   594 after, D1 misses unchanged (10.7).
 - **Size:** the core is 10,963 lines.
+
+## D100. Gaps 2m, 6 and 10 measured and closed
+
+*Answered by the project owner 2026-10-13, all as recommended after measurement: accept
+2m and 6, and accept 10 with the link flags documented. The acton-review table has no
+open gap left.*
+
+- **How.** `bench_call`'s cold rows for 64 types (D99), a cachegrind driver making 200,000
+  cold calls on the same 2,048 objects, and a prototype of each alternative in a scratch
+  worktree on top of D99. Both prototypes passed the test suite. Per call, instructions
+  and D1 misses:
+
+  | | script, 1 method | script, 32 methods | C++ `handle` |
+  |---|---:|---:|---:|
+  | now (D99) | 594 · 10.7 | 635 · 15.6 | 178 · 2.02 |
+  | 2m: method names in their own array | 594 · 10.6 | 625 · 14.0 | 178 · 2.04 |
+  | 6: a type pointer for `type()` | 553 · 9.8 | 594 · 14.9 | 152 · 1.70 |
+
+  Timed, five alternating runs: 32 methods, 128–141 ns now and 123–180 with the names
+  split; cold `handle`, 30–38 ns now and 25–27 with the type pointer.
+- **2m, accepted.** A type with 32 methods costs a cold call about 5 more misses than a
+  type with one; the 120-byte stride of the binary search is 1.6 of them, and the rest is
+  the method's own entry and overload. The split saves those 1.6 and 9 instructions, which
+  the timings cannot see. Reopen if a game's profile names `TypeRecord::method`.
+- **6, accepted.** The vtable costs a cold message about 26 instructions and 5 ns (an
+  indirect call, then `record()`'s guard). The prototype kept the virtual destructor (40
+  bytes an object); doing it for real removes the vtable, so destruction goes through the
+  `TypeRecord` and every derived type's constructors must set the pointer, a change to how
+  every game object is declared, for 5 ns. Moira binds the game's objects, which often
+  have vtables of their own.
+- **10, accepted as a standing rule.** A minimal game (load, read, a tweak, a function, an
+  object, `eval`; GCC 13, `-O2`, static libraries) links:
+
+  | build | Moira code | tooling in it |
+  |---|---:|---:|
+  | release | 626.7 KB | 57.7 KB |
+  | shipping | 580.2 KB | 41.5 KB |
+  | release, function sections and `--gc-sections` | 440.7 KB | 4.8 KB |
+  | shipping, the same | 407.1 KB | 4.8 KB |
+
+  `check`, JSON, the reference and `find_repeats` link 0 bytes in every build: they are in
+  `reference.o` (90.6 KB) and `repeats.o` (52.1 KB), which a game never references. What
+  ships is in `config.o`: write-back and `promote` (22.9 KB in shipping), `diff` and
+  `layer_effect` (12.9 KB), the journal (0.8 KB), all dropped by `--gc-sections`, and the
+  source maps loading reaches (4.8 KB) stay. MSVC's release defaults drop unused
+  functions already (`/O2` implies `/Gy`; `/OPT:REF` without `/DEBUG`). Splitting
+  `config.cpp` (B) or a `moira::tools` library (C) would save a default-flags build about
+  36 KB, and C would move 1,117 lines out of the core at the price of five `Config`
+  members becoming free functions; neither changes a build with sections.
+- **Docs:** the cookbook's "Linking a shipped game" gives the flags, checked with a
+  CMake project that adds Moira as a subdirectory (409 KB of Moira code, shipping).
+- **Gaps table:** 2m, 6 and 10 move to the closed list; gap 10's rule (a tool adds no
+  field to a hot structure, and costs nothing unless called) moves to "Already aligned".

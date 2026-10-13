@@ -1,6 +1,6 @@
 # Moira under the data-oriented lens: known gaps
 
-**Status, 2026-10-13, after M10.** First audited 2026-10-11 at M6 step 1
+**Status, 2026-10-13, after D100: no open gaps.** First audited 2026-10-11 at M6 step 1
 (`23f4142`); the audit's reasoning for each closed gap is in its D-entries. Sizes are GCC
 13 on x86-64. Each gap names its path class (SKILL.md, review step 1). When one is fixed,
 or accepted as a deviation, record it in `docs/decisions.md` and update this file.
@@ -9,14 +9,14 @@ or accepted as a deviation, record it in `docs/decisions.md` and update this fil
 |---|---|---|
 | 1, allocator hook | per-Context allocators (D62), an arena per load (D64, D65) | **done** |
 | 2b, tag lookup | the tag run beside each array's nodes (D76, D77) | **done** |
-| 2, 3, hot/cold layout, dispatch loads | functions: hot fields first in the record (D78); methods wait for a measured need | **done** for functions; methods **open** |
+| 2, 3, hot/cold layout, dispatch loads | functions: hot fields first in the record (D78); methods measured and accepted (D100) | **done** |
 | 4, one item at a time | `handle_all` broadcast, one lookup per run of a type (D53, D66) | **done** |
 | 5, per-array refcounts | one count per load (D64, D65) | **done** |
-| 6, objects' vtable and parameters | parameters: the Context's allocator, freed as the object leaves (D98); the vtable stays | **open** (vtable) |
+| 6, objects' vtable and parameters | parameters: the Context's allocator (D98); the vtable measured and accepted (D100) | **done** |
 | 7, coroutine frames | per-Scheduler pool with a frame budget (D58, D68) | **done** |
 | 8, exceptions | throwing forms removed entirely (D54) | **done** (D59) |
 | 9, `Error` size | `Error` becomes a handle (D55) | **done** (D60) |
-| 10, tooling in the core | stays in every build, off the hot structures; M10 added to it (D90 Q3, Q5, D94, D95) | **open** |
+| 10, tooling in the core | accepted as a standing rule; link flags documented (D100) | **done** |
 | 11, the STL in public headers | header-only vocabulary types only (D60); `MOIRA_USE_EASTL` inside (D62) | **done** |
 | 12, the reload history under polling | loop statistics keep their own samples (D90 Q1, D92) | **done** |
 
@@ -36,6 +36,11 @@ or accepted as a deviation, record it in `docs/decisions.md` and update this fil
 - Object references are salted handles into a flat slot table (D4, D19), not pointers.
 - Every performance decision carries before/after numbers from the same machine (D47,
   D51, D52, D77, D78).
+- Tools share the core's libraries, and cost a game nothing it does not call: no tool adds
+  a field to a hot structure, runtime state for tools compiles out under
+  `MOIRA_SHIPPING`, and a shipped game links 0 bytes of `check`, JSON, the reference, or
+  `find_repeats`, and 4.8 KB of tooling with `--gc-sections` (D100). Flag a hot struct
+  that gains a field only tools use, or a tool the runtime starts to reference.
 
 ## Closed gaps
 
@@ -65,29 +70,16 @@ One line each; the D-entries hold the measurements.
 12. **The reload history under polling (load, tool).** A host polling four times a second
    filled M3b's 256-record ring with unchanged checks in a minute; loop statistics keep
    their own 14 KB table, fed only by reloads that changed a file (D90 Q1, D92).
+2m. **Method entries (hot).** A type's 120-byte `MethodEntry`s are binary-searched. With 32
+   methods the stride costs a cold call 1.6 D1 misses; names in their own array would save
+   those and 9 instructions, invisible in timings, so accepted (D100). Reopen if a game's
+   profile names `TypeRecord::method`.
+6. **Objects carry a vtable and a side table (hot).** Loose parameters come from the
+   Context's allocator and leave with the object (D98). The vtable costs a cold message
+   about 26 instructions and 5 ns; removing it changes how every game object is declared
+   and destroyed, so accepted (D100). `handle_all` takes the caller's span: Moira never
+   iterates objects itself.
+10. **Tooling in the core (tool).** Accepted as a standing rule, now under "Already
+   aligned": a minimal shipping game links 41.5 KB of tooling with default flags and 4.8
+   KB with `--gc-sections`, which the cookbook documents (D100).
 
-## Open gaps
-
-2m. **Method entries are 120 bytes (hot).** A type's `MethodEntry`s (name, overloads,
-   doc, status, replacement, inherited flag, message type) sit in one array sorted by
-   symbol, and dispatch binary-searches it: each probe loads a 120-byte stride to compare
-   an 8-byte name. The entry was 88 bytes at the audit; M6's message type grew it. D78
-   measured cold object calls within about 22 ns of warm ones, with finding the object,
-   not the method, as most of it, so nothing has asked for a split yet. If a measurement
-   does: the names in their own array beside the entries, as the tag run (D77) and
-   `Function`'s hot fields (D78) did.
-6. **Objects carry a vtable and a side table (hot).** `ObjectBase` is 32 bytes: a vtable
-   for `type()`, the Context, an 8-byte salted handle, and a pointer to loose parameters,
-   made on the first `set` of one. The parameters now come from the Context's allocator
-   and are freed when the object leaves it (D98), so every per-object allocation follows
-   D61. What remains is the vtable, one indirect call to find the type. Moira binds the
-   game's objects and does not own them, so a per-entity loop over them is the game's;
-   check that Moira's dispatch never iterates objects itself (`handle_all` takes the
-   caller's span).
-10. **Tooling lives in the core (tool).** Edit-mode side tables, write-back, the
-   reference, and `check` share libraries with the runtime, in every build. That is
-   accepted while they cost nothing unless called and add no field to a hot structure;
-   what keeps runtime state (reload telemetry, call statistics) compiles out under
-   `MOIRA_SHIPPING`. M10 added the repetition report (moira::data) and JSON output
-   (moira::script), which stay in shipping builds and cost nothing unless called (D90 Q3,
-   Q5, D94, D95). Flag it if a hot struct ever gains a field only tools use.

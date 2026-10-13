@@ -10,6 +10,7 @@ this says how they fit a studio's day. Each pattern links the example that runs 
 - [Experiments and A/B comparison](#experiments-and-ab-comparison)
 - [Live ops](#live-ops)
 - [The binary cache in a build step](#the-binary-cache-in-a-build-step)
+- [Linking a shipped game](#linking-a-shipped-game)
 - [Harness packs](#harness-packs)
 - [A developer console over `eval`](#a-developer-console-over-eval)
 - [Repro scripts](#repro-scripts)
@@ -242,6 +243,30 @@ and one allocation each: a 6.2 MB tree in 2.3–2.5 ms (D79).
   its load made. It is build output: it detects damage, not tampering, so text from a
   source you do not trust goes through the parser. A `Cipher` (`LoadSession::cipher`)
   enciphers caches, if a game wants players not to edit them.
+
+## Linking a shipped game
+
+Moira's libraries are static, and the tools share them with the runtime (D100). A game
+pays only for what it links:
+
+- **Tools in their own files cost nothing.** `check`, its JSON, the reference, and
+  `find_repeats` are in object files a game never references, so the linker leaves them
+  out: 0 bytes.
+- **`Config`'s tools come with `Config`.** Write-back, `promote`, `diff`, and
+  `layer_effect` share an object file with the loader. With GCC or Clang, compile with
+  `-ffunction-sections -fdata-sections` and link with `-Wl,--gc-sections`, and the linker
+  drops the ones the game never calls. MSVC's release defaults (`/O2` implies `/Gy`, and
+  the linker uses `/OPT:REF` unless given `/DEBUG`) already do.
+
+  ```cmake
+  target_compile_options(moira_data PRIVATE -ffunction-sections -fdata-sections)
+  target_compile_options(moira_script PRIVATE -ffunction-sections -fdata-sections)
+  target_link_options(game PRIVATE -Wl,--gc-sections)
+  ```
+
+A minimal game (load, read, a tweak, a function, an object, `eval`) built with
+`MOIRA_SHIPPING` links 580 KB of Moira code, 41.5 KB of it tooling; with sections, 407
+KB, 4.8 KB of it tooling (the source maps that loading reaches).
 
 ## Harness packs
 
