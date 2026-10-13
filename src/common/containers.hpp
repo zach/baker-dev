@@ -36,6 +36,10 @@ template <>
 struct Hash<Symbol> {
     size_t operator()(Symbol s) const noexcept { return static_cast<size_t>(s.hash()); }
 };
+template <>
+struct Hash<uint64_t> {  // a key that is already a hash, or close to one
+    size_t operator()(uint64_t x) const noexcept { return static_cast<size_t>(x ^ (x >> 29)); }
+};
 template <class T>
 struct Hash<T*> {
     size_t operator()(const T* p) const noexcept {

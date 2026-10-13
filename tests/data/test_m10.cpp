@@ -1,7 +1,9 @@
 // M10: harness instrumentation (spec §4, §10; docs/decisions.md D90): loop statistics and
-// the edit journal.
+// the edit journal, and the repetition report.
 #include <doctest.h>
 #include <moira/config.hpp>
+#include <moira/parse.hpp>
+#include <moira/repeats.hpp>
 #include <moira/std_interop.hpp>
 
 #include "alloc_counter.hpp"
@@ -299,3 +301,87 @@ TEST_CASE("under MOIRA_SHIPPING loop statistics are empty and mark_visible does 
     CHECK(entries == 0);
 }
 #endif
+
+// --- The repetition report (D94) ---
+
+namespace {
+
+Ref<Array> read(std::string_view text, std::string_view name, LoadSession& s) {
+    auto r = read_string(text, name, s);
+    REQUIRE_MESSAGE(r.has_value(), (r ? std::string() : std::string(to_string(r.error()))));
+    return *r;
+}
+
+std::string sites(const Repeat& r) {
+    std::string out;
+    for (const RepeatSite& s : r.sites)
+        out += (out.empty() ? "" : " ") + std::string(s.file.str()) + ":" + std::to_string(s.line);
+    return out;
+}
+
+}  // namespace
+
+TEST_CASE("a subtree repeated in three files is reported with all three locations") {
+    LoadSession s;
+    const auto a = read("(level1\n  (enemy (hp 30) (speed 2) (loot coin)))", "a.dta", s);
+    const auto b = read("(level2 (x 1))\n(enemy (hp 30) (speed 2) (loot coin))", "b.dta", s);
+    const auto c = read("\n\n(boss\n (adds\n  (enemy (hp 30) (speed 2) (loot coin))))", "c.dta", s);
+    const auto d = read("(enemy (hp 30) (speed 3) (loot coin))", "d.dta", s);  // differs
+    const Array* trees[] = {a.get(), b.get(), c.get(), d.get()};
+    const List<Repeat> r = find_repeats(trees);
+    REQUIRE(r.size() == 1);
+    CHECK(to_string(r[0].form) == "(enemy (hp 30) (speed 2) (loot coin))");
+    CHECK(r[0].nodes == 10);
+    CHECK(sites(r[0]) == "a.dta:2 b.dta:2 c.dta:5");
+
+    // Twice is not a repetition, and min_repeats 0 turns the report off.
+    const Array* two[] = {a.get(), b.get()};
+    CHECK(find_repeats(two).empty());
+    CHECK(find_repeats(trees, {.min_repeats = 0}).empty());
+    CHECK(find_repeats(two, {.min_repeats = 2}).size() == 1);
+}
+
+TEST_CASE("repetition: only the largest, a macro counts once, commands apart, stable order") {
+    LoadSession s;
+    // (hp 30) is inside every (enemy ...), and once more on its own: it is reported, with
+    // all four places, because one is not inside a reported subtree. (speed 2) is only ever
+    // inside one, so it is not.
+    const auto t = read(
+        "(a (enemy (hp 30) (speed 2)))\n"
+        "(b (enemy (hp 30) (speed 2)))\n"
+        "(c (enemy (hp 30) (speed 2)))\n"
+        "(d (hp 30))",
+        "t.dta", s);
+    List<Repeat> r = find_repeats(*t, {.min_nodes = 2});
+    REQUIRE(r.size() == 2);
+    CHECK(to_string(r[0].form) == "(enemy (hp 30) (speed 2))");
+    CHECK(to_string(r[1].form) == "(hp 30)");
+    CHECK(sites(r[1]) == "t.dta:1 t.dta:2 t.dta:3 t.dta:4");
+
+    // A macro's expansions share its array: a word already made.
+    const auto m = read(
+        "[ENEMY (enemy (hp 30) (speed 2) (loot coin))]\n"
+        "(a ENEMY) (b ENEMY) (c ENEMY)",
+        "m.dta", s);
+    CHECK(find_repeats(*m).empty());
+
+    // A command and an array with the same contents are different things.
+    const auto k = read(
+        "(a {spawn grunt 3 near gate})\n(b {spawn grunt 3 near gate})\n"
+        "(c (spawn grunt 3 near gate))\n(d {spawn grunt 3 near gate})",
+        "k.dta", s);
+    r = find_repeats(*k, {.min_nodes = 5});
+    REQUIRE(r.size() == 1);
+    CHECK(r[0].form.type() == Type::Command);
+    CHECK(sites(r[0]) == "k.dta:1 k.dta:2 k.dta:4");
+
+    // The same report on every run: nothing depends on where things are in memory.
+    const auto again = read(
+        "(a (enemy (hp 30) (speed 2)))\n(b (enemy (hp 30) (speed 2)))\n"
+        "(c (enemy (hp 30) (speed 2)))\n(d (hp 30))",
+        "t.dta", s);
+    const List<Repeat> r2 = find_repeats(*again, {.min_nodes = 2});
+    REQUIRE(r2.size() == 2);
+    CHECK(to_string(r2[0].form) == "(enemy (hp 30) (speed 2))");
+    CHECK(sites(r2[1]) == "t.dta:1 t.dta:2 t.dta:3 t.dta:4");
+}

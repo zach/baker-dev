@@ -122,6 +122,7 @@ add_library(moira_data
   src/data/merge.cpp
   src/data/node.cpp
   src/data/parse.cpp
+  src/data/repeats.cpp
   src/data/source_map.cpp
   src/data/symbol.cpp
   src/data/text.cpp

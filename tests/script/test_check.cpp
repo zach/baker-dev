@@ -158,7 +158,7 @@ TEST_CASE("check applies the one-way rule to calls across packs (D80)") {
     session.set_pack_levels({"engine", "game", "task"});
     Context ctx;
     auto game = test::ok(read_file("game.dta", session));
-    const CheckReport report = check(*game, ctx, &session);
+    const CheckReport report = check(*game, ctx, {.packs = &session});
     // game_rules calls boss.restart_phase twice (lines 4 and 5): warned once, at the first.
     // boss_task calling engine.shake is softer calling harder: fine.
     REQUIRE(report.warnings.size() == 1);
@@ -173,14 +173,49 @@ TEST_CASE("check applies the one-way rule to calls across packs (D80)") {
     // Without the session, or from a file that declares no pack, nothing is warned.
     CHECK(check(*game, ctx).warnings.empty());
     auto loose = test::ok(read_file("loose.dta", session));
-    CHECK(check(*loose, ctx, &session).warnings.empty());
+    CHECK(check(*loose, ctx, {.packs = &session}).warnings.empty());
 
     // A script function the Context has registered is attributed by its file too.
     auto task = test::ok(read_file("task.dta", session));
     for (const Node& n : *task) (void)test::ok(ctx.eval(n));
     files["call.dta"] = "(pack more_rules (level game))\n{boss.restart_phase}";
     auto call = test::ok(read_file("call.dta", session));
-    const CheckReport registered = check(*call, ctx, &session);
+    const CheckReport registered = check(*call, ctx, {.packs = &session});
     REQUIRE(registered.warnings.size() == 1);
     CHECK(registered.warnings[0].file() == Symbol("call.dta"));
+}
+
+TEST_CASE("check reports a pack with one owner, and repetition across its trees (D94)") {
+    Context ctx;
+    LoadSession session;
+    session.set_pack_levels({"game", "task"});
+    const auto solo =
+        ok(read_string("(pack boss (level task) (owners \"td-a\"))\n(x 1)", "boss.dta", session));
+    const auto pair = ok(
+        read_string("(pack econ (level game) (owners \"a\" \"b\"))\n(y 1)", "econ.dta", session));
+    const auto none = ok(read_string("(pack ui (level game))\n(z 1)", "ui.dta", session));
+    CheckReport report;
+    check(*solo, ctx, report, {.packs = &session});
+    REQUIRE(report.findings.size() == 1);
+    CHECK(to_string(report.findings[0]) ==
+          "moira: pack 'boss' has one owner, td-a: no one else keeps it  (boss.dta)");
+    CHECK(report.ok());                              // a finding is never an error
+    check(*pair, ctx, report, {.packs = &session});  // accumulates, without repeating it
+    CHECK(report.findings.size() == 1);
+    CHECK(check(*none, ctx).findings.empty());  // without the session, no findings
+
+    // Repetition across the trees of one call, and in the text form.
+    const auto a = ok(read_string("(e (hp 30) (speed 2) (loot coin))", "a.dta"));
+    const auto b = ok(read_string("(e (hp 30) (speed 2) (loot coin))", "b.dta"));
+    const auto c = ok(read_string("(e (hp 30) (speed 2) (loot coin))", "c.dta"));
+    const Array* trees[] = {a.get(), b.get(), c.get()};
+    CheckReport r;
+    check(trees, ctx, r);
+    REQUIRE(r.repeats.size() == 1);
+    CHECK(to_string(r) ==
+          "repeat: 3 times, 10 nodes: (e (hp 30) (speed 2) (loot coin)) at a.dta:1, b.dta:1, "
+          "c.dta:1\n");
+    CheckReport off;
+    check(trees, ctx, off, {.repeats = {.min_repeats = 0}});
+    CHECK(off.repeats.empty());
 }

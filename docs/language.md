@@ -192,7 +192,7 @@ reach into one task's harness. Moira warns, never fails, on two kinds of reach:
   (D82). A Config forwards it to its warning handler.
 - **Calls**, in `check`: a call, in a pack's file, to a script function defined in a
   softer pack's file is a warning in `CheckReport::warnings` (D83). Pass the session:
-  `moira::check(tree, ctx, report, &cfg.session())`.
+  `moira::check(tree, ctx, report, {.packs = &cfg.session()})`.
 
 Softer using harder is the point of the levels, and passes silently; so does everything
 in files that declare no pack, so a small project pays nothing. By convention a pack's
@@ -369,6 +369,20 @@ stubs, with every site: the backlog the data is asking for.
 moira: 'spawn' takes 2 arguments, given 1  (rules.dta:11)
 demand: 'play_sfx' is not defined, called at rules.dta:11
 ```
+
+It also reports **repetition**: subtrees of at least six nodes that appear three or more
+times across the trees given to one call, with every place. They are candidates for a
+word of their own (a macro, a `{func}`, a shape). A macro's expansions share its arrays and
+count once, since a macro is a word already made, and a repetition inside a larger one is
+reported only where it also appears on its own. Give one call every file, so it can compare
+them; `moira::find_repeats(trees)` (`<moira/repeats.hpp>`) does the same without a Context.
+
+```
+repeat: 3 times, 10 nodes: (enemy (hp 30) (speed 2) (loot coin)) at a.dta:2, b.dta:2, c.dta:5
+```
+
+With the session (`{.packs = &cfg.session()}`), each pack that declares one owner is a
+**finding**, informational, never an error: a harness one person keeps.
 
 Run it in CI over every data file, and on every reload in a development build.
 

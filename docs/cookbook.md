@@ -268,7 +268,7 @@ fast: a boss-tuning harness, an economy harness. Packs give harnesses a structur
   before pushing layers. A game-level pack that expands a task pack's macro, or calls its
   function, is warned about, located: engine and game harnesses must not depend on one
   task's tools. Run `check` with the session to see calls:
-  `moira::check(*cfg.root(), ctx, report, &cfg.session())`.
+  `moira::check(*cfg.root(), ctx, report, {.packs = &cfg.session()})`.
 - **Prefix** a pack's names with its subject (`boss.`, `combat.`); the reference and
   tuning panels group by prefix.
 

@@ -33,6 +33,7 @@
 #include <moira/list.hpp>
 #include <moira/node.hpp>
 #include <moira/parse.hpp>
+#include <moira/repeats.hpp>
 #include <moira/text.hpp>
 
 #include <atomic>
@@ -601,11 +602,22 @@ struct CheckReport {
     List<Error> errors;
     List<Demand> demand;   // in order of first appearance
     List<Error> warnings;  // the one-way rule (D80): never an error
+    List<Repeat> repeats;  // subtrees repeated across the trees of one call (repeats.hpp)
+    // Informational, never an error: each pack that declares fewer than two owners (D94).
+    List<Error> findings;
 
     [[nodiscard]] bool ok() const noexcept { return errors.empty(); }
 };
 
-// Writes the report: errors first, then warnings, then the demand report, one line each.
+// What check reads besides the trees and the Context.
+struct CheckOptions {
+    // The session that loaded the trees: with it, check applies the one-way rule (D80) to
+    // calls and reports packs with fewer than two owners.
+    const LoadSession* packs = nullptr;
+    RepeatOptions repeats{};  // repeats.min_repeats = 0: no repetition report
+};
+
+// Writes the report: errors, warnings, the demand report, repeats, then findings, one each.
 // <moira/std_interop.hpp> has to_string(report).
 void write(const CheckReport& report, TextSink out);
 
@@ -783,21 +795,25 @@ private:
 // assert handler or crash reporter to print beside the C++ stack. Allocates nothing.
 void script_backtrace(TextSink out);
 
-// Walks `tree` without evaluating anything and reports, located, every call to a
+// Walks `trees` without evaluating anything and reports, located, every call to a
 // registered function with the wrong number of arguments for every overload, or a literal
-// argument of the wrong type where the signature fixes one; plus the demand report. Calls
-// to functions defined by {func} in the checked tree count as registered. Unregistered
-// heads, arguments that are commands or variables, and unevaluated or rest parameters are
-// not checked: their types are unknown until run. Accumulates into `report`, so one
-// report can cover many files.
+// argument of the wrong type where the signature fixes one; plus the demand report, and the
+// subtrees repeated across `trees` (find_repeats). Calls to functions defined by {func} in
+// the checked trees count as registered. Unregistered heads, arguments that are commands or
+// variables, and unevaluated or rest parameters are not checked: their types are unknown
+// until run. Accumulates into `report`, so one report can cover many calls; repetition is
+// found within one call, so give it every file to compare.
 //
-// Given `packs`, the session that loaded the tree, it also applies the one-way rule to
-// calls (spec §5, D80): a call, in a pack's file, to a script function defined in a softer
-// pack's file is a warning, once per pack and function.
+// Given `options.packs`, the session that loaded the trees, it also applies the one-way
+// rule to calls (spec §5, D80): a call, in a pack's file, to a script function defined in a
+// softer pack's file is a warning, once per pack and function; and each pack that declares
+// (owners ...) with fewer than two is a finding (D94).
+void check(std::span<const Array* const> trees, const Context& ctx, CheckReport& report,
+           const CheckOptions& options = {});
 void check(const Array& tree, const Context& ctx, CheckReport& report,
-           const LoadSession* packs = nullptr);
+           const CheckOptions& options = {});
 [[nodiscard]] CheckReport check(const Array& tree, const Context& ctx,
-                                const LoadSession* packs = nullptr);
+                                const CheckOptions& options = {});
 
 // Writes the script reference (spec §5): every function with its overloads, tier, status,
 // and documentation, and every documented global, as Markdown. <moira/std_interop.hpp>

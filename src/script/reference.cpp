@@ -1,6 +1,8 @@
 // The generated script reference and load-time checking: both read a Context's
 // registrations, and neither evaluates anything.
 
+#include <moira/write.hpp>
+
 #include "common/containers.hpp"
 #include "internal.hpp"
 
@@ -220,29 +222,63 @@ struct Checker {
 
 }  // namespace
 
-void check(const Array& tree, const Context& ctx, CheckReport& report, const LoadSession* packs) {
+void check(std::span<const Array* const> trees, const Context& ctx, CheckReport& report,
+           const CheckOptions& options) {
     // The report accumulates: start from what it holds.
     Checker::Build b;
     b.errors.assign(report.errors.begin(), report.errors.end());
     b.warnings.assign(report.warnings.begin(), report.warnings.end());
     for (const CheckReport::Demand& d : report.demand)
         b.demand.push_back({d.name, d.stub, {d.sites.begin(), d.sites.end()}, d.on});
-    Checker c{ctx.impl(), b, packs, {}, {}, {}, {}, {}};
+    Checker c{ctx.impl(), b, options.packs, {}, {}, {}, {}, {}};
     for (size_t i = 0; i < b.demand.size(); ++i)
         c.demand_index[Checker::key(b.demand[i].name, b.demand[i].on)] = i;
-    c.collect(tree, false);
-    c.walk(tree, false);
+    // Every tree's definitions first, so a call in one file to a function another defines
+    // counts as defined.
+    for (const Array* tree : trees)
+        if (tree) c.collect(*tree, false);
+    for (const Array* tree : trees)
+        if (tree) c.walk(*tree, false);
     Vec<CheckReport::Demand> demand;
     for (const Checker::DemandBuild& d : b.demand)
         demand.push_back({d.name, d.stub, List<CheckReport::Site>(d.sites), d.on});
     report.errors = List<Error>(b.errors);
     report.warnings = List<Error>(b.warnings);
     report.demand = List<CheckReport::Demand>(demand);
+
+    // Repetition, across this call's trees (D94).
+    const List<Repeat> found = find_repeats(trees, options.repeats);
+    if (!found.empty()) {
+        Vec<Repeat> repeats(report.repeats.begin(), report.repeats.end());
+        repeats.insert(repeats.end(), found.begin(), found.end());
+        report.repeats = List<Repeat>(std::span<const Repeat>(repeats.data(), repeats.size()));
+    }
+    // Packs one person keeps: the single-gardener finding (spec §5, D90 Q4), once a pack.
+    if (options.packs) {
+        Vec<Error> findings(report.findings.begin(), report.findings.end());
+        for (const Pack& p : options.packs->packs()) {
+            if (p.owners.size() != 1) continue;  // none declared, or enough
+            if (std::any_of(findings.begin(), findings.end(),
+                            [&](const Error& f) { return f.file() == p.file; }))
+                continue;
+            findings.push_back(make_error(ErrorCode::Refused,
+                                          "pack " + quoted(p.name) + " has one owner, " +
+                                              Str(p.owners[0].str()) + ": no one else keeps it",
+                                          p.file));
+        }
+        report.findings = List<Error>(findings);
+    }
 }
 
-CheckReport check(const Array& tree, const Context& ctx, const LoadSession* packs) {
+void check(const Array& tree, const Context& ctx, CheckReport& report,
+           const CheckOptions& options) {
+    const Array* trees[1] = {&tree};
+    check(std::span<const Array* const>(trees, 1), ctx, report, options);
+}
+
+CheckReport check(const Array& tree, const Context& ctx, const CheckOptions& options) {
     CheckReport report;
-    check(tree, ctx, report, packs);
+    check(tree, ctx, report, options);
     return report;
 }
 
@@ -260,6 +296,19 @@ void write(const CheckReport& report, TextSink text) {
         }
         out += "\n";
     }
+    for (const Repeat& r : report.repeats) {
+        Str form;
+        write(r.form, str_out(form));
+        if (form.size() > 60) form = form.substr(0, 57) + "...";
+        out += "repeat: " + detail::decimal(static_cast<int64_t>(r.sites.size())) + " times, " +
+               detail::decimal(r.nodes) + " nodes: " + form + " at";
+        for (size_t i = 0; i < r.sites.size(); ++i) {
+            out += i ? ", " : " ";
+            out += Str(r.sites[i].file.str()) + ":" + detail::decimal(r.sites[i].line);
+        }
+        out += "\n";
+    }
+    for (const Error& f : report.findings) out += "finding: " + Str(moira::to_string(f)) + "\n";
     text(out);
 }
 

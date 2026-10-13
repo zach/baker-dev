@@ -2634,3 +2634,41 @@ personal `local` layer by the convention in spec §4.*
   `promote`; reverted by `clear_scratch` and by `restore`; a six-node value; the ring
   wrapping, turned off, and allocation-free on the fast path. M3b's tests pass unchanged.
 - **Size:** the core is 10,560 lines (10,434 before; the plan estimated 150).
+
+## D94. M10, step 4: the repetition report and owner findings
+
+*Results of `docs/m10-plan.md` §5 and §6 (D90 Q3, Q4).*
+
+- **`moira::find_repeats(trees, options)`** (`<moira/repeats.hpp>`, moira::data, as Q3
+  chose) returns a `List<Repeat>`: one occurrence as a node (`form`), its size in nodes
+  counted recursively, and every site (file, line). The plan wrote it with an out
+  parameter; a returned `List` is how Moira hands back results elsewhere. Options:
+  `min_nodes` (6) and `min_repeats` (3; 0 turns it off).
+- **How.** Each array is hashed once (memoized by address) from its nodes' types and
+  values and its children's hashes; arrays, commands, and properties are told apart.
+  Large enough subtrees are grouped by hash and split into classes with
+  `structurally_equal`. An array reached twice (a macro's expansion) counts once.
+  **Only the largest:** classes are taken largest first, and one whose every occurrence
+  lies inside an array already taken is not reported; one that also appears on its own is
+  reported with all its sites. **Stable:** repeats are ordered by first site (file, then
+  line), then size, then text, and sites by file and line, so nothing depends on memory
+  addresses.
+- **`check` changes shape, a breaking change by the rules.** Repetition must see every
+  file at once, but `check` took one tree per call. It gains
+  `check(std::span<const Array* const> trees, ctx, report, options)`, and the trailing
+  `const LoadSession* packs` becomes `CheckOptions{.packs, .repeats}`, in every form.
+  Within one call, every tree's `{func}` definitions are collected before any call is
+  checked. Every caller in the repository is updated (`{.packs = &session}`).
+- **`CheckReport`** gains `repeats` (appended per call) and `findings`. **Owner findings**
+  (Q4): with the session, each pack whose `(owners ...)` lists one name is a finding at the
+  pack's file, once per report. The text form prints `repeat:` and `finding:` lines after
+  the demand report.
+- **Tests:** M10's fourth criterion (a subtree in three files, all three locations);
+  twice is not enough; a difference in one value; only the largest; a macro counted once;
+  commands apart from arrays; the same order on a second read; the fifth criterion (a
+  one-owner pack reported, once, without being an error).
+- **Cost** (a tool path; release, a small driver): the 1.2 MB benchmark text (a 6.2 MB
+  tree) in 28.7 ms, about three times its parse; the corpus in 0.05 ms. No runtime path
+  changed.
+- **Size:** the core is 10,772 lines (10,560 before; the plan estimated 230 for these
+  two parts).
