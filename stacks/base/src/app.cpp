@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
@@ -100,6 +101,13 @@ struct Tools {
 }  // namespace
 
 AppOptions parse_args(int argc, char** argv, AppOptions o) {
+    // A packaged game carries its data beside the executable; a build in the source tree
+    // uses the game's source data (the default passed in). --data overrides both.
+    if (const char* base = SDL_GetBasePath()) {
+        std::error_code ec;
+        const std::filesystem::path beside = std::filesystem::path(base) / "data";
+        if (std::filesystem::exists(beside / "default.dta", ec)) o.data_dir = beside.string();
+    }
     for (int i = 1; i < argc; ++i) {
         const char* a = argv[i];
         const bool more = i + 1 < argc;
@@ -168,7 +176,7 @@ int run(Game& game, const AppOptions& options) {
         return 1;
     }
 
-    std::printf("renderer: %s\n", app.renderer_.name());
+    std::printf("renderer: %s\ndata: %s\n", app.renderer_.name(), options.data_dir.c_str());
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();

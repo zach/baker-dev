@@ -39,7 +39,9 @@ struct AppOptions {
     std::string screenshot{};  // a PNG of the last frame (of frame 30 without frames); empty: none
 };
 
-// Reads --data DIR, --renderer NAME, --frames N, --headless, --console-port N, --no-vsync,
+// A `data` directory beside the executable, if it holds default.dta, replaces the default
+// data_dir: that is how a packaged game finds its data. Then reads --data DIR, --renderer NAME,
+// --frames N, --headless, --console-port N, --no-vsync,
 // --step-hz N, --no-tools, and --screenshot PATH over `defaults`. Prints usage and exits on a bad
 // argument.
 [[nodiscard]] AppOptions parse_args(int argc, char** argv, AppOptions defaults);
