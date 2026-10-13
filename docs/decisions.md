@@ -2966,3 +2966,19 @@ are reported, outside the gate.*
   28.9–29.4 ns before, 28.5–29.3 after; parse 153.6–154.2 MB/s, 143.9–187.6; `{bob grow 0}`
   unchanged. `{add {add 1 2} 3}` read 59.5–60.7 ns before and 46.5–53.1 after, but
   cachegrind counts 708 instructions per evaluation in both: code layout, not the fixes.
+
+## D104. No DTB compatibility module
+
+*Spec §9's P3 stretch goal (`MOIRA_DTB_COMPAT`). Decided by the project owner 2026-10-13:
+skipped.*
+
+- **What research found.** The DTB layouts and both ciphers are well documented by
+  community tools that agree with one another: dtab (BSD-3), Mackiloha and pikaxe (MIT),
+  arson (LGPL-3.0). Old- and new-style name the encryption, not the layout; RB4-era files
+  use a wider array header. No decompilation was consulted (spec §0).
+- **Why not.** There are no clean real `.dtb` files to test against. The game files are
+  Harmonix's, the corpus holds only their text conversions (D101), and the only public
+  fixtures are three byte arrays in arson's LGPL tests. A reader checked only against an
+  encoder written alongside it would not show that it reads what the games shipped, and
+  testing the corpus from binary, the goal's stated purpose, cannot be done.
+- Spec §0's line stands: Moira is not bit-compatible with Harmonix's `.dtb`.
