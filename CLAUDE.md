@@ -8,6 +8,11 @@ every milestone of spec §10 is. The core's soft line budget is 15,000 (D69);
 `clang-format-18 --dry-run --Werror` over every source file, and runs clang-tidy over `src/`
 with `.clang-tidy`, where every finding is an error (D103).
 
+`stacks/` is a separate CMake project over this Moira: the game stacks of
+`docs/background/game-stacks.md`, for Windows PC (`stacks/README.md`, D106). The rules
+below are for Moira; the stacks keep Moira's no-exceptions rule and formatting, build with
+warnings as errors, and have their own CI job.
+
 ## Rules
 
 - **Breaking changes are allowed and encouraged.** Do not keep backward-compatibility

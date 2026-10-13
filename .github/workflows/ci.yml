@@ -49,6 +49,33 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
+  # The game stacks (stacks/README.md): a separate project over Moira, for Windows PC.
+  # Linux builds it too, as the container the stacks are developed in does.
+  stacks:
+    name: stacks ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: msvc,   os: windows-2022, cc: cl,     cxx: cl }
+          - { name: gcc-13, os: ubuntu-24.04, cc: gcc-13, cxx: g++-13 }
+    steps:
+      - uses: actions/checkout@v4
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libx11-dev libxext-dev libgl-dev libegl-dev
+      - if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Configure
+        shell: bash
+        run: >
+          cmake -S stacks -B build-stacks -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_COMPILER=${{ matrix.cc }} -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
+      - name: Build
+        run: cmake --build build-stacks
+      - name: Test
+        run: ctest --test-dir build-stacks --output-on-failure
+
   fuzz:
     name: fuzz (libFuzzer, ASan+UBSan)
     runs-on: ubuntu-24.04
