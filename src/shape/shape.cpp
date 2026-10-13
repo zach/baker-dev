@@ -94,8 +94,8 @@ namespace {
 // Reads one field declaration: (name type (range lo hi) (step s) (kind k) (desc "")
 // (note "") (optional)).
 bool read_field(const Array& a, Field& f, Vec<Error>& errors) {
-    auto bad = [&](Str why) {
-        errors.push_back(make_error(ErrorCode::Syntax, std::move(why), a.file(), a.line()));
+    auto bad = [&](std::string_view why) {
+        errors.push_back(make_error(ErrorCode::Syntax, why, a.file(), a.line()));
         return false;
     };
     f.name = a[0].try_sym().value_or(moira::Symbol());
@@ -231,8 +231,8 @@ struct Checker {
         for (const moira::Symbol s : chain) p += (p.empty() ? "" : "/") + Str(s.str());
         return p;
     }
-    void report(Vec<Error>& to, ErrorCode code, Str message, const Array& at) {
-        Error e = make_error(code, std::move(message), at.file(), at.line());
+    void report(Vec<Error>& to, ErrorCode code, std::string_view message, const Array& at) const {
+        Error e = make_error(code, message, at.file(), at.line());
         e.set_path(path());
         to.push_back(std::move(e));
     }

@@ -248,7 +248,7 @@ public:
 private:
     struct Base {
         std::atomic<uint32_t> refs{1};
-        void (*destroy)(Base*);
+        void (*destroy)(Base*) = nullptr;
     };
     template <class T>
     struct Box : Base {
@@ -338,7 +338,7 @@ bool match_value(const Node& n, bool promote) noexcept {
 template <class E, class H>
 bool take(E&& r, std::optional<H>& out, Expected<Node>& result) {
     if (!r) {
-        result = Unexpected(std::move(r).error());
+        result = Unexpected(std::forward<E>(r).error());
         return false;
     }
     out.emplace(std::move(*r));
@@ -632,10 +632,10 @@ void write_json(const CheckReport& report, TextSink out, const LoadSession* pack
 struct CallStats {
     Symbol name;
     Symbol on;  // the {class} of a script handler; empty for a function
-    Tier tier;
-    uint64_t calls;
-    uint64_t total_ns;
-    uint64_t self_ns;
+    Tier tier{};
+    uint64_t calls = 0;
+    uint64_t total_ns = 0;
+    uint64_t self_ns = 0;
 };
 
 // One call, as the trace hook sees it: on entry `result` is null; on exit it is the call's
@@ -769,7 +769,7 @@ public:
     // replacing a script one. By default they go to stderr. ---
     using NoticeSink = void (*)(void* user, const Error& notice);
     void set_notice_sink(NoticeSink sink, void* user) noexcept;
-    void notice(Error notice) const;
+    void notice(const Error& notice) const;
 
     // Makes a Context current on this thread for typed lookups in moira::data.
     class Scope {

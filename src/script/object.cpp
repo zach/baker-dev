@@ -22,8 +22,8 @@ Str quoted(Symbol s) {
 #define MOIRA_COLD [[gnu::noinline, gnu::cold]]
 #endif
 
-MOIRA_COLD Expected<Node> fail(const Array& at, ErrorCode code, Str message) {
-    Error e = make_error(code, std::move(message), at.file(), at.line());
+MOIRA_COLD Expected<Node> fail(const Array& at, ErrorCode code, std::string_view message) {
+    Error e = make_error(code, message, at.file(), at.line());
     record_stack(e);
     return Unexpected(std::move(e));
 }
@@ -329,7 +329,7 @@ Expected<Node> Context::Impl::send(ObjectHandle target, const Array& command, Co
                         quoted(method) + " takes " +
                             arity_text(uint32_t(handler->body.params.size()),
                                        uint32_t(handler->body.params.size())) +
-                            ", given " + detail::decimal(n));
+                            ", given " + detail::decimal(static_cast<int64_t>(n)));
         Args args(self, command, command.begin() + 2, n, 0, false, 2, object);
         const Node this_node = Node::object(target);
         Expected<Node> r = run_script(handler->body, args, &this_node);
@@ -354,7 +354,7 @@ Expected<Node> Context::Impl::send(ObjectHandle target, const Array& command, Co
             return fail(command, ErrorCode::Type,
                         quoted(method) + " takes " +
                             arity_text(method == kGet ? 1 : 2, method == kGet ? 1 : 2) +
-                            ", given " + detail::decimal(n));
+                            ", given " + detail::decimal(static_cast<int64_t>(n)));
         auto key = args.get<Symbol>(0);
         if (!key) return Unexpected(std::move(key).error());
         if (method == kGet) {
@@ -580,7 +580,8 @@ void register_object_builtins(Context& ctx) {
                                                         "default-constructible",
                                           ErrorCode::Refused));
             object = t->create(impl.alloc);
-        } else if ((script = impl.script_class(cls))) {
+        } else if (ScriptClass* found = impl.script_class(cls)) {
+            script = found;
             object = detail::create<ScriptObject>(impl.alloc);
         } else {
             return Unexpected(a.error(quoted(cls) + " is not a class", ErrorCode::NotFound));

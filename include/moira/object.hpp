@@ -241,6 +241,8 @@ class ObjectBase {
 public:
     ObjectBase() noexcept = default;
     ObjectBase(const ObjectBase&) noexcept {}  // a copy is not in any Context
+    // Keeps this object's place in its Context: there is nothing to copy.
+    // NOLINTNEXTLINE(bugprone-unhandled-self-assignment)
     ObjectBase& operator=(const ObjectBase&) noexcept { return *this; }
     virtual ~ObjectBase();
 
@@ -496,6 +498,8 @@ Expected<size_t> handle_all(std::span<ObjectBase* const> objects, const M& messa
         }
         Context* ctx = o->context();
         Expected<Node> r;
+        // A script handler wins over the typed one, which wins over a method.
+        // NOLINTBEGIN(bugprone-branch-clone)
         if (ctx && detail::scripted(*o, name))
             r = detail::send_message(*ctx, *o, message);
         else if (typed.thunk)
@@ -504,6 +508,7 @@ Expected<size_t> handle_all(std::span<ObjectBase* const> objects, const M& messa
             r = detail::send_message(*ctx, *o, message);
         else
             continue;
+        // NOLINTEND(bugprone-branch-clone)
         if (!r) return Unexpected(std::move(r).error());
         ++handled;
     }

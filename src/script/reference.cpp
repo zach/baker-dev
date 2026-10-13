@@ -23,8 +23,8 @@ bool evaluable(const Node& n) noexcept {
 struct Checker {
     // A function defined by {func} or {override} in the checked tree.
     struct Defined {
-        uint32_t arity;
-        bool stub;
+        uint32_t arity = 0;
+        bool stub = false;
         Symbol file;
     };
 
@@ -58,9 +58,8 @@ struct Checker {
         report.demand[it->second].sites.push_back({at.file(), at.line()});
     }
 
-    void error(const Array& at, Str message) {
-        report.errors.push_back(
-            make_error(ErrorCode::Type, std::move(message), at.file(), at.line()));
+    void error(const Array& at, std::string_view message) {
+        report.errors.push_back(make_error(ErrorCode::Type, message, at.file(), at.line()));
     }
 
     void collect(const Array& a, bool is_command) {

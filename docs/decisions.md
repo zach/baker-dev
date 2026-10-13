@@ -2935,3 +2935,34 @@ are reported, outside the gate.*
 - **Cost:** a merge walks a list of validators instead of testing one slot, and a Config
   with none does no more than before. The check itself costs a merge what `check` costs,
   in development builds that ask for it. **Size:** the core is 10,990 lines (10,963).
+
+## D103. clang-tidy runs in CI
+
+*Spec M0's "clang-format/tidy": `.clang-tidy` existed since M0, but nothing ran it.*
+
+- **First run:** 901 findings over `src/`, 220 once the headers' repeats are counted once.
+  `HeaderFilterRegex` also missed `src/`'s own headers; it now covers them.
+- **Turned off, each for a pattern the code uses on purpose** (the reasons are in
+  `.clang-tidy`): identifier naming, which fought the language's own names (`promise_type`,
+  `is_expected`) and `kName` statics, so it goes rather than being tuned; C arrays; range
+  loops (each flagged loop's container grows or shrinks while it runs, so tidy's own
+  rewrite was wrong: `arrays_` in the cache's breadth-first layout, completion callbacks
+  that unsubscribe); type erasure through `void*`; optional access after a type check;
+  enum sizes that pin a layout; braced returns and `auto`.
+- **Fixed:** a forwarding reference passed to `std::move` (`take` in script.hpp, now
+  `std::forward`); `~Scheduler` without `override`; uninitialized members
+  (`TaskPromiseBase::scheduler`, `CallStats`, `CacheFile`, the cache header read); implicit
+  narrowing to `int64_t` in error messages; implicit widening of `int` products; an
+  increment inside a condition; an assignment inside an `if`; a switch without a default;
+  error helpers that took `Str` by value and moved it into a `string_view` parameter (now
+  `string_view`); `==` and `!=` take `const Node&`; `[[nodiscard]]` and `const` where tidy
+  asked.
+- **Suppressed in place**, five lines with the reason beside each: copy-and-swap
+  assignment, `ObjectBase`'s assignment that copies nothing, `handle_all`'s ordered branch
+  chain, a `sizeof` of a stored pointer, and the cache writing a node's bytes into its file.
+- **CI** runs `run-clang-tidy-18` over `src/` with every check an error; so does
+  `tools/local_matrix.sh`, last, from the debug build's compile commands.
+- **Benchmarks** (release, three alternating runs against `1fb9939`): `{add 1 2}`
+  28.9–29.4 ns before, 28.5–29.3 after; parse 153.6–154.2 MB/s, 143.9–187.6; `{bob grow 0}`
+  unchanged. `{add {add 1 2} 3}` read 59.5–60.7 ns before and 46.5–53.1 after, but
+  cachegrind counts 708 instructions per evaluation in both: code layout, not the fixes.

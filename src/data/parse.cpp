@@ -37,8 +37,8 @@ std::string_view bracket_name(char c) noexcept {
         case '}': return "'}'";
         case '[': return "'['";
         case ']': return "']'";
+        default: return "?";
     }
-    return "?";
 }
 
 class Lexer {
@@ -66,8 +66,8 @@ public:
     }
 
 private:
-    bool fail(Error& err, ErrorCode code, Str msg, int32_t line) {
-        err = make_error(code, std::move(msg), file_, line);
+    bool fail(Error& err, ErrorCode code, std::string_view msg, int32_t line) {
+        err = make_error(code, msg, file_, line);
         return false;
     }
 
@@ -361,8 +361,8 @@ private:
         int32_t line;
     };
 
-    bool fail(ErrorCode code, Str msg, int32_t line) {
-        *err_ = make_error(code, std::move(msg), file_, line);
+    bool fail(ErrorCode code, std::string_view msg, int32_t line) {
+        *err_ = make_error(code, msg, file_, line);
         return false;
     }
     bool too_deep(int32_t line) {
@@ -380,7 +380,9 @@ private:
     bool push(Node n, const SourceSpan& span = {}) {
         if (++s_.st_->nodes > s_.limits.max_nodes)
             return fail(ErrorCode::Limit,
-                        "more than " + detail::decimal(s_.limits.max_nodes) + " nodes", line_);
+                        "more than " + detail::decimal(static_cast<int64_t>(s_.limits.max_nodes)) +
+                            " nodes",
+                        line_);
         if (frames_.back().kind == Frame::Root && n.type() == Type::Property)
             return fail(ErrorCode::Syntax,
                         "a [property] cannot appear at top level, where '[' defines a macro",
@@ -501,7 +503,7 @@ private:
 
     // A name written as a symbol or a string: (owners "td-combat" td-encounter).
     static std::optional<Symbol> name_of(const Node& n) {
-        if (const auto s = n.try_sym()) return *s;
+        if (const auto s = n.try_sym()) return s;
         if (const auto s = n.try_str()) return Symbol(*s);
         return std::nullopt;
     }

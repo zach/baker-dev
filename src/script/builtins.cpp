@@ -222,9 +222,9 @@ void register_builtins(Context& ctx) {
 
     // --- Comparison. ---
     add(
-        ctx, "==", [](Node a, Node b) { return equal(a, b); },
+        ctx, "==", [](const Node& a, const Node& b) { return equal(a, b); },
         "Equality: numbers by value (1 equals 1.0), anything else by structure.");
-    add(ctx, "!=", [](Node a, Node b) { return !equal(a, b); }, "Inequality.");
+    add(ctx, "!=", [](const Node& a, const Node& b) { return !equal(a, b); }, "Inequality.");
     add(ctx, "<", [](int64_t a, int64_t b) { return a < b; }, "Less than.");
     add(ctx, "<", [](double a, double b) { return a < b; });
     add(ctx, "<=", [](int64_t a, int64_t b) { return a <= b; }, "Less than or equal.");

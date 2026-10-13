@@ -101,10 +101,12 @@ public:
     template <class U>
     StdAllocator(const StdAllocator<U>& o) noexcept : a_(o.allocator()) {}  // NOLINT
 
+    // NOLINTBEGIN(bugprone-sizeof-expression): T is a pointer in a table of pointers
     [[nodiscard]] T* allocate(size_t n) {
         return static_cast<T*>(detail::allocate(*a_, n * sizeof(T), alignof(T)));
     }
     void deallocate(T* p, size_t n) noexcept { detail::deallocate(*a_, p, n * sizeof(T)); }
+    // NOLINTEND(bugprone-sizeof-expression)
     [[nodiscard]] const Allocator* allocator() const noexcept { return a_; }
 
     template <class U>

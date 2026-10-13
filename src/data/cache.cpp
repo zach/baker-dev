@@ -94,7 +94,7 @@ uint64_t hash_bytes(const char* p, size_t n) noexcept {
     for (; i + 32 <= n; i += 32)
         for (int l = 0; l < 4; ++l) {
             uint64_t w;
-            std::memcpy(&w, p + i + 8 * l, 8);
+            std::memcpy(&w, p + i + 8 * static_cast<size_t>(l), 8);
             h[l] = std::rotl((h[l] ^ w) * k, 29);
         }
     uint64_t r = n;
@@ -114,7 +114,7 @@ public:
         // Lay out arrays breadth first, sharing what the tree shares; then strings.
         uint32_t end = sizeof(Header);
         if (!place(&root, end) || (meta && !place(meta, end))) return limit();
-        for (size_t i = 0; i < arrays_.size(); ++i) {
+        for (size_t i = 0; i < arrays_.size(); ++i) {  // place() appends as it goes
             const Array& a = *arrays_[i];
             for (const Node& n : a) {
                 if (n.type() == Type::Func || n.type() == Type::Object)
@@ -207,7 +207,9 @@ private:
         for (uint32_t i = 0; i < (a.size() ? a.size() : 1); ++i) {
             const Node& n = nodes[i];
             const size_t p = at + nodes_at(a.size()) + i * sizeof(Node);
-            std::memcpy(out.data() + p, &n, L::kType + 1);  // the payload and type; aux stays 0
+            // The payload and type bytes, into the file; aux stays 0. Nothing becomes a Node.
+            // NOLINTNEXTLINE(bugprone-undefined-memory-manipulation)
+            std::memcpy(out.data() + p, &n, L::kType + 1);
             switch (n.type()) {
                 case Type::Symbol: put(out, p, symbol(*n.try_sym())); break;
                 case Type::Var: put(out, p, symbol(n.var_name())); break;
@@ -223,7 +225,7 @@ private:
             const Array* c = nodes[i].try_array();
             const auto tag = c && !c->empty() ? c->nodes()[0].try_sym() : std::nullopt;
             const uint32_t key = tag ? static_cast<uint32_t>(symbol(*tag)) : kNoTag;
-            put(out, at + sizeof(Array) + i * 4, key);
+            put(out, at + sizeof(Array) + size_t{i} * 4, key);
         }
     }
 
@@ -242,7 +244,7 @@ Unexpected bad(std::string_view name, std::string_view why, ErrorCode code = Err
 // set to the cache's record of its load, or null.
 Expected<Ref<Array>> load(char* file, size_t bytes, std::string_view name, const Cipher* cipher,
                           const Array*& meta) {
-    Header h;
+    Header h{};
     if (bytes < sizeof h) return bad(name, "is not a Moira cache");
     std::memcpy(&h, file, sizeof h);
     if (std::memcmp(h.magic, kMagic, sizeof kMagic) != 0) return bad(name, "is not a Moira cache");
@@ -367,31 +369,31 @@ Ref<Array> record_of(const LoadSession& s) {
     }
     const A::Defines &was = A::defines_before(s), &now = A::defines(s);
     for (const auto& [name, body] : was) {
-        before.push_back(Node(name));
-        before.push_back(Node(body_hash(body)));
-        if (!now.count(name)) undefine.push_back(Node(name));
+        before.emplace_back(name);
+        before.emplace_back(body_hash(body));
+        if (!now.count(name)) undefine.emplace_back(name);
     }
     for (const auto& [name, body] : now) {
         const auto it = was.find(name);
         if (it != was.end() && it->second == body) continue;
-        define.push_back(Node(name));
+        define.emplace_back(name);
         define.push_back(body ? Node(body) : Node(0));
         if (const Pack* p = A::macro_pack(s, name)) {
-            macro_packs.push_back(Node(name));
-            macro_packs.push_back(Node(p->file));
+            macro_packs.emplace_back(name);
+            macro_packs.emplace_back(p->file);
         }
     }
     for (const Node& n : A::new_autorun(s)) autorun.push_back(n);
     const auto paths = A::required(s);
     for (size_t i = 0; i < paths.size(); ++i)
-        (i < A::required_before(s) ? required : require).push_back(Node(String::make(paths[i])));
-    for (const Symbol l : A::pack_levels(s)) levels.push_back(Node(l));
+        (i < A::required_before(s) ? required : require).emplace_back(String::make(paths[i]));
+    for (const Symbol l : A::pack_levels(s)) levels.emplace_back(l);
     for (const Pack& p : A::new_packs(s)) {
         Vec<Node> deps{Node(Symbol("requires"))};
-        for (const Symbol d : p.requires_packs) deps.push_back(Node(d));
+        for (const Symbol d : p.requires_packs) deps.emplace_back(d);
         Vec<Node> owners{Node(Symbol("owners"))}, audience{Node(Symbol("for"))};
-        for (const Symbol o : p.owners) owners.push_back(Node(o));
-        for (const Symbol a : p.audience) audience.push_back(Node(a));
+        for (const Symbol o : p.owners) owners.emplace_back(o);
+        for (const Symbol a : p.audience) audience.emplace_back(a);
         Vec<Node> entry{Node(p.name),
                         Node(p.level),
                         Node(p.file),

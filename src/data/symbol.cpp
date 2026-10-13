@@ -36,7 +36,7 @@ public:
     }
 
 private:
-    static constexpr size_t kBlockSize = 64 * 1024;
+    static constexpr size_t kBlockSize = size_t{64} * 1024;
 
     using Slot = const detail::SymbolEntry*;
 

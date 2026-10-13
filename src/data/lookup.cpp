@@ -234,7 +234,8 @@ bool Path::matches(std::string_view text) const noexcept {
             return false;
         }
         if (i == n) break;
-        if ((text[i] != '.' && text[i] != '/') || ++i == n) return false;
+        if (text[i] != '.' && text[i] != '/') return false;
+        if (++i == n) return false;
     }
     return k == size_;
 }
@@ -350,10 +351,12 @@ Error get_error(const Array& root, const Path& path, const ConvertInfo* info,
         const Array* before_arr = arr;
         if (step(v, arr, path[i])) continue;
         const Path::Segment& seg = path[i];
-        Error e = seg.is_index ? make_error(ErrorCode::NotFound,
-                                            label_of(seg) + " is out of range (" +
-                                                detail::decimal(before.size()) + " values)")
-                               : not_found(seg.name, before.nodes());
+        Error e =
+            seg.is_index
+                ? make_error(ErrorCode::NotFound,
+                             label_of(seg) + " is out of range (" +
+                                 detail::decimal(static_cast<int64_t>(before.size())) + " values)")
+                : not_found(seg.name, before.nodes());
         locate(e, before_arr ? before_arr : before.source());
         e.set_path(detail::text_of(path, i));
         return e;

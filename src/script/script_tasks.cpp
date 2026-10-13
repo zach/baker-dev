@@ -87,7 +87,7 @@ bool ok(Context& ctx, const ScriptTask& t, Expected<Node>& r) {
     if (r) return true;
     Error e = std::move(r).error();
     e.push_stack(StackEntry{kind_name(t.kind), {}, t.command->file(), t.command->line()});
-    ctx.notice(std::move(e));
+    ctx.notice(e);
     return false;
 }
 
@@ -116,7 +116,7 @@ std::optional<double> number(Context& ctx, ScriptTask& t, const Node& n, std::st
                                   Str(what) + " is " + Str(type_name(r->type())) + ", not a number",
                                   t.command->file(), t.command->line()));
     if (!ok(ctx, t, r)) return std::nullopt;
-    return *r->try_float();
+    return r->try_float();
 }
 
 Task run(Scheduler& s, Context& ctx, ScriptTask t) {

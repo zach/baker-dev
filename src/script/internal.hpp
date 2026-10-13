@@ -258,8 +258,8 @@ struct Context::Impl {
     Vec<uint64_t> handled_names{alloc};
     const CallFrame* top = nullptr;  // the innermost call in progress
     uint32_t depth = 0;
-    uintptr_t stack_base = 0;             // the outermost call's stack address
-    uintptr_t stack_budget = 256 * 1024;  // see Context::set_stack_budget
+    uintptr_t stack_base = 0;                        // the outermost call's stack address
+    uintptr_t stack_budget = uintptr_t{256} * 1024;  // see Context::set_stack_budget
     NoticeSink sink = nullptr;
     void* sink_user = nullptr;
 

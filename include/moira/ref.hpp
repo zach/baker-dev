@@ -64,6 +64,7 @@ enum OwnerKind : uint32_t { kSoloArray, kSoloString, kArena };
     uint32_t offset;
     std::memcpy(&offset, payload, sizeof offset);
     Owner* owner;
+    // NOLINTNEXTLINE(bugprone-sizeof-expression): the owner pointer stored before the payload
     std::memcpy(&owner, static_cast<const char*>(payload) - offset, sizeof owner);
     return *owner;
 }
@@ -101,8 +102,8 @@ public:
         if (p_) p_->ref();
     }
     Ref(Ref&& o) noexcept : p_(std::exchange(o.p_, nullptr)) {}
-    Ref& operator=(const Ref& o) noexcept {
-        Ref(o).swap(*this);
+    Ref& operator=(const Ref& o) noexcept {  // NOLINT(bugprone-unhandled-self-assignment)
+        Ref(o).swap(*this);                  // copy and swap: safe for self-assignment
         return *this;
     }
     Ref& operator=(Ref&& o) noexcept {

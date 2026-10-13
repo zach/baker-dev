@@ -62,8 +62,8 @@ MOIRA_COLD void locate(Error& e, const Array& at) {
     record_stack(e);
 }
 
-MOIRA_COLD Expected<Node> fail(const Array& at, ErrorCode code, Str message) {
-    Error e = make_error(code, std::move(message), at.file(), at.line());
+MOIRA_COLD Expected<Node> fail(const Array& at, ErrorCode code, std::string_view message) {
+    Error e = make_error(code, message, at.file(), at.line());
     record_stack(e);
     return Unexpected(std::move(e));
 }
@@ -82,14 +82,14 @@ MOIRA_COLD Expected<Node> not_function(const Array& command, Symbol name) {
 MOIRA_COLD Expected<Node> too_deep(const Array& command, uint32_t depth, uintptr_t used) {
     return fail(command, ErrorCode::Limit,
                 "calls nested too deep (" + detail::decimal(depth) + " calls, " +
-                    detail::decimal(used / 1024) + " KB of stack)");
+                    detail::decimal(static_cast<int64_t>(used / 1024)) + " KB of stack)");
 }
 
 MOIRA_COLD Expected<Node> bad_arity(const Array& command, Symbol name, const detail::Overload& o,
                                     size_t n) {
     return fail(command, ErrorCode::Type,
                 quoted(name) + " takes " + arity_text(o.min_args, o.max_args) + ", given " +
-                    detail::decimal(n));
+                    detail::decimal(static_cast<int64_t>(n)));
 }
 
 MOIRA_COLD Expected<Node> no_overload(const Array& command, Symbol name,
@@ -582,7 +582,7 @@ void Context::set_notice_sink(NoticeSink sink, void* user) noexcept {
     impl_->sink_user = user;
 }
 
-void Context::notice(Error notice) const {
+void Context::notice(const Error& notice) const {
     if (impl_->sink) impl_->sink(impl_->sink_user, notice);
 }
 
@@ -601,7 +601,7 @@ Expected<FuncRef> Context::add_overload(Symbol name, detail::Overload o) {
         if (n < o.min_args || n > o.max_args)
             e.set_message(Str(e.message()) + "; the script took " + arity_text(n, n) +
                           ", the native takes " + arity_text(o.min_args, o.max_args));
-        notice(std::move(e));
+        notice(e);
         f.overloads.clear();
         f.refresh();
         f.status = Status::Normal;
@@ -674,7 +674,8 @@ Error Args::error(std::string_view message, ErrorCode code) const {
 }
 
 Error Args::type_error(size_t i, const Node& n, std::string_view want) const {
-    const Str which = "argument " + detail::decimal(offset_ + i + 1) + " of " + quoted(name());
+    const Str which = "argument " + detail::decimal(static_cast<int64_t>(offset_ + i + 1)) +
+                      " of " + quoted(name());
     if (i >= size_)
         return error(quoted(name()) + " is missing " + which.substr(0, which.find(" of")));
     return error(which + " is " + Str(type_name(n.type())) + ", not " + Str(want));
@@ -689,8 +690,9 @@ Expected<Raw<Var>> read_var(const Args& a, size_t i) {
     const Node& n = a.raw(i);
     if (n.type() == Type::Property) return Raw<Var>(a.context(), *n.array());
     if (n.type() != Type::Var)
-        return Unexpected(a.error("argument " + detail::decimal(i + 1) + " of " + quoted(a.name()) +
-                                  " must be a $variable, not " + Str(type_name(n.type()))));
+        return Unexpected(a.error("argument " + detail::decimal(static_cast<int64_t>(i + 1)) +
+                                  " of " + quoted(a.name()) + " must be a $variable, not " +
+                                  Str(type_name(n.type()))));
     return Raw<Var>(a.context().impl().cell(n.var_name()), n.var_name());
 }
 }  // namespace detail

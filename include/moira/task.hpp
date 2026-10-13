@@ -85,7 +85,7 @@ void free_task_frame(void* frame) noexcept;
 
 // What every task promise holds: its Scheduler, and its slot once spawned.
 struct TaskPromiseBase {
-    Scheduler* scheduler;
+    Scheduler* scheduler = nullptr;
     uint32_t slot = UINT32_MAX;
 };
 // Parking a suspended task until it is due (task.cpp).
@@ -207,7 +207,7 @@ struct SchedulerStats {
 class Scheduler : public Object<Scheduler> {
 public:
     explicit Scheduler(Context& ctx, SchedulerOptions options = {});
-    ~Scheduler();  // destroys every task's frame, running its locals' destructors
+    ~Scheduler() override;  // destroys every task's frame, running its locals' destructors
     Scheduler(const Scheduler&) = delete;
     Scheduler& operator=(const Scheduler&) = delete;
 

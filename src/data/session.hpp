@@ -15,8 +15,8 @@ namespace moira::detail {
 // A file a recorded load read, or looked for and did not find (size -1).
 struct CacheFile {
     Str path;
-    int64_t size;
-    uint64_t hash;
+    int64_t size = 0;
+    uint64_t hash = 0;
 };
 
 // The cache's checksum, also of the files a load read (cache.cpp).

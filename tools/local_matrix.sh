@@ -30,4 +30,12 @@ for n in "${!cfg[@]}"; do
   echo "$n: $errs errors/warnings; $res"
   [ "$errs" = 0 ] && [[ "$res" == 100%* ]] || status=1
 done
+# clang-tidy over src, as CI runs it (D103), from the debug configuration's compile commands.
+if command -v run-clang-tidy-18 >/dev/null; then
+  tidy=$(run-clang-tidy-18 -p "$root/debug" -quiet 'src/.*\.cpp$' 2>&1 | grep -cE "(warning|error):.*\[")
+  echo "tidy: $tidy findings"
+  [ "$tidy" = 0 ] || status=1
+else
+  echo "tidy: run-clang-tidy-18 not installed; skipped"
+fi
 exit $status

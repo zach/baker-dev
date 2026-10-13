@@ -119,7 +119,7 @@ private:
 
 class Node {
 public:
-    Node() noexcept : type_(Type::Int) { value_.i = 0; }
+    Node() noexcept : value_{.i = 0}, type_(Type::Int) {}
     // Any integer type. Unsigned values above INT64_MAX keep their bit pattern.
     template <class T>
         requires std::is_integral_v<T>
@@ -330,9 +330,8 @@ private:
     [[nodiscard]] const String* string_payload() const noexcept {
         return static_cast<const String*>(value_.p);
     }
-    explicit Node(const String* s) noexcept : type_(Type::String) {
+    explicit Node(const String* s) noexcept : value_{.p = s}, type_(Type::String) {
         assert(s && "Node from null Ref<String>");
-        value_.p = s;
         detail::retain_payload(value_.p);
     }
 

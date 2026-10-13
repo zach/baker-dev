@@ -104,8 +104,8 @@ bool write_disk_file(std::string_view where, std::string_view text) {
     return std::fclose(f) == 0 && ok;
 }
 
-Error refused(Str message, Symbol file = {}, int32_t line = 0) {
-    return make_error(ErrorCode::Refused, std::move(message), file, line);
+Error refused(std::string_view message, Symbol file = {}, int32_t line = 0) {
+    return make_error(ErrorCode::Refused, message, file, line);
 }
 
 [[maybe_unused]] Error shipping(std::string_view what) {
@@ -524,7 +524,7 @@ struct Config::Impl {
 
     // --- Reading layers ---
 
-    Rc<LoadSession> session_below(const Vec<LayerState>& ls, size_t i) const {
+    [[nodiscard]] Rc<LoadSession> session_below(const Vec<LayerState>& ls, size_t i) const {
         return i == 0 ? Rc<LoadSession>::make(alloc, base) : ls[i - 1].after;
     }
 
@@ -554,7 +554,7 @@ struct Config::Impl {
         auto session = Rc<LoadSession>::make(alloc, before);
         session->clear_autorun();
         Vec<Dep> deps;
-        const LoadSession::Reader reader = before.reader();
+        const LoadSession::Reader& reader = before.reader();
         // Edit mode reads text, which keeps the source maps write-back needs.
         Str cache(alloc);
         if (!options.edit_mode && !cache_dir.empty()) {
@@ -594,9 +594,9 @@ struct Config::Impl {
             layer.missing = true;
         }
         layer.root = std::move(*root);
-        layer.map = std::move(map);
+        layer.map = map;
         layer.deps = std::move(deps);
-        layer.after = std::move(session);
+        layer.after = session;
         return {};
     }
 
@@ -633,7 +633,7 @@ struct Config::Impl {
         return {};
     }
 
-    std::optional<size_t> find_layer(std::string_view name) const {
+    [[nodiscard]] std::optional<size_t> find_layer(std::string_view name) const {
         for (size_t i = 0; i < layers.size(); ++i)
             if (layers[i].name == name) return i;
         return std::nullopt;
@@ -654,7 +654,7 @@ struct Config::Impl {
     }
 
     // The scratch entry for `path`, or for the value `path` is an element of.
-    const ScratchEntry* scratch_entry(const Path& path) const noexcept {
+    [[nodiscard]] const ScratchEntry* scratch_entry(const Path& path) const noexcept {
         if (!scratch_enabled) return nullptr;
         for (const ScratchEntry& e : scratch)
             if (e.path == path || is_element_of(path, e.path)) return &e;
@@ -681,7 +681,7 @@ struct Config::Impl {
     // Updates the tweaks bound to `e`'s path (or to one of its elements) from scratch,
     // without a merge, and fires only their on_change. Allocates nothing for up to 16
     // affected tweaks.
-    void retune(const ScratchEntry& e) {
+    void retune(const ScratchEntry& e) const {
         if (!options.tweaks) return;
         TweakBase* few[16];
         size_t n = 0;
@@ -810,7 +810,7 @@ struct Config::Impl {
         finish(c, rec, t);
     }
 
-    Expected<void> may_change(const Config& c) const {
+    [[nodiscard]] Expected<void> may_change(const Config& c) const {
         if (c.frozen_ && !options.live_layers)
             return Unexpected(
                 refused("the config is frozen; layers and values can no longer change"));
@@ -819,7 +819,8 @@ struct Config::Impl {
 
     // The enabled layer below `top` (skipping `skip`) whose own tree has `path`'s value:
     // overwrite merging means its values won.
-    std::optional<size_t> supplier(const Path& path, size_t top, size_t skip = SIZE_MAX) const {
+    [[nodiscard]] std::optional<size_t> supplier(const Path& path, size_t top,
+                                                 size_t skip = SIZE_MAX) const {
         const bool index = last_is_index(path);
         for (size_t i = top; i-- > 0;) {
             if (i == skip || !layers[i].options.enabled) continue;
@@ -853,8 +854,9 @@ struct Config::Impl {
 
     // --- Write-back ---
 
-    Expected<Plan> plan(const LayerState& layer, const Path& path, const Vec<Node>& values,
-                        bool insert, const LoadSession::Reader& read_file) const;
+    [[nodiscard]] Expected<Plan> plan(const LayerState& layer, const Path& path,
+                                      const Vec<Node>& values, bool insert,
+                                      const LoadSession::Reader& read_file) const;
     Expected<WriteReport> write_into(Config& c, size_t li, const Path& path,
                                      const Vec<Node>& values, bool insert);
 };

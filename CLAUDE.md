@@ -5,7 +5,8 @@ every deviation from it and the results of each step, and the current milestone 
 (`docs/m<N>-plan.md`) if one exists. M10, the harness instrumentation, is done (D96):
 every milestone of spec §10 is. The core's soft line budget is 15,000 (D69);
 `tools/count_lines.py` reports it, and `moira::shape` apart. CI also checks
-`clang-format-18 --dry-run --Werror` over every source file.
+`clang-format-18 --dry-run --Werror` over every source file, and runs clang-tidy over `src/`
+with `.clang-tidy`, where every finding is an error (D103).
 
 ## Rules
 
@@ -26,8 +27,8 @@ every milestone of spec §10 is. The core's soft line budget is 15,000 (D69);
 
 - **Commit each sub-step green.** Before every commit, run `tools/local_matrix.sh`:
   debug, release, C++23, shipping, ASan+UBSan, Clang, data-only, plain refcounts, EASTL,
-  and the ImGui harness (the last two need the network the first time). Shipping refuses live edits and
-  reloads, so test those under `if constexpr (!kShipping)`.
+  and the ImGui harness (the last two need the network the first time), then clang-tidy.
+  Shipping refuses live edits and reloads, so test those under `if constexpr (!kShipping)`.
 - **Containers in `src/`** are `Vec`, `Str`, `HashMap`, `Own`, and `Rc` from
   `src/common/containers.hpp`, never the STL's directly (D55, D61). An owner passes its
   allocator to the tables it keeps. Do not construct a `Vec` on a hot path, even an empty
