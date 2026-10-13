@@ -4,7 +4,7 @@ Six prototype development environments ("stacks") built around Moira, one per ki
 creative work, for focused agent-assisted development. Every game targets PS4, Windows PC,
 and Switch 2.
 
-Oct 13, 2026. A design proposal, not a decision: §9 lists what the owner has to choose.
+Oct 13, 2026. A design proposal; §9 records what the owner has decided and what is open.
 
 Companion to `harness-tree-vision.md` (layers L0–L4, the four properties of a harness),
 `reading-a-studio.md` (loop telemetry, the harness register), and `pushing-up.md`. Code in
@@ -76,10 +76,9 @@ frozen engine built around C++17, and Moira needs C++20. That leaves three paths
 | Acton review (`.claude/skills/acton-review`) | Passes by construction | A managed runtime in the core loop | A scene tree and a variant type in the core loop |
 | Agent fit | Text all the way down; headless by construction | Scenes and prefabs are binary or YAML; headless needs batch mode | Text scenes; headless works |
 
-The rest of this document assumes **A**. B is the hedge if the base slips: Moira then
-holds the data (shapes, layers, provenance, write-back, `check`) and the stacks keep most of
-§3, but lose determinism and the one-line promise in gameplay code. §9 asks the owner to
-choose.
+The owner chose **A** (§9). B is the hedge if the base slips: Moira then holds the data
+(shapes, layers, provenance, write-back, `check`) and the stacks keep most of §3, but lose
+determinism and the one-line promise in gameplay code.
 
 ### Gate 0: the PS4 toolchain and C++20
 
@@ -180,10 +179,10 @@ Each stack is one repository:
 engine/          the base (L1), shared: a submodule or package, versioned
 game/            L2 C++: native functions, objects, typed messages, the sim
 packs/game/      L2 packs: shapes, macros, functions (level game)
-packs/task/      L3 packs: workbenches (level task)       agent-writable
-data/            L4 instance data and the layer files     agent-writable
-sim/             headless runner; scenarios/*.dta          agent-writable
-metrics/         objectives, as data                       agent-writable, reviewed
+packs/task/      L3 packs: workbenches (level task)       agent-writable, unreviewed
+data/            L4 instance data and the layer files     agent.dta only; the rest by PR
+sim/             headless runner; scenarios/*.dta          agent-writable, unreviewed
+metrics/         objectives, as data                       agent proposes by PR
 tools/           host link, agent tool server
 .claude/         CLAUDE.md and skills: the stack's vocabulary and loop, for the agent
 ```
@@ -265,6 +264,9 @@ goes through review like any other change.
 6. The human plays it and tunes it live. Their edits land in `scratch` and the journal;
    the agent reads the journal to learn what the human changed after it.
 7. `promote` on approval.
+
+**What the agent may write without review** (§9): the `agent` layer, `sim/` scenarios,
+and L3 task packs. Metrics, L2 packs, and promotion go by pull request.
 
 **Packs the agent writes** declare it as one owner and a person as the other:
 `(owners "agent" "td-encounter")`. A pack with only `"agent"` is a single-owner finding in
@@ -739,14 +741,20 @@ only when a stack proves the need:
 
 ---
 
-## 9. Decisions for the owner
+## 9. Decisions
 
-1. **The base engine:** A (thin C++ base with console-proven middleware), B (Unity host,
-   Moira for data), or C (Godot via a porting partner). Recommended: A.
-2. **Which stacks first:** recommended Duel and Ledger.
-3. **Rendering middleware for A:** The Forge or bgfx, once their Switch 2 back ends are
+Decided by the project owner, 2026-10-13:
+
+1. **The base engine:** A, the thin C++ base (§1, §2).
+2. **First stacks:** Duel and Ledger (§6, step 3).
+3. **Agent write scope:** without review, the `agent` layer, `sim/` scenarios, and L3 task
+   packs (`packs/task/`). Metrics, L2 packs, and promotion into the real layers go by
+   pull request. Every task pack the agent writes still names a person among its owners
+   (§3.4).
+
+Still open:
+
+4. **Rendering middleware:** The Forge or bgfx, once their Switch 2 back ends are
    confirmed.
-4. **Handheld mode in shipping builds:** two baked Configs, or a frozen Config with
+5. **Handheld mode in shipping builds:** two baked Configs, or a frozen Config with
    `live_layers` for the `handheld` layer.
-5. **Where the agent may write without review:** recommended only the `agent` layer and
-   `sim/` scenarios; packs, metrics, and promoted data by pull request.
