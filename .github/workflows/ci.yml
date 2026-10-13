@@ -76,6 +76,35 @@ jobs:
       - name: Test
         run: ctest --test-dir build-stacks --output-on-failure
 
+  # The cube, packaged for a Windows machine with no developer tools: a Release build with
+  # the C runtime linked statically, its data beside it, run once headless, and uploaded
+  # as the run's artifact "stacks-cube-windows".
+  stacks-package:
+    name: stacks package (Windows)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Build
+        shell: bash
+        run: |
+          cmake -S stacks -B build-package -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl \
+            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DSTACKS_BUILD_TESTS=OFF
+          cmake --build build-package --target stacks_cube
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p package/data
+          cp build-package/bin/stacks_cube.exe package/
+          cp stacks/cube/data/default.dta package/data/
+          cp stacks/cube/package/README.txt package/
+          cd package && ./stacks_cube.exe --headless --frames 60 --console-port 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stacks-cube-windows
+          path: package/
+
   fuzz:
     name: fuzz (libFuzzer, ASan+UBSan)
     runs-on: ubuntu-24.04

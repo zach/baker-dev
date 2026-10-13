@@ -23,6 +23,11 @@ ctest --test-dir build-stacks
 build-stacks/bin/stacks_cube              # Windows: build-stacks\bin\stacks_cube.exe
 ```
 
+**Without a development machine:** each CI run on GitHub builds the cube for Windows and
+attaches it as the artifact `stacks-cube-windows` (the run's Summary page, under
+Artifacts): a zip with `stacks_cube.exe`, its `data` folder, and a `README.txt` with the
+test steps. It needs no installs.
+
 With the cube running, edit `stacks/cube/data/default.dta` and save: the next frame shows
 the change, and the top left shows the time from the save to that frame. F1 shows and
 hides Moira's panels: tweaks, console, loop times, layers, the edit journal, shapes, and
