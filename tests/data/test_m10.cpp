@@ -1,4 +1,5 @@
-// M10: harness instrumentation (spec §4, §10; docs/decisions.md D90): loop statistics.
+// M10: harness instrumentation (spec §4, §10; docs/decisions.md D90): loop statistics and
+// the edit journal.
 #include <doctest.h>
 #include <moira/config.hpp>
 #include <moira/std_interop.hpp>
@@ -24,6 +25,12 @@ struct FakeClock {
         return c->t += c->step;
     }
 };
+
+[[maybe_unused]] std::vector<JournalEntry> journal(const Config& cfg) {
+    std::vector<JournalEntry> out;
+    cfg.journal([&](const JournalEntry& e) { out.push_back(e); });
+    return out;
+}
 
 [[maybe_unused]] const LoopRow* row(const List<LoopRow>& rows, std::string_view ends_with) {
     for (const LoopRow& r : rows)
@@ -163,6 +170,117 @@ TEST_CASE("mark_visible and a reload that feeds the statistics allocate nothing"
     for (int i = 0; i < 10; ++i) cfg.mark_visible();
     CHECK(scope.count() == 0);
 }
+TEST_CASE("the edit journal: old and new values, provenance, and each edit's fate") {
+    TempDir dir;
+    TweakRegistry reg;
+    Tweak<float> width{"box.width", 1.0f, {}, reg};
+    Config cfg({.tweaks = &reg});
+    REQUIRE(cfg.push_layer(
+        "default", dir.write("default.dta", "; shared\n(box\n   (width 2)\n   (height 1))\n")));
+    REQUIRE(cfg.push_layer("local", dir.write("local.dta", "(audio (volume 0.5))\n")));
+    FakeClock clock;
+    cfg.set_time_source(FakeClock::tick, &clock);
+
+    // A tweak tuned live: unsaved() lists it (M10's second criterion), and the journal says
+    // from what, from where, and when.
+    REQUIRE(width.set(3.0f));
+    CHECK(strings(cfg.unsaved()) == std::vector<std::string>{"box/width"});
+    auto j = journal(cfg);
+    REQUIRE(j.size() == 1);
+    CHECK(j[0].path == Symbol("box/width"));
+    CHECK(j[0].before_count == 1);
+    CHECK(j[0].before[0].try_int() == 2);
+    CHECK(j[0].after_count == 1);
+    CHECK(j[0].after[0].try_float() == 3.0);
+    CHECK(j[0].source.layer == Symbol("default"));
+    CHECK(j[0].source.line == 3);
+    CHECK(j[0].time_ns > 0);
+    CHECK(j[0].fate == EditFate::Unsaved);
+
+    // Tuned again before saving (set's fast path): the first is superseded, and the old
+    // value now comes from scratch.
+    REQUIRE(cfg.set("box.width", Node(4)));
+    j = journal(cfg);
+    REQUIRE(j.size() == 2);
+    CHECK(j[0].fate == EditFate::Superseded);
+    CHECK(j[1].before[0].try_float() == 3.0);
+    CHECK(j[1].after[0].try_int() == 4);
+    CHECK(j[1].source.layer == Symbol("scratch"));
+    CHECK(j[1].fate == EditFate::Unsaved);
+
+    // Saved: written, with the file and line.
+    REQUIRE(cfg.write_back("box.width"));
+    j = journal(cfg);
+    CHECK(j[1].fate == EditFate::Written);
+    CHECK(j[1].written.file.str().ends_with("default.dta"));
+    CHECK(j[1].written.line == 3);
+    CHECK(cfg.unsaved().empty());
+
+    // Kept for one user: written into local.
+    REQUIRE(cfg.set("box.height", Node(7)));
+    REQUIRE(cfg.write_back_to("box.height", "local"));
+    j = journal(cfg);
+    CHECK(j.back().fate == EditFate::Written);
+    CHECK(j.back().written.file.str().ends_with("local.dta"));
+
+    // Reverted: dropped from scratch.
+    REQUIRE(cfg.set("audio.volume", Node(0.9)));
+    REQUIRE(cfg.clear_scratch("audio.volume"));
+    CHECK(journal(cfg).back().fate == EditFate::Reverted);
+
+    // A value of more than four nodes keeps its first four, and its count; a new path had
+    // no value before.
+    const Node six[6] = {1, 2, 3, 4, 5, 6};
+    REQUIRE(cfg.set("box.sizes", std::span<const Node>(six)));
+    CHECK(journal(cfg).back().before_count == 0);
+    CHECK(journal(cfg).back().after_count == 6);
+    CHECK(journal(cfg).back().after[3].try_int() == 4);
+
+    // Promoted from scratch: written.
+    REQUIRE(cfg.promote("scratch", "local"));
+    CHECK(journal(cfg).back().fate == EditFate::Written);
+    CHECK(journal(cfg).back().written.file.str().ends_with("local.dta"));
+}
+
+TEST_CASE("restore reverts the unsaved edits its scratch does not hold") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer("default", dir.write("d.dta", "(a 1) (b 1)\n")));
+    REQUIRE(cfg.set("a", Node(2)));
+    const ConfigSnapshot snap = cfg.snapshot();
+    REQUIRE(cfg.set("b", Node(2)));
+    REQUIRE(cfg.restore(snap));
+    const auto j = journal(cfg);
+    REQUIRE(j.size() == 2);
+    CHECK(j[0].fate == EditFate::Unsaved);   // a: the snapshot's scratch holds it
+    CHECK(j[1].fate == EditFate::Reverted);  // b: gone
+}
+
+TEST_CASE("the journal is a ring, and an edit on set's fast path allocates nothing") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer("default", dir.write("d.dta", "(a 1)\n")));
+    cfg.set_journal_history(3);
+    for (int i = 2; i <= 6; ++i) REQUIRE(cfg.set("a", Node(i)));
+    auto j = journal(cfg);
+    REQUIRE(j.size() == 3);  // the newest three, oldest first
+    CHECK(j[0].after[0].try_int() == 4);
+    CHECK(j[2].after[0].try_int() == 6);
+    CHECK(j[1].fate == EditFate::Superseded);
+    CHECK(j[2].fate == EditFate::Unsaved);
+    if (test::counting_allocations()) {
+        test::AllocationScope scope;
+        for (int i = 0; i < 100; ++i) REQUIRE(cfg.set("a", Node(i)));
+        CHECK(scope.count() == 0);
+    }
+    j = journal(cfg);
+    CHECK(j[2].after[0].try_int() == 99);
+    CHECK(j[2].before[0].try_int() == 98);
+
+    cfg.set_journal_history(0);  // off
+    REQUIRE(cfg.set("a", Node(7)));
+    CHECK(journal(cfg).empty());
+}
 #endif
 
 #if MOIRA_SHIPPING
@@ -175,5 +293,9 @@ TEST_CASE("under MOIRA_SHIPPING loop statistics are empty and mark_visible does 
     CHECK(s.reloads == 0);
     CHECK(s.files.empty());
     CHECK(s.layers.empty());
+    CHECK(cfg.set("a", Node(2)).error().code() == ErrorCode::Refused);
+    int entries = 0;
+    cfg.journal([&](const JournalEntry&) { ++entries; });
+    CHECK(entries == 0);
 }
 #endif

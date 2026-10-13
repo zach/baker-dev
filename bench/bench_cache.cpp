@@ -192,7 +192,18 @@ int run(const char* self, size_t text_bytes) {
             }
             visible = std::min(visible, ms_since(t0) * 1e6 / 10000000);
         }
+        // A live edit on set's fast path (a scalar already in scratch), as a slider drag
+        // makes every frame; the journal records each (D93).
+        double edit = 1e9;
+        if (!cfg.set("speed", moira::Node(2))) return 1;
+        for (int rep = 0; rep < 5; ++rep) {
+            const auto t0 = Clock::now();
+            for (int i = 0; i < 1000000; ++i)
+                if (!cfg.set("speed", moira::Node(i))) return 1;
+            edit = std::min(edit, ms_since(t0) * 1e6 / 1000000);
+        }
         std::filesystem::remove(small);
+        std::printf("  Config set, a scalar in scratch:      %7.1f ns\n", edit);
         std::printf("  Config reload, unchanged small file:  %7.0f ns\n", poll);
         std::printf("  Config mark_visible, nothing waiting: %7.2f ns\n", visible);
     }

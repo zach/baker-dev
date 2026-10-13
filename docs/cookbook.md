@@ -111,6 +111,11 @@ cfg.push_layer("patch-2026-10-11", overlay);   // live patches go above local
 - To keep a value for yourself, tune it, then `write_back_to(path, "local")`. To share an
   experiment, `promote("local", "default")` writes its entries into the shared file as one
   reviewable diff, or nothing if any entry cannot be written.
+- Before quitting, check what was tuned and not kept: `cfg.unsaved()` lists the paths, and
+  `cfg.journal(fn)` every live edit of the session (up to the last 256) with its old and
+  new values, where the old one came from, and whether it was written, reverted, or
+  superseded (D93). A harness can warn at exit, and the journal's counts say how much
+  tuning was kept.
 
 `examples/config` writes a value into a `local` layer that did not exist;
 `examples/harness-imgui` pushes `local/<user>.dta` this way.

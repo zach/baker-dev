@@ -199,6 +199,26 @@ struct WrittenLine {
     int32_t line = 0;
 };
 
+// The edit journal (spec §4, D90 Q2, D93): every live change made through the Config, and
+// what became of it. A value of more than four nodes keeps its first four, and its count.
+enum class EditFate : uint8_t {
+    Unsaved,     // still only in scratch
+    Written,     // written to a file by write_back, write_back_to, or promote from scratch
+    Reverted,    // dropped from scratch by clear_scratch or restore
+    Superseded,  // edited again before it was saved: the later entry has the fate
+};
+
+struct JournalEntry {
+    Symbol path;           // as unsaved() names it: box/width
+    uint64_t time_ns = 0;  // from the Config's time source
+    Node before[4], after[4];
+    uint32_t before_count = 0;  // 0: the path had no value
+    uint32_t after_count = 0;
+    Source source;  // where the old value came from
+    EditFate fate = EditFate::Unsaved;
+    WrittenLine written;  // for Written: the file and line
+};
+
 struct WriteReport {
     List<WrittenLine> written;  // every file and line written
     List<Error> refused;        // promote(): every refusal; then nothing was written
@@ -325,6 +345,13 @@ public:
     [[nodiscard]] Expected<void> clear_scratch(std::string_view path = {});
     // Paths in scratch: live edits not yet written back.
     [[nodiscard]] List<Symbol> unsaved() const;
+    // Visits the edit journal, oldest first: up to the last 256 live changes (D93); empty
+    // under MOIRA_SHIPPING. set_journal_history allocates the ring once; 0 turns it off.
+    template <class F>
+    void journal(F&& fn) const {
+        for (size_t i = 0, n = journal_size(); i < n; ++i) fn(journal_at(i));
+    }
+    void set_journal_history(size_t capacity);
 
     [[nodiscard]] Expected<WriteReport> write_back(const Path& path);
     [[nodiscard]] Expected<WriteReport> write_back_to(const Path& path, std::string_view layer);
@@ -355,6 +382,8 @@ private:
     void stamp_visible() noexcept;
     [[nodiscard]] size_t history_size() const noexcept;
     [[nodiscard]] const ReloadRecord& history_at(size_t i) const noexcept;
+    [[nodiscard]] size_t journal_size() const noexcept;
+    [[nodiscard]] const JournalEntry& journal_at(size_t i) const noexcept;
 
     Ref<Array> root_;
     uint64_t epoch_ = 0;

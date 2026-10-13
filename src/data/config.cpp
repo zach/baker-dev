@@ -21,6 +21,11 @@
 namespace moira {
 namespace {
 
+const Symbol& scratch_name() {
+    static const Symbol s("scratch");
+    return s;
+}
+
 // Reads `path` through `reader` into `text`, replacing what it held.
 bool read_into(const LoadSession::Reader& reader, std::string_view path, Str& text) {
     text.clear();
@@ -48,10 +53,13 @@ struct LayerState {
 
 // One path in scratch. The array is owned by scratch alone, so set() may change it in
 // place without allocating.
+constexpr uint64_t kNoEdit = UINT64_MAX;
+
 struct ScratchEntry {
-    Str key;            // the path, '/'-separated
-    Path path;          // names only
-    Ref<Array> values;  // (last_name value...)
+    Symbol key;               // the path, '/'-separated, interned once: the journal's name for it
+    Path path;                // names only
+    Ref<Array> values;        // (last_name value...)
+    uint64_t edit = kNoEdit;  // its latest journal entry, by sequence (D93)
 };
 
 // A tagged array with values in some tree, found by walking tags (first occurrence of
@@ -236,7 +244,7 @@ Str render_entry(const Path& path, size_t from, const Vec<Node>& values, const S
 Vec<ScratchEntry> copy_scratch(const Vec<ScratchEntry>& from) {
     Vec<ScratchEntry> out;
     for (const ScratchEntry& e : from)
-        out.push_back({e.key, e.path, Array::make_copy(e.values->nodes())});
+        out.push_back({e.key, e.path, Array::make_copy(e.values->nodes()), e.edit});
     return out;
 }
 
@@ -366,6 +374,59 @@ struct Config::Impl {
     Pending pending[kPending] = {};
     uint32_t pending_n = 0;
     uint32_t loop_reloads = 0, loop_unchanged = 0, loop_failures = 0;
+
+    // The edit journal (D93): a ring, reserved by the first edit, written in place after.
+    // Entry n of the session is in slot n % journal_cap while the ring holds it. A scratch
+    // entry knows its latest entry, so giving one its fate never searches the ring.
+    Vec<JournalEntry> journal{alloc};
+    size_t journal_cap = 256;
+    uint64_t journal_count = 0;  // entries ever made
+
+    [[nodiscard]] JournalEntry* journal_entry(uint64_t n, Symbol key) noexcept {
+        if (n == kNoEdit || n >= journal_count || journal_count - n > journal.size())
+            return nullptr;
+        JournalEntry& e = journal[n % journal_cap];
+        return e.path == key ? &e : nullptr;
+    }
+    // Records a live change of `owner`'s value, from `before` (its first four nodes of
+    // `before_count`, sourced at `source`) to `after`; its previous entry, if still unsaved,
+    // is superseded. Allocates only the ring, once.
+    void log_edit(ScratchEntry& owner, const Node* before, uint32_t before_count,
+                  std::span<const Node> after, const Source& source) {
+        if constexpr (!kShipping) {
+            if (!journal_cap) return;
+            settle(owner, EditFate::Superseded, {});
+            if (journal.capacity() < journal_cap) journal.reserve(journal_cap);
+            if (journal.size() < journal_cap) journal.push_back(JournalEntry{});
+            // Reused in place: every field is written, and a value slot the previous entry
+            // used beyond this one's count is cleared, so nothing it held stays alive.
+            JournalEntry& e = journal[journal_count % journal_cap];
+            const uint32_t was = std::max(std::min<uint32_t>(e.before_count, 4),
+                                          std::min<uint32_t>(e.after_count, 4));
+            owner.edit = journal_count++;
+            e.path = owner.key;
+            e.time_ns = now();
+            e.before_count = before_count;
+            e.after_count = static_cast<uint32_t>(after.size());
+            const uint32_t nb = std::min<uint32_t>(before_count, 4);
+            const uint32_t na = std::min<uint32_t>(e.after_count, 4);
+            for (uint32_t i = 0; i < nb; ++i) e.before[i] = before[i];
+            for (uint32_t i = 0; i < na; ++i) e.after[i] = after[i];
+            for (uint32_t i = nb; i < was; ++i) e.before[i] = Node();
+            for (uint32_t i = na; i < was; ++i) e.after[i] = Node();
+            e.source = source;
+            e.fate = EditFate::Unsaved;
+            e.written = {};
+        }
+    }
+    // Gives `owner`'s latest entry its fate, if it is still unsaved.
+    void settle(const ScratchEntry& owner, EditFate fate, WrittenLine written) noexcept {
+        if (JournalEntry* e = journal_entry(owner.edit, owner.key);
+            e && e->fate == EditFate::Unsaved) {
+            e->fate = fate;
+            e->written = written;
+        }
+    }
 
     // --- Telemetry ---
 
@@ -658,6 +719,25 @@ struct Config::Impl {
         ScratchEntry* found = nullptr;
         for (ScratchEntry& e : scratch)
             if (e.path == target) found = &e;
+        // The journal (D93): the old value, from scratch or else from the stack.
+        Node before[4];
+        uint32_t before_count = 0;
+        Source source{scratch_name()};
+        if constexpr (!kShipping) {
+            if (found) {
+                const Values v = found->values->values();
+                before_count = static_cast<uint32_t>(v.size());
+                std::copy_n(v.begin(), std::min<uint32_t>(before_count, 4), before);
+            } else if (journal_cap) {
+                Vec<Node> now;
+                if (value_nodes(*c.root_, target, now)) {
+                    before_count = static_cast<uint32_t>(now.size());
+                    std::copy_n(now.data(), std::min<uint32_t>(before_count, 4), before);
+                }
+                auto s = c.source(target);
+                source = s ? *s : Source{};
+            }
+        }
         if (found && found->values->size() == values.size() + 1) {
             for (size_t i = 0; i < values.size(); ++i) found->values->set(i + 1, values[i]);
         } else {
@@ -667,9 +747,10 @@ struct Config::Impl {
             if (found)
                 found->values = std::move(arr);
             else
-                scratch.push_back({detail::text_of(target), target, std::move(arr)});
+                scratch.push_back({Symbol(detail::text_of(target)), target, std::move(arr)});
             found = found ? found : &scratch.back();
         }
+        log_edit(*found, before, before_count, values, source);
         c.scratch_dirty_ = true;
         retune(*found);
     }
@@ -986,7 +1067,10 @@ Expected<WriteReport> Config::Impl::write_into(Config& c, size_t li, const Path&
     const Path key = last_is_index(path) ? parent_of(path) : path;
     const auto it = std::find_if(scratch.begin(), scratch.end(),
                                  [&](const ScratchEntry& e) { return e.path == key; });
+    ScratchEntry written_edit;  // its journal entry gets the line written (D93)
     if (it != scratch.end()) {
+        written_edit.key = it->key;
+        written_edit.edit = it->edit;
         ScratchEntry kept = std::move(*it);
         scratch.erase(it);
         Vec<Node> now_values;
@@ -1001,6 +1085,8 @@ Expected<WriteReport> Config::Impl::write_into(Config& c, size_t li, const Path&
         const WrittenLine line{s.file, s.line};
         report.written = List<WrittenLine>(std::span<const WrittenLine>(&line, 1));
     }
+    const Source s = source_in(layers[li], path);
+    settle(written_edit, EditFate::Written, {s.file, s.line});
     return report;
 }
 
@@ -1369,7 +1455,11 @@ Expected<void> Config::set(std::string_view path, const Node& value) {
     // The fast path: a scalar already in scratch changes in place, allocating nothing.
     for (ScratchEntry& e : impl_->scratch) {
         if (e.values->size() == 2 && e.path.matches(path)) {
+            const Node before = (*e.values)[1];
             e.values->set(1, value);
+            // A scratch value's own source is scratch.
+            impl_->log_edit(e, &before, 1, std::span<const Node>(&value, 1),
+                            Source{scratch_name()});
             scratch_dirty_ = true;
             impl_->retune(e);
             return {};
@@ -1382,6 +1472,8 @@ Expected<void> Config::clear_scratch(std::string_view path) {
     if constexpr (kShipping) return Unexpected(shipping("clear_scratch()"));
     if (auto ok = impl_->may_change(*this); !ok) return ok;
     auto& s = impl_->scratch;
+    for (const ScratchEntry& e : s)
+        if (path.empty() || e.path.matches(path)) impl_->settle(e, EditFate::Reverted, {});
     if (path.empty())
         s.clear();
     else
@@ -1390,6 +1482,24 @@ Expected<void> Config::clear_scratch(std::string_view path) {
                 s.end());
     impl_->change(*this, trigger_name("layer"));
     return {};
+}
+
+void Config::set_journal_history(size_t capacity) {
+    impl_->journal = Vec<JournalEntry>(impl_->alloc);
+    impl_->journal_cap = capacity;
+    impl_->journal_count = 0;
+    for (ScratchEntry& e : impl_->scratch) e.edit = kNoEdit;
+    if (capacity) impl_->journal.reserve(capacity);
+}
+
+size_t Config::journal_size() const noexcept {
+    return impl_->journal.size();
+}
+
+const JournalEntry& Config::journal_at(size_t i) const noexcept {
+    const auto& j = impl_->journal;
+    const size_t oldest = j.size() < impl_->journal_cap ? 0 : impl_->journal_count % j.size();
+    return j[(oldest + i) % j.size()];
 }
 
 List<Symbol> Config::unsaved() const {
@@ -1488,11 +1598,16 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
     impl_->commit(*this, rec, t);
     impl_->finish(*this, rec, t);
     Vec<WrittenLine> written;
-    if (!virt.empty())
-        for (const Leaf& leaf : leaves) {
-            const Source s = impl_->source_in(impl_->layers[*ti], Path(leaf.path));
-            written.push_back({s.file, s.line});
+    for (const Leaf& leaf : leaves) {
+        const Source s = impl_->source_in(impl_->layers[*ti], Path(leaf.path));
+        if (!virt.empty()) written.push_back({s.file, s.line});
+        // Scratch's edits are in the file now (D93).
+        if (from == "scratch") {
+            const Symbol key(detail::text_of(Path(leaf.path)));
+            for (const ScratchEntry& e : impl_->scratch)
+                if (e.key == key) impl_->settle(e, EditFate::Written, {s.file, s.line});
         }
+    }
     report.written = List<WrittenLine>(written);
     return report;
 }
@@ -1592,6 +1707,14 @@ Expected<void> Config::restore(const ConfigSnapshot& snapshot) {
     if (snapshot.empty()) return Unexpected(make_error(ErrorCode::NotFound, "empty snapshot"));
     impl_->layers = snapshot.state_->layers;
     impl_->scratch = copy_scratch(snapshot.state_->scratch);
+    // Unsaved edits the restored scratch does not hold are gone (D93).
+    for (JournalEntry& j : impl_->journal) {
+        if (j.fate != EditFate::Unsaved) continue;
+        const bool kept = std::any_of(
+            impl_->scratch.begin(), impl_->scratch.end(),
+            [&](const ScratchEntry& e) { return impl_->journal_entry(e.edit, e.key) == &j; });
+        if (!kept) j.fate = EditFate::Reverted;
+    }
     impl_->scratch_enabled = snapshot.state_->scratch_enabled;
     impl_->change(*this, trigger_name("restore"));
     return {};

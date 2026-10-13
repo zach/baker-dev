@@ -2594,3 +2594,43 @@ personal `local` layer by the convention in spec §4.*
   `mark_visible` with nothing waiting, 0.25–0.32 ns a call, against 0.15 ns for the empty
   loop before. `bench_parse` 152 and 150 MB/s.
 - **Size:** the core is 10,434 lines (10,250 before; the plan estimated 160).
+
+## D93. M10, step 3: the edit journal
+
+*Results of `docs/m10-plan.md` §2 (D90 Q2).*
+
+- **`JournalEntry`:** the path (as `unsaved()` names it), a time from the Config's time
+  source, the old and new values (up to four nodes each, inline, with their true counts;
+  `before_count` 0 for a path that had no value), the old value's `Source`, the fate, and
+  for `Written` the file and line. `cfg.journal(fn)` visits them oldest first;
+  `set_journal_history(n)` (default 256, 0 off) allocates the ring once.
+- **What feeds it:** every live change through the Config: `set` (its fast path too),
+  `Tweak::set`, `set_values`, and so the console and the harness's panels.
+- **Fates.** `Superseded` when the path is edited again before it is saved; `Written` when
+  `write_back`, `write_back_to`, or `promote` from scratch writes it (with the line);
+  `Reverted` when `clear_scratch` drops it, or when `restore` leaves it out of scratch
+  (the plan named only `clear_scratch`; a restore drops edits just as surely).
+- **Without searching.** A path has at most one unsaved entry, the one its scratch entry
+  holds, so a scratch entry keeps that entry's sequence number, and every fate is found in
+  one step: superseding on every `set` never scans the ring. Entry *n* of the session sits
+  in slot *n* mod the capacity while the ring holds it. Scratch entries now keep their
+  path as an interned `Symbol`, made once when the entry is, so the fast path interns
+  nothing.
+- **Size:** an entry is 216 bytes (the plan estimated 160): eight 16-byte nodes, a 40-byte
+  `Source` (D91 added `origin` and `tool`), and the rest; 55 KB for 256, allocated by the
+  first edit.
+- **Cost on `set`'s fast path** (`bench_cache`'s new row, a scalar already in scratch,
+  release, three alternating runs against `623c29f`): 17.8–23.7 ns before, 51–65 ns after.
+  Counted with callgrind, the first version wrote each slot through a temporary entry
+  (about 400 more instructions a `set`); writing fields in place brought it to about 280.
+  Timed in a small driver, the journal itself is 5–10 ns of it, and reading the default
+  `steady_clock` about 40 ns on this machine. Kept: a live edit comes at most once a frame
+  per control, the path's contract is that it allocates nothing (still tested: 100 edits,
+  no allocation), and a host can give the Config a cheaper time source, such as a frame
+  counter.
+- **Shipping:** `set` is refused, so the journal stays empty.
+- **Tests** (`tests/data/test_m10.cpp`): a tweak's edit with its old value and source;
+  superseding through the fast path; written by `write_back`, `write_back_to`, and
+  `promote`; reverted by `clear_scratch` and by `restore`; a six-node value; the ring
+  wrapping, turned off, and allocation-free on the fast path. M3b's tests pass unchanged.
+- **Size:** the core is 10,560 lines (10,434 before; the plan estimated 150).
