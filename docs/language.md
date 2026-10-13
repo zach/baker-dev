@@ -384,7 +384,11 @@ repeat: 3 times, 10 nodes: (enemy (hp 30) (speed 2) (loot coin)) at a.dta:2, b.d
 With the session (`{.packs = &cfg.session()}`), each pack that declares one owner is a
 **finding**, informational, never an error: a harness one person keeps.
 
-Run it in CI over every data file, and on every reload in a development build.
+Run it in CI over every data file, and on every reload in a development build. For a build
+artifact, `to_json(report, &cfg.session())` writes the whole report, packs included, as
+versioned JSON that is the same bytes for the same data ([schema](check-json.md)); and
+`reference(ctx, &cfg.session())` adds the packs and the files tools generated to the
+reference: the harness register.
 
 ## Errors
 

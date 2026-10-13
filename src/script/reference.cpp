@@ -312,8 +312,203 @@ void write(const CheckReport& report, TextSink text) {
     text(out);
 }
 
+// --- Machine-readable output (D95; the schema is docs/check-json.md) ---
+
 namespace {
-Str reference_text(const Context& ctx) {
+
+// One JSON string, escaped: quote, backslash, and control characters; UTF-8 as it is.
+void json_string(Str& out, std::string_view s) {
+    out += '"';
+    for (const char ch : s) {
+        const auto c = static_cast<unsigned char>(ch);
+        if (c == '"' || c == '\\') {
+            out += '\\';
+            out += ch;
+        } else if (c == '\n') {
+            out += "\\n";
+        } else if (c == '\t') {
+            out += "\\t";
+        } else if (c < 0x20) {
+            static const char hex[] = "0123456789abcdef";
+            out += "\\u00";
+            out += hex[c >> 4];
+            out += hex[c & 15];
+        } else {
+            out += ch;
+        }
+    }
+    out += '"';
+}
+
+void json_names(Str& out, const List<Symbol>& names) {
+    out += '[';
+    for (size_t i = 0; i < names.size(); ++i) {
+        if (i) out += ", ";
+        json_string(out, names[i].str());
+    }
+    out += ']';
+}
+
+void json_sites(Str& out, Vec<CheckReport::Site> sites) {
+    std::sort(sites.begin(), sites.end(), [](const auto& a, const auto& b) {
+        const int c = a.file.str().compare(b.file.str());
+        return c != 0 ? c < 0 : a.line < b.line;
+    });
+    out += '[';
+    for (size_t i = 0; i < sites.size(); ++i) {
+        out += i ? ", {\"file\": " : "{\"file\": ";
+        json_string(out, sites[i].file.str());
+        out += ", \"line\": " + detail::decimal(sites[i].line) + "}";
+    }
+    out += ']';
+}
+
+// Errors, warnings, and findings: sorted by file, line, then message.
+void json_errors(Str& out, const char* key, const List<Error>& errors) {
+    Vec<const Error*> sorted;
+    for (const Error& e : errors) sorted.push_back(&e);
+    std::sort(sorted.begin(), sorted.end(), [](const Error* a, const Error* b) {
+        if (const int c = a->file().str().compare(b->file().str()); c != 0) return c < 0;
+        if (a->line() != b->line()) return a->line() < b->line();
+        return a->message() < b->message();
+    });
+    out += "  \"" + Str(key) + "\": [";
+    for (size_t i = 0; i < sorted.size(); ++i) {
+        const Error& e = *sorted[i];
+        out += i ? ",\n    {" : "\n    {";
+        out += "\"code\": ";
+        json_string(out, error_code_name(e.code()));
+        out += ", \"file\": ";
+        json_string(out, e.file().str());
+        out += ", \"line\": " + detail::decimal(e.line()) + ", \"path\": ";
+        json_string(out, e.path());
+        out += ", \"message\": ";
+        json_string(out, e.message());
+        out += '}';
+    }
+    out += sorted.empty() ? "]" : "\n  ]";
+}
+
+}  // namespace
+
+void write_json(const CheckReport& report, TextSink text, const LoadSession* packs) {
+    Str out = "{\n  \"schema\": \"moira.check/1\",\n";
+    json_errors(out, "errors", report.errors);
+    out += ",\n";
+    json_errors(out, "warnings", report.warnings);
+    out += ",\n";
+
+    // Demand: by name, then the class it was sent to.
+    Vec<const CheckReport::Demand*> demand;
+    for (const CheckReport::Demand& d : report.demand) demand.push_back(&d);
+    std::sort(demand.begin(), demand.end(), [](const auto* a, const auto* b) {
+        if (const int c = a->name.str().compare(b->name.str()); c != 0) return c < 0;
+        return a->on.str() < b->on.str();
+    });
+    out += "  \"demand\": [";
+    for (size_t i = 0; i < demand.size(); ++i) {
+        const CheckReport::Demand& d = *demand[i];
+        out += i ? ",\n    {\"name\": " : "\n    {\"name\": ";
+        json_string(out, d.name.str());
+        out += ", \"on\": ";
+        json_string(out, d.on.str());
+        out += Str(", \"stub\": ") + (d.stub ? "true" : "false") + ", \"sites\": ";
+        json_sites(out, Vec<CheckReport::Site>(d.sites.begin(), d.sites.end()));
+        out += '}';
+    }
+    out += demand.empty() ? "],\n" : "\n  ],\n";
+
+    // Repeats: in find_repeats' order, which depends only on the data.
+    out += "  \"repeats\": [";
+    for (size_t i = 0; i < report.repeats.size(); ++i) {
+        const Repeat& r = report.repeats[i];
+        Str form;
+        write(r.form, str_out(form));
+        out += i ? ",\n    {\"form\": " : "\n    {\"form\": ";
+        json_string(out, form);
+        out += ", \"nodes\": " + detail::decimal(r.nodes) + ", \"sites\": ";
+        Vec<CheckReport::Site> sites;
+        for (const RepeatSite& s : r.sites) sites.push_back({s.file, s.line});
+        json_sites(out, std::move(sites));
+        out += '}';
+    }
+    out += report.repeats.empty() ? "],\n" : "\n  ],\n";
+
+    json_errors(out, "findings", report.findings);
+    out += ",\n";
+
+    // Packs: the session's, by name; their harness metadata is the harness register.
+    Vec<const Pack*> ps;
+    if (packs)
+        for (const Pack& p : packs->packs()) ps.push_back(&p);
+    std::sort(ps.begin(), ps.end(), [](const Pack* a, const Pack* b) {
+        if (const int c = a->name.str().compare(b->name.str()); c != 0) return c < 0;
+        return a->file.str() < b->file.str();
+    });
+    out += "  \"packs\": [";
+    for (size_t i = 0; i < ps.size(); ++i) {
+        const Pack& p = *ps[i];
+        out += i ? ",\n    {\"name\": " : "\n    {\"name\": ";
+        json_string(out, p.name.str());
+        out += ", \"level\": ";
+        json_string(out, p.level.str());
+        out += ", \"file\": ";
+        json_string(out, p.file.str());
+        out += ", \"requires\": ";
+        json_names(out, p.requires_packs);
+        out += ", \"owners\": ";
+        json_names(out, p.owners);
+        out += ", \"for\": ";
+        json_names(out, p.audience);
+        out += ", \"stage\": ";
+        json_string(out, p.stage.str());
+        out += '}';
+    }
+    out += ps.empty() ? "]\n}\n" : "\n  ]\n}\n";
+    text(out);
+}
+
+namespace {
+// The session's packs and origins, as the harness register (reading-a-studio §7, D95):
+// who keeps each pack, for whom, how far it has evolved; and which tools generate which files.
+Str harness_register(const LoadSession& session) {
+    auto names = [](const List<Symbol>& list) {
+        Str s;
+        for (const Symbol n : list) s += (s.empty() ? "" : ", ") + Str(n.str());
+        return s.empty() ? Str("-") : s;
+    };
+    Str out;
+    Vec<const Pack*> ps;
+    for (const Pack& p : session.packs()) ps.push_back(&p);
+    std::sort(ps.begin(), ps.end(),
+              [](const Pack* a, const Pack* b) { return a->name.str() < b->name.str(); });
+    if (!ps.empty()) {
+        out += "\n## Packs\n\n| Pack | Level | Requires | Owners | For | Stage | File |\n";
+        out += "|---|---|---|---|---|---|---|\n";
+        for (const Pack* p : ps)
+            out += "| `" + Str(p->name.str()) + "` | " + Str(p->level.str()) + " | " +
+                   names(p->requires_packs) + " | " + names(p->owners) + " | " +
+                   names(p->audience) + " | " +
+                   (p->stage.empty() ? Str("-") : Str(p->stage.str())) + " | " +
+                   Str(p->file.str()) + " |\n";
+    }
+    Vec<const Origin*> os;
+    for (const Origin& o : session.origins()) os.push_back(&o);
+    std::sort(os.begin(), os.end(), [](const Origin* a, const Origin* b) {
+        if (const int c = a->tool.str().compare(b->tool.str()); c != 0) return c < 0;
+        return a->file.str() < b->file.str();
+    });
+    if (!os.empty()) {
+        out += "\n## Origins\n\nFiles generated by tools outside the config:\n\n";
+        out += "| Tool | Source | File |\n|---|---|---|\n";
+        for (const Origin* o : os)
+            out += "| " + (o->tool.empty() ? Str("-") : Str(o->tool.str())) + " | " +
+                   Str(o->source.str()) + " | " + Str(o->file.str()) + " |\n";
+    }
+    return out;
+}
+
+Str reference_text(const Context& ctx, const LoadSession* packs) {
     const Context::Impl& impl = ctx.impl();
     Vec<const Function*> fs;
     for (const auto& f : impl.functions)
@@ -405,16 +600,18 @@ Str reference_text(const Context& ctx) {
             if (!g.doc.empty()) out += "\n" + g.doc + "\n";
         }
     }
+    if (packs) out += harness_register(*packs);
     return out;
 }
 }  // namespace
 
-void reference(const Context& ctx, TextSink out) {
-    out(reference_text(ctx));
+void reference(const Context& ctx, TextSink out, const LoadSession* packs) {
+    out(reference_text(ctx, packs));
 }
 
-Expected<void> write_reference(const Context& ctx, std::string_view path) {
-    const Str text = reference_text(ctx);
+Expected<void> write_reference(const Context& ctx, std::string_view path,
+                               const LoadSession* packs) {
+    const Str text = reference_text(ctx, packs);
     const Str p(path);
     std::FILE* f = std::fopen(p.c_str(), "wb");
     if (!f) return Unexpected(make_error(ErrorCode::Io, "cannot write " + p));

@@ -620,6 +620,11 @@ struct CheckOptions {
 // Writes the report: errors, warnings, the demand report, repeats, then findings, one each.
 // <moira/std_interop.hpp> has to_string(report).
 void write(const CheckReport& report, TextSink out);
+// Writes the report as one JSON object, schema "moira.check/1" (docs/check-json.md): the
+// same data as write(), every list in an order that depends only on the data, so two runs
+// over the same files give the same bytes. Given the session, it lists its packs and their
+// harness metadata too. <moira/std_script.hpp> has to_json(report).
+void write_json(const CheckReport& report, TextSink out, const LoadSession* packs = nullptr);
 
 // What one function, or one script handler of a {class}, has cost (spec §5, "Call
 // statistics"). Times are in TimeSource nanoseconds: `total_ns` includes the calls it made,
@@ -818,8 +823,12 @@ void check(const Array& tree, const Context& ctx, CheckReport& report,
 // Writes the script reference (spec §5): every function with its overloads, tier, status,
 // and documentation, and every documented global, as Markdown. <moira/std_interop.hpp>
 // has reference(ctx) returning a string.
-void reference(const Context& ctx, TextSink out);
-[[nodiscard]] Expected<void> write_reference(const Context& ctx, std::string_view path);
+// Given the session that loaded the data, it adds the harness register: a Packs section
+// (each pack's level, requires, owners, audience, stage, and file) and an Origins section
+// (which tools generated which files) (D95).
+void reference(const Context& ctx, TextSink out, const LoadSession* packs = nullptr);
+[[nodiscard]] Expected<void> write_reference(const Context& ctx, std::string_view path,
+                                             const LoadSession* packs = nullptr);
 
 // --- Template definitions. ---
 

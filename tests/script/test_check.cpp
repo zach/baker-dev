@@ -219,3 +219,75 @@ TEST_CASE("check reports a pack with one owner, and repetition across its trees 
     check(trees, ctx, off, {.repeats = {.min_repeats = 0}});
     CHECK(off.repeats.empty());
 }
+
+TEST_CASE("check's JSON is versioned, sorted, and the same bytes on every run (D95)") {
+    // Every section has something: an error, a one-way warning, demand from two files, a
+    // repeat whose form needs escaping, a one-owner finding, and packs with metadata.
+    std::map<std::string, std::string> files{
+        {"task.dta",
+         "(pack boss_task (level task) (owners \"td-encounter\") (for designers) (stage custom))\n"
+         "{func boss.restart () 1}\n"
+         "(phase (say \"Get \\qready\\q\") (hp 30) (wait 2))\n"},
+        {"game.dta",
+         "(pack game_rules (level game) (requires boss_task) (owners \"a\" \"b\"))\n"
+         "#require task.dta\n"
+         "{boss.restart}\n{spawn grunt}\n{+ 1}\n"
+         "(phase (say \"Get \\qready\\q\") (hp 30) (wait 2))\n"},
+        {"level.dta", "{spawn grunt}\n(phase (say \"Get \\qready\\q\") (hp 30) (wait 2))\n"},
+    };
+    auto run = [&] {
+        LoadSession session;
+        session.set_reader([&](std::string_view path, TextSink out) {
+            auto it = files.find(std::string(path));
+            if (it == files.end()) return false;
+            out(it->second);
+            return true;
+        });
+        session.set_pack_levels({"game", "task"});
+        Context ctx;
+        auto game = test::ok(read_file("game.dta", session));
+        auto level = test::ok(read_file("level.dta", session));
+        const Array* trees[] = {game.get(), level.get()};
+        CheckReport report;
+        check(trees, ctx, report, {.packs = &session, .repeats = {.min_nodes = 6}});
+        return to_json(report, &session);
+    };
+    const std::string first = run();
+    CHECK(run() == first);
+
+    const std::string path = MOIRA_SOURCE_DIR "/tests/script/check_expected.json";
+    if (std::getenv("MOIRA_UPDATE_REFERENCE")) {
+        std::ofstream(path, std::ios::binary) << first;
+    }
+    std::ifstream in(path, std::ios::binary);
+    std::stringstream s;
+    s << in.rdbuf();
+    std::string expected = s.str();
+    expected.erase(std::remove(expected.begin(), expected.end(), '\r'), expected.end());
+    CHECK_MESSAGE(expected == first,
+                  "tests/script/check_expected.json differs: run the script tests with "
+                  "MOIRA_UPDATE_REFERENCE=1 to regenerate it, and review the diff");
+
+    // Without the session, the packs list is empty; an empty report is still a whole one.
+    CHECK(to_json(CheckReport{}) ==
+          "{\n  \"schema\": \"moira.check/1\",\n  \"errors\": [],\n  \"warnings\": [],\n"
+          "  \"demand\": [],\n  \"repeats\": [],\n  \"findings\": [],\n  \"packs\": []\n}\n");
+}
+
+TEST_CASE("the reference lists the session's packs and origins: the harness register (D95)") {
+    LoadSession session;
+    session.set_pack_levels({"game"});
+    (void)test::ok(
+        read_string("(pack econ (level game) (owners \"td-econ\") (for designers) (stage product))",
+                    "econ.dta", session));
+    (void)test::ok(read_string("(origin \"economy.xlsx\" (tool sheets-export))\n(price 5)",
+                               "prices.dta", session));
+    Context ctx;
+    const std::string with = reference(ctx, &session);
+    CHECK(with.find("## Packs\n\n| Pack | Level | Requires | Owners | For | Stage | File |\n"
+                    "|---|---|---|---|---|---|---|\n"
+                    "| `econ` | game | - | td-econ | designers | product | econ.dta |\n") !=
+          std::string::npos);
+    CHECK(with.find("| sheets-export | economy.xlsx | prices.dta |") != std::string::npos);
+    CHECK(reference(ctx).find("## Packs") == std::string::npos);  // without the session
+}

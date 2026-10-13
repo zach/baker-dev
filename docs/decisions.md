@@ -2672,3 +2672,31 @@ personal `local` layer by the convention in spec §4.*
   changed.
 - **Size:** the core is 10,772 lines (10,560 before; the plan estimated 230 for these
   two parts).
+
+## D95. M10, step 5: machine-readable check output, and the harness register
+
+*Results of `docs/m10-plan.md` §7, and the reference's part of §3 and §4 (D90).*
+
+- **`write_json(report, sink, &session)`**, and `to_json(report, &session)` in
+  `<moira/std_script.hpp>`: one object, `"schema": "moira.check/1"`, then `errors`,
+  `warnings`, `demand`, `repeats`, `findings`, and `packs`. Documented field by field in
+  `docs/check-json.md`, with the versioning rule: fields are added only with a new minor
+  version, removed or renamed only with a new major.
+- **Stable across runs** (M10's sixth criterion): problems sorted by file, line, then
+  message; demand by name, then class; sites by file and line; repeats in
+  `find_repeats`' order; packs by name. One list entry per line, so a milestone's output
+  diffs cleanly against the last. Absent text is `""`, not `null`, so every field always
+  has one type. Errors carry their `ErrorCode`'s name and their path.
+- **The packs come from the session**, as the plan said, since a `CheckReport` does not
+  hold them; without one, `packs` is an empty list.
+- **The reference as harness register** (reading-a-studio §7): `reference(ctx, out,
+  &session)` and `write_reference(ctx, path, &session)` add a Packs table (level,
+  requires, owners, audience, stage, file) and an Origins table (tool, source, file).
+  Without a session the reference is unchanged, so `docs/script-reference.md` is too.
+- **Tests:** a check over two files whose report has something in every section, written
+  twice and compared byte for byte, then against `tests/script/check_expected.json`
+  (regenerated with `MOIRA_UPDATE_REFERENCE=1`, as the reference is); an empty report; the
+  reference's Packs and Origins sections, and their absence without a session.
+- **Cost:** tool paths only; nothing on a runtime path changed.
+- **Size:** the core is 10,955 lines (10,772 before; the plan estimated 230 for the JSON
+  writer and the reference's sections).
