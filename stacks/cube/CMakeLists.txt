@@ -11,4 +11,7 @@ if(STACKS_BUILD_TESTS)
   # A headless run: the data loads, the frame loop runs, the renderer starts and stops.
   add_test(NAME stacks_cube_headless
            COMMAND stacks_cube --headless --frames 120 --console-port 0 --no-vsync)
+  # The agent's commands on the cube's own data, scenarios, and objectives.
+  add_test(NAME stacks_cube_sim COMMAND stacks_cube sim --seeds 1-3)
+  add_test(NAME stacks_cube_check COMMAND stacks_cube check)
 endif()

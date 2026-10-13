@@ -68,3 +68,20 @@ TEST_CASE("live: a missing default.dta fails to open, and says so") {
     CHECK(log.size() == 1);
     CHECK_FALSE(live.take_log(log));  // taken
 }
+
+TEST_CASE("live: a data file defines script functions with #autorun, redefined on reload") {
+    test::ScratchDir dir("autorun");
+    REQUIRE(test::write(dir.path / "default.dta", "#autorun {func live_test.f () 1}\n(a 1)"));
+    moira::Context ctx;
+    base::Live live(ctx);
+    REQUIRE(live.open({.data_dir = dir.path.string(), .watch = false}));
+    auto f = ctx.eval("{live_test.f}");
+    REQUIRE(f);
+    CHECK(f->as_int().value_or(0) == 1);
+
+    REQUIRE(test::write(dir.path / "agent.dta", "#autorun {func live_test.f () 2}"));
+    CHECK(live.reload_now());
+    f = ctx.eval("{live_test.f}");
+    REQUIRE(f);
+    CHECK(f->as_int().value_or(0) == 2);  // the agent layer's, run after the default's
+}

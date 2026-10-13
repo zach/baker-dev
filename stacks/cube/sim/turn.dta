@@ -1,0 +1,7 @@
+; The cube's scenarios: run them with `stacks_cube sim`. Each is a Moira script played on
+; the simulation's fixed steps, then judged by the objectives in ../metrics.
+(scenario turn
+   (desc "Twenty seconds of spinning from rest")
+   (seconds 20)
+   (start {cube.reset})
+   (objectives cube.turns))

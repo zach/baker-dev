@@ -105,7 +105,7 @@ in the order they are read; a Config's layers read in one session, bottom to top
 | `#define N` | Define a flag, for `#ifdef`. |
 | `#define N (body)` | Define a macro whose body is the array's contents. |
 | `#undef N` | Remove a flag or macro. |
-| `#autorun {command}` | Collect the command into the session's `autorun()` list, for the host to run after loading. |
+| `#autorun {command}` | Collect the command into the session's `autorun()` list, for the host to run after loading. A Config reads each layer with a session of its own: `cfg.autorun()` returns its enabled layers' commands, bottom to top (D107). |
 | `[N node ...]` | At the top level of a file: define macro N. |
 
 Paths may be quoted (`#include "shared/common.dta"`) or bare, and resolve against the

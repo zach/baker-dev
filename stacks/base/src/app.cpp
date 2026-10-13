@@ -6,6 +6,7 @@
 #include <SDL3/SDL.h>
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
+#include <moira/task.hpp>
 
 #include <cstdio>
 #include <cstdlib>
@@ -199,6 +200,7 @@ int run(Game& game, const AppOptions& options) {
             console.reset();
     }
 
+    game.reset(0);
     int exit_code = game.start(app) ? 0 : 1;
     app.clock_.step_ns = FixedStep::hz(options.step_hz);
     uint64_t last = SDL_GetTicksNS();
@@ -222,7 +224,10 @@ int run(Game& game, const AppOptions& options) {
 
         app.live_.begin_frame();
         if (console) console->poll();
-        for (int n = app.clock_.advance(elapsed); n > 0; --n) game.step(app.clock_.step_seconds());
+        for (int n = app.clock_.advance(elapsed); n > 0; --n) {
+            game.step(app.clock_.step_seconds());
+            app.ctx_.scheduler().tick(app.clock_.step_seconds());  // script tasks, in seconds
+        }
         if (app.live_.take_log(log)) {
             for (std::string& line : log) {
                 std::fprintf(stderr, "%s\n", line.c_str());

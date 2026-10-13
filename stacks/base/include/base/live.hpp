@@ -6,6 +6,10 @@
 //   agent     <data>/agent.dta     an agent's experiments (§3.3)
 //   scratch   (Moira's)            unsaved live edits
 //
+// After the load, and at the frame after any change to the stack (a reload, a toggle from a
+// panel), it runs the layers' #autorun commands, so a data file can define script
+// functions: `#autorun {func boss.restart ($n) ...}`.
+//
 // The Config's clock is the file system's, so a reload's origin is the time its file was
 // saved, and loop_stats() measures from the save to the frame that showed it.
 //
@@ -27,6 +31,8 @@ namespace base {
 struct LiveOptions {
     std::string data_dir;  // holds default.dta, and local.dta and agent.dta if present
     bool watch = true;     // false: reload only when asked (tests, the headless runner)
+    bool local = true;     // false: leave out local.dta, so one developer's tuning cannot
+                           // change a simulation's results or a check's findings
 };
 
 class Live {
@@ -57,12 +63,16 @@ public:
 
 private:
     void log(std::string line);
+    // Runs every enabled layer's #autorun commands (Config::autorun, D107): the {func}s and
+    // setup the data asks for, again after each change, so a redefinition takes effect.
+    void autorun();
 
     moira::Context& ctx_;
     moira::Config cfg_;
     Watcher watcher_;
     Changes changes_;
     bool watching_ = false;
+    bool stack_changed_ = false;  // set by the Config after any change; autorun runs again
     std::string data_dir_;
     std::vector<std::string> log_;
 };

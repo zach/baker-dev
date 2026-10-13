@@ -11,6 +11,9 @@ Live::Live(moira::Context& ctx) : ctx_(ctx) {
     cfg_.set_warning_handler(
         [this](const moira::Error& e) { log(std::string(moira::to_string(e))); });
     cfg_.set_time_source([](void*) { return file_clock_now_ns(); });
+    cfg_.on_reload_complete([this](const moira::ReloadRecord& r) {
+        if (r.outcome == moira::ReloadOutcome::Ok) stack_changed_ = true;
+    });
 }
 
 bool Live::open(const LiveOptions& options) {
@@ -27,12 +30,15 @@ bool Live::open(const LiveOptions& options) {
         bool optional;
     };
     for (const Layer& l : {Layer{"default", "default.dta", false},
-                           Layer{"local", "local.dta", true}, Layer{"agent", "agent.dta", true}})
+                           Layer{"local", "local.dta", true}, Layer{"agent", "agent.dta", true}}) {
+        if (!options.local && std::string_view(l.name) == "local") continue;
         if (auto r = cfg_.push_layer(l.name, data_dir_ + "/" + l.file, {.optional = l.optional});
             !r) {
             log(std::string(moira::to_string(r.error())));
             return false;
         }
+    }
+    autorun();
     if (options.watch) {
         watching_ = watcher_.watch(data_dir_);
         if (!watching_) log("watcher: " + watcher_.error() + "; edits will not reload");
@@ -41,10 +47,17 @@ bool Live::open(const LiveOptions& options) {
 }
 
 void Live::begin_frame() {
-    if (!watching_) return;
-    if (!watcher_.poll(changes_)) return;
-    auto r = cfg_.reload({.trigger = "watcher", .origin_ns = changes_.newest_write_ns});
-    if (!r) log(std::string(moira::to_string(r.error())));
+    if (watching_ && watcher_.poll(changes_)) {
+        auto r = cfg_.reload({.trigger = "watcher", .origin_ns = changes_.newest_write_ns});
+        if (!r) log(std::string(moira::to_string(r.error())));
+    }
+    if (stack_changed_) autorun();
+}
+
+void Live::autorun() {
+    stack_changed_ = false;
+    for (const moira::Node& command : cfg_.autorun())
+        if (auto r = ctx_.eval(command); !r) log(std::string(moira::describe(r.error())));
 }
 
 bool Live::reload_now() {
@@ -53,6 +66,7 @@ bool Live::reload_now() {
         log(std::string(moira::to_string(r.error())));
         return false;
     }
+    autorun();
     return *r;
 }
 

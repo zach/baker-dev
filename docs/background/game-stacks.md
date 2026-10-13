@@ -166,6 +166,9 @@ tools/           agent tool server
 
 ## 3. The agent harness
 
+*Built (D107): `stacks/agent.md` records how. The "tool server" became commands of each
+game's own binary, and the agent's instructions are `.claude/skills/stacks-agent/`.*
+
 The third meaning of "harness" (vision doc §7): a bounded, instrumented environment that
 gives an agent the domain's tools and a feedback loop. Each stack ships one, built from four
 parts.
@@ -669,7 +672,7 @@ Stuntline); navigation (Hearth, Wayfarer); bot drivers and the runner's statisti
 1. **The base and its loop** (§2), with one trivial game (a cube and a tweak), meeting the
    one-second acceptance on the minimum-spec PC. Then the agent harness (§3) on that
    trivial game. *Done (D106): on the test machine, edit to see measured 21–41 ms, median
-   about 25 ms. The agent harness is next.*
+   about 25 ms. The agent harness is built on the cube (D107, `stacks/agent.md`).*
 2. **Duel and Ledger first.** Both are small, need no streaming, and have the clearest
    headless metrics; Duel proves the deterministic core and Ledger proves the spreadsheet
    path and bot Monte Carlo. They exercise the two ends of the agent loop: tight numeric

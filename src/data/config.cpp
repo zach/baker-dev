@@ -1213,6 +1213,16 @@ List<Symbol> Config::layers() const {
     return List<Symbol>(names);
 }
 
+List<Node> Config::autorun() const {
+    Vec<Node> commands;
+    for (const auto& l : impl_->layers) {
+        // An overlay's session is the layer's below it: its commands are that layer's.
+        if (l.path.empty() || !l.options.enabled || !l.after) continue;
+        for (const Node& n : l.after->autorun()) commands.push_back(n);
+    }
+    return List<Node>(commands);
+}
+
 Expected<void> Config::set_layer_enabled(std::string_view name, bool enabled) {
     if constexpr (kShipping) return Unexpected(shipping("toggling a layer"));
     if (auto ok = impl_->may_change(*this); !ok) return ok;

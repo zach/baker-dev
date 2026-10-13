@@ -7,12 +7,13 @@ drives a game. A game is one class:
 ```cpp
 class CubeGame final : public base::Game {
     void bind(moira::Context& ctx) override;      // script functions, before the data loads
+    void reset(uint64_t seed) override;           // the starting state, before play and each run
     void step(double dt) override;                // one fixed simulation step; no rendering
     void draw(base::Renderer& r, float alpha) override;  // camera and boxes
 };
 int main(int argc, char** argv) {
-    CubeGame game;
-    return base::run(game, base::parse_args(argc, argv, {.title = "Cube", .data_dir = CUBE_DATA}));
+    CubeGame game;  // plays, or runs an agent command: sim, check, reference, diff, promote
+    return base::main(game, argc, argv, {.title = "Cube", .data_dir = CUBE_DATA});
 }
 ```
 
@@ -20,8 +21,8 @@ int main(int argc, char** argv) {
 
 | Library | Files | What |
 |---|---|---|
-| `stacks_core` | `live`, `watcher`, `fixed_step` | No window, no renderer: tests and the coming headless runner (§3.1) link only this |
-| `stacks_app` | `app`, `render` | SDL3 window and input, the bgfx renderer, Dear ImGui, the frame loop |
+| `stacks_core` | `live`, `watcher`, `fixed_step`, `game`, `sim` | No window, no renderer: the headless simulation (`../agent.md`) and the tests |
+| `stacks_app` | `app`, `render`, `tools` | SDL3 window and input, the bgfx renderer, Dear ImGui, the frame loop, the agent's commands |
 | `stacks_moira_tools` | Moira's `examples/harness-imgui/panels.cpp` and `examples/remote-console/console.cpp` | Used as they are, not copied |
 
 - **`Live`** owns the Config and the layer stack of §2.3: `default.dta`, then `local.dta`
