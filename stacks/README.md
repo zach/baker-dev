@@ -13,7 +13,7 @@ lives outside `src/`: Moira's line budget and core rules do not cover it.
 
 ## Build and run
 
-You need CMake 3.20, Ninja or Visual Studio 2022, and network access the first time:
+You need CMake 3.25, Ninja or Visual Studio 2022, and network access the first time:
 SDL3, bgfx, and Dear ImGui are fetched at pinned releases (`THIRD_PARTY.md`).
 
 ```sh

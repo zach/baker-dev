@@ -5,7 +5,7 @@
 #   ctest --test-dir build-stacks
 #
 # Third-party code is fetched at pinned releases, never vendored (stacks/THIRD_PARTY.md).
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.25)  # FetchContent's SYSTEM
 project(moira_stacks LANGUAGES C CXX)
 
 option(STACKS_BUILD_TESTS "Build the stacks' tests" ON)

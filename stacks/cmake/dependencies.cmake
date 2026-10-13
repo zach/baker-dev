@@ -1,5 +1,7 @@
 # Third-party code for the stacks, fetched at pinned releases (stacks/THIRD_PARTY.md).
-# None of it is ours to warn about, so each target's warnings are off.
+# None of it is ours to warn about: each target's warnings are off, and SYSTEM makes its
+# headers external, so our warnings-as-errors builds do not fail on them (MSVC's C4324 in
+# bx/file.h, for one).
 include(FetchContent)
 
 # SDL3: window, input, gamepads (zlib). Static, with nothing we do not use.
@@ -16,7 +18,8 @@ set(SDL_RENDER OFF CACHE BOOL "" FORCE)  # bgfx renders
 FetchContent_Declare(sdl3
   GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
   GIT_TAG        release-3.2.30
-  GIT_SHALLOW    TRUE)
+  GIT_SHALLOW    TRUE
+  SYSTEM)
 FetchContent_MakeAvailable(sdl3)
 
 # bgfx: rendering (BSD-2), through bgfx.cmake (CC0), which brings bx and bimg.
@@ -30,7 +33,8 @@ FetchContent_Declare(bgfx
   GIT_REPOSITORY https://github.com/bkaradzic/bgfx.cmake.git
   GIT_TAG        v1.166.9546-589
   GIT_SHALLOW    TRUE
-  GIT_SUBMODULES_RECURSE TRUE)
+  GIT_SUBMODULES_RECURSE TRUE
+  SYSTEM)
 FetchContent_MakeAvailable(bgfx)
 foreach(t bx bimg bimg_decode bimg_encode bgfx)
   if(TARGET ${t})
