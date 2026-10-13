@@ -2742,3 +2742,21 @@ check output.*
   above the reload bars, and a Journal panel lists the session's edits with their fates;
   the headless test checks both.
 - `docs/m10-plan.md` is deleted; its answers are D90. Every milestone of spec §10 is done.
+
+## D97. A C++ object destroyed during a tick leaves its Context at once
+
+*A use-after-free, found while planning gap 6 (D98).*
+
+- **The bug.** D67 defers removals made during a Scheduler's tick to its sync point, so
+  that tasks later in the same tick still reach an object a script `{delete}`s. But
+  `ObjectBase`'s destructor called the same `Context::remove`, so a C++ object destroyed
+  during a tick (by a C++ task, or a native function a script task called) left its slot
+  pointing at freed memory, and the sync point then wrote into it (`ctx_ = nullptr`).
+  ASan reports it as a heap-use-after-free in `Context::Impl::remove`.
+- **The fix.** The destructor removes the object at once, even during a tick: a destroyed
+  object cannot stay reachable, which is all the deferral was for. A removal deferred
+  earlier in the same tick finds the slot gone (its salt changed) and skips it, as before.
+  `Context::remove` of a living object still waits for the sync point.
+- **Test** (`test_script_tasks.cpp`): an object with a loose parameter destroyed by a C++
+  task mid-tick, and one removed then destroyed in the same tick. Without the fix the
+  first fails under ASan as above.

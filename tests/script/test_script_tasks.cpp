@@ -9,6 +9,7 @@
 #include "alloc_counter.hpp"
 #include "ok.hpp"
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -199,4 +200,35 @@ TEST_CASE("remove() from a C++ task is deferred too; ctx.sync() applies it") {
     ctx.remove(t);  // outside a tick: at once
     CHECK(t.context() == nullptr);
     ctx.sync();  // nothing waiting: harmless
+}
+
+TEST_CASE("a C++ object destroyed during a tick leaves its Context at once (D97)") {
+    struct Thing : Object<Thing> {};
+    Context ctx;
+    auto t = std::make_unique<Thing>();
+    ok(ctx.add(*t, "thing"));
+    ok(ctx.eval("{thing set mood happy}"));
+    auto destroyer = [](Scheduler&, Context& c, std::unique_ptr<Thing>* owned, bool* gone) -> Task {
+        owned->reset();  // the destructor runs mid-tick
+        *gone = c.object("thing").type() != Type::Object;
+        co_return;
+    };
+    bool gone_during = false;
+    ok(ctx.scheduler().spawn(destroyer(ctx.scheduler(), ctx, &t, &gone_during)));
+    ctx.scheduler().tick(1);  // the sync point finds nothing left to touch (ASan checks)
+    CHECK(gone_during);
+    CHECK(ctx.object("thing").type() != Type::Object);
+
+    // Removed during a tick, then destroyed before its end: the deferred removal finds the
+    // slot already gone.
+    auto u = std::make_unique<Thing>();
+    ok(ctx.add(*u, "other"));
+    auto both = [](Scheduler&, Context& c, std::unique_ptr<Thing>* owned) -> Task {
+        c.remove(**owned);
+        owned->reset();
+        co_return;
+    };
+    ok(ctx.scheduler().spawn(both(ctx.scheduler(), ctx, &u)));
+    ctx.scheduler().tick(1);
+    CHECK(ctx.object("other").type() != Type::Object);
 }

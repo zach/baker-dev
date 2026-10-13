@@ -211,7 +211,9 @@ std::string_view type_record_name(const TypeRecord& type) noexcept {
 }  // namespace detail
 
 ObjectBase::~ObjectBase() {
-    if (ctx_) ctx_->remove(*this);
+    // At once, even during a tick: the deferral that lets later tasks still reach a deleted
+    // object (D67) cannot keep a destroyed one, and the sync point would write into it (D97).
+    if (ctx_) ctx_->impl().remove(handle_);
     detail::destroy(default_allocator(), params_);
 }
 
