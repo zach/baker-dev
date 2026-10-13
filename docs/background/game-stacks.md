@@ -46,10 +46,10 @@ Three rules hold for every stack:
 ## 1. What Windows PC alone implies
 
 **One platform, a range of machines.** The constraint moves from a platform's floor to a
-**minimum-spec PC**, which the owner sets (§9). A working proposal: a 4-core, 8-thread
-x86-64 CPU from about 2019, 16 GB of RAM, a D3D12-class GPU with 4 GB, an SSD, Windows 10
-or 11. Every stack's budget in §4 is a starting point to measure on that machine from the
-first week; a fast workstation hides CPU problems until they are expensive.
+**minimum-spec PC** (§9): a 4-core, 8-thread x86-64 CPU from about 2019, 16 GB of RAM, a
+D3D12-class GPU with 4 GB, an SSD, Windows 10 or 11. Every stack's budget in §4 is a
+starting point to measure on that machine from the first week; a fast workstation hides
+CPU problems until they are expensive.
 
 **Input.** Mouse and keyboard, and a gamepad (XInput and others, through SDL3). Each stack
 says which comes first: a tycoon game is played with a mouse, a racing or fighting game
@@ -722,13 +722,9 @@ Decided by the project owner, 2026-10-13:
    packs (`packs/task/`). Metrics, L2 packs, and promotion into the real layers go by
    pull request. Every task pack the agent writes still names a person among its owners
    (§3.4).
-
-Still open:
-
-5. **The minimum-spec PC** (§1): the working proposal is a 2019-era 4-core, 8-thread CPU,
-   16 GB of RAM, a 4 GB D3D12-class GPU, and an SSD.
-6. **Rendering:** bgfx is proposed (§2.1); direct D3D12 or another permissive renderer
-   would also serve prototypes.
+5. **The minimum-spec PC** (§1): a 2019-era 4-core, 8-thread CPU, 16 GB of RAM, a 4 GB
+   D3D12-class GPU, an SSD, and Windows 10 or 11.
+6. **Rendering:** bgfx (§2.1).
 
 ---
 
