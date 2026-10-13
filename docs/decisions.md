@@ -2982,3 +2982,21 @@ skipped.*
   encoder written alongside it would not show that it reads what the games shipped, and
   testing the corpus from binary, the goal's stated purpose, cannot be done.
 - Spec §0's line stands: Moira is not bit-compatible with Harmonix's `.dtb`.
+
+## D105. What the DTB research says about `.datb`
+
+*Results of D104's research, compared with Moira's own cache (spec §9, D70–D74, D79).*
+
+- **Confirmed.** DTB has no version field, so tools guess its variants from bytes; its
+  16-bit child counts forced a new layout for RB4; it writes every symbol inline at each
+  use; its cipher doubles as the validity check (a first byte of `0x01` after decrypting);
+  and it is a token stream decoded node by node. `.datb` has a magic, a version, and a
+  hash; 32-bit counts and offsets; a symbol table interned once; a cipher kept apart from
+  the hash; and loads as one read and a fixup pass.
+- **Different on purpose.** DTB keeps `#ifdef`, `#include`, and `#define` as nodes and
+  resolves them at load, so one file serves every define set; `.datb` stores the expanded
+  tree and pays the preprocessor at bake time, one cache per define set.
+- **Documented.** DTB is little-endian on every platform, so one file serves every
+  console. `.datb` is a memory image for one byte order and pointer size, refused on any
+  other. Every current target shares one layout, so no format change: the cookbook's
+  binary-cache section now says to bake for the target's layout.

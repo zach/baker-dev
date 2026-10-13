@@ -227,6 +227,10 @@ and one allocation each: a 6.2 MB tree in 2.3–2.5 ms (D79).
   and `moira::read_cached(text_path, cache_path, session)` in the game, which uses the
   cache when it is fresh and the text otherwise. Give `moira_bake` the same defines as the
   game, or the cache is stale for it.
+- **A cache is a memory image**, for one byte order and pointer size: bake it with the
+  target's layout. Today's consoles and PCs are all little-endian and 64-bit, so a bake
+  on a development PC serves them. A cache from another layout is refused with an error
+  naming it; `read_cached` then reads the text, if the game shipped it (D105).
 - **A Config's layers:** `ConfigOptions::cache_dir` keeps one cache per file layer, used
   outside edit mode. Each layer is read with the macros and defines of the layers below
   it, so bake the layers the way the game stacks them: a build step runs a development
