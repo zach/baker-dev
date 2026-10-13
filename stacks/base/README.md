@@ -61,8 +61,9 @@ Debug build, on the development container (Linux, Xeon), not yet on the minimum-
 | Save to presented frame, OpenGL with vsync under Xvfb (software rendering) | 16.6 ms: the next vsync |
 | The reload itself (one 0.5 KB file: scan, read, parse, merge, bind) | 1.4 ms |
 
-**The acceptance (§2.2) is met.** On the Windows test machine, with the packaged Release
-build (CI artifact `stacks-cube-windows`, D3D, vsync on), two groups of five saves to
+**The acceptance (§2.2) is met.** On the Windows test machine (Lenovo Legion T5 28IMB05:
+Intel Core i5-10400F, 6 cores and 12 threads at 2.9 GHz; 8 GB DDR4-2666; NVIDIA GeForce
+GTX 1650 SUPER, 4 GB; Windows 11), with the packaged Release build (CI artifact `stacks-cube-windows`, D3D, vsync on), two groups of five saves to
 `default.dta` in Notepad, on 2026-10-13:
 
 | | Edit to see, median / worst | The reload itself, median / worst |
@@ -70,7 +71,9 @@ build (CI artifact `stacks-cube-windows`, D3D, vsync on), two groups of five sav
 | Group 1 (Loop panel) | 2x / 40.8 ms (tens digit unreadable in the photo) | 12.6 / 23.6 ms |
 | Group 2 (corner readout) | 25 / 40 ms (40, 29, 25, 21, 23) | |
 
-Under one second by a factor of 25: two or three frames at 60 Hz. The reload's own time
+Against the minimum spec (§1), the machine has more CPU (6 cores, not 4), the same class
+of GPU, and half the memory (8 GB, not 16), so it is a fair stand-in for the loop and a
+low one for memory. Under one second by a factor of 25: two or three frames at 60 Hz. The reload's own time
 there, 5–24 ms against 1.4 ms on the container, is mostly its scan (Config::reload reads and
 hashes every file of the layers); with one small file that is noise, and it is the first
 place to look when a stack's data grows.
