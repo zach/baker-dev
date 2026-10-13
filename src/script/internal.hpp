@@ -41,7 +41,10 @@ struct PropertyEntry {
     Str doc;
 };
 
+// An object's loose parameters: the Context's, from its allocator, for as long as the
+// object is in it (D98).
 struct ObjectParams {
+    explicit ObjectParams(const Allocator& a) : items(a) {}
     Vec<std::pair<Symbol, Node>> items;
 };
 
@@ -208,6 +211,7 @@ struct Context::Impl {
     }
     [[nodiscard]] Expected<Node> add(ObjectBase& object, Symbol name, ScriptClass* script,
                                      bool owned);
+    void forget(ObjectBase& o) noexcept;
     void remove(ObjectHandle h) noexcept;
     // A removal made during a tick, applied at the sync point (D67).
     void defer_removal(ObjectHandle h);

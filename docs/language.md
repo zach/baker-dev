@@ -335,8 +335,9 @@ A C++ type derived from `moira::Object<T>` binds methods and properties once, in
 script-only; handlers come before native methods, for script and C++ senders alike, so a
 designer can change one type's response without touching its C++. In a handler, `$this` is
 the object, and `[name]` reads its property or loose parameter (`{set [hp] 5}` stores
-one). `{new T name (param value) ...}` makes an object of a script class or a bound type,
-and `{delete obj}` removes it.
+one). Loose parameters belong to the object's stay in its Context: removing the object
+drops them. `{new T name (param value) ...}` makes an object of a script class or a bound
+type, and `{delete obj}` removes it.
 
 A command sent to a destroyed object is a clean error: Contexts refer to objects by salted
 handles, never pointers.

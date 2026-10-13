@@ -163,6 +163,35 @@ TEST_CASE("a Context allocates through its allocator, and nothing through operat
     MESSAGE("Context: " << mine.allocs << " allocations through its allocator");
 }
 
+TEST_CASE("loose parameters are the Context's, and leave with the object (D98)") {
+    Counting mine;
+    const moira::Allocator alloc = mine.allocator();
+    {
+        Mover late;  // outlives the Context below
+        moira::Context ctx(alloc);
+        Mover warm, bob;
+        REQUIRE(ctx.add(warm));  // the free-slot list's first growth, out of the way
+        ctx.remove(warm);
+        REQUIRE(ctx.add(bob, "bob"));
+        const size_t before = mine.live_bytes;
+        REQUIRE(ctx.eval("{bob set mood happy} {bob set pos (1 2)}"));
+        CHECK(mine.live_bytes > before);  // through the Context's allocator
+        CHECK(ctx.eval("{bob get mood}").value_or(moira::Node()).try_sym() ==
+              moira::Symbol("happy"));
+        ctx.remove(bob);
+        CHECK(mine.live_bytes == before);  // freed as bob left
+        REQUIRE(ctx.add(bob, "bob"));
+        CHECK_FALSE(ctx.eval("{bob get mood}"));  // a new stay starts with none
+
+        // An object that outlives its Context: the Context frees its parameters as it
+        // goes, so nothing is left to free through an allocator that may be gone.
+        REQUIRE(ctx.add(late, "late"));
+        REQUIRE(ctx.eval("{late set mood calm}"));
+    }
+    CHECK(mine.allocs == mine.frees);
+    CHECK(mine.live_bytes == 0);
+}
+
 TEST_CASE("reloads free the trees they replace") {
     if constexpr (moira::kShipping) return;  // reload is inert in shipping
     Counting mine;

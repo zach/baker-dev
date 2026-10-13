@@ -213,8 +213,7 @@ std::string_view type_record_name(const TypeRecord& type) noexcept {
 ObjectBase::~ObjectBase() {
     // At once, even during a tick: the deferral that lets later tasks still reach a deleted
     // object (D67) cannot keep a destroyed one, and the sync point would write into it (D97).
-    if (ctx_) ctx_->impl().remove(handle_);
-    detail::destroy(default_allocator(), params_);
+    if (ctx_) ctx_->impl().remove(handle_);  // which frees the loose parameters (D98)
 }
 
 // --- Impl ---
@@ -257,11 +256,21 @@ Expected<Node> Context::Impl::add(ObjectBase& object, Symbol name, ScriptClass* 
     return Node::object(object.handle_);
 }
 
+// An object leaving this Context: it forgets the Context, and its loose parameters, which
+// are the Context's, are freed (D98).
+void Context::Impl::forget(ObjectBase& o) noexcept {
+    o.ctx_ = nullptr;
+    if (o.params_) {
+        detail::destroy(alloc, o.params_);
+        o.params_ = nullptr;
+    }
+}
+
 void Context::Impl::remove(ObjectHandle h) noexcept {
     Slot* s = slot(h);
     if (!s) return;
     if (!s->name.empty() && s->name.index() < by_name.size()) by_name[s->name.index()] = {};
-    s->object->ctx_ = nullptr;
+    forget(*s->object);
     *s = Slot{nullptr, s->salt + 1 == 0 ? 1 : s->salt + 1, {}, nullptr, false};
     free_slots.push_back(h.index());
 }
@@ -372,7 +381,7 @@ Expected<void> Context::Impl::set_property(ObjectBase& o, Symbol name, const Nod
                                          Str(moira::type_name(value.type())),
                                      at.file(), at.line()));
     }
-    if (!o.params_) o.params_ = detail::create<ObjectParams>(default_allocator());
+    if (!o.params_) o.params_ = detail::create<ObjectParams>(alloc, alloc);
     for (auto& [k, v] : o.params_->items)
         if (k == name) {
             v = value;

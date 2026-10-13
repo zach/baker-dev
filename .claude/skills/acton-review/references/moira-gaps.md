@@ -12,7 +12,7 @@ or accepted as a deviation, record it in `docs/decisions.md` and update this fil
 | 2, 3, hot/cold layout, dispatch loads | functions: hot fields first in the record (D78); methods wait for a measured need | **done** for functions; methods **open** |
 | 4, one item at a time | `handle_all` broadcast, one lookup per run of a type (D53, D66) | **done** |
 | 5, per-array refcounts | one count per load (D64, D65) | **done** |
-| 6, objects' vtable and parameters | none yet | **open** |
+| 6, objects' vtable and parameters | parameters: the Context's allocator, freed as the object leaves (D98); the vtable stays | **open** (vtable) |
 | 7, coroutine frames | per-Scheduler pool with a frame budget (D58, D68) | **done** |
 | 8, exceptions | throwing forms removed entirely (D54) | **done** (D59) |
 | 9, `Error` size | `Error` becomes a handle (D55) | **done** (D60) |
@@ -78,9 +78,9 @@ One line each; the D-entries hold the measurements.
    `Function`'s hot fields (D78) did.
 6. **Objects carry a vtable and a side table (hot).** `ObjectBase` is 32 bytes: a vtable
    for `type()`, the Context, an 8-byte salted handle, and a pointer to loose parameters,
-   made on the first `set` of one. The parameters are a vector of (symbol, node) pairs from
-   the **default** allocator, not the object's Context's: the one per-object allocation
-   that does not follow D61's rule that an owner passes its allocator. Moira binds the
+   made on the first `set` of one. The parameters now come from the Context's allocator
+   and are freed when the object leaves it (D98), so every per-object allocation follows
+   D61. What remains is the vtable, one indirect call to find the type. Moira binds the
    game's objects and does not own them, so a per-entity loop over them is the game's;
    check that Moira's dispatch never iterates objects itself (`handle_all` takes the
    caller's span).

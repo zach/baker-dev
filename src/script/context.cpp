@@ -434,7 +434,7 @@ Context::~Context() {
     // Objects the Context created are deleted; the others just forget it.
     for (Impl::Slot& s : impl_->slots) {
         if (!s.object) continue;
-        s.object->ctx_ = nullptr;
+        impl_->forget(*s.object);
         if (s.owned) impl_->destroy_owned(s.object);
     }
     if (t_current == this) t_current = nullptr;

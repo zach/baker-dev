@@ -269,7 +269,9 @@ private:
     friend bool detail::scripted(const ObjectBase&, Symbol) noexcept;
     Context* ctx_ = nullptr;
     ObjectHandle handle_;
-    detail::ObjectParams* params_ = nullptr;  // loose parameters, made on first set
+    // Loose parameters: made on the first set, from the Context's allocator, and freed when
+    // the object leaves the Context (D98).
+    detail::ObjectParams* params_ = nullptr;
 };
 
 template <class T>

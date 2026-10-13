@@ -2760,3 +2760,29 @@ check output.*
 - **Test** (`test_script_tasks.cpp`): an object with a loose parameter destroyed by a C++
   task mid-tick, and one removed then destroyed in the same tick. Without the fix the
   first fails under ASan as above.
+
+## D98. Gap 6: loose parameters are the Context's
+
+*Answered by the project owner 2026-10-13, as recommended: owned by the Context. Closes the
+allocator half of acton-review gap 6.*
+
+- **The gap.** An object's loose parameters (`{obj set mood happy}`) came from the default
+  allocator (D62), the one per-object allocation that did not follow D61's rule that an
+  owner passes its allocator. D62 chose that because parameters outlived the object's stay
+  in its Context, and an object may outlive its Context's allocator.
+- **The change.** Parameters are only ever read or written through the Context an object
+  is in, so they are now the Context's: made on the first `set` from its allocator (the
+  vector inside too), and freed when the object leaves it, by `remove`, by the object's
+  destruction (D97), or by the Context's. A removed and re-added object starts with none.
+  Nothing outlives the allocator it came from, and `ObjectBase` keeps its 32 bytes.
+- **Docs:** `language.md` says parameters belong to the object's stay in its Context.
+- **Tests** (`moira_alloc_tests`): setting parameters allocates through the Context's
+  counting allocator; removing the object returns every byte; a re-added object has none;
+  an object that outlives its Context leaves nothing to free. Against the previous code
+  the test fails twice: the bytes stay after removal, and the parameter survives.
+- **Benchmarks** (`bench_call`, release, three alternating runs against `8ebd447`): a
+  native method, 49.96–50.40 ns before and 40.10–50.01 after; one of 2,000 objects, 51.8–68.2
+  and 52.2–55.1; `handle` in a Context, 8.25–8.76 and 6.58–8.67. No change beyond noise:
+  dispatch is untouched.
+- **Gap 6** stays open for its other half, the vtable `type()` goes through.
+- **Size:** the core is 10,963 lines (10,955 before).
