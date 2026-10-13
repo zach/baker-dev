@@ -3026,5 +3026,9 @@ separate CMake project over this repository's Moira, and nothing in `src/` chang
   stacks and passes every base test on a Windows runner. Under Wine, a MinGW cross-build
   fails one watcher case (a file saved in a subdirectory that existed before watching
   began), which real Windows passes: Wine's emulation of recursive watches.
+- **Acceptance met** (§2.2, on the Windows test machine, the packaged Release build with
+  D3D and vsync): ten saves in Notepad, edit to see 21–41 ms, median about 25 ms, worst
+  40.8 ms, against a target of one second; the reload itself 12.6 ms median, 23.6 ms worst,
+  mostly its scan of the layers' files.
 - **MSVC and third-party headers.** `/WX` failed on C4324 in `bx/file.h`; the fetched
   dependencies are `SYSTEM` (FetchContent, CMake 3.25), so their headers are external.
