@@ -61,8 +61,21 @@ Debug build, on the development container (Linux, Xeon), not yet on the minimum-
 | Save to presented frame, OpenGL with vsync under Xvfb (software rendering) | 16.6 ms: the next vsync |
 | The reload itself (one 0.5 KB file: scan, read, parse, merge, bind) | 1.4 ms |
 
-The acceptance in §2.2 (under one second, median, on the minimum-spec PC) still needs that
-PC. Windows itself is covered by CI's MSVC job, which builds the stacks and passes every
-test, the live-reload and watcher tests included, on a Windows runner. (Under Wine, a
-MinGW cross-build fails one watcher case, a file saved in a subdirectory that existed
-before watching began: Wine's emulation of recursive watches, since real Windows passes.)
+**The acceptance (§2.2) is met.** On the Windows test machine, with the packaged Release
+build (CI artifact `stacks-cube-windows`, D3D, vsync on), two groups of five saves to
+`default.dta` in Notepad, on 2026-10-13:
+
+| | Edit to see, median / worst | The reload itself, median / worst |
+|---|---|---|
+| Group 1 (Loop panel) | 2x / 40.8 ms (tens digit unreadable in the photo) | 12.6 / 23.6 ms |
+| Group 2 (corner readout) | 25 / 40 ms (40, 29, 25, 21, 23) | |
+
+Under one second by a factor of 25: two or three frames at 60 Hz. The reload's own time
+there, 5–24 ms against 1.4 ms on the container, is mostly its scan (Config::reload reads and
+hashes every file of the layers); with one small file that is noise, and it is the first
+place to look when a stack's data grows.
+
+Windows is also covered by CI's MSVC job, which builds the stacks and passes every test,
+the live-reload and watcher tests included, on a Windows runner. (Under Wine, a MinGW
+cross-build fails one watcher case, a file saved in a subdirectory that existed before
+watching began: Wine's emulation of recursive watches, since real Windows passes.)
