@@ -282,6 +282,19 @@ CheckReport check(const Array& tree, const Context& ctx, const CheckOptions& opt
     return report;
 }
 
+Callback<void(const Array&, const Callback<void(const Error&)>&)> check_validator(
+    const Context& ctx, const CheckOptions& options) {
+    CheckOptions o = options;
+    o.repeats.min_repeats = 0;  // the repetition report is for tools
+    return [&ctx, o](const Array& root, const Callback<void(const Error&)>& warn) {
+        if (!warn) return;
+        CheckReport report;
+        check(root, ctx, report, o);
+        for (const Error& e : report.errors) warn(e);
+        for (const Error& w : report.warnings) warn(w);
+    };
+}
+
 void write(const CheckReport& report, TextSink text) {
     Str out;
     for (const Error& e : report.errors) out += Str(moira::to_string(e)) + "\n";

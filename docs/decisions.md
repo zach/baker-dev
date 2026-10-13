@@ -2906,3 +2906,32 @@ are reported, outside the gate.*
 - **Parse speed** (`bench_parse`, three alternating runs against the previous commit):
   146.7, 155.6, 195.0 MB/s before; 148.0, 150.2, 196.3 after, 43 allocations each. The
   machine's speed drifted between runs, and each pair agrees within it.
+
+## D102. `check` at load: validators by id, and `check_validator`
+
+*Spec §5's "opt-in via a `Config` flag", left open since D42. Answered by the project owner
+2026-10-13, as recommended.*
+
+- **Several validators.** `Config::set_validator`, one slot that shapes took (D84), is
+  replaced by `add_validator(v)`, which returns an id, and `remove_validator(id)`, as
+  `on_reload` works. They run after every merge in the order they were added. Every
+  caller changed.
+- **`moira::check_validator(ctx, options)`** (moira::script) runs `check` over the merged
+  root and sends its errors and one-way warnings to the Config's warning handler. The
+  demand report, repeats, and one-owner findings are for tools, so it reports none of
+  them and skips the repetition pass. The Config cannot call `check` itself, since
+  moira::data does not depend on moira::script; the validator is how a flag reaches it,
+  as `shape::validator()` already did for shapes. `ctx` and `options.packs` must outlive
+  the Config's use of it.
+- **Test** (`test_check`): a push of an overlay with a wrong call is reported at the push,
+  located, next to another validator that runs first; a removed validator stops; a layer
+  that fixes the call silences it, and toggling that layer off brings it back.
+- **The harness** adds it beside the shape validator, so a wrong call typed into
+  `default.dta` shows in the console at the next reload.
+- **Spec §5's CI line**, "run in CI over the real-corpus test with Harmonix's built-ins
+  stubbed by arity", runs over the original fixtures (D3): `test_check` stubs every head
+  `tests/corpus/scripts.dta` calls and checks the report comes back clean. The Harmonix
+  corpus stays outside the repository and CI (D3, D101).
+- **Cost:** a merge walks a list of validators instead of testing one slot, and a Config
+  with none does no more than before. The check itself costs a merge what `check` costs,
+  in development builds that ask for it. **Size:** the core is 10,990 lines (10,963).

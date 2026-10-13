@@ -1,5 +1,6 @@
 // moira::check and the generated reference (spec §5, M4).
 #include <doctest.h>
+#include <moira/config.hpp>
 #include <moira/parse.hpp>
 #include <moira/script.hpp>
 #include <moira/std_script.hpp>
@@ -10,6 +11,7 @@
 #include <map>
 #include <sstream>
 #include <string>
+#include <vector>
 #include "ok.hpp"
 
 using namespace moira;
@@ -43,6 +45,37 @@ TEST_CASE("check catches a wrong-arity call at load, without evaluating anything
     CHECK(to_string(report.errors[1]) ==
           "moira: 'spawn' is given (symbol symbol); it takes (symbol int)  (level.dta:4)");
     CHECK_FALSE(report.ok());
+}
+
+TEST_CASE("check_validator checks script at every merge, beside other validators") {
+    Context ctx;
+    REQUIRE(ctx.func("spawn", [](Symbol, int64_t n) { return n; }));
+    Config cfg({.tweaks = nullptr});
+    std::vector<std::string> seen;
+    cfg.set_warning_handler([&](const Error& e) { seen.emplace_back(to_string(e)); });
+    // Validators run in the order they were added (D102).
+    const auto first = cfg.add_validator(
+        [&](const Array&, const Callback<void(const Error&)>&) { seen.emplace_back("first"); });
+    cfg.add_validator(check_validator(ctx));
+    REQUIRE(cfg.push_layer("base", parse("(level (on_enter {spawn grunt 3}))", "base.dta")));
+    CHECK(seen == std::vector<std::string>{"first"});
+
+    // An overlay with a wrong call: reported at the push, located, and nothing runs.
+    seen.clear();
+    REQUIRE(cfg.push_layer("event", parse("(level\n  (on_exit {spawn grunt}))", "event.dta")));
+    CHECK(seen == std::vector<std::string>{
+                      "first", "moira: 'spawn' takes 2 arguments, given 1  (event.dta:2)"});
+
+    // Removing a validator stops it; the check runs at every merge.
+    cfg.remove_validator(first);
+    seen.clear();
+    REQUIRE(cfg.push_layer("fix", parse("(level (on_exit {spawn grunt 1}))", "fix.dta")));
+    CHECK(seen.empty());
+    if constexpr (!kShipping) {
+        REQUIRE(cfg.set_layer_enabled("fix", false));
+        CHECK(seen ==
+              std::vector<std::string>{"moira: 'spawn' takes 2 arguments, given 1  (event.dta:2)"});
+    }
 }
 
 TEST_CASE("check skips what it cannot know before running") {

@@ -39,7 +39,7 @@ TEST_CASE("a violation in corpus-style data is reported at load, located") {
     Config cfg({.tweaks = nullptr});
     std::vector<std::string> reported;
     cfg.set_warning_handler([&](const Error& e) { reported.emplace_back(to_string(e)); });
-    cfg.set_validator(shape::validator());
+    cfg.add_validator(shape::validator());
     REQUIRE(cfg.push_layer("bosses", kDir + "/bosses.dta"));
     // Before the patch: the dragon's third phase is out of range, the golem's phase lacks
     // its cadence (errors), and the golem's taunts is not declared (a warning).

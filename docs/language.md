@@ -253,7 +253,7 @@ warning, so adding data never waits on its shape. Commands and variables are not
 their values are unknown until they run.
 
 ```cpp
-cfg.set_validator(moira::shape::validator());   // checked at every push, reload, and restore
+cfg.add_validator(moira::shape::validator());   // checked at every push, reload, and restore
 ```
 
 Through a Config, violations go to the warning handler; the load itself never fails on a
@@ -388,7 +388,16 @@ repeat: 3 times, 10 nodes: (enemy (hp 30) (speed 2) (loot coin)) at a.dta:2, b.d
 With the session (`{.packs = &cfg.session()}`), each pack that declares one owner is a
 **finding**, informational, never an error: a harness one person keeps.
 
-Run it in CI over every data file, and on every reload in a development build. For a build
+Run it in CI over every data file, and on every merge in a development build: a Config
+runs its validators after each push, toggle, reload, and restore, and sends what they find
+to its warning handler (D102).
+
+```cpp
+cfg.add_validator(moira::check_validator(ctx, {.packs = &cfg.session()}));
+```
+
+The validator reports errors and one-way warnings; the demand report, repeats, and
+findings are for tools. `ctx` must outlive the Config's use of it. For a build
 artifact, `to_json(report, &cfg.session())` writes the whole report, packs included, as
 versioned JSON that is the same bytes for the same data ([schema](check-json.md)); and
 `reference(ctx, &cfg.session())` adds the packs and the files tools generated to the

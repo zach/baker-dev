@@ -346,7 +346,11 @@ struct Config::Impl {
     LoadSession base;
     Writer writer = write_disk_file;
     Callback<void(const Error&)> warn;
-    Config::Validator validator;
+    struct Check {
+        ValidatorId id;
+        Validator fn;
+    };
+    Vec<Check> validators{alloc};
     Vec<LayerState> layers{alloc};
     Vec<ScratchEntry> scratch{alloc};
     bool scratch_enabled = true;
@@ -772,7 +776,7 @@ struct Config::Impl {
         const Ref<Array> before = std::move(c.root_);
         c.root_ = merged();
         c.scratch_dirty_ = false;
-        if (validator) validator(*c.root_, warn);
+        for (const Check& v : validators) v.fn(*c.root_, warn);
         lap(rec.merge_ns, t);
         ++c.epoch_;
         Vec<TweakBase*> moved;
@@ -1124,8 +1128,16 @@ void Config::set_warning_handler(Callback<void(const Error&)> handler) {
     impl_->warn = std::move(handler);
 }
 
-void Config::set_validator(Validator validator) {
-    impl_->validator = std::move(validator);
+Config::ValidatorId Config::add_validator(Validator validator) {
+    const ValidatorId id = impl_->next_id++;
+    impl_->validators.push_back({id, std::move(validator)});
+    return id;
+}
+
+void Config::remove_validator(ValidatorId id) {
+    auto& v = impl_->validators;
+    v.erase(std::remove_if(v.begin(), v.end(), [id](const auto& x) { return x.id == id; }),
+            v.end());
 }
 
 void Config::bind(TweakBase& t) {

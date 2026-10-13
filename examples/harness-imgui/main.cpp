@@ -99,7 +99,8 @@ int main(int argc, char** argv) {
     moira::Config cfg;
     cfg.set_warning_handler(
         [&](const moira::Error& e) { console.log.push_back(std::string(moira::to_string(e))); });
-    cfg.set_validator(moira::shape::validator());
+    cfg.add_validator(moira::shape::validator());
+    cfg.add_validator(moira::check_validator(ctx));  // script calls, at every merge too
     cfg.set_time_source(
         [](void*) { return file_clock_ns(std::filesystem::file_time_type::clock::now()); });
     if (auto r = cfg.push_layer("default", dir + "/default.dta"); !r) {

@@ -17,7 +17,7 @@
 // warning, so adding data never requires touching its shape first. Commands and variables
 // are not checked: their values are unknown until run.
 //
-//   cfg.set_validator(moira::shape::validator());   // reported at every load and reload
+//   cfg.add_validator(moira::shape::validator());   // reported at every load and reload
 //
 // Shapes are opt-in: unshaped data works everywhere. The library depends only on
 // moira::data.
@@ -93,7 +93,7 @@ private:
 
 // Checks every array of `tree` that a shape of `shapes` governs, into `report`.
 void check(const Array& tree, const Set& shapes, Report& report);
-// For Config::set_validator: reads the shapes the merged root declares and checks the root
+// For Config::add_validator: reads the shapes the merged root declares and checks the root
 // against them, reporting errors and warnings to the warning handler.
 [[nodiscard]] Config::Validator validator();
 

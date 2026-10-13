@@ -202,11 +202,12 @@ setting only its own values) so that removing one never needs another removed fi
 - **Shapes.** Declare, in the shipped data, the shapes of everything an overlay may set,
   with ranges: `(event (drop_rate float (range 0 1)))`. Before pushing, merge the overlay
   over the current root and check it: `examples/live-ops` refuses an overlay that sets a
-  15% drop rate as `15`. In a development build, `cfg.set_validator(moira::shape::validator())`
+  15% drop rate as `15`. In a development build, `cfg.add_validator(moira::shape::validator())`
   checks every push.
 - **`check`.** An overlay that carries script (`(on_event {grant_xp 2})`) gets
   `moira::check` against a Context with the game's functions bound: a wrong call is an
-  error before a player runs it.
+  error before a player runs it. `cfg.add_validator(moira::check_validator(ctx))` checks
+  every push in a development build.
 - **In CI**, run both over every file under `overlays/`, stacked on the shipped data, on
   every change. An overlay that fails never reaches the server.
 

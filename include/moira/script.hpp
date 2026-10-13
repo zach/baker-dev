@@ -819,6 +819,12 @@ void check(const Array& tree, const Context& ctx, CheckReport& report,
            const CheckOptions& options = {});
 [[nodiscard]] CheckReport check(const Array& tree, const Context& ctx,
                                 const CheckOptions& options = {});
+// For Config::add_validator (the same type as Config::Validator): checks the merged root
+// after every merge and reports check's errors and one-way warnings through the Config's
+// warning handler (D102); the demand report, repeats, and findings are for tools. `ctx` and
+// `options.packs` must outlive the Config's use of it. Silent without a warning handler.
+[[nodiscard]] Callback<void(const Array& root, const Callback<void(const Error&)>& warn)>
+check_validator(const Context& ctx, const CheckOptions& options = {});
 
 // Writes the script reference (spec §5): every function with its overloads, tier, status,
 // and documentation, and every documented global, as Markdown. <moira/std_interop.hpp>

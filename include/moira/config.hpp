@@ -321,9 +321,12 @@ public:
     void set_warning_handler(Callback<void(const Error&)> handler);
     // Called after every merge (a layer pushed, popped, removed, or toggled; a reload; a
     // restore) with the merged root and the warning handler, to report on the data:
-    // moira::shape::validator() checks shapes this way (D84). Null: none.
+    // moira::shape::validator() checks shapes this way (D84), and moira::check_validator()
+    // script calls (D102). Validators run in the order they were added.
     using Validator = Callback<void(const Array& root, const Callback<void(const Error&)>& warn)>;
-    void set_validator(Validator validator);
+    using ValidatorId = uint32_t;
+    ValidatorId add_validator(Validator validator);
+    void remove_validator(ValidatorId id);
     void freeze() noexcept { frozen_ = true; }
     [[nodiscard]] bool frozen() const noexcept { return frozen_; }
 
