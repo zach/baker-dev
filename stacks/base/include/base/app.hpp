@@ -13,6 +13,7 @@
 #pragma once
 
 #include "base/fixed_step.hpp"
+#include "base/game.hpp"
 #include "base/live.hpp"
 #include "base/render.hpp"
 
@@ -20,8 +21,6 @@
 
 #include <cstdint>
 #include <string>
-
-union SDL_Event;
 
 namespace base {
 
@@ -46,28 +45,6 @@ struct AppOptions {
 // argument.
 [[nodiscard]] AppOptions parse_args(int argc, char** argv, AppOptions defaults);
 
-class App;
-
-class Game {
-public:
-    virtual ~Game() = default;
-    // Binds the game's script functions and objects, before the data loads, so check
-    // knows them.
-    virtual void bind(moira::Context& ctx) { (void)ctx; }
-    // After the data loaded; false stops the app.
-    virtual bool start(App& app) {
-        (void)app;
-        return true;
-    }
-    // One fixed simulation step of `dt` seconds. No rendering here.
-    virtual void step(double dt) = 0;
-    // Draws the state, `alpha` of the way from the previous step to the last.
-    virtual void draw(Renderer& r, float alpha) = 0;
-    // The game's own ImGui windows, if any, shown with the panels.
-    virtual void tools() {}
-    virtual void event(const SDL_Event& e) { (void)e; }
-};
-
 class App {
 public:
     [[nodiscard]] moira::Context& context() noexcept { return ctx_; }
@@ -91,6 +68,12 @@ private:
     uint64_t frame_ = 0;
     bool quit_ = false;
 };
+
+// The entry point of every stack's game (stacks/agent.md): with no command, plays (run);
+// otherwise runs one of the agent's commands: sim, check, reference, diff, or promote.
+// `defaults.data_dir` is the game's data/; its scenarios and objectives are in the sim/ and
+// metrics/ directories beside it. Returns the process's exit code.
+int main(Game& game, int argc, char** argv, AppOptions defaults);
 
 // Runs the game until its window closes, `frames` have passed, or it quits. Returns the
 // process's exit code.

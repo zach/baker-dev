@@ -265,6 +265,11 @@ public:
     [[nodiscard]] Expected<void> merge(std::string_view path) { return push_layer(path, path); }
     // Layer names bottom to top, ending with "scratch".
     [[nodiscard]] List<Symbol> layers() const;
+    // The #autorun commands of the enabled file layers, bottom to top, as their last reads
+    // collected them (D107). Each layer is read with a session of its own, so they are not
+    // in session().autorun(); a host runs them after a push, reload, or toggle, so that a
+    // data file can define script functions. Allocates its result.
+    [[nodiscard]] List<Node> autorun() const;
     [[nodiscard]] Expected<void> set_layer_enabled(std::string_view name, bool enabled);
     // Returns the new state.
     [[nodiscard]] Expected<bool> toggle_layer(std::string_view name);

@@ -775,3 +775,29 @@ TEST_CASE("Config forwards the one-way rule's warnings") {
     REQUIRE(warnings.size() == 1);
     CHECK(warnings[0].find("uses macro 'PHASES'") != std::string::npos);
 }
+
+TEST_CASE("Config::autorun: each enabled file layer's #autorun commands, bottom to top (D107)") {
+    TempDir dir;
+    const std::string base = dir.write("base.dta", "#autorun {first}\n(a 1)");
+    const std::string top = dir.write("top.dta", "#autorun {second}\n#autorun {third}\n(a 2)");
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer("base", base));
+    REQUIRE(cfg.push_layer("top", top));
+    REQUIRE(cfg.push_layer("overlay", *read_string("(a 3)", "overlay")));  // none of its own
+    auto heads = [&] {
+        std::vector<std::string> out;
+        for (const Node& n : cfg.autorun()) out.emplace_back(to_string(n));
+        return out;
+    };
+    CHECK(heads() == std::vector<std::string>{"{first}", "{second}", "{third}"});
+    CHECK(cfg.session().autorun().empty());  // the layers' sessions hold them, not this one
+
+    if constexpr (!kShipping) {
+        REQUIRE(cfg.set_layer_enabled("top", false));
+        CHECK(heads() == std::vector<std::string>{"{first}"});
+        REQUIRE(cfg.set_layer_enabled("top", true));
+        dir.write("top.dta", "#autorun {fourth}\n(a 2)");
+        REQUIRE(cfg.reload());
+        CHECK(heads() == std::vector<std::string>{"{first}", "{fourth}"});  // the new read's
+    }
+}

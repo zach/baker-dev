@@ -3032,3 +3032,36 @@ separate CMake project over this repository's Moira, and nothing in `src/` chang
   mostly its scan of the layers' files.
 - **MSVC and third-party headers.** `/WX` failed on C4324 in `bx/file.h`; the fetched
   dependencies are `SYSTEM` (FetchContent, CMake 3.25), so their headers are external.
+
+## D107. The agent harness, and `Config::autorun`
+
+*`docs/background/game-stacks.md` §3; `stacks/agent.md` is the design note. One addition
+to Moira's API; the rest is in `stacks/`.*
+
+- **`Config::autorun()`** (new). A Config reads each layer with a session of its own, so
+  the commands a layer's `#autorun` collected stayed in that session, out of a host's reach,
+  and `cfg.session().autorun()` was always empty: data layered through a Config could not
+  define a script function. `autorun()` returns the enabled file layers' commands, bottom to
+  top, as their last reads collected them; an overlay contributes none. It allocates its
+  result and touches no hot path. The base runs them after the load and at the frame after
+  any change to the stack, so `agent.dta` can redefine a function `default.dta` defines.
+- **Commands, not a tool server.** Every stack's game is its own tool: `sim`, `check`,
+  `reference`, `diff`, `promote`. An agent with a shell needs no server, CI calls the same
+  commands, and the commands know the game's script functions because they are its binary.
+  `tools/console.py` reaches a running game's console.
+- **`sim`** steps a `Game` headless at the fixed rate, ticking the Context's scheduler (the
+  play loop now ticks it too: script tasks never ran before), from a scenario
+  (`sim/*.dta`: seconds, start and timed commands), and judges each run by objectives
+  (`metrics/*.dta`: a measure command, then a pass command over `$value`). Runs are counted
+  in steps, never timed, and read `default.dta` and `agent.dta` but not `local.dta`, so a
+  scenario and a seed reproduce. Results are `.dta`. Exit 0, 1, or 2: passed, an objective
+  failed, could not run. `Game` moved to `base/game.hpp`, without SDL, and gained
+  `reset(seed)`, called before play and before each run.
+- **`check` is stricter for agents** than `moira::check`: a call to a function nobody
+  defined is demand to Moira, but in an agent's edit it is nearly always a typo, so it fails
+  unless the function is a declared stub (`#autorun {func name () (status stub) ...}`).
+- **`promote`** shows what it would write unless given `--write`, which the agent's
+  instructions forbid: promotion is a person's decision (§9).
+- **Measured** (Release, the development container): the cube's 20-second scenario, 1,000
+  seeds (1.2 million steps; each run judged), in 13–17 ms for the whole process, load included.
+  The cube's step is one addition, so this is the harness's own cost.

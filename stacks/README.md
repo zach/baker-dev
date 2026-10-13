@@ -9,7 +9,8 @@ lives outside `src/`: Moira's line budget and core rules do not cover it.
 |---|---|---|
 | `base/` | The shared base (design §2): live data loop, window, renderer, tuning panels, console | Built; see `base/README.md` |
 | `cube/` | The base's acceptance game: a cube whose every value is a tweak | Built |
-| `duel/`, `ledger/` | The first two stacks (design §4.6, §4.2) | Next, after the agent harness (§3) |
+| `agent.md`, `tools/` | The agent harness (design §3): headless simulation, objectives, the commands | Built |
+| `duel/`, `ledger/` | The first two stacks (design §4.6, §4.2) | Next |
 
 ## Build and run
 
@@ -37,6 +38,20 @@ The remote console listens on 127.0.0.1:4555; each line is a Moira command:
 
 ```sh
 printf '{cube.angle}\n' | nc 127.0.0.1 4555
+```
+
+## The agent's commands
+
+Every stack's game is also its own tool (`agent.md`); an agent's instructions are in
+`.claude/skills/stacks-agent/`:
+
+```sh
+build-stacks/bin/stacks_cube sim --seeds 1-10 --out runs   # scenarios in sim/, judged by metrics/
+build-stacks/bin/stacks_cube check                         # JSON; exit 1 on an error or a typo'd call
+build-stacks/bin/stacks_cube reference                     # the script vocabulary
+build-stacks/bin/stacks_cube diff                          # what data/agent.dta changes
+build-stacks/bin/stacks_cube promote [--write]             # agent.dta into default.dta: a person's call
+python3 -I stacks/tools/console.py "{cube.turns}"          # a command in a running game
 ```
 
 Options every stack's game takes:

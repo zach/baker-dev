@@ -4,7 +4,11 @@
 //
 //   stacks_cube [--data DIR] [--renderer d3d11|d3d12|vulkan|gl|noop] [--headless] ...
 //
-// Script: {cube.reset} puts the cube back; {cube.angle} reads its angle in degrees.
+// Script: {cube.reset} puts the cube back; {cube.angle} reads its angle in degrees;
+// {cube.turns} counts the full turns since the last reset.
+//
+// The same binary is the agent's tool (stacks/agent.md): `stacks_cube sim` runs sim/*.dta
+// headless and judges the runs by metrics/*.dta; `check`, `reference`, `diff`, `promote`.
 #include <base/app.hpp>
 
 #include <moira/std_interop.hpp>
@@ -31,7 +35,9 @@ public:
     void bind(moira::Context& ctx) override {
         (void)ctx.func("cube.reset", [this] { angle_ = previous_ = 0; });
         (void)ctx.func("cube.angle", [this] { return double(angle_); });
+        (void)ctx.func("cube.turns", [this] { return double(angle_) / 360.0; });
     }
+    void reset(uint64_t) override { angle_ = previous_ = 0; }
     void step(double dt) override {
         previous_ = angle_;
         angle_ += kSpin * float(dt);
@@ -64,5 +70,5 @@ private:
 
 int main(int argc, char** argv) {
     CubeGame game;
-    return base::run(game, base::parse_args(argc, argv, {.title = "Cube", .data_dir = CUBE_DATA}));
+    return base::main(game, argc, argv, {.title = "Cube", .data_dir = CUBE_DATA});
 }
