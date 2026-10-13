@@ -6,7 +6,9 @@
 // name (docs/decisions.md D44) with a hash map, the lookup D5's in-node cache would save.
 //
 // Cold rows (D57, D70): 20,000 native functions, and 2,000 named objects, each called in a
-// shuffled order, so the commands, function records, and objects are not in cache.
+// shuffled order, so the commands, function records, and objects are not in cache. Gaps 2m
+// and 6 (D99): 2,048 objects of 64 types, with 32 methods or one, called by script and sent a
+// message from C++, so the method tables and the types' vtables are not in cache either.
 #include <moira/object.hpp>
 #include <moira/parse.hpp>
 #include <moira/script.hpp>
@@ -17,9 +19,11 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <memory>
 #include <random>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -64,6 +68,29 @@ struct Person : moira::Object<Person> {
         b.on<HitMsg>(&Person::on_hit);
     }
 };
+
+// One of 64 types with M methods, m0 to m(M-1), each a float argument, and a HitMsg handler.
+template <int N, int M>
+struct Wide : moira::Object<Wide<N, M>> {
+    float v = 0;
+    int hp = 1'000'000;
+    int on_hit(const HitMsg& m) { return hp -= m.points; }
+    static void bind(moira::Binder<Wide>& b) {
+        b.name((M == 1 ? "Narrow" : "Wide") + std::to_string(N));
+        for (int k = 0; k < M; ++k)
+            b.method(moira::Symbol("m" + std::to_string(k)),
+                     [](Wide& w, float a) { return w.v += a; });
+        b.template on<HitMsg>(&Wide::on_hit);
+    }
+};
+
+constexpr int kTypes = 64, kPerType = 32;
+
+template <int M, int... N>
+void make_objects(std::vector<std::unique_ptr<moira::ObjectBase>>& out,
+                  std::integer_sequence<int, N...>) {
+    for (int i = 0; i < kPerType; ++i) (out.push_back(std::make_unique<Wide<N, M>>()), ...);
+}
 
 int main() {
     moira::Context ctx;
@@ -217,6 +244,43 @@ int main() {
         std::printf("%-38s %7.2f ns\n", "{fN 1 2}: one of 20,000 natives", run(order));
         std::printf("%-38s %7.2f ns\n", "{pN grow 0}: one of 2,000 objects", run(objects));
         for (Person& p : people) ctx.remove(p);
+    }
+    {
+        // Objects interleaved by type, named w0... (32 methods) and n0... (one method).
+        std::vector<std::unique_ptr<moira::ObjectBase>> wide, narrow;
+        make_objects<32>(wide, std::make_integer_sequence<int, kTypes>());
+        make_objects<1>(narrow, std::make_integer_sequence<int, kTypes>());
+        std::mt19937 rng(7);
+        std::string text;
+        for (size_t i = 0; i < wide.size(); ++i) {
+            if (!ctx.add(*wide[i], moira::Symbol("w" + std::to_string(i)))) return 1;
+            if (!ctx.add(*narrow[i], moira::Symbol("n" + std::to_string(i)))) return 1;
+            text += "{w" + std::to_string(i) + " m" + std::to_string(rng() % 32) + " 0} ";
+            text += "{n" + std::to_string(i) + " m0 0} ";
+        }
+        auto cold = moira::read_string(text, "types.dta");
+        if (!cold) return 1;
+        std::vector<uint32_t> w_order(wide.size()), n_order(wide.size());
+        for (uint32_t i = 0; i < wide.size(); ++i) w_order[i] = 2 * i, n_order[i] = 2 * i + 1;
+        std::shuffle(w_order.begin(), w_order.end(), rng);
+        std::shuffle(n_order.begin(), n_order.end(), rng);
+        auto run = [&](const std::vector<uint32_t>& which) {
+            return ns_per_call([&](int i) {
+                auto r = ctx.eval((**cold)[which[static_cast<unsigned>(i) % which.size()]]);
+                return r ? static_cast<double>(r->try_float().value_or(0)) : -1.0;
+            });
+        };
+        std::printf("%-38s %7.2f ns\n", "{nN m0 0}: 64 types, one method", run(n_order));
+        std::printf("%-38s %7.2f ns\n", "{wN mK 0}: 64 types, 32 methods", run(w_order));
+        std::vector<moira::ObjectBase*> shuffled;
+        for (auto& o : narrow) shuffled.push_back(o.get());
+        std::shuffle(shuffled.begin(), shuffled.end(), rng);
+        std::printf(
+            "%-38s %7.2f ns\n", "handle(HitMsg): 64 types, shuffled", ns_per_call([&](int i) {
+                auto r =
+                    shuffled[static_cast<unsigned>(i) % shuffled.size()]->handle(HitMsg{i & 1});
+                return r ? static_cast<double>(r->try_int().value_or(0)) : -1.0;
+            }));
     }
 
     // Resolving a name: the Context's table, indexed by Symbol::index(), against a hash map.

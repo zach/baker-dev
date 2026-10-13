@@ -2786,3 +2786,26 @@ allocator half of acton-review gap 6.*
   dispatch is untouched.
 - **Gap 6** stays open for its other half, the vtable `type()` goes through.
 - **Size:** the core is 10,963 lines (10,955 before).
+
+## D99. A float result of zero skips the text search; cold rows for many types
+
+*Found while measuring acton-review gaps 2m and 6, which D100 records.*
+
+- **The bug.** A native function returning a float gives its shortest decimal
+  (`float_to_decimal_double`, D51). The arithmetic fast path covered
+  magnitudes from 1e-13 to 1e13, so zero, the most common float a game returns, fell to
+  the `snprintf` search: about 1,300 instructions, two thirds of a cold method call. Zero
+  (and -0, whose sign is kept) now returns at once. Subnormals and values outside the
+  range still take the search.
+- **Test** (`test_write`): 0 and -0 convert with their bit patterns.
+- **New `bench_call` rows** (cold): 2,048 objects of 64 types, each with 32 methods
+  (`{wN mK 0}`, a random method) or one (`{nN m0 0}`), called by script in a shuffled
+  order, and `handle(HitMsg)` sent from C++ to the same objects. Each type has its own
+  method table, thunks and vtable, so these rows find what 2,000 objects of one type
+  (`{pN grow 0}`) keep warm. They return 0, which is how they found the bug.
+- **Benchmarks** (release, three alternating runs against `3068879`, the same benchmark
+  file): one method, 163–213 ns before, 104–114 after; 32 methods, 226–269 and 154–176;
+  `{bob grow 0}` (returns 6.0, the fast path all along) and the other rows unchanged within
+  noise. Per call in a cachegrind driver (200,000 cold calls): 1,917 instructions before,
+  594 after, D1 misses unchanged (10.7).
+- **Size:** the core is 10,963 lines.

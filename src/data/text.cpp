@@ -215,7 +215,7 @@ Str join_path(std::string_view dir, std::string_view p) {
 }
 
 double float_to_decimal_double(float f) noexcept {
-    if (!std::isfinite(f)) return static_cast<double>(f);
+    if (!std::isfinite(f) || f == 0) return static_cast<double>(f);  // keeps -0's sign
     // Fast path, for magnitudes where it is exact: round to p significant digits by scaling
     // with an exact power of ten, for p = 1, 2, ...; the first that reads back as `f` is the
     // shortest. n / 10^k is then the double nearest the decimal, as reading its text gives.

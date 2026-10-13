@@ -41,6 +41,10 @@ TEST_CASE("atoms print in their reparseable spelling") {
     CHECK(to_string(Node(0.001)) == "0.001");
     CHECK(to_string(Node(0.1)) == "0.1");
     CHECK(to_string(Node(0.1f)) == "0.10000000149011612");  // a float widened exactly
+    // A float a script function returns reads as its shortest decimal; zero keeps its sign.
+    CHECK(moira::detail::float_to_decimal_double(0.1f) == 0.1);
+    CHECK(Node(moira::detail::float_to_decimal_double(0.0f)).float_bits() == 0);
+    CHECK(Node(moira::detail::float_to_decimal_double(-0.0f)).float_bits() == 0x8000000000000000u);
     CHECK(to_string(Node(int64_t{INT64_MIN})) == "-9223372036854775808");
     CHECK(to_string(Node(Symbol("price"))) == "price");
     CHECK(to_string(Node(Symbol("bacon and eggs"))) == "'bacon and eggs'");
