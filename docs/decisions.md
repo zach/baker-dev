@@ -208,7 +208,7 @@ well above the 40 MB/s target, so there is no reason yet for a lock-free table.
 - **Corpus.** Per D3 there is no Harmonix corpus here. The hand-written corpus in
   `tests/corpus/` parses and round-trips at 100%, and so does every prefix of every
   file. The real-corpus gate is run locally with
-  `moira_parse_corpus --roundtrip <checkout>`; **not yet run.** Record the result here.
+  `moira_parse_corpus --roundtrip <checkout>`; first run 2026-10-13, recorded in D101.
 - **Fuzzing.** `moira_parse_fuzzer` (libFuzzer, ASan+UBSan, seeded from the corpus) checks
   that every input either fails with a located error or parses and round-trips. It found
   two bugs, both in BOM handling (`tests/fuzz_regressions/`), and then ran clean for 1.2M
@@ -2862,3 +2862,47 @@ open gap left.*
   CMake project that adds Moira as a subdirectory (409 KB of Moira code, shipping).
 - **Gaps table:** 2m, 6 and 10 move to the closed list; gap 10's rule (a tool adds no
   field to a hot structure, and costs nothing unless called) moves to "Already aligned".
+
+## D101. The real-corpus gate, run
+
+*Spec §8 and M1, left open by D3 and D17. Answered by the project owner 2026-10-13: a lone
+`#` is a symbol; Karaoke Revolution's older include syntax stays a failure; converted sets
+are reported, outside the gate.*
+
+- **The corpus.** `mariteaux/milo-script-library` at `85a4e5d7`, cloned read-only outside
+  the repository (D3: nothing from it is committed): 32,009 `.dta` files from 36 games.
+  Its README says most of them are not Harmonix's text. They are the shipped binary DTB
+  turned back into text by community tools. Only a few sets are raw DTA with Harmonix's
+  comments: Rock Band PS2 (the set spec §8 names), Guitar Hero II PS2 Deluxe and 360 DLC,
+  and Karaoke Revolution Xbox.
+- **`moira_parse_corpus --milo-paths`** reads the dump as its archives were laid out. The
+  dump stores a `..` that climbs above an archive's root as a directory named `(..)`, so
+  `rb1/ps2/config` including `../../../system/run/config/macros.dta` finds it under
+  `rb1/ps2/(..)/(..)/`. Files the dump lacks (title updates hold only the files they
+  changed) are read as empty and counted: 777 files include one of 2,263 such files. The
+  run then measures the parser, not the dump. It takes 41 s.
+- **One grammar change:** a lone `#` is the symbol `#` (`(# {fake_win 3})` binds a key in
+  raw GH2 and in 339 converted files across 20 games). No directive has an empty name, so
+  nothing is ambiguous; the writer still quotes it, `'#'`. Any other unknown `#name` stays
+  an error.
+- **The gate: raw DTA, 464 of 464** files parse and round-trip: RB1 PS2 304, GH2 PS2
+  Deluxe 120, GH2 360 DLC 40.
+- **Karaoke Revolution** (2004, three builds, 566 files): 387 parse. 172 use an older
+  syntax, `#macros.dta` for include and `##kara.dta` for merge, which Moira does not take,
+  and 7 have a string Harmonix never closed (`french_screens.dta:596`, `"...de la
+  profession.)`).
+- **Converted sets: 30,684 of 30,979** (99.05%). Every remaining failure comes from the
+  conversion, and the parser stays strict rather than guess:
+  - 99 RB4 song files close one array too many;
+  - 78 locale files hold a symbol written bare that reads as a 20-digit integer;
+  - 59 hold a symbol written bare that starts with `#` (`#$%&'...`, `#1`, `#00aa00`);
+  - 42 Amplitude 2003 files hold a top-level `[1 0]`, which DTA text reads as a macro;
+  - 17 RB4 and RB VR files hold strings with `"` inside, unescaped (`"...the "sexy cop dad
+    from the '70s" in all of us."`), so the quotes no longer pair.
+- **Tried and reverted:** letting a quote inside an atom belong to it, and closing a quoted
+  symbol at the end of its line. Together they fixed 9 converted files, and they would
+  hide a real stray quote in a studio's own data.
+- **Whole corpus:** 31,535 of 32,009 (98.52%), no round-trip failures.
+- **Parse speed** (`bench_parse`, three alternating runs against the previous commit):
+  146.7, 155.6, 195.0 MB/s before; 148.0, 150.2, 196.3 after, 43 allocations each. The
+  machine's speed drifted between runs, and each pair agrees within it.

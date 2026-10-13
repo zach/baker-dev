@@ -193,7 +193,7 @@ private:
         const size_t begin = pos_;
         while (pos_ < src_.size() && !is_atom_end(static_cast<unsigned char>(src_[pos_]))) ++pos_;
         const std::string_view atom = src_.substr(begin, pos_ - begin);
-        if (atom[0] == '#') {
+        if (atom[0] == '#' && atom.size() > 1) {  // a lone # is the symbol '#' (D101)
             t.kind = Tok::Directive;
             t.text = atom.substr(1);
             return true;

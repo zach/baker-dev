@@ -122,7 +122,18 @@ TEST_CASE("unknown directives are errors") {
     CHECK(e.message() == "unknown directive '#bogus'");
     CHECK(e.code() == ErrorCode::Directive);
     CHECK(e.line() == 2);
-    CHECK(error("#").message() == "unknown directive '#'");
+}
+
+TEST_CASE("a lone # is a symbol") {
+    // Real data binds it as a key: (# {fake_win 3}) in a cheats table (D101).
+    auto root = read_string("(# 3) #", "t.dta");
+    REQUIRE(root);
+    CHECK((*(**root)[0].array())[0].try_sym() == Symbol("#"));
+    CHECK((**root)[1].try_sym() == Symbol("#"));
+    CHECK(to_dta(**root) == "('#' 3)\n'#'\n");
+    auto again = read_string(to_dta(**root), "t.dta");
+    REQUIRE(again);
+    CHECK(structurally_equal(**root, **again));
 }
 
 TEST_CASE("#include splices files, relative to the including file") {

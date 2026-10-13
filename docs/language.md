@@ -110,7 +110,10 @@ in the order they are read; a Config's layers read in one session, bottom to top
 
 Paths may be quoted (`#include "shared/common.dta"`) or bare, and resolve against the
 including file's directory, then the session's include directories
-(`add_include_dir`).
+(`add_include_dir`). Either `/` or `\` separates a path's parts.
+
+Any other `#name` is an error, so a misspelled directive is caught. A lone `#` is not a
+directive but the symbol `#`, as in a key binding `(# {toggle_hud})` (D101).
 
 ### Macros
 
