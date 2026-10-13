@@ -62,7 +62,7 @@ Debug build, on the development container (Linux, Xeon), not yet on the minimum-
 | The reload itself (one 0.5 KB file: scan, read, parse, merge, bind) | 1.4 ms |
 
 The acceptance in §2.2 (under one second, median, on the minimum-spec PC) still needs that
-PC: Windows itself is covered so far by a MinGW cross-build, run under Wine (9 of the 10
-base test cases pass there; the one failure is a file saved in a subdirectory that existed
-before watching began, which Wine's emulation of recursive watches may not report), and by
-CI's MSVC job.
+PC. Windows itself is covered by CI's MSVC job, which builds the stacks and passes every
+test, the live-reload and watcher tests included, on a Windows runner. (Under Wine, a
+MinGW cross-build fails one watcher case, a file saved in a subdirectory that existed
+before watching began: Wine's emulation of recursive watches, since real Windows passes.)

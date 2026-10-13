@@ -3022,7 +3022,9 @@ separate CMake project over this repository's Moira, and nothing in `src/` chang
   that needs them; Duel and Ledger need none.
 - **Measured** (debug, the development container, not the minimum-spec PC): save to the
   next frame 0.2–0.3 ms headless; save to presented frame 16.6 ms with OpenGL and vsync
-  under Xvfb, one refresh; the reload itself 1.4 ms. Windows: a MinGW cross-build runs 9
-  of the 10 base test cases under Wine (the failure is a file saved in a subdirectory
-  that existed before watching began, which may be Wine's emulation of recursive
-  watches); CI builds and tests with MSVC.
+  under Xvfb, one refresh; the reload itself 1.4 ms. Windows: CI's MSVC job builds the
+  stacks and passes every base test on a Windows runner. Under Wine, a MinGW cross-build
+  fails one watcher case (a file saved in a subdirectory that existed before watching
+  began), which real Windows passes: Wine's emulation of recursive watches.
+- **MSVC and third-party headers.** `/WX` failed on C4324 in `bx/file.h`; the fetched
+  dependencies are `SYSTEM` (FetchContent, CMake 3.25), so their headers are external.
