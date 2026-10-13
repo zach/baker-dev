@@ -276,6 +276,46 @@ ConfigSnapshot::~ConfigSnapshot() {
         detail::destroy(state_->alloc, state_);
 }
 
+// Loop statistics' samples (D90 Q1, D92): a fixed table, allocated by the first reload
+// that changes a file. A name gets the row it had, or a free one, or the least recently
+// fed one in its half.
+struct LoopTable {
+    static constexpr uint32_t kFiles = 32, kLayers = 16, kWindow = 32;
+    struct Row {
+        Symbol name;
+        uint64_t used = 0;        // when last fed, by `clock`; 0: free
+        uint32_t generation = 0;  // incremented when the row changes hands
+        uint32_t reloads = 0, failures = 0;
+        uint32_t edits = 0, times = 0;  // samples pushed, ever; the window keeps the last 32
+        uint32_t edit_us[kWindow] = {};
+        uint32_t time_us[kWindow] = {};
+    };
+    Row rows[kFiles + kLayers];
+    uint64_t clock = 0;
+
+    uint32_t row(Symbol name, bool layer) {
+        const uint32_t first = layer ? kFiles : 0, end = first + (layer ? kLayers : kFiles);
+        uint32_t pick = first;
+        for (uint32_t i = first; i < end; ++i) {
+            if (rows[i].used && rows[i].name == name) {
+                rows[i].used = ++clock;
+                return i;
+            }
+            if (rows[i].used < rows[pick].used) pick = i;
+        }
+        const uint32_t generation = rows[pick].generation + 1;
+        rows[pick] = Row{};
+        rows[pick].name = name;
+        rows[pick].generation = generation;
+        rows[pick].used = ++clock;
+        return pick;
+    }
+    [[nodiscard]] static uint32_t micros(uint64_t ns) noexcept {
+        const uint64_t us = (ns + 500) / 1000;
+        return us > UINT32_MAX ? UINT32_MAX : static_cast<uint32_t>(us);
+    }
+};
+
 struct Config::Impl {
     struct Subscriber {
         ReloadId id;
@@ -312,6 +352,21 @@ struct Config::Impl {
     size_t ring_cap = 256;
     size_t ring_next = 0;
 
+    // Loop statistics (D92). The reloads that wait for mark_visible: at most kPending; more
+    // between two frames keep the edit-to-see their reload's end gave them.
+    struct Pending {
+        size_t slot;  // in the ring; SIZE_MAX: none
+        uint64_t start_ns, epoch, origin_ns;
+        uint32_t rows[2];  // file, layer; UINT32_MAX: none
+        uint32_t generation[2];
+        uint32_t seq[2];  // the edit-to-see sample each row was given; UINT32_MAX: none
+    };
+    static constexpr uint32_t kPending = 8;
+    Own<LoopTable> loop;
+    Pending pending[kPending] = {};
+    uint32_t pending_n = 0;
+    uint32_t loop_reloads = 0, loop_unchanged = 0, loop_failures = 0;
+
     // --- Telemetry ---
 
     [[nodiscard]] uint64_t now() const {
@@ -335,12 +390,15 @@ struct Config::Impl {
     // Ends the record at `end` (the end of its last stage, so the stages tile the whole
     // change), keeps it, and hands it to the completion callbacks. No allocation once the
     // ring is reserved.
-    void finish(const Config& c, ReloadRecord& r, uint64_t end) {
+    // Records `r` in the history, and returns its slot there (SIZE_MAX: none).
+    size_t finish(const Config& c, ReloadRecord& r, uint64_t end) {
+        size_t slot = SIZE_MAX;
         if constexpr (!kShipping) {
             r.epoch = c.epoch_;
             r.end_ns = end;
             if (ring_cap) {
                 if (ring.capacity() < ring_cap) ring.reserve(ring_cap);
+                slot = ring.size() < ring_cap ? ring.size() : ring_next;
                 if (ring.size() < ring_cap)
                     ring.push_back(r);
                 else
@@ -348,6 +406,54 @@ struct Config::Impl {
                 ring_next = (ring_next + 1) % ring_cap;
             }
             for (size_t i = 0; i < completions.size(); ++i) completions[i].fn(r);
+        }
+        return slot;
+    }
+
+    // Feeds a reload's record to the loop statistics (D92).
+    void feed(Config& c, const ReloadRecord& r, size_t slot) {
+        if constexpr (!kShipping) {
+            ++loop_reloads;
+            if (r.outcome == ReloadOutcome::Unchanged) ++loop_unchanged;
+            const bool ok = r.outcome == ReloadOutcome::Ok;
+            if (!ok && r.outcome != ReloadOutcome::Unchanged) ++loop_failures;
+            if (r.first_file.empty() || !(ok || r.outcome == ReloadOutcome::ParseError)) return;
+            if (!loop) loop = Own<LoopTable>::make(alloc);
+            Pending p{slot,
+                      r.start_ns,
+                      r.epoch,
+                      r.origin_ns,
+                      {UINT32_MAX, UINT32_MAX},
+                      {},
+                      {UINT32_MAX, UINT32_MAX}};
+            const bool edit = ok && r.origin_ns && r.end_ns >= r.origin_ns;
+            for (int k = 0; k < 2; ++k) {
+                const Symbol name = k == 0 ? r.first_file : r.layer;
+                if (name.empty()) continue;
+                const uint32_t i = loop->row(name, k == 1);
+                LoopTable::Row& row = loop->rows[i];
+                p.rows[k] = i;
+                p.generation[k] = row.generation;
+                ++row.reloads;
+                if (!ok) {
+                    ++row.failures;
+                    continue;
+                }
+                row.time_us[row.times++ % LoopTable::kWindow] =
+                    LoopTable::micros(r.end_ns - r.start_ns);
+                if (edit) {
+                    p.seq[k] = row.edits;
+                    row.edit_us[row.edits++ % LoopTable::kWindow] =
+                        LoopTable::micros(r.end_ns - r.origin_ns);
+                }
+            }
+            if (!ok) return;
+            if (pending_n == kPending) {
+                std::copy(pending + 1, pending + kPending, pending);
+                --pending_n;
+            }
+            pending[pending_n++] = p;
+            c.visible_pending_ = true;
         }
     }
 
@@ -1083,7 +1189,7 @@ Expected<bool> Config::reload(const ReloadRequest& request) {
     uint64_t t = rec.start_ns;
     if (frozen_ && !impl_->options.live_layers) {
         rec.outcome = ReloadOutcome::Refused;
-        impl_->finish(*this, rec, t);
+        impl_->feed(*this, rec, impl_->finish(*this, rec, t));
         return false;
     }
     auto& ls = impl_->layers;
@@ -1093,20 +1199,21 @@ Expected<bool> Config::reload(const ReloadRequest& request) {
     impl_->lap(rec.scan_ns, t);
     if (from == ls.size()) {
         rec.outcome = ReloadOutcome::Unchanged;
-        impl_->finish(*this, rec, t);
+        impl_->feed(*this, rec, impl_->finish(*this, rec, t));
         return false;
     }
+    rec.layer = Symbol(ls[from].name);
     auto r = impl_->reread(ls, from, &rec.read_ns, &rec.files_reloaded);
     const uint64_t parsed = impl_->now();
     rec.parse_ns = parsed - t - rec.read_ns;
     t = parsed;
     if (!r) {
         rec.outcome = ReloadOutcome::ParseError;
-        impl_->finish(*this, rec, t);
+        impl_->feed(*this, rec, impl_->finish(*this, rec, t));
         return Unexpected(std::move(r).error());
     }
     impl_->commit(*this, rec, t);
-    impl_->finish(*this, rec, t);
+    impl_->feed(*this, rec, impl_->finish(*this, rec, t));
     return true;
 }
 
@@ -1152,6 +1259,76 @@ const ReloadRecord& Config::history_at(size_t i) const noexcept {
     const auto& ring = impl_->ring;
     const size_t oldest = ring.size() < impl_->ring_cap ? 0 : impl_->ring_next;
     return ring[(oldest + i) % ring.size()];
+}
+
+void Config::stamp_visible() noexcept {
+    visible_pending_ = false;
+    if constexpr (!kShipping) {
+        Impl& m = *impl_;
+        const uint64_t now = m.now();
+        for (uint32_t i = 0; i < m.pending_n; ++i) {
+            const Impl::Pending& p = m.pending[i];
+            if (p.slot < m.ring.size()) {
+                ReloadRecord& r = m.ring[p.slot];
+                if (r.start_ns == p.start_ns && r.epoch == p.epoch && !r.visible_ns)
+                    r.visible_ns = now;
+            }
+            // Edit-to-see runs to now: rewrite the sample the reload's end gave, if its row
+            // has not changed hands and the window still holds it.
+            if (!m.loop || !p.origin_ns || now < p.origin_ns) continue;
+            for (int k = 0; k < 2; ++k) {
+                if (p.rows[k] == UINT32_MAX || p.seq[k] == UINT32_MAX) continue;
+                LoopTable::Row& row = m.loop->rows[p.rows[k]];
+                if (row.generation != p.generation[k] || row.edits > p.seq[k] + LoopTable::kWindow)
+                    continue;
+                row.edit_us[p.seq[k] % LoopTable::kWindow] = LoopTable::micros(now - p.origin_ns);
+            }
+        }
+        m.pending_n = 0;
+    }
+}
+
+LoopStats Config::loop_stats() const {
+    LoopStats s;
+    if constexpr (!kShipping) {
+        const Impl& m = *impl_;
+        s.reloads = m.loop_reloads;
+        s.unchanged = m.loop_unchanged;
+        s.failures = m.loop_failures;
+        if (!m.loop) return s;
+        auto rows = [&](uint32_t first, uint32_t count) {
+            Vec<const LoopTable::Row*> used(m.alloc);
+            for (uint32_t i = first; i < first + count; ++i)
+                if (m.loop->rows[i].used) used.push_back(&m.loop->rows[i]);
+            std::sort(used.begin(), used.end(),
+                      [](const auto* a, const auto* b) { return a->used > b->used; });
+            // The middle sample (the upper one of an even count), and the largest.
+            auto summary = [](const uint32_t* window, uint32_t pushed, uint32_t& n,
+                              uint64_t& median, uint64_t& worst) {
+                n = std::min(pushed, LoopTable::kWindow);
+                if (!n) return;
+                uint32_t v[LoopTable::kWindow];
+                std::copy(window, window + n, v);
+                std::nth_element(v, v + n / 2, v + n);
+                median = uint64_t{v[n / 2]} * 1000;
+                worst = uint64_t{*std::max_element(v, v + n)} * 1000;
+            };
+            Vec<LoopRow> out(m.alloc);
+            for (const LoopTable::Row* r : used) {
+                LoopRow row;
+                row.name = r->name;
+                row.reloads = r->reloads;
+                row.failures = r->failures;
+                summary(r->edit_us, r->edits, row.edits, row.edit_median_ns, row.edit_worst_ns);
+                summary(r->time_us, r->times, row.times, row.reload_median_ns, row.reload_worst_ns);
+                out.push_back(row);
+            }
+            return List<LoopRow>(std::span<const LoopRow>(out.data(), out.size()));
+        };
+        s.files = rows(0, LoopTable::kFiles);
+        s.layers = rows(LoopTable::kFiles, LoopTable::kLayers);
+    }
+    return s;
 }
 
 std::optional<ReloadRecord> Config::last_reload() const noexcept {

@@ -146,7 +146,33 @@ struct ReloadRecord {
     uint32_t files_reloaded = 0, tweaks_changed = 0;
     uint32_t migrated = 0, punted = 0;  // reload-callback outcomes
     Symbol first_file{};                // the first changed file, for display
+    Symbol layer{};                     // the layer of first_file; empty if none changed
+    uint64_t visible_ns = 0;            // when the host next presented (mark_visible); 0: not yet
     ReloadOutcome outcome = ReloadOutcome::Ok;
+};
+
+// Loop statistics (spec §4, D90 Q1, D92): how long edits take to be seen, per file and per
+// layer. Only reloads that changed a file feed them, so a host that polls for changes does
+// not push edits out. Times are kept to the microsecond.
+struct LoopRow {
+    Symbol name;            // a file, or a layer
+    uint32_t reloads = 0;   // reloads that changed it, failures included, since it got its row
+    uint32_t failures = 0;  // of those, the ones that failed to parse
+    // Over its last 32 edits that reloaded: edit-to-see, from when the edit was saved
+    // (ReloadRequest::origin_ns) to when the host presented it (mark_visible), or to the end
+    // of the reload if the host has not; and the reload's own time.
+    uint32_t edits = 0;  // edit-to-see samples: only reloads that gave an origin have one
+    uint64_t edit_median_ns = 0, edit_worst_ns = 0;
+    uint32_t times = 0;  // reload-time samples
+    uint64_t reload_median_ns = 0, reload_worst_ns = 0;
+};
+
+struct LoopStats {
+    uint32_t reloads = 0;    // calls to reload()
+    uint32_t unchanged = 0;  // of those, the ones that found nothing changed
+    uint32_t failures = 0;   // the ones that failed to parse, or were refused
+    // The 32 files and 16 layers changed most recently, most recent first.
+    List<LoopRow> files, layers;
 };
 
 // --- Layer tooling ---
@@ -257,6 +283,14 @@ public:
     // Allocates the history ring once; 0 turns history off. Default 256.
     void set_reload_history(size_t capacity);
     [[nodiscard]] std::optional<ReloadRecord> last_reload() const noexcept;
+    // Called by the host when a frame presents: stamps visible_ns on the reloads completed
+    // since the last call, and counts their edit-to-see to now. With nothing to stamp, one
+    // branch. Does nothing under MOIRA_SHIPPING.
+    void mark_visible() noexcept {
+        if (visible_pending_) stamp_visible();
+    }
+    // Per file and per layer (above); empty under MOIRA_SHIPPING. Allocates its result.
+    [[nodiscard]] LoopStats loop_stats() const;
     // Visits the history, oldest to newest.
     template <class F>
     void each_reload(F&& fn) const {
@@ -318,13 +352,15 @@ private:
         if (Convert<T>::from(v, out)) return out;
         return Unexpected(scratch_type_error(path, detail::convert_info<T>()));
     }
+    void stamp_visible() noexcept;
     [[nodiscard]] size_t history_size() const noexcept;
     [[nodiscard]] const ReloadRecord& history_at(size_t i) const noexcept;
 
     Ref<Array> root_;
     uint64_t epoch_ = 0;
     bool frozen_ = false;
-    bool scratch_dirty_ = false;  // scratch changed since the last full merge
+    bool scratch_dirty_ = false;    // scratch changed since the last full merge
+    bool visible_pending_ = false;  // a reload waits for mark_visible
     Impl* impl_;
 };
 

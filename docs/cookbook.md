@@ -80,6 +80,10 @@ cfg.on_reload(
   read, parse, merge, bind, notify), the files reloaded, the tweaks changed, and how many
   callbacks migrated or punted. Give it `ReloadRequest{.origin_ns = saved_at}` from a file
   watcher, and the record measures edit to effect.
+- Call `cfg.mark_visible()` once a frame, when it presents: it costs one branch when
+  nothing is waiting. `cfg.loop_stats()` then gives, per file and per layer, the median and
+  worst time from a saved edit to the frame that showed it, over the last 32 edits, with
+  failed reloads counted (D92). Polling for changes does not dilute it.
 
 `examples/config` runs a reload that rebuilds the audio group and leaves the renderer alone.
 

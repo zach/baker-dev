@@ -2555,3 +2555,42 @@ personal `local` layer by the convention in spec §4.*
   6.2 MB tree take 80.78 M instructions and 1.01 M D1 misses in both builds, so the
   difference is timing noise.
 - **Size:** the core is 10,250 lines (10,116 before; the plan estimated 130 for this step).
+
+## D92. M10, step 2: loop statistics and `mark_visible`
+
+*Results of `docs/m10-plan.md` §1 (D90 Q1).*
+
+- **`ReloadRecord`** gains `layer` (the layer of the first changed file) and `visible_ns`,
+  120 to 136 bytes.
+- **`cfg.mark_visible()`** is inline: one load and a branch on a flag a reload sets when it
+  changed something. With something waiting, it reads the clock once, stamps `visible_ns`
+  on those records (if the ring still holds them), and rewrites their edit-to-see samples
+  to run to now. Up to 8 changed reloads wait between frames; more keep the sample their
+  reload's end gave them.
+- **Edit-to-see is sampled when the reload ends** (`end_ns - origin_ns`) and rewritten by
+  `mark_visible`, so a host that never calls it still gets the substrate's share, and one
+  that does gets the whole loop. A reload without an origin has a reload time but no
+  edit-to-see. This settles the plan's "else nothing".
+- **The table** (D90 Q1): 32 file rows and 16 layer rows, each with its last 32
+  edit-to-see and reload times, kept as 32-bit microseconds (saturating at about 71
+  minutes) to stay near Q1's 10 KB: 48 rows of 296 bytes, 14 KB, allocated by the first
+  reload that changes a file. A name keeps its row; a new one takes a free row or the least
+  recently fed one in its half. Only reloads that changed a file feed it, failed ones
+  included; unchanged and refused reloads count in the totals only.
+- **`cfg.loop_stats()`** (tool path, allocates its result): the totals (reloads,
+  unchanged, failures), and per row the reloads and failures since it got its row, and
+  the median (the upper middle of an even count) and worst of each window, in
+  nanoseconds. Rows are most recently changed first.
+- **Shipping:** reload is inert, so nothing feeds the table; `mark_visible()` does nothing
+  and `loop_stats()` is empty.
+- **Tests** (`tests/data/test_m10.cpp`): edit-to-see per file and per layer, to the
+  reload's end and then to `mark_visible`; no clock read when nothing waits; 100 polls
+  change nothing; median and worst over four samples; a reload without an origin; a parse
+  failure counted against its file, layer, and the total; a 33rd file taking the least
+  recent row; no allocation in `mark_visible`.
+- **Benchmarks** (`bench_cache`, two new rows, release, three alternating runs against
+  `5f0dfad` with the same benchmark file): an unchanged reload of a small file, 1,782–1,892
+  ns before and 1,448–1,811 ns after (noise; the added counting is a few increments).
+  `mark_visible` with nothing waiting, 0.25–0.32 ns a call, against 0.15 ns for the empty
+  loop before. `bench_parse` 152 and 150 MB/s.
+- **Size:** the core is 10,434 lines (10,250 before; the plan estimated 160).

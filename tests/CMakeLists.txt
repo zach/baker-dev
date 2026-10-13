@@ -15,6 +15,7 @@ add_executable(moira_data_tests
   data/test_corpus.cpp
   data/test_lookup.cpp
   data/test_m3b.cpp
+  data/test_m10.cpp
   data/test_parse.cpp
   data/test_preprocessor.cpp
   data/test_version.cpp

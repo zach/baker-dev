@@ -11,6 +11,7 @@
 #include "alloc_counter.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -168,6 +169,33 @@ int run(const char* self, size_t text_bytes) {
     std::printf("  Config layer, text:                   %7.2f ms\n", layer_text);
     std::printf("  Config layer, cache_dir, no cache:    %7.2f ms\n", layer_miss);
     std::printf("  Config layer, cache_dir, fresh cache: %7.2f ms\n", layer_hit);
+    // What a host pays each frame: a reload that finds nothing changed (a small file), and
+    // mark_visible with nothing waiting (D92). Best of 5 runs, per call.
+    {
+        const std::string small =
+            (std::filesystem::temp_directory_path() / "moira_bench_small.dta").string();
+        if (std::FILE* f = std::fopen(small.c_str(), "wb")) {
+            std::fputs("(speed 1)\n", f);
+            std::fclose(f);
+        }
+        moira::Config cfg({.tweaks = nullptr});
+        if (!cfg.push_layer("small", small)) return 1;
+        double poll = 1e9, visible = 1e9;
+        for (int rep = 0; rep < 5; ++rep) {
+            auto t0 = Clock::now();
+            for (int i = 0; i < 10000; ++i) (void)cfg.reload();
+            poll = std::min(poll, ms_since(t0) * 1e6 / 10000);
+            t0 = Clock::now();
+            for (int i = 0; i < 10000000; ++i) {
+                cfg.mark_visible();                                   // BENCH_MARK_VISIBLE
+                std::atomic_signal_fence(std::memory_order_seq_cst);  // keep the loop
+            }
+            visible = std::min(visible, ms_since(t0) * 1e6 / 10000000);
+        }
+        std::filesystem::remove(small);
+        std::printf("  Config reload, unchanged small file:  %7.0f ns\n", poll);
+        std::printf("  Config mark_visible, nothing waiting: %7.2f ns\n", visible);
+    }
     std::fflush(stdout);
     // One sample per process, so three of them: one can land on a busy moment.
     int r = 0;
