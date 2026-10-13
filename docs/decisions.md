@@ -2700,3 +2700,45 @@ personal `local` layer by the convention in spec §4.*
 - **Cost:** tool paths only; nothing on a runtime path changed.
 - **Size:** the core is 10,955 lines (10,772 before; the plan estimated 230 for the JSON
   writer and the reference's sections).
+
+## D96. M10 results
+
+*M10 (spec §10): harness instrumentation: loop statistics, the edit journal, pack harness
+metadata, `origin` provenance, the repetition report, owner findings, and machine-readable
+check output.*
+
+- **1. `loop_stats()` reports the rolling median and worst edit-to-see per file and per
+  layer, and counts a failed reload: met** (D92). Edit-to-see runs from the saved edit to
+  the frame that shows it (`mark_visible`), or to the reload's end until then; a parse
+  failure counts against its file, its layer, and the total; polling does not push edits
+  out. The harness now measures it end to end: its Config's clock is the file system's, so
+  a file's write time is the origin, and it calls `mark_visible()` after each swap.
+- **2. `unsaved()` lists a tweaked-but-not-written-back value: met** (M3b, and D93's
+  test). The edit journal around it records every live edit, its old and new values, the
+  old value's source, and whether it was written, reverted, or superseded.
+- **3. `source()` names a value's `origin` tool: met** (D91), for a value from an
+  included generated file, and in `layer_effect` and `diff` too.
+- **4. A subtree repeated in three files appears in the repetition report with all three
+  locations: met** (D94).
+- **5. A one-owner pack is reported: met** (D94), once per report, as a finding.
+- **6. Check JSON output is schema-versioned and stable across runs: met** (D95):
+  `moira.check/1`, documented in `docs/check-json.md`, and compared byte for byte across
+  two runs and against a checked-in file.
+- **7. All instrumentation adds no allocations on the hot path and compiles out under
+  `MOIRA_SHIPPING`: met.** Tweak reads and lookup are untouched (the codegen test still
+  finds one load). `mark_visible()` is one branch and allocates nothing, and a fast-path
+  `set` with the journal on allocates nothing, both tested; under `MOIRA_SHIPPING` the
+  statistics and journal are empty and `mark_visible()` does nothing, tested in the
+  shipping build. The tools (`check`, `find_repeats`, JSON, the reference) stay in every
+  build (D90 Q5) and cost nothing unless called. One cost is recorded rather than hidden:
+  the journal's time stamp makes a fast-path `set` 51–65 ns against 18–24 (D93).
+- **8. The core stays within the 15,000-line budget: met.** 10,955 lines (10,116 before
+  M10; the plan estimated about 11,000), so the repetition report did not need to move into
+  a tool. `moira::shape` is 400 of 600, unchanged.
+- **Deviations and settlements:** `origin` only as a file's leading declaration (D91);
+  `check` takes a span of trees and `CheckOptions` (D94); `restore` reverts journal
+  entries (D93); the repetition report in moira::data (D90 Q3).
+- **The harness** (step 6): its Loop panel shows `loop_stats()` per layer and per file
+  above the reload bars, and a Journal panel lists the session's edits with their fates;
+  the headless test checks both.
+- `docs/m10-plan.md` is deleted; its answers are D90. Every milestone of spec §10 is done.

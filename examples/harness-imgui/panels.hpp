@@ -54,8 +54,14 @@ struct ConsoleState {
 };
 void console_panel(moira::Context& ctx, ConsoleState& state);
 
-// --- Loop (D42): the recent reloads, each a bar of its six timed stages. ---
+// --- Loop (D42, D92): edit-to-see and reload times per file and per layer (loop_stats),
+// then the recent reloads, each a bar of its six timed stages. ---
 void loop_panel(const moira::Config& cfg);
+
+// --- Journal (D93): the session's live edits, newest first, and what became of each. ---
+// One entry as the panel shows it: "box/width  2 -> 3  (default.dta:3)  written default.dta:3".
+std::string journal_line(const moira::JournalEntry& e);
+void journal_panel(const moira::Config& cfg);
 
 // --- Layers (D42): the stack, enable toggles, each layer's effect, promotion. ---
 struct LayersState {

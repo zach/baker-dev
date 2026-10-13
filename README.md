@@ -138,6 +138,11 @@ save, see it.
 - **A tuning harness.** Dear ImGui panels generated from the tweaks and shapes, an `eval`
   console, provenance on hover, write-back, and reload telemetry.
   [`examples/harness-imgui`](examples/harness-imgui).
+- **Harness instrumentation.** Edit-to-see time per file and per layer (`loop_stats`), a
+  journal of every live edit and whether it was kept, pack owners and stages, `origin` for
+  generated files, a repetition report, and `check` output as versioned JSON.
+  [Cookbook](docs/cookbook.md#reload-callbacks-migrate-or-punt),
+  [language guide](docs/language.md#checking-before-running).
 
 Public headers include no standard containers or strings (an engine that bans the STL can
 use them); text comes out through a `TextSink`. `<moira/std_interop.hpp>` and

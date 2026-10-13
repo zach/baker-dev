@@ -22,6 +22,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <string>
 
 static moira::Tweak<float> kRadius{"scene.ball.radius", 24.0f};
@@ -34,6 +35,23 @@ namespace {
 struct Ball {
     float x = 60, y = 40, vx = 220, vy = 0;
 };
+
+// The file system's clock, as the Config's time source: then a file's last write time is
+// when its edit was saved, in the same domain, and edit-to-see is measured end to end.
+// Offset so that every time is positive (file clocks may count from before 1970).
+uint64_t file_clock_ns(std::filesystem::file_time_type t) {
+    const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t.time_since_epoch());
+    return static_cast<uint64_t>(ns.count()) + (uint64_t{1} << 62);
+}
+
+// The latest write among the data files: the origin of whatever the next reload finds.
+uint64_t newest_write(const std::string& dir) {
+    uint64_t newest = 0;
+    std::error_code ec;
+    for (const auto& f : std::filesystem::recursive_directory_iterator(dir, ec))
+        if (f.is_regular_file(ec)) newest = std::max(newest, file_clock_ns(f.last_write_time(ec)));
+    return newest;
+}
 
 std::string user_name() {
     for (const char* var : {"MOIRA_USER", "USER", "USERNAME"})
@@ -82,6 +100,8 @@ int main(int argc, char** argv) {
     cfg.set_warning_handler(
         [&](const moira::Error& e) { console.log.push_back(std::string(moira::to_string(e))); });
     cfg.set_validator(moira::shape::validator());
+    cfg.set_time_source(
+        [](void*) { return file_clock_ns(std::filesystem::file_time_type::clock::now()); });
     if (auto r = cfg.push_layer("default", dir + "/default.dta"); !r) {
         std::fprintf(stderr, "%s\n", moira::to_string(r.error()).data());
         return 1;
@@ -127,7 +147,7 @@ int main(int argc, char** argv) {
         if (const auto now = std::chrono::steady_clock::now();
             now - last_reload > std::chrono::milliseconds(250)) {
             last_reload = now;
-            if (auto r = cfg.reload({.trigger = "watcher"}); !r)
+            if (auto r = cfg.reload({.trigger = "watcher", .origin_ns = newest_write(dir)}); !r)
                 console.log.push_back(std::string(moira::to_string(r.error())));
         }
         ImGui_ImplOpenGL3_NewFrame();
@@ -142,6 +162,8 @@ int main(int argc, char** argv) {
         harness::console_panel(ctx, console);
         place(480, 380, 440, 300);
         harness::loop_panel(cfg);
+        place(930, 770, 460, 120);
+        harness::journal_panel(cfg);
         place(930, 380, 460, 380);
         harness::layers_panel(cfg, layers);
         place(480, 690, 440, 110);
@@ -154,6 +176,7 @@ int main(int argc, char** argv) {
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         glfwSwapBuffers(window);
+        cfg.mark_visible();  // this frame shows whatever the last reload changed (D92)
     }
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();

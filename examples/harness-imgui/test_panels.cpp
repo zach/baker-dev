@@ -73,6 +73,7 @@ struct Harness {
         harness::shapes_panel(cfg, shapes);
         harness::console_panel(ctx, console);
         harness::loop_panel(cfg);
+        harness::journal_panel(cfg);
         harness::layers_panel(cfg, layers);
         harness::snapshots_panel(cfg, snapshots);
         ImGui::Render();
@@ -159,6 +160,24 @@ TEST_CASE("the panels draw, and their requests do what their buttons say") {
         REQUIRE(!h.layers.report.empty());
         CHECK(h.layers.report[0] == "promoted local into default");
         CHECK(read(h.dir / "default.dta").find("(radius 30 (range 4 80)") != std::string::npos);
+
+        // Journal: every edit above, with its fate.
+        std::vector<std::string> lines;
+        h.cfg.journal(
+            [&](const moira::JournalEntry& e) { lines.push_back(harness::journal_line(e)); });
+        REQUIRE(lines.size() >= 4);
+        CHECK(lines[0] == "ball/radius  24 -> 30  (default.dta:3)  written tester.dta:1");
+        CHECK(lines[1] == "ball/bounce  0.8 -> 0.75  (default.dta:5)  written default.dta:5");
+
+        // Loop statistics: a reload with an origin, then a frame that shows it.
+        std::ofstream(h.dir / "default.dta", std::ios::binary | std::ios::app) << "(extra 1)\n";
+        REQUIRE(h.cfg.reload({.origin_ns = 1}));
+        h.cfg.mark_visible();
+        const moira::LoopStats stats = h.cfg.loop_stats();
+        REQUIRE(stats.files.size() == 1);
+        CHECK(stats.files[0].edits == 1);
+        CHECK(stats.layers[0].name == moira::Symbol("default"));
+        h.frame();
 
         // Loop: every change above was recorded, and the panel draws them.
         size_t records = 0;

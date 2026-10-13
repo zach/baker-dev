@@ -1,6 +1,6 @@
 # Moira under the data-oriented lens: known gaps
 
-**Status, 2026-10-12, after M9 (`a815ed8`).** First audited 2026-10-11 at M6 step 1
+**Status, 2026-10-13, after M10.** First audited 2026-10-11 at M6 step 1
 (`23f4142`); the audit's reasoning for each closed gap is in its D-entries. Sizes are GCC
 13 on x86-64. Each gap names its path class (SKILL.md, review step 1). When one is fixed,
 or accepted as a deviation, record it in `docs/decisions.md` and update this file.
@@ -16,9 +16,9 @@ or accepted as a deviation, record it in `docs/decisions.md` and update this fil
 | 7, coroutine frames | per-Scheduler pool with a frame budget (D58, D68) | **done** |
 | 8, exceptions | throwing forms removed entirely (D54) | **done** (D59) |
 | 9, `Error` size | `Error` becomes a handle (D55) | **done** (D60) |
-| 10, tooling in the core | stays in every build, off the hot structures; M10 adds to it (D90 Q3, Q5) | **open** |
+| 10, tooling in the core | stays in every build, off the hot structures; M10 added to it (D90 Q3, Q5, D94, D95) | **open** |
 | 11, the STL in public headers | header-only vocabulary types only (D60); `MOIRA_USE_EASTL` inside (D62) | **done** |
-| 12, the reload history under polling | loop statistics keep their own samples (D90 Q1) | **M10** |
+| 12, the reload history under polling | loop statistics keep their own samples (D90 Q1, D92) | **done** |
 
 ## Already aligned (keep it that way)
 
@@ -62,6 +62,9 @@ One line each; the D-entries hold the measurements.
 11. **The STL in public headers.** Public headers reach only D55's allowed standard
    headers, checked by `tools/check_headers.py`; `std_interop.hpp` and `std_script.hpp`
    are opt-in (D60, D62).
+12. **The reload history under polling (load, tool).** A host polling four times a second
+   filled M3b's 256-record ring with unchanged checks in a minute; loop statistics keep
+   their own 14 KB table, fed only by reloads that changed a file (D90 Q1, D92).
 
 ## Open gaps
 
@@ -85,12 +88,6 @@ One line each; the D-entries hold the measurements.
    reference, and `check` share libraries with the runtime, in every build. That is
    accepted while they cost nothing unless called and add no field to a hot structure;
    what keeps runtime state (reload telemetry, call statistics) compiles out under
-   `MOIRA_SHIPPING`. M10 adds the repetition report (moira::data) and JSON output
+   `MOIRA_SHIPPING`. M10 added the repetition report (moira::data) and JSON output
    (moira::script), which stay in shipping builds and cost nothing unless called (D90 Q3,
-   Q5). Flag it if a hot struct ever gains a field only tools use.
-12. **The reload history under polling (load, tool).** M3b keeps the last 256 reload
-   records in a ring. A host that checks for changed files four times a second (M9's
-   harness) fills it with `Unchanged` records in about a minute, so anything computed from
-   the ring sees a minute of edits: "where there is one, there are many", on the time
-   axis. M10's loop statistics keep their own fixed sample table, fed only by reloads that
-   changed something (D90 Q1).
+   Q5, D94, D95). Flag it if a hot struct ever gains a field only tools use.

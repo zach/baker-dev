@@ -376,6 +376,49 @@ void loop_panel(const moira::Config& cfg) {
                 IM_COL32(120, 120, 200, 255), IM_COL32(90, 170, 220, 255),
                 IM_COL32(90, 200, 140, 255),  IM_COL32(220, 200, 90, 255),
                 IM_COL32(230, 140, 80, 255),  IM_COL32(210, 90, 120, 255)};
+            // Per file and per layer: edit-to-see (from a saved edit to the frame showing it)
+            // and reload time, median and worst of the last 32 (D92).
+            const moira::LoopStats stats = cfg.loop_stats();
+            ImGui::Text("%u reloads, %u unchanged, %u failed", stats.reloads, stats.unchanged,
+                        stats.failures);
+            auto ms = [](uint64_t ns) { return double(ns) / 1e6; };
+            if (ImGui::BeginTable("loop", 6,
+                                  ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
+                for (const char* h :
+                     {"file or layer", "reloads", "failed", "edit to see", "reload", ""})
+                    ImGui::TableSetupColumn(h);
+                ImGui::TableHeadersRow();
+                auto rows = [&](const moira::List<moira::LoopRow>& list, bool files) {
+                    for (const moira::LoopRow& r : list) {
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn();
+                        const std::string name =
+                            files ? file_name(r.name) : std::string(r.name.str());
+                        ImGui::TextUnformatted(name.c_str());
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%u", r.reloads);
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%u", r.failures);
+                        ImGui::TableNextColumn();
+                        if (r.edits)
+                            ImGui::Text("%.1f / %.1f ms", ms(r.edit_median_ns),
+                                        ms(r.edit_worst_ns));
+                        else
+                            ImGui::TextDisabled("-");
+                        ImGui::TableNextColumn();
+                        if (r.times)
+                            ImGui::Text("%.2f / %.2f ms", ms(r.reload_median_ns),
+                                        ms(r.reload_worst_ns));
+                        ImGui::TableNextColumn();
+                        ImGui::TextDisabled(files ? "file" : "layer");
+                    }
+                };
+                rows(stats.layers, false);
+                rows(stats.files, true);
+                ImGui::EndTable();
+            }
+            ImGui::TextDisabled("median / worst of the last 32 edits");
+            ImGui::Separator();
             ImGui::TextDisabled("scan read parse merge bind notify; newest first");
             // A host that polls for changes makes a record per check; show the changes.
             std::vector<const moira::ReloadRecord*> records;
@@ -426,6 +469,60 @@ void loop_panel(const moira::Config& cfg) {
                     ImGui::SetTooltip("%s", tip.c_str());
                 }
             }
+        }
+    }
+    ImGui::End();
+}
+
+// --- Journal ---
+
+namespace {
+std::string values_text(const moira::Node* nodes, uint32_t count) {
+    if (count == 0) return "(none)";
+    std::string s;
+    for (uint32_t i = 0; i < std::min<uint32_t>(count, 4); ++i)
+        s += (i ? " " : "") + moira::to_string(nodes[i]);
+    if (count > 4) s += " ...";
+    return s;
+}
+}  // namespace
+
+std::string journal_line(const moira::JournalEntry& e) {
+    std::string s = std::string(e.path.str()) + "  " + values_text(e.before, e.before_count) +
+                    " -> " + values_text(e.after, e.after_count) + "  (";
+    s += e.source.file.empty() ? std::string(e.source.layer.str())
+                               : file_name(e.source.file) + ":" + std::to_string(e.source.line);
+    s += ")  ";
+    switch (e.fate) {
+        case moira::EditFate::Unsaved: s += "unsaved"; break;
+        case moira::EditFate::Superseded: s += "superseded"; break;
+        case moira::EditFate::Reverted: s += "reverted"; break;
+        case moira::EditFate::Written:
+            s += "written " + file_name(e.written.file) + ":" + std::to_string(e.written.line);
+            break;
+    }
+    return s;
+}
+
+void journal_panel(const moira::Config& cfg) {
+    if (ImGui::Begin("Journal")) {
+        std::vector<const moira::JournalEntry*> entries;
+        cfg.journal([&](const moira::JournalEntry& e) { entries.push_back(&e); });
+        size_t unsaved = 0, written = 0;
+        for (const auto* e : entries) {
+            unsaved += e->fate == moira::EditFate::Unsaved;
+            written += e->fate == moira::EditFate::Written;
+        }
+        // Discoveries kept against discoveries at risk: what write-back is for.
+        ImGui::Text("%zu edits: %zu written, %zu unsaved", entries.size(), written, unsaved);
+        ImGui::Separator();
+        for (auto it = entries.rbegin(); it != entries.rend(); ++it) {
+            const moira::JournalEntry& e = **it;
+            const std::string line = journal_line(e);
+            const ImVec4 color = e.fate == moira::EditFate::Unsaved   ? ImVec4(1, 0.8f, 0.3f, 1)
+                                 : e.fate == moira::EditFate::Written ? ImVec4(0.5f, 0.9f, 0.5f, 1)
+                                                                      : ImVec4(0.6f, 0.6f, 0.6f, 1);
+            ImGui::TextColored(color, "%s", line.c_str());
         }
     }
     ImGui::End();
