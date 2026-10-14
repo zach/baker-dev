@@ -3762,3 +3762,34 @@ recommended. D64 stands: arrays built after a load are solo blocks.*
   - a layer that sets a whole section shares it;
   - a merge allocates the same for 200 sections as for 20;
   - wide arrays at two depths at once merge as one key at a time does.
+
+## D128. Source maps are flat, and a Config's are its own
+
+*The review's largest finding after merge (`docs/allocation-review.md`), the owner's
+choice.*
+
+- **The cost.** Edit mode, the default outside shipping, records for every array where it
+  and each node are written. Each array cost two allocations on the default allocator: a
+  hash-map node, and a vector of its spans. A 36 KB layer made about 5,000. The Config keeps
+  one map per layer, which made it the largest thing a Config held off its own allocator.
+- **Now.**
+  - Every array's spans lie in one run. An entry (the array kept alive, its extent, and
+    where its spans are in the run) is found through an open-addressed index by address.
+  - Recording an array allocates nothing of its own. When a file's text is recorded, the
+    run, the entries and the index are reserved for it at config's density: a node every
+    4 to 5 bytes and an array every 14. A denser file costs one doubling, not a regrowth
+    per array.
+  - Recording an array again (a `#merge` rebuild) replaces its entry.
+  - `SourceMap(const Allocator&)` is new. The Config passes its allocator for the maps it
+    makes, which D61 wanted: records an owner keeps come from its allocator. A host's map
+    stays on the default allocator.
+- **Measured** (an edit-mode read of a 36,306-byte layer, release, pinned, three
+  alternating runs against `e11054b`):
+  - default-allocator allocations: 5,084 before, 49 after;
+  - bytes live with the tree: 896,795 before, 892,915 after;
+  - time: 536–572 µs before, 422–437 µs after.
+
+  In `baker_alloc_tests`' Config scenario, the default allocator's count went from 172 to
+  136 and the Config's from 38 to 62. `reloads free the trees they replace` now takes its
+  steady reading at version 10: the map's copy of the text is the Config's now, and
+  versions 2 to 9 are a character shorter.

@@ -211,7 +211,7 @@ TEST_CASE("reloads free the trees they replace") {
         for (int i = 1; i <= 50; ++i) {
             g_version = i;
             ok = ok && config.reload().value_or(false);
-            if (i == 2) steady = mine.live_bytes;
+            if (i == 10) steady = mine.live_bytes;  // from here the text keeps its length
         }
         ok = ok && config.get<int>(baker::Path("speed")).value_or(0) == 50;
         CHECK(mine.live_bytes == steady);  // each reload's arena replaced the last

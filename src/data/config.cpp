@@ -160,7 +160,7 @@ Expected<void> Config::Impl::read(LayerState& layer, const LoadSession& before,
         if (ok) out(text);
         return ok;
     });
-    auto map = options.edit_mode ? Rc<SourceMap>::make(alloc) : nullptr;
+    auto map = options.edit_mode ? Rc<SourceMap>::make(alloc, alloc) : nullptr;
     session->source_map = map.get();
     auto root = cache.empty() ? read_file(layer.path, *session)
                               : read_through_cache(layer.path, cache, *session);

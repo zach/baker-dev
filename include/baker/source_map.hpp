@@ -34,6 +34,8 @@ struct SourceSpan {
 class SourceMap {
 public:
     SourceMap();
+    // Its tables from `alloc`, which must outlive it (a Config passes its own, D128).
+    explicit SourceMap(const Allocator& alloc);
     SourceMap(const SourceMap&) = delete;
     SourceMap& operator=(const SourceMap&) = delete;
     ~SourceMap();
