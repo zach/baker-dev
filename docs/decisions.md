@@ -3173,3 +3173,50 @@ D108.*
 - **Seen in the stacks.** `stacks_duel check` lists `duel_core`; `stacks_ledger reference`
   has the Packs and Origins sections (`economy.xlsx`, `sheets-export`); a task pack an agent
   writes with one owner is a finding in `check`.
+
+## D111. Jolt in the base; Contraption and Stuntline
+
+*`docs/background/game-stacks.md` §6, step 3, and §4.1, §4.5. Outside Moira: nothing in
+`src/` changed. Each stack's README is its design note.*
+
+- **Jolt Physics 5.5.0**, fetched at a pinned release, built with
+  `JPH_CROSS_PLATFORM_DETERMINISTIC` (the owner's choice over a physics of our own).
+  Jolt sets its floating-point flags only when it overrides the project's, which we do not
+  let it do, so `stacks_deterministic` turns contraction off (`-ffp-contract=off`,
+  `/fp:precise`) for Jolt and for each game's simulation code. Jolt also turns on AVX2,
+  which the minimum-spec CPU has. `base::Physics` is one world: the static and moving layers,
+  single-threaded stepping, and `hash()` over every body's state as bits.
+- **Determinism, proven across compilers and platforms.** Tests pin three replay hashes
+  computed with GCC on Linux: a toppling stack, Contraption's `drop` level, and a Stuntline
+  race over a jump. GCC Debug, GCC Release, and Clang Release reproduce them locally, and CI's
+  MSVC job reproduces them on Windows: the runner and the game agree bit for bit (§3.1, §7),
+  the claim the design said had to be proven per stack.
+- **Contraption** (`stacks/contraption/`): side-on puzzles (moving bodies locked to x-y,
+  the owner's choice), pieces placed with the mouse and snapped, kinds and levels and goals
+  as data. The analyses: the intended solution solves; it still solves in at least 80% of
+  tries moved ±5 mm and turned ±2°; a random search over the tray finds no solution with
+  fewer pieces. The three levels were laid out by the same searches, headless: `first_drop`
+  has 4 solving plank placements in about 800; `high_shelf` needs two planks (3,000
+  one-plank tries over seeds 1–30 found no cheese); `catapult` throws the ball with a seesaw.
+  An attempt ends once everything is at rest, which took one from 65 ms to 3 ms.
+- **Stuntline** (`stacks/stuntline/`): tracks laid end to end from a kit (straights, ramps,
+  gaps, turns as chords), connectors checked, a racing line sampled every metre with each
+  corner's speed; the car is Jolt's wheeled vehicle as its own sample sets it up; AI
+  drivers at three skills; crashes respawn at the last flat piece; airtime, crash pieces, jump
+  arrival speeds. Jumps are judged ballistically: cleared at the pro's speed, not at 70%.
+- **What the objectives found, first run.** Stuntline: the canyon jump's 12 m gap left the
+  rookie crashing at the landing forever (`skill_spread` 7.1), and the switchback's 12 m gap
+  cleared even at 70% of the pro's speed (`jumps_need_commitment` 0). The gaps are 8 m and
+  18 m now. Banked turns launched the car where the bank flipped between boxes; turns are
+  flat until the road is a mesh. The car first spawned with its rear wheels off the road.
+- **The base**: `Renderer` draws spheres and quaternion orientations; and its ImGui font
+  texture was created with data, which bgfx makes immutable, so glyphs ImGui added later never
+  appeared ("so ething heav" for "something heavy"): it is created empty, then filled.
+- **Results** (Release, seeds 1–30). Contraption: 120 of 120 runs pass. Stuntline: 87 of
+  90; the three left are rookie crashes at the canyon landing (`skill_spread` up to 3.2), at
+  the band's edge.
+- **Measured** (Release, the development container, a 4-core Xeon at 2.8 GHz). Contraption's
+  120 runs (90 level judgements, each 30 robustness tries and up to 201 cheese tries, and 30
+  played replays) in 11.0–11.3 s; an attempt about 3 ms. Stuntline's 90 runs (each track
+  raced by three drivers, and 30 played races) in 2.1–2.3 s; a 10 s race about 8 ms.
+- **CI** packages Contraption and Stuntline for Windows beside the others.

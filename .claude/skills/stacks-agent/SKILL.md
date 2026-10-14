@@ -64,6 +64,14 @@ and seed give the same result, so a failing seed is a reproduction.
   row). `$G eval "{econ.compete}" "{econ.advance_days 720}" "{econ.report}"` shows every
   strategy's company after an hour.
 
+- **Contraption** (`stacks/contraption/`): kinds and levels in `data/default.dta`. A level's
+  intended solution, robustness, and a cheese search are objectives; after a change, quote
+  `$G eval "{puzzle.load LEVEL}" "{puzzle.fewest_pieces 300}" "{puzzle.cheese_route}"`. A
+  found cheese is a placement you can paste into a scenario for a person to watch.
+- **Stuntline** (`stacks/stuntline/`): the car, the kit, tracks, drivers. Read
+  `$G eval "{track.load TRACK}" "{track.report}"` before and after: times, crashes by piece
+  (1-based), airtime, jump speeds. A track change re-lays the whole track.
+
 ## Rules
 
 - An objective is a claim a person signed off on. If one seems wrong, say so in your report

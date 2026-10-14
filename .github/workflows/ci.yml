@@ -85,7 +85,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        game: [cube, duel, ledger]
+        game: [cube, duel, ledger, contraption, stuntline]
     steps:
       - uses: actions/checkout@v4
       - uses: ilammy/msvc-dev-cmd@v1
