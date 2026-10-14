@@ -1,5 +1,6 @@
 #include "race.hpp"
 
+#include <Jolt/Math/Trigonometry.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/OffsetCenterOfMassShape.h>
@@ -15,6 +16,9 @@
 namespace stuntline {
 namespace {
 
+// Every function of a float that feeds the simulation is Jolt's (JPH::Sin, Cos, Tan, ATan2):
+// the C library's are not the same bits on every platform, and a race must replay on any.
+// sqrt is IEEE's, correctly rounded everywhere.
 constexpr float kRadians = 0.017453292f;
 constexpr float kGravity = 9.81f;
 constexpr float kThickness = 0.25f;  // half the road's thickness
@@ -60,7 +64,7 @@ void store(const JPH::Quat& q, float out[4]) {
 
 // The fastest a car takes a banked curve of radius r with friction mu.
 float corner_speed(float r, float bank_radians, float mu) {
-    const float t = std::tan(bank_radians);
+    const float t = JPH::Tan(bank_radians);
     const float denominator = std::max(0.05f, 1 - mu * t);
     return std::sqrt(kGravity * r * (mu + t) / denominator);
 }
@@ -178,10 +182,10 @@ Layout lay_out(const Kit& kit, const Track& track) {
     // A straight stretch of road from the cursor: length along the heading, rising `rise`.
     auto stretch = [&](float length, float rise, float roll, float width, int piece, bool road,
                        float limit) {
-        const float pitch = std::atan2(rise, length);
-        const float slope = std::hypot(length, rise);
+        const float pitch = JPH::ATan2(rise, length);
+        const float slope = std::sqrt(length * length + rise * rise);
         const JPH::Quat q = orient(yaw, pitch, roll);
-        const float dx = std::sin(yaw), dz = std::cos(yaw);
+        const float dx = JPH::Sin(yaw), dz = JPH::Cos(yaw);
         if (road) {
             const JPH::Vec3 n = q * JPH::Vec3::sAxisY();
             Segment seg{};
@@ -226,7 +230,7 @@ Layout lay_out(const Kit& kit, const Track& track) {
                 const float total = p.angle * kRadians;
                 const int n = std::max(1, int(std::ceil(std::fabs(p.angle) / 6)));
                 const float step = total / float(n);
-                const float chord = 2 * p.radius * std::sin(std::fabs(step) / 2);
+                const float chord = 2 * p.radius * JPH::Sin(std::fabs(step) / 2);
                 const float bank = p.bank * kRadians;
                 const float limit = corner_speed(p.radius, bank, kit.car.grip);
                 for (int k = 0; k < n; ++k) {
@@ -459,7 +463,7 @@ Controls drive(const Driver& d, const Kit& kit, const Race& race, uint64_t& rng)
     while (target < n - 1 && l.line[size_t(target)].s < race.progress() + d.look_ahead) ++target;
     const Sample& t = l.line[size_t(target)];
     const JPH::Vec3 to(t.pos[0] - pos[0], 0, t.pos[2] - pos[2]);
-    const float angle = std::atan2(to.Dot(left), to.Dot(forward));
+    const float angle = JPH::ATan2(to.Dot(left), to.Dot(forward));
     const float max_steer = kit.car.max_steer * kRadians;
     c.right = std::clamp(-angle / max_steer + d.noise * uniform(rng), -1.0f, 1.0f);
 
@@ -510,10 +514,10 @@ std::vector<float> gap_margins(const Kit& kit, const Track& track,
         float launch = 0;
         if (i > 0) {
             const PieceDef& lip = kit.pieces[size_t(track.lay[i - 1])];
-            if (lip.kind == Kind::Ramp) launch = std::atan2(lip.rise, lip.length);
+            if (lip.kind == Kind::Ramp) launch = JPH::ATan2(lip.rise, lip.length);
         }
         // Back down to the lip's height: v^2 sin(2 theta) / g.
-        const float flight = v * v * std::sin(2 * launch) / kGravity;
+        const float flight = v * v * JPH::Sin(2 * launch) / kGravity;
         out.push_back(flight / p.length);
     }
     return out;

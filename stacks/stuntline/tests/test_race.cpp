@@ -64,7 +64,7 @@ TEST_CASE("stuntline: the pro jumps the gap and finishes; a race replays bit for
     // Computed on Linux with GCC; the MSVC job checks it on Windows (§4.5: ghosts must match
     // between the runner and the game).
     MESSAGE("hop race hash: ", a.hash);
-    CHECK(a.hash == 9438245912394568539ull);
+    CHECK(a.hash == 8767161480715014559ull);
 }
 
 TEST_CASE("stuntline: a gap's margin is ballistic flight over its length") {

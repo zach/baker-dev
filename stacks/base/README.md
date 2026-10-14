@@ -58,7 +58,9 @@ int main(int argc, char** argv) {
   with `JPH_CROSS_PLATFORM_DETERMINISTIC`, and `stacks_deterministic` turns off
   floating-point contraction for it and for each game's simulation code, so a run replays
   bit for bit across compilers; tests pin replay hashes computed on Linux, which the MSVC
-  job checks on Windows. Jolt also turns on AVX2, which the minimum-spec CPU has.
+  job checks on Windows. A game's own simulation code must use Jolt's trigonometry
+  (`JPH::Sin`, `Cos`, `Tan`, `ATan2`), not the C library's, which differs between platforms.
+  Jolt also turns on AVX2, which the minimum-spec CPU has.
 - **`Renderer::box`** draws boxes and spheres (`Box::sphere`), oriented by Euler angles or
   a physics body's quaternion (`Box::quat`).
 

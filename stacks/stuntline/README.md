@@ -36,7 +36,9 @@ driver's run over the track.
   grip. A piece's `in` must match the `out` before it, or the track is not valid.
 - **The car is Jolt's wheeled vehicle**, set up as Jolt's own vehicle sample is, with its
   numbers in `(car ...)`. A race is one Jolt world, the road then the car, stepped at 60 Hz,
-  and replays bit for bit (a test pins the hash).
+  and replays bit for bit (a test pins the hash, and CI's MSVC job checks it). Every
+  function of a float the simulation uses is Jolt's (`JPH::Sin`, `Cos`, `ATan2`, `Tan`):
+  the C library's differ between platforms, which the MSVC job caught.
 - **Crashes**: below the road by five metres, on its back for a second, or stuck for four.
   The car is put back, still, five metres into the last flat piece, so a jump gets its
   run-up again. Airtime is time with no wheel touching.
@@ -61,8 +63,8 @@ driver's run over the track.
 
 The first canyon jump (a 12 m gap) left the rookie crashing at the landing forever, and the
 switchback's 12 m gap cleared even at 70% of the pro's speed: both failed their objectives on
-the first run. The canyon's gap is 8 m now, and the switchback's 18 m; over seeds 1–30, 87 of
-90 runs pass, the three left being rookie crashes at the canyon landing (`skill_spread`).
+the first run. The canyon's gap is 8 m now, and the switchback's 18 m; over seeds 1–30, 88 of
+90 runs pass, the two left being rookie crashes at the canyon landing (`skill_spread`).
 
 ## Measured
 
