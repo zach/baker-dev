@@ -21,6 +21,10 @@ public:
     // Binds the game's script functions and objects, before the data loads, so check
     // knows them.
     virtual void bind(moira::Context& ctx) { (void)ctx; }
+    // Drops what the game keeps in the Context (objects, schedulers, tasks), before the
+    // Context goes: after play ends and after each agent command. The game may be bound to
+    // another Context afterwards.
+    virtual void unbind(moira::Context& ctx) { (void)ctx; }
     // Reads what the game keeps from the data: after the load and after every change to the
     // layer stack (a reload, a toggle), once the layers' #autorun commands have run. Tweaks
     // are bound already; this is for structured data (a roster, an economy) the game copies

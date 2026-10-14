@@ -97,3 +97,22 @@ function(stacks_deterministic target)
   endif()
 endfunction()
 stacks_deterministic(Jolt)
+
+# Recast/Detour (zlib): navigation meshes and path queries, for the stacks whose characters
+# walk (Hearth, Wayfarer; game-stacks.md §2.1). Only the two libraries: no demo, no tests.
+set(RECASTNAVIGATION_DEMO OFF CACHE BOOL "" FORCE)
+set(RECASTNAVIGATION_TESTS OFF CACHE BOOL "" FORCE)
+set(RECASTNAVIGATION_EXAMPLES OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(recastnavigation
+  GIT_REPOSITORY https://github.com/recastnavigation/recastnavigation.git
+  GIT_TAG        v1.6.0
+  GIT_SHALLOW    TRUE
+  SYSTEM)
+FetchContent_MakeAvailable(recastnavigation)
+foreach(t Recast Detour DetourCrowd DetourTileCache DebugUtils)
+  if(TARGET ${t})
+    set_target_properties(${t} PROPERTIES COMPILE_WARNING_AS_ERROR OFF)
+    target_compile_options(${t} PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/w,-w>)
+    stacks_deterministic(${t})
+  endif()
+endforeach()

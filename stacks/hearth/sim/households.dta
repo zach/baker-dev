@@ -1,0 +1,14 @@
+; Hearth's scenarios (game-stacks.md §4.3). The soak runs 50 households, the data's in turn,
+; for 30 game days each, on worker threads; $seed seeds every household, so more seeds soak
+; more. The played day runs one household on the game's own steps.
+(scenario soak
+   (desc "50 households for 30 days: no failures, things used, routines readable")
+   (seconds 0.02)
+   (start {hearth.soak 50 30})
+   (objectives hearth.not_stuck hearth.not_oscillating hearth.not_starving hearth.scripts_run
+               hearth.things_used hearth.routines_readable))
+(scenario cottage_day
+   (desc "The cottage, played for a game day on the game's own steps at 60x")
+   (seconds 1440)
+   (start {hearth.spawn cottage} {hearth.speed 60})
+   (objectives hearth.played_clean hearth.played_decides))

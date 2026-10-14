@@ -145,6 +145,11 @@ int run(Game& game, const AppOptions& options) {
 
     // The data, before any window: a broken file fails fast, with its file and line.
     game.bind(app.ctx_);
+    struct Unbind {
+        Game& game;
+        moira::Context& ctx;
+        ~Unbind() { game.unbind(ctx); }
+    } unbind{game, app.ctx_};
     const bool loaded =
         app.live_.open({.data_dir = options.data_dir,
                         .changed = [&game](const moira::Config& c) { game.load(c); }});

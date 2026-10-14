@@ -16,6 +16,13 @@ target_link_libraries(stacks_physics PUBLIC Jolt)
 stacks_target(stacks_physics)
 stacks_deterministic(stacks_physics)
 
+# Recast/Detour (game-stacks.md §2.1): navigation meshes and paths, for the stacks that walk.
+add_library(stacks_nav STATIC src/nav.cpp)
+target_include_directories(stacks_nav PUBLIC include)
+target_link_libraries(stacks_nav PRIVATE Recast Detour)
+stacks_target(stacks_nav)
+stacks_deterministic(stacks_nav)
+
 # Moira's reference panels and its remote console, from its examples, as they are.
 add_library(stacks_moira_tools STATIC
   ${MOIRA_ROOT}/examples/harness-imgui/panels.cpp
@@ -37,8 +44,10 @@ stacks_target(stacks_app)
 
 if(STACKS_BUILD_TESTS)
   add_executable(stacks_base_tests tests/test_fixed_step.cpp tests/test_watcher.cpp
-                 tests/test_live.cpp tests/test_sim.cpp tests/test_physics.cpp)
-  target_link_libraries(stacks_base_tests PRIVATE stacks_core stacks_physics stacks_doctest_main)
+                 tests/test_live.cpp tests/test_sim.cpp tests/test_physics.cpp
+                 tests/test_nav.cpp)
+  target_link_libraries(stacks_base_tests PRIVATE stacks_core stacks_physics stacks_nav
+                        stacks_doctest_main)
   stacks_target(stacks_base_tests)
   add_test(NAME stacks_base_tests COMMAND stacks_base_tests)
 endif()
