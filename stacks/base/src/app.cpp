@@ -145,7 +145,9 @@ int run(Game& game, const AppOptions& options) {
 
     // The data, before any window: a broken file fails fast, with its file and line.
     game.bind(app.ctx_);
-    const bool loaded = app.live_.open({.data_dir = options.data_dir});
+    const bool loaded =
+        app.live_.open({.data_dir = options.data_dir,
+                        .changed = [&game](const moira::Config& c) { game.load(c); }});
     std::vector<std::string> log;
     if (app.live_.take_log(log))
         for (const std::string& line : log) std::fprintf(stderr, "%s\n", line.c_str());
@@ -238,6 +240,7 @@ int run(Game& game, const AppOptions& options) {
 
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
+        game.ui();
         if (tools->shown) {
             tools->draw(app);
             game.tools();

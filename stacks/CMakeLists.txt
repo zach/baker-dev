@@ -53,3 +53,4 @@ endif()
 
 add_subdirectory(base)
 add_subdirectory(cube)
+add_subdirectory(duel)

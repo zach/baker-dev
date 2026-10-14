@@ -8,7 +8,11 @@
 //
 // After the load, and at the frame after any change to the stack (a reload, a toggle from a
 // panel), it runs the layers' #autorun commands, so a data file can define script
-// functions: `#autorun {func boss.restart ($n) ...}`.
+// functions: `#autorun {func boss.restart ($n) ...}`; then it calls `changed`, where the game
+// reads its structured data (Game::load).
+//
+// A stack's packs (game-stacks.md §2.4) are in <data>/../packs, which data files #require by
+// relative path; the watcher watches that directory too, so editing a pack reloads.
 //
 // The Config's clock is the file system's, so a reload's origin is the time its file was
 // saved, and loop_stats() measures from the save to the frame that showed it.
@@ -23,6 +27,7 @@
 #include <moira/config.hpp>
 #include <moira/script.hpp>
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -33,6 +38,8 @@ struct LiveOptions {
     bool watch = true;     // false: reload only when asked (tests, the headless runner)
     bool local = true;     // false: leave out local.dta, so one developer's tuning cannot
                            // change a simulation's results or a check's findings
+    // Called after the load and after each change to the stack, once #autorun has run.
+    std::function<void(const moira::Config&)> changed{};
 };
 
 class Live {
@@ -65,6 +72,7 @@ private:
     void log(std::string line);
     // Runs every enabled layer's #autorun commands (Config::autorun, D107): the {func}s and
     // setup the data asks for, again after each change, so a redefinition takes effect.
+    // Then calls changed_.
     void autorun();
 
     moira::Context& ctx_;
@@ -74,6 +82,7 @@ private:
     bool watching_ = false;
     bool stack_changed_ = false;  // set by the Config after any change; autorun runs again
     std::string data_dir_;
+    std::function<void(const moira::Config&)> changed_;
     std::vector<std::string> log_;
 };
 

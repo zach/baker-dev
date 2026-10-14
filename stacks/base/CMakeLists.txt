@@ -22,8 +22,10 @@ endif()
 
 add_library(stacks_app STATIC src/app.cpp src/render.cpp src/tools.cpp)
 target_include_directories(stacks_app PRIVATE ${BGFX_SHADERS_DIR})
-target_link_libraries(stacks_app PUBLIC stacks_core PRIVATE stacks_moira_tools stacks_imgui bgfx bimg bx
-                      SDL3::SDL3-static)
+# SDL3 and Dear ImGui are public: a game reads its input from SDL's events and draws its own
+# windows (Game::ui, Game::tools).
+target_link_libraries(stacks_app PUBLIC stacks_core stacks_imgui SDL3::SDL3-static
+                      PRIVATE stacks_moira_tools bgfx bimg bx)
 stacks_target(stacks_app)
 
 if(STACKS_BUILD_TESTS)

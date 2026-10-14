@@ -3,6 +3,7 @@
 // Game, and the simulation, its tests, and the tool commands link without a window.
 #pragma once
 
+#include <moira/config.hpp>
 #include <moira/script.hpp>
 
 #include <cstdint>
@@ -20,6 +21,11 @@ public:
     // Binds the game's script functions and objects, before the data loads, so check
     // knows them.
     virtual void bind(moira::Context& ctx) { (void)ctx; }
+    // Reads what the game keeps from the data: after the load and after every change to the
+    // layer stack (a reload, a toggle), once the layers' #autorun commands have run. Tweaks
+    // are bound already; this is for structured data (a roster, an economy) the game copies
+    // into its own arrays. A value tuned in a panel changes a tweak, not this.
+    virtual void load(const moira::Config& cfg) { (void)cfg; }
     // Puts the game in its starting state, before play and before each simulated run. The
     // seed is the run's: a game that draws random numbers seeds them from it.
     virtual void reset(uint64_t seed) { (void)seed; }
@@ -32,7 +38,9 @@ public:
     virtual void step(double dt) = 0;
     // Draws the state, `alpha` of the way from the previous step to the last.
     virtual void draw(Renderer& r, float alpha) = 0;
-    // The game's own ImGui windows, if any, shown with the panels.
+    // The game's own ImGui windows: ui() every frame (a game played with the mouse), tools()
+    // only while the panels show (F1).
+    virtual void ui() {}
     virtual void tools() {}
     virtual void event(const SDL_Event& e) { (void)e; }
 };

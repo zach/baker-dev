@@ -1,4 +1,4 @@
-// The agent's commands (stacks/agent.md): sim, check, reference, diff, and promote, run
+// The agent's commands (stacks/agent.md): sim, check, reference, diff, promote, and eval, run
 // from the game's own binary so they know its script functions.
 #include "base/app.hpp"
 #include "base/sim.hpp"
@@ -24,7 +24,7 @@ constexpr int kError = 2;   // something could not run
 
 struct Options {
     std::string data, sim, metrics, out, to = "default";
-    std::vector<std::string> scenarios;
+    std::vector<std::string> scenarios, commands;
     uint64_t seed_first = 1, seed_last = 1;
     double step_hz = 60;
     bool write = false;
@@ -41,6 +41,8 @@ struct Options {
         "  reference                      the game's script vocabulary, as Markdown\n"
         "  diff                           what agent.dta changes\n"
         "  promote [--to LAYER] [--write] agent.dta into LAYER (default); --write writes\n"
+        "  eval [--seed N] \"{command}\"...   each command's result, one a line, on the\n"
+        "                                 game reset with the seed (default 1)\n"
         "every command also takes --data DIR, --sim DIR, --metrics DIR\n",
         problem);
     std::exit(kError);
@@ -69,6 +71,8 @@ Options parse(int argc, char** argv, const std::string& data) {
             o.out = argv[++i];
         } else if (!std::strcmp(a, "--scenario") && more) {
             o.scenarios.emplace_back(argv[++i]);
+        } else if (!std::strcmp(a, "--seed") && more) {
+            o.seed_first = o.seed_last = number(argv[++i]);
         } else if (!std::strcmp(a, "--seeds") && more) {
             const std::string s = argv[++i];
             const size_t dash = s.find('-');
@@ -83,6 +87,8 @@ Options parse(int argc, char** argv, const std::string& data) {
             o.to = argv[++i];
         } else if (!std::strcmp(a, "--write")) {
             o.write = true;
+        } else if (a[0] == '{') {
+            o.commands.emplace_back(a);  // eval's commands
         } else {
             usage("unknown argument");
         }
@@ -102,7 +108,10 @@ struct Loaded {
 
 bool load(Game& game, Loaded& l, const Options& o) {
     game.bind(l.ctx);
-    const bool ok = l.live.open({.data_dir = o.data, .watch = false, .local = false});
+    const bool ok = l.live.open({.data_dir = o.data,
+                                 .watch = false,
+                                 .local = false,
+                                 .changed = [&game](const moira::Config& c) { game.load(c); }});
     std::vector<std::string> log;
     if (l.live.take_log(log))
         for (const std::string& line : log) std::fprintf(stderr, "%s\n", line.c_str());
@@ -231,6 +240,30 @@ int check(Game& game, const Options& o) {
     return report.ok() && !unresolved ? 0 : kFailed;
 }
 
+// Commands over the game's data and its reset state, as a console would run them, without
+// a window: what a frame table or a search says, before and after an edit.
+int eval(Game& game, const Options& o) {
+    if (o.commands.empty()) usage("eval needs a command: eval \"{...}\"");
+    Loaded l;
+    if (!load(game, l, o)) return kError;
+    l.ctx.var("seed") = moira::Node(static_cast<int64_t>(o.seed_first));
+    game.reset(o.seed_first);
+    int status = 0;
+    for (const std::string& command : o.commands) {
+        auto r = l.ctx.eval(command);
+        if (!r) {
+            std::fprintf(stderr, "%s\n", std::string(moira::describe(r.error())).c_str());
+            status = kFailed;
+            continue;
+        }
+        if (auto text = r->as_str())
+            std::printf("%.*s\n", int(text->size()), text->data());
+        else
+            std::printf("%s\n", moira::to_string(*r).c_str());
+    }
+    return status;
+}
+
 int reference(Game& game, const Options& o) {
     Loaded l;
     if (!load(game, l, o)) return kError;
@@ -301,6 +334,7 @@ int main(Game& game, int argc, char** argv, AppOptions defaults) {
     if (command == "reference") return reference(game, o);
     if (command == "diff") return diff(game, o);
     if (command == "promote") return promote(game, o);
+    if (command == "eval") return eval(game, o);
     usage(("unknown command: " + command).c_str());
 }
 
