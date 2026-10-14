@@ -1,0 +1,26 @@
+; Contraption's scenarios: each level judged by its intended solution, how robust that is to
+; a mouse's imprecision, and a search for a cheaper solution (game-stacks.md §4.1). The
+; searches draw from $seed, so more seeds search more.
+(scenario first_drop
+   (desc "One plank to bring the ball down to the bucket")
+   (seconds 0.02)
+   (start {puzzle.load first_drop})
+   (objectives puzzle.intended_solves puzzle.not_cheesed puzzle.robust puzzle.brisk))
+(scenario high_shelf
+   (desc "Two planks to carry the ball across to a bucket on a shelf")
+   (seconds 0.02)
+   (start {puzzle.load high_shelf})
+   (objectives puzzle.intended_solves puzzle.not_cheesed puzzle.robust puzzle.brisk))
+(scenario catapult
+   (desc "A crate dropped on the seesaw throws the ball")
+   (seconds 0.02)
+   (start {puzzle.load catapult})
+   (objectives puzzle.intended_solves puzzle.not_cheesed puzzle.robust puzzle.brisk))
+
+; The game's own loop: the intended solution placed and run on the game's fixed steps must
+; solve as the analyses do. The runner and the game agree, or replays mean nothing.
+(scenario replay_high_shelf
+   (desc "high_shelf's intended solution, played on the game's own steps")
+   (seconds 8)
+   (start {puzzle.load high_shelf} {puzzle.place_intended} {puzzle.run})
+   (objectives puzzle.played_solves))

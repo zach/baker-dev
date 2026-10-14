@@ -29,6 +29,9 @@ struct Box {
     float size[3] = {1, 1, 1};      // full extents, in meters
     float rotation[3] = {0, 0, 0};  // about x, y, z, in radians
     float color[4] = {1, 1, 1, 1};
+    // x y z w; when w is not 0 it replaces `rotation` (a physics body's orientation).
+    float quat[4] = {0, 0, 0, 0};
+    bool sphere = false;  // an ellipsoid filling the box: a ball, a wheel
 };
 
 class Renderer {
@@ -74,6 +77,7 @@ private:
     bool vsync_ = true;
     // bgfx handles, as their indices; 0xffff is none.
     uint16_t box_program_ = 0xffff, box_vertices_ = 0xffff, box_indices_ = 0xffff;
+    uint16_t sphere_vertices_ = 0xffff, sphere_indices_ = 0xffff;
     uint16_t params_ = 0xffff;
     uint16_t imgui_program_ = 0xffff, imgui_sampler_ = 0xffff;
 };
