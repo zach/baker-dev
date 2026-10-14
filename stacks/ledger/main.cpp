@@ -12,6 +12,7 @@
 
 #include <base/app.hpp>
 #include <base/render.hpp>
+#include <base/words.hpp>
 
 #include <imgui.h>
 #include <moira/std_interop.hpp>
@@ -45,15 +46,6 @@ ledger::Rules current_rules() {
     r.resale = kResale;
     r.bankrupt_days = kBankruptDays;
     return r;
-}
-
-moira::Error not_found(const std::string& what) {
-    return moira::make_error(moira::ErrorCode::NotFound, what);
-}
-
-bool truthy(const moira::Node& n) {
-    if (auto f = n.as_float()) return *f != 0;
-    return true;
 }
 
 class LedgerGame final : public base::Game {
@@ -90,7 +82,7 @@ public:
                          const int i = econ_.building(std::string(b.str()));
                          if (i < 0)
                              return moira::Unexpected(
-                                 not_found("no building " + std::string(b.str())));
+                                 base::not_found("no building " + std::string(b.str())));
                          return company().owned[size_t(i)];
                      }),
             "How many of a building the current company owns.");
@@ -98,7 +90,8 @@ public:
                      [this](moira::Symbol g) -> moira::Expected<int64_t> {
                          const int i = econ_.good(std::string(g.str()));
                          if (i < 0)
-                             return moira::Unexpected(not_found("no good " + std::string(g.str())));
+                             return moira::Unexpected(
+                                 base::not_found("no good " + std::string(g.str())));
                          return company().made[size_t(i)];
                      }),
             "Units of a good the current company has made, ever.");
@@ -106,7 +99,8 @@ public:
                      [this](moira::Symbol g) -> moira::Expected<double> {
                          const int i = econ_.good(std::string(g.str()));
                          if (i < 0)
-                             return moira::Unexpected(not_found("no good " + std::string(g.str())));
+                             return moira::Unexpected(
+                                 base::not_found("no good " + std::string(g.str())));
                          return company().price(econ_, i);
                      }),
             "A good's price today in the current company's market.");
@@ -115,7 +109,7 @@ public:
                          const int i = econ_.building(std::string(b.str()));
                          if (i < 0)
                              return moira::Unexpected(
-                                 not_found("no building " + std::string(b.str())));
+                                 base::not_found("no building " + std::string(b.str())));
                          return ledger::build(company(), econ_, i);
                      }),
             "Buys a building for the current company; 0 if locked or unaffordable.");
@@ -124,7 +118,7 @@ public:
                          const int i = econ_.building(std::string(b.str()));
                          if (i < 0)
                              return moira::Unexpected(
-                                 not_found("no building " + std::string(b.str())));
+                                 base::not_found("no building " + std::string(b.str())));
                          return ledger::demolish(company(), econ_, current_rules(), i);
                      }),
             "Sells one of the current company's buildings back at its resale value.");
@@ -142,7 +136,7 @@ public:
                          for (size_t i = 0; i < econ_.milestones.size(); ++i)
                              if (econ_.milestones[i].name == m.str()) return (*c)->milestone_day[i];
                          return moira::Unexpected(
-                             not_found("no milestone " + std::string(m.str())));
+                             base::not_found("no milestone " + std::string(m.str())));
                      }),
             "The day a company reached a milestone of (milestones ...); -1 if it has not.");
         doc(ctx.func("econ.milestones_late",
@@ -251,7 +245,7 @@ public:
         cam.eye[2] = -14;
         cam.at[1] = 0;
         r.camera(cam);
-        box(r, 0, -0.05f, 0, 30, 0.1f, 30, 0.35f, 0.55f, 0.3f);
+        r.box(0, -0.05f, 0, 30, 0.1f, 30, 0.35f, 0.55f, 0.3f);
         if (!loaded_ || companies_.empty()) return;
         // The town: one row per kind of building, one lot per building owned.
         const ledger::Company& c = companies_[0];
@@ -263,8 +257,8 @@ public:
             const int n = std::min(c.owned[b], 24);
             const float height = 0.6f + 0.15f * float(econ_.buildings[b].inputs.size());
             for (int i = 0; i < n; ++i)
-                box(r, -11.0f + float(i), height / 2, -6.0f + 2.2f * float(b), 0.8f, height, 1.4f,
-                    cr, cg, cb);
+                r.box(-11.0f + float(i), height / 2, -6.0f + 2.2f * float(b), 0.8f, height, 1.4f,
+                      cr, cg, cb);
         }
         r.text(48, 3, "%s  day %d  coins %lld  %s", c.name.c_str(), c.day,
                static_cast<long long>(c.money), c.bankrupt ? "BANKRUPT" : "");
@@ -385,21 +379,6 @@ public:
     }
 
 private:
-    static void box(base::Renderer& r, float x, float y, float z, float w, float h, float d,
-                    float cr, float cg, float cb) {
-        base::Box b;
-        b.center[0] = x;
-        b.center[1] = y;
-        b.center[2] = z;
-        b.size[0] = w;
-        b.size[1] = h;
-        b.size[2] = d;
-        b.color[0] = cr;
-        b.color[1] = cg;
-        b.color[2] = cb;
-        r.box(b);
-    }
-
     void restart(bool compete) {
         competing_ = compete;
         companies_.clear();
@@ -449,8 +428,8 @@ private:
         for (ledger::Company& c : companies_)
             if (c.name == who.str()) return &c;
         return moira::Unexpected(
-            not_found("no company " + std::string(who.str()) +
-                      " (econ.compete makes one per strategy; econ.play makes player)"));
+            base::not_found("no company " + std::string(who.str()) +
+                            " (econ.compete makes one per strategy; econ.play makes player)"));
     }
 
     const ledger::Company* ranked(size_t place) const {
@@ -478,11 +457,11 @@ private:
         ledger::Company& c = companies_[i];
         for (size_t b = 0; b < econ_.buildings.size(); ++b)
             if (!c.unlocked[b] && econ_.buildings[b].unlock.type() == moira::Type::Command)
-                if (auto r = ctx_->eval(econ_.buildings[b].unlock); r && truthy(*r))
+                if (auto r = ctx_->eval(econ_.buildings[b].unlock); r && base::truthy(*r))
                     c.unlocked[b] = true;
         for (size_t m = 0; m < econ_.milestones.size(); ++m)
             if (c.milestone_day[m] < 0)
-                if (auto r = ctx_->eval(econ_.milestones[m].when); r && truthy(*r))
+                if (auto r = ctx_->eval(econ_.milestones[m].when); r && base::truthy(*r))
                     c.milestone_day[m] = c.day;
         current_ = saved;
     }

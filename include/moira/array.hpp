@@ -418,6 +418,14 @@ public:
     // expansion, so the change is visible through every reference. Clears sorted mode.
     void set(size_t i, Node node) noexcept;
 
+    // This array's own tag: its first node, if a symbol; the empty Symbol if not (D115).
+    // Walking (enemies (grunt ...) (brute ...)), each child's tag is its name.
+    [[nodiscard]] Symbol tag() const noexcept {
+        if (size_ == 0) return {};
+        const auto s = data()[0].try_sym();
+        return s ? *s : Symbol();
+    }
+
     // --- Lookup by tag: the first direct child that is an Array tagged `tag`. ---
 
     // The child array tagged `tag`, or null.

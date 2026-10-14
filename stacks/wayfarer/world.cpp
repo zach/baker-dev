@@ -1,5 +1,7 @@
 #include "world.hpp"
 
+#include <base/rng.hpp>
+#include <base/words.hpp>
 #include <moira/std_interop.hpp>
 
 #include <algorithm>
@@ -13,14 +15,6 @@ namespace {
 constexpr size_t kMaxBits = 64;
 constexpr size_t kSoftlocksKept = 8;
 
-std::string tag_of(const moira::Array& a) {
-    if (a.empty()) return {};
-    auto s = a[0].try_sym();
-    return s ? std::string(s->str()) : std::string();
-}
-float get(const moira::Array& a, const char* tag, float fallback) {
-    return static_cast<float>(a.find_float(moira::Symbol(tag), fallback).value_or(fallback));
-}
 float num(const moira::Array& a, size_t i, float fallback = 0) {
     return i < a.size() ? static_cast<float>(a[i].as_float().value_or(fallback)) : fallback;
 }
@@ -36,16 +30,6 @@ uint64_t mix(uint64_t h, float v) {
     std::memcpy(&bits, &v, sizeof bits);
     for (int i = 0; i < 4; ++i) h = (h ^ ((bits >> (8 * i)) & 0xff)) * 0x100000001B3ull;
     return h;
-}
-
-uint64_t next(uint64_t& s) {
-    s ^= s >> 12;
-    s ^= s << 25;
-    s ^= s >> 27;
-    return s * 0x2545F4914F6CDD1Dull;
-}
-float uniform(uint64_t& s) {
-    return static_cast<float>(static_cast<double>(next(s) >> 11) * (1.0 / 9007199254740992.0));
 }
 
 float dist(const base::NavPoint& a, const base::NavPoint& b) {
@@ -135,17 +119,17 @@ bool load(const moira::Ref<moira::Array>& root, World& out, std::string& error) 
     w.tree = root;
     if (const moira::Array* r = root->try_find(moira::Symbol("wayfarer"))) {
         Traversal& t = w.rules;
-        t.run_speed = get(*r, "run_speed", t.run_speed);
-        t.climb_max = get(*r, "climb_max", t.climb_max);
-        t.climb_speed = get(*r, "climb_speed", t.climb_speed);
-        t.glide_speed = get(*r, "glide_speed", t.glide_speed);
-        t.glide_sink = std::max(0.1f, get(*r, "glide_sink", t.glide_sink));
-        t.step = get(*r, "step", t.step);
-        t.poi_radius = get(*r, "poi_radius", t.poi_radius);
-        t.discover_radius = get(*r, "discover_radius", t.discover_radius);
+        t.run_speed = base::number(*r, "run_speed", t.run_speed);
+        t.climb_max = base::number(*r, "climb_max", t.climb_max);
+        t.climb_speed = base::number(*r, "climb_speed", t.climb_speed);
+        t.glide_speed = base::number(*r, "glide_speed", t.glide_speed);
+        t.glide_sink = std::max(0.1f, base::number(*r, "glide_sink", t.glide_sink));
+        t.step = base::number(*r, "step", t.step);
+        t.poi_radius = base::number(*r, "poi_radius", t.poi_radius);
+        t.discover_radius = base::number(*r, "discover_radius", t.discover_radius);
     }
     if (const moira::Array* a = root->try_find(moira::Symbol("world"))) {
-        w.cell_size = std::max(8.0f, get(*a, "cell_size", w.cell_size));
+        w.cell_size = std::max(8.0f, base::number(*a, "cell_size", w.cell_size));
         if (const moira::Array* s = a->try_find(moira::Symbol("spawn")); s && s->size() > 3)
             w.spawn = {num(*s, 1), num(*s, 2), num(*s, 3)};
     }
@@ -159,7 +143,7 @@ bool load(const moira::Ref<moira::Array>& root, World& out, std::string& error) 
     if (const moira::Array* a = root->try_find(moira::Symbol("abilities")))
         for (const moira::Array& ab : a->subarrays()) {
             Ability x;
-            x.name = tag_of(ab);
+            x.name = base::name(ab);
             x.flag = x.name == "climb"   ? base::nav::kClimb
                      : x.name == "glide" ? base::nav::kGlide
                      : x.name == "swim"  ? base::nav::kSwim
@@ -182,7 +166,7 @@ bool load(const moira::Ref<moira::Array>& root, World& out, std::string& error) 
     if (const moira::Array* a = root->try_find(moira::Symbol("cells")))
         for (const moira::Array& ca : a->subarrays()) {
             Cell c;
-            c.name = tag_of(ca);
+            c.name = base::name(ca);
             if (const moira::Array* at = ca.try_find(moira::Symbol("grid"))) {
                 c.cx = int(num(*at, 1));
                 c.cz = int(num(*at, 2));
@@ -234,11 +218,11 @@ bool load(const moira::Ref<moira::Array>& root, World& out, std::string& error) 
     if (const moira::Array* a = root->try_find(moira::Symbol("pois")))
         for (const moira::Array& pa : a->subarrays()) {
             Poi p;
-            p.name = tag_of(pa);
+            p.name = base::name(pa);
             if (const moira::Array* at = pa.try_find(moira::Symbol("pos")))
                 p.at = {num(*at, 1), num(*at, 2), num(*at, 3)};
             for (const moira::Array& f : pa.subarrays()) {
-                const std::string t = tag_of(f);
+                const std::string t = base::name(f);
                 if (t == "landmark") p.landmark = true;
                 if (t == "gives" || t == "needs")
                     for (size_t i = 1; i < f.size(); ++i) {
@@ -273,10 +257,10 @@ bool load(const moira::Ref<moira::Array>& root, World& out, std::string& error) 
     std::vector<std::pair<const moira::Array*, std::string>> defs;
     for (const moira::Node& n : root->nodes()) {
         const moira::Array* a = n.try_array();
-        if (!a || tag_of(*a) != "missions") continue;
+        if (!a || base::name(*a) != "missions") continue;
         for (const moira::Array& ma : a->subarrays()) {
             Mission m;
-            m.name = tag_of(ma);
+            m.name = base::name(ma);
             if (auto r = ma.find_sym(moira::Symbol("region"), moira::Symbol()); r)
                 m.region = std::string(r->str());
             m.file = std::string(ma.file().str());
@@ -300,8 +284,8 @@ bool load(const moira::Ref<moira::Array>& root, World& out, std::string& error) 
         if (const moira::Array* os = ma.try_find(moira::Symbol("objectives")))
             for (const moira::Array& oa : os->subarrays()) {
                 Objective o;
-                o.name = tag_of(oa);
-                o.hint_after = get(oa, "hint_after", -1);
+                o.name = base::name(oa);
+                o.hint_after = base::number(oa, "hint_after", -1);
                 const moira::Array* g = oa.try_find(moira::Symbol("goal"));
                 if (!g || g->size() < 2 || !read_goal((*g)[1], w, o.goal, error)) {
                     error = "mission " + m.name + " objective " + o.name + ": " +
@@ -334,9 +318,9 @@ bool load(const moira::Ref<moira::Array>& root, World& out, std::string& error) 
                 ++oi;
             }
         if (const moira::Array* rw = ma.try_find(moira::Symbol("reward"))) {
-            m.xp = int(get(*rw, "xp", 0));
+            m.xp = int(base::number(*rw, "xp", 0));
             for (const moira::Array& r : rw->subarrays())
-                if (tag_of(r) == "item")
+                if (base::name(r) == "item")
                     for (size_t i = 1; i < r.size(); ++i) {
                         const auto s = r[i].try_sym();
                         const int it = s ? w.item(std::string(s->str())) : -1;
@@ -347,7 +331,7 @@ bool load(const moira::Ref<moira::Array>& root, World& out, std::string& error) 
                         m.reward_items.push_back(it);
                     }
         }
-        m.par = get(ma, "par", -1);
+        m.par = base::number(ma, "par", -1);
     }
     out = std::move(w);
     return true;
@@ -402,6 +386,18 @@ base::NavGeometry geometry(const World& w, int c, int* skipped) {
         }
     }
     return g;
+}
+
+uint64_t nav_key(const World& w) {
+    uint64_t h = 0xCBF29CE484222325ull;
+    for (const Cell& c : w.cells) {
+        h = mix(h, float(c.cx));
+        h = mix(h, float(c.cz));
+        for (int i = 0; i < 8; ++i) h = (h ^ ((c.version >> (8 * i)) & 0xff)) * 0x100000001B3ull;
+    }
+    for (float v : {w.cell_size, w.rules.climb_max, w.rules.step, w.rules.glide_ratio()})
+        h = mix(h, v);
+    return h;
 }
 
 bool build_nav(const World& w, base::NavMesh& nav, std::string* error) {
@@ -668,8 +664,7 @@ Pacing explore(const World& w, const base::NavMesh& nav, Style style, float seco
                uint64_t seed) {
     Pacing out;
     out.mission_done.assign(w.missions.size(), -1);
-    uint64_t rng = seed * 0x9E3779B97F4A7C15ull + 0x5851F42D4C957F2Dull;
-    if (!rng) rng = 1;
+    base::Rng rng(seed, 0x5851F42D4C957F2Dull);
     Progress p;
     p.reset(w);
     base::NavPoint pos = w.spawn;
@@ -779,7 +774,8 @@ Pacing explore(const World& w, const base::NavMesh& nav, Style style, float seco
                         if (!p.found[i] && path_to(int(i), pth)) can.push_back(int(i));
                     }
                     if (!can.empty())
-                        target = can[size_t(uniform(rng) * float(can.size())) % can.size()];
+                        target = can[size_t(static_cast<float>(rng.unit()) * float(can.size())) %
+                                     can.size()];
                 }
                 break;
             case Style::Completionist:

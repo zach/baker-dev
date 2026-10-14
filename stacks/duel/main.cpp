@@ -12,6 +12,7 @@
 
 #include <base/app.hpp>
 #include <base/render.hpp>
+#include <base/words.hpp>
 
 #include <SDL3/SDL.h>
 #include <imgui.h>
@@ -249,9 +250,9 @@ public:
         if (!loaded_) return;
 
         const float half = kHalfWidth;
-        box(r, 0, -0.05f, 0, 2 * half + 1, 0.1f, 3, 0.22f, 0.22f, 0.25f);
-        box(r, -half - 0.05f, 1.5f, 0, 0.1f, 3, 3, 0.3f, 0.3f, 0.34f);
-        box(r, half + 0.05f, 1.5f, 0, 0.1f, 3, 3, 0.3f, 0.3f, 0.34f);
+        r.box(0, -0.05f, 0, 2 * half + 1, 0.1f, 3, 0.22f, 0.22f, 0.25f);
+        r.box(-half - 0.05f, 1.5f, 0, 0.1f, 3, 3, 0.3f, 0.3f, 0.34f);
+        r.box(half + 0.05f, 1.5f, 0, 0.1f, 3, 3, 0.3f, 0.3f, 0.34f);
 
         static constexpr float kColors[2][3] = {{0.25f, 0.55f, 0.95f}, {0.95f, 0.35f, 0.30f}};
         for (int i = 0; i < 2; ++i) {
@@ -266,25 +267,25 @@ public:
                 for (float& v : c) v *= 0.55f;
             const float w = float(d.width) * kMetres;
             if (f.state == duel::State::Down) {
-                box(r, x, w / 2, 0, float(d.height) * kMetres, w, 0.5f, c[0], c[1], c[2]);
+                r.box(x, w / 2, 0, float(d.height) * kMetres, w, 0.5f, c[0], c[1], c[2]);
                 continue;
             }
             const float h = float(f.crouching ? d.crouch_height : d.height) * kMetres;
-            box(r, x, h / 2, 0, w, h, 0.5f, c[0], c[1], c[2]);
+            r.box(x, h / 2, 0, w, h, 0.5f, c[0], c[1], c[2]);
             // A head, so the facing reads: toward the opponent, at the top.
-            box(r, x + float(f.facing) * w * 0.3f, h - 0.12f, -0.1f, 0.12f, 0.12f, 0.3f, 1, 1, 1);
+            r.box(x + float(f.facing) * w * 0.3f, h - 0.12f, -0.1f, 0.12f, 0.12f, 0.3f, 1, 1, 1);
             duel::Rect hb;
             if (kShowBoxes && duel::hitbox(f, d, hb))
-                box(r, (float(hb.x) + float(hb.w) / 2) * kMetres,
-                    (float(hb.y) + float(hb.h) / 2) * kMetres, 0, float(hb.w) * kMetres,
-                    float(hb.h) * kMetres, 0.62f, 1, 0.1f, 0.1f);
+                r.box((float(hb.x) + float(hb.w) / 2) * kMetres,
+                      (float(hb.y) + float(hb.h) / 2) * kMetres, 0, float(hb.w) * kMetres,
+                      float(hb.h) * kMetres, 0.62f, 1, 0.1f, 0.1f);
             // Health, along the top: the left side's bar grows from the middle outwards.
             const float full = half - 0.5f;
             const float share = float(std::max(0, f.health)) / float(std::max(1, d.health));
             const float sign = i == 0 ? -1.0f : 1.0f;
-            box(r, sign * (0.3f + full / 2), 2.55f, 0, full, 0.18f, 0.1f, 0.15f, 0.15f, 0.15f);
-            box(r, sign * (0.3f + full * share / 2), 2.55f, -0.06f, full * share, 0.16f, 0.1f, c[0],
-                c[1], c[2]);
+            r.box(sign * (0.3f + full / 2), 2.55f, 0, full, 0.18f, 0.1f, 0.15f, 0.15f, 0.15f);
+            r.box(sign * (0.3f + full * share / 2), 2.55f, -0.06f, full * share, 0.16f, 0.1f, c[0],
+                  c[1], c[2]);
         }
 
         const int seconds_left =
@@ -368,21 +369,6 @@ public:
 
 private:
     enum class Mode : uint8_t { Human, Dummy, Block, Pilot };
-
-    static void box(base::Renderer& r, float x, float y, float z, float w, float h, float d,
-                    float cr, float cg, float cb) {
-        base::Box b;
-        b.center[0] = x;
-        b.center[1] = y;
-        b.center[2] = z;
-        b.size[0] = w;
-        b.size[1] = h;
-        b.size[2] = d;
-        b.color[0] = cr;
-        b.color[1] = cg;
-        b.color[2] = cb;
-        r.box(b);
-    }
 
     void new_match() {
         if (!loaded_) return;

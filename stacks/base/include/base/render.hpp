@@ -53,6 +53,10 @@ public:
     void camera(const Camera& c);
     void clear_color(float r, float g, float b);
     void box(const Box& b);
+    // The common case: a box at (x, y, z), w by h by d metres, coloured (r, g, b), turned
+    // `yaw` radians about y.
+    void box(float x, float y, float z, float w, float h, float d, float r, float g, float b,
+             float yaw = 0);
     // A line of debug text at a cell (8 by 16 pixels): a HUD that needs no ImGui.
     void text(int column, int row, const char* format, ...);
     // Dear ImGui's draw data for this frame, drawn over the scene.

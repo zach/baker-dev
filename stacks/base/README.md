@@ -67,6 +67,12 @@ int main(int argc, char** argv) {
   a cell's tile when it loads; a house is one tile. Off-mesh links carry ability flags
   (`nav::kClimb`, `kGlide`, ...) and a path query names the abilities the walker has. The
   voxel is rounded to a whole number per tile, or neighbouring tiles do not meet.
+- **`rng.hpp`** is `base::Rng`, xorshift64*, seeded per stream (`Rng(seed, stream)`), so a
+  simulation's draws are the same on every compiler and platform, as the C++ library's
+  distributions are not. **`words.hpp`** has what every stack wrote again (D115):
+  `base::name(array)` (its tag), `base::number(array, "mass", 0)` or `"pos.1"` or by
+  position, `base::not_found`, `base::truthy`. Both are header-only (`stacks_words`).
+  **`Renderer::box(x, y, z, w, h, d, r, g, b, yaw)`** draws the common box.
 - **`{live.loop}`**, a script word `Live` binds, returns `Config::loop_stats()` as one line:
   edit-to-see and reload times per file and layer, so the console (and an audit's script)
   can read a running game's loop (`../audit.md`, D114).

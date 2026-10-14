@@ -100,8 +100,8 @@ no time to ask for more.
 | Helper, written again | In | What it says |
 | --- | --- | --- |
 | `tag_of(array)`: an array's first symbol | 6 of 6 games with structured data | Moira has `find(tag)` but no accessor for an array's own tag: demand at L0 |
-| `get(array, tag, fallback)` and `nth(array, tag, i)`: a float, or the i-th value of `(tag a b c)` | 4 and 2 (Wayfarer's `num` is a third) | `find_float(tag, fallback)` returns `Expected`, so every caller repeats the fallback in `value_or`; positional values have no reader |
-| A seeded xorshift (`next`, `uniform`) | 5 | The base has no RNG for simulations |
+| `get(array, tag, fallback)` and `nth(array, tag, i)`: a float, or the i-th value of `(tag a b c)` | 4 and 2 | `find_float(tag, fallback)` returns `Expected`, so every caller repeats the fallback in `value_or`. A value by position has a reader already, a path (`get<double>("pos.1", 0)`), which no stack found |
+| A seeded xorshift (`next`, `uniform`) | 6 (Duel's inline) | The base has no RNG for simulations |
 | `not_found(what)`: a NotFound error for a script word | 5 | A one-line convenience the base or Moira could own |
 | `box(renderer, ...)`: a box from loose floats | 5 | `base::Box` has no constructor for the common case |
 | `truthy(node)`: a command's result as a goal | 3 | Every stack with goals as commands (puzzle, milestones, missions) decides truth itself |
@@ -148,9 +148,29 @@ Step 8: three, by the leverage of reading-a-studio.md §8, to re-measure at the 
 2. **Push the repeated helpers up** (rank 9, prune and commoditize; and pushing-up.md).
    `Array::tag()` and a positional reader in Moira; a seeded RNG, `Box` constructors,
    `not_found`, and command truth in the base; delete the copies. Re-measure: the copies
-   (30 across the stacks) go to zero.
+   (31 across the stacks) go to zero.
 3. **A second gardener** (rank 3), when there is a second person: hand one stack's L2 to
    them and re-run the register's bus-factor column. Not a code change.
 
 And the audit itself gained an instrument: `{live.loop}`, so step 2 is a script, not a
 stopwatch (rank 2, instrument the tree).
+
+## 8. Re-measured, after the first two
+
+Applied the same day (D115), with the owner's go-ahead, and measured again.
+
+- **Wayfarer's loop.** The analyses' mesh is kept until `wayfarer::nav_key` changes (every
+  cell's source, the cell size, `climb_max`, `step`, the glide ratio). Ten saves of a tweak:
+  edit-to-see **15.9 ms median, 19.9 ms worst** (174.1 / 215.1 before), reload 0.16 ms.
+  Wayfarer is now with the others. The key also fixes what the old flag missed: a
+  `climb_max` tuned in a panel used to leave the analyses on the old mesh until a reload.
+- **The copies.** Moira gained `Array::tag()`; the base gained `base::Rng` (`rng.hpp`),
+  `base::name`, `base::number`, `base::not_found`, `base::truthy` (`words.hpp`), and
+  `Renderer::box(x, y, z, w, h, d, r, g, b, yaw)`. Copies left: **1 of 31**, Contraption's box
+  helper, which turns about z, takes a quaternion, and draws spheres and buckets: a
+  specialisation, not a copy. The stacks are 112 lines shorter (408 removed, 296 added,
+  the new headers included). Every stack's `sim` over seeds 1–3 gives byte-identical output
+  before and after, and the pinned replay hashes hold: each stack keeps its own seeding,
+  as a stream of `base::Rng`.
+- **`check`** still reports nothing in any stack: there was no demand in the data to clear.
+

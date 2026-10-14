@@ -134,6 +134,9 @@ struct World {
 // Every cell's tile, for the analyses (the game streams them instead).
 [[nodiscard]] bool build_nav(const World& w, base::NavMesh& nav, std::string* error = nullptr);
 [[nodiscard]] base::NavSettings nav_settings(const World& w);
+// What the navigation geometry depends on (every cell's source, the cell size, climb_max,
+// step, and the glide ratio), hashed: a mesh built for one key serves until it changes.
+[[nodiscard]] uint64_t nav_key(const World& w);
 
 // --- Progress: what the director tracks, and the analyses search over ---
 

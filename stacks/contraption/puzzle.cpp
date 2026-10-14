@@ -7,6 +7,8 @@
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Constraints/HingeConstraint.h>
 
+#include <base/rng.hpp>
+#include <base/words.hpp>
 #include <moira/std_interop.hpp>
 
 #include <algorithm>
@@ -19,49 +21,19 @@ namespace {
 constexpr float kRadians = 0.017453292f;
 constexpr float kDepth = 0.5f;  // half the depth of every piece, in z
 
-std::string tag_of(const moira::Array& a) {
-    if (a.empty()) return {};
-    auto s = a[0].as_sym();
-    return s ? std::string(s->str()) : std::string();
-}
-float get(const moira::Array& a, const char* tag, float fallback) {
-    return static_cast<float>(a.find_float(moira::Symbol(tag), fallback).value_or(fallback));
-}
-// (tag x y ...): value i, or the fallback.
-float nth(const moira::Array& a, const char* tag, size_t i, float fallback) {
-    if (const moira::Array* f = a.try_find(moira::Symbol(tag)); f && f->size() > i + 1)
-        return static_cast<float>((*f)[i + 1].as_float().value_or(fallback));
-    return fallback;
-}
-
 bool read_piece(const moira::Array& a, const Catalog& c, Piece& out, std::string& error) {
-    out.name = tag_of(a);
+    out.name = base::name(a);
     auto k = a.find_sym(moira::Symbol("kind"), moira::Symbol());
     out.kind = k ? c.kind(std::string(k->str())) : -1;
     if (out.kind < 0) {
         error = "piece " + out.name + " has no (kind ...) of (kinds ...)";
         return false;
     }
-    out.x = nth(a, "pos", 0, 0);
-    out.y = nth(a, "pos", 1, 0);
-    out.angle = get(a, "angle", 0);
-    out.fixed = get(a, "fixed", 0) != 0;
+    out.x = base::number(a, "pos", 0, 0);
+    out.y = base::number(a, "pos", 1, 0);
+    out.angle = base::number(a, "angle", 0);
+    out.fixed = base::number(a, "fixed", 0) != 0;
     return true;
-}
-
-uint64_t next(uint64_t& s) {
-    s ^= s >> 12;
-    s ^= s << 25;
-    s ^= s >> 27;
-    return s * 0x2545F4914F6CDD1Dull;
-}
-float uniform(uint64_t& s, float lo, float hi) {
-    const double u = static_cast<double>(next(s) >> 11) * (1.0 / 9007199254740992.0);
-    return lo + static_cast<float>(u) * (hi - lo);
-}
-uint64_t seeded(uint64_t seed) {
-    uint64_t s = seed * 0x9E3779B97F4A7C15ull + 0x5851F42D4C957F2Dull;
-    return s ? s : 1;
 }
 
 }  // namespace
@@ -83,16 +55,16 @@ bool load(const moira::Ref<moira::Array>& root, Catalog& out, std::string& error
     if (const moira::Array* kinds = root->try_find(moira::Symbol("kinds")))
         for (const moira::Array& a : kinds->subarrays()) {
             Kind k;
-            k.name = tag_of(a);
+            k.name = base::name(a);
             auto shape = a.find_sym(moira::Symbol("shape"), moira::Symbol("box"));
             const std::string sh = shape ? std::string(shape->str()) : "box";
             k.shape = sh == "sphere" ? Shape::Sphere : sh == "bucket" ? Shape::Bucket : Shape::Box;
-            k.w = std::max(0.02f, nth(a, "size", 0, 1));
-            k.h = std::max(0.02f, nth(a, "size", 1, k.w));
-            k.mass = std::max(0.0f, get(a, "mass", 0));
-            k.friction = get(a, "friction", 0.5f);
-            k.bounce = get(a, "bounce", 0.1f);
-            k.hinge = get(a, "hinge", 0) != 0;
+            k.w = std::max(0.02f, base::number(a, "size", 0, 1));
+            k.h = std::max(0.02f, base::number(a, "size", 1, k.w));
+            k.mass = std::max(0.0f, base::number(a, "mass", 0));
+            k.friction = base::number(a, "friction", 0.5f);
+            k.bounce = base::number(a, "bounce", 0.1f);
+            k.hinge = base::number(a, "hinge", 0) != 0;
             c.kinds.push_back(std::move(k));
         }
     if (c.kinds.empty()) {
@@ -102,7 +74,7 @@ bool load(const moira::Ref<moira::Array>& root, Catalog& out, std::string& error
     if (const moira::Array* levels = root->try_find(moira::Symbol("levels")))
         for (const moira::Array& a : levels->subarrays()) {
             Level l;
-            l.name = tag_of(a);
+            l.name = base::name(a);
             if (auto d = a.find_str(moira::Symbol("desc"), "")) l.desc = std::string(*d);
             if (const moira::Array* p = a.try_find(moira::Symbol("pieces")))
                 for (const moira::Array& pa : p->subarrays()) {
@@ -112,9 +84,9 @@ bool load(const moira::Ref<moira::Array>& root, Catalog& out, std::string& error
                 }
             if (const moira::Array* t = a.try_find(moira::Symbol("tray")))
                 for (const moira::Array& ta : t->subarrays()) {
-                    const int k = c.kind(tag_of(ta));
+                    const int k = c.kind(base::name(ta));
                     if (k < 0) {
-                        error = "level " + l.name + ": the tray names " + tag_of(ta) +
+                        error = "level " + l.name + ": the tray names " + base::name(ta) +
                                 ", which is not one of (kinds ...)";
                         return false;
                     }
@@ -128,7 +100,8 @@ bool load(const moira::Ref<moira::Array>& root, Catalog& out, std::string& error
                 }
             if (const moira::Array* g = a.try_find(moira::Symbol("goal")); g && g->size() > 1)
                 l.goal = (*g)[1];
-            for (int i = 0; i < 4; ++i) l.bounds[i] = nth(a, "bounds", size_t(i), l.bounds[i]);
+            for (int i = 0; i < 4; ++i)
+                l.bounds[i] = base::number(a, "bounds", size_t(i), l.bounds[i]);
             c.levels.push_back(std::move(l));
         }
     if (c.levels.empty()) {
@@ -266,14 +239,14 @@ Piece snapped(Piece p, const Rules& rules) {
 double robustness(const Catalog& catalog, const Level& level, const Rules& rules,
                   const GoalTest& goal, int samples, float metres, float degrees, uint64_t seed) {
     if (samples <= 0) return 0;
-    uint64_t rng = seeded(seed);
+    base::Rng rng(seed, 0x5851F42D4C957F2Dull);
     int solved = 0;
     for (int i = 0; i < samples; ++i) {
         std::vector<Piece> placed = level.intended;
         for (Piece& p : placed) {
-            p.x += uniform(rng, -metres, metres);
-            p.y += uniform(rng, -metres, metres);
-            p.angle += uniform(rng, -degrees, degrees);
+            p.x += rng.uniform(-metres, metres);
+            p.y += rng.uniform(-metres, metres);
+            p.angle += rng.uniform(-degrees, degrees);
         }
         solved += attempt(catalog, level, placed, rules, goal).solved ? 1 : 0;
     }
@@ -283,7 +256,7 @@ double robustness(const Catalog& catalog, const Level& level, const Rules& rules
 Cheese cheese(const Catalog& catalog, const Level& level, const Rules& rules, const GoalTest& goal,
               int tries, uint64_t seed) {
     Cheese out;
-    uint64_t rng = seeded(seed ^ 0xC4EE5Eull);
+    base::Rng rng(seed ^ 0xC4EE5Eull, 0x5851F42D4C957F2Dull);
     // The tray as a list of kinds, one entry per piece.
     std::vector<int> tray;
     for (const auto& [kind, count] : level.tray)
@@ -295,14 +268,14 @@ Cheese cheese(const Catalog& catalog, const Level& level, const Rules& rules, co
             std::vector<int> pool = tray;
             std::vector<Piece> placed;
             for (int i = 0; i < k; ++i) {
-                const size_t pick = next(rng) % pool.size();
+                const size_t pick = rng.next() % pool.size();
                 Piece p;
                 p.name = "try" + std::to_string(i);
                 p.kind = pool[pick];
                 pool.erase(pool.begin() + std::ptrdiff_t(pick));
-                p.x = uniform(rng, level.bounds[0], level.bounds[2]);
-                p.y = uniform(rng, level.bounds[1], level.bounds[3]);
-                p.angle = uniform(rng, -60, 60);
+                p.x = rng.uniform(level.bounds[0], level.bounds[2]);
+                p.y = rng.uniform(level.bounds[1], level.bounds[3]);
+                p.angle = rng.uniform(-60, 60);
                 placed.push_back(snapped(p, rules));
             }
             ++out.tried;

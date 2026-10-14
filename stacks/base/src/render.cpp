@@ -315,6 +315,22 @@ void Renderer::box(const Box& b) {
     bgfx::submit(kSceneView, bgfx::ProgramHandle{box_program_});
 }
 
+void Renderer::box(float x, float y, float z, float w, float h, float d, float r, float g, float b,
+                   float yaw) {
+    Box bx;
+    bx.center[0] = x;
+    bx.center[1] = y;
+    bx.center[2] = z;
+    bx.size[0] = w;
+    bx.size[1] = h;
+    bx.size[2] = d;
+    bx.rotation[1] = yaw;
+    bx.color[0] = r;
+    bx.color[1] = g;
+    bx.color[2] = b;
+    box(bx);
+}
+
 void Renderer::text(int column, int row, const char* format, ...) {
     va_list args;
     va_start(args, format);

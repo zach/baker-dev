@@ -13,6 +13,7 @@
 
 #include <base/app.hpp>
 #include <base/render.hpp>
+#include <base/words.hpp>
 
 #include <SDL3/SDL.h>
 #include <imgui.h>
@@ -39,10 +40,6 @@ static moira::Tweak<float> kPatience{
 
 namespace {
 
-moira::Error not_found(const std::string& what) {
-    return moira::make_error(moira::ErrorCode::NotFound, what);
-}
-
 class StuntlineGame final : public base::Game {
 public:
     void bind(moira::Context& ctx) override {
@@ -54,7 +51,7 @@ public:
                          const int t = kit_.track(std::string(name.str()));
                          if (t < 0)
                              return moira::Unexpected(
-                                 not_found("no track " + std::string(name.str())));
+                                 base::not_found("no track " + std::string(name.str())));
                          select(t);
                          return {};
                      }),
@@ -69,7 +66,7 @@ public:
                      [this](moira::Symbol who) -> moira::Expected<void> {
                          const std::string name(who.str());
                          if (name != "human" && kit_.driver(name) < 0)
-                             return moira::Unexpected(not_found(
+                             return moira::Unexpected(base::not_found(
                                  "no driver " + name + ": human, or one of (drivers ...)"));
                          driver_ = name == "human" ? -1 : kit_.driver(name);
                          restart();
@@ -315,14 +312,14 @@ private:
 
     void restart() {
         race_ = std::make_unique<stuntline::Race>(kit_, layout_);
-        rng_ = seed_ * 0x9E3779B97F4A7C15ull + 0x2545F4914F6CDD1Dull;
-        if (rng_ == 0) rng_ = 1;
+        rng_ = base::Rng(seed_, 0x2545F4914F6CDD1Dull);
     }
 
     // A driver's headless race over the open track, once per driver and seed.
     moira::Expected<const stuntline::Result*> analysis(moira::Symbol name) {
         const int d = kit_.driver(std::string(name.str()));
-        if (d < 0) return moira::Unexpected(not_found("no driver " + std::string(name.str())));
+        if (d < 0)
+            return moira::Unexpected(base::not_found("no driver " + std::string(name.str())));
         auto key = std::make_tuple(track_, d, seed_);
         auto it = results_.find(key);
         if (it == results_.end())
@@ -394,7 +391,8 @@ private:
     std::unique_ptr<stuntline::Race> race_;
     std::map<std::tuple<int, int, uint64_t>, stuntline::Result> results_;
     std::string report_;
-    uint64_t seed_ = 0, rng_ = 1;
+    uint64_t seed_ = 0;
+    base::Rng rng_;
     SDL_Gamepad* pad_ = nullptr;
 };
 

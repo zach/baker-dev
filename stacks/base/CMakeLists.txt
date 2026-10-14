@@ -4,6 +4,11 @@
 #                 no window, no renderer, so tests link it alone
 #   stacks_app    the window (SDL3), the renderer (bgfx), Moira's panels (Dear ImGui), and
 #                 its remote console; the frame loop that drives a Game; the agent's commands
+# Header-only: the words every stack wrote again, and the simulations' RNG (D115).
+add_library(stacks_words INTERFACE)
+target_include_directories(stacks_words INTERFACE include)
+target_link_libraries(stacks_words INTERFACE moira::moira)
+
 add_library(stacks_core STATIC src/live.cpp src/sim.cpp src/watcher.cpp)
 target_include_directories(stacks_core PUBLIC include)
 target_link_libraries(stacks_core PUBLIC moira::moira)

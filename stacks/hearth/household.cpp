@@ -1,5 +1,7 @@
 #include "household.hpp"
 
+#include <base/rng.hpp>
+#include <base/words.hpp>
 #include <moira/std_interop.hpp>
 
 #include <algorithm>
@@ -16,35 +18,6 @@ constexpr float kWallHeight = 2.5f;
 constexpr float kRadians = 0.017453292f;
 constexpr size_t kLogLines = 40;
 constexpr size_t kNotes = 12;
-
-std::string tag_of(const moira::Array& a) {
-    if (a.empty()) return {};
-    auto s = a[0].try_sym();
-    return s ? std::string(s->str()) : std::string();
-}
-float get(const moira::Array& a, const char* tag, float fallback) {
-    return static_cast<float>(a.find_float(moira::Symbol(tag), fallback).value_or(fallback));
-}
-float nth(const moira::Array& a, const char* tag, size_t i, float fallback) {
-    if (const moira::Array* f = a.try_find(moira::Symbol(tag)); f && f->size() > i + 1)
-        return static_cast<float>((*f)[i + 1].as_float().value_or(fallback));
-    return fallback;
-}
-
-uint64_t next(uint64_t& s) {
-    s ^= s >> 12;
-    s ^= s << 25;
-    s ^= s >> 27;
-    return s * 0x2545F4914F6CDD1Dull;
-}
-double uniform(uint64_t& s) {
-    return static_cast<double>(next(s) >> 11) * (1.0 / 9007199254740992.0);
-}
-uint64_t seeded(uint64_t seed, uint64_t salt) {
-    uint64_t s =
-        (seed + salt * 0x632BE59BD9B4E019ull) * 0x9E3779B97F4A7C15ull + 0x5851F42D4C957F2Dull;
-    return s ? s : 1;
-}
 
 // How much a need's deficit matters: 0 when met, 1 when desperate.
 float urgency(Curve c, float value) {
@@ -92,23 +65,23 @@ bool load(const moira::Ref<moira::Array>& root, Kit& out, std::string& error) {
     k.tree = root;
     if (const moira::Array* r = root->try_find(moira::Symbol("hearth"))) {
         Rules& u = k.rules;
-        u.walk_speed = get(*r, "walk_speed", u.walk_speed);
-        u.choice_top = int(get(*r, "choice_top", float(u.choice_top)));
-        u.choice_within = get(*r, "choice_within", u.choice_within);
-        u.distance_scale = get(*r, "distance_scale", u.distance_scale);
-        u.off_hours = get(*r, "off_hours", u.off_hours);
-        u.stuck_minutes = get(*r, "stuck_minutes", u.stuck_minutes);
-        u.starve_minutes = get(*r, "starve_minutes", u.starve_minutes);
+        u.walk_speed = base::number(*r, "walk_speed", u.walk_speed);
+        u.choice_top = int(base::number(*r, "choice_top", float(u.choice_top)));
+        u.choice_within = base::number(*r, "choice_within", u.choice_within);
+        u.distance_scale = base::number(*r, "distance_scale", u.distance_scale);
+        u.off_hours = base::number(*r, "off_hours", u.off_hours);
+        u.stuck_minutes = base::number(*r, "stuck_minutes", u.stuck_minutes);
+        u.starve_minutes = base::number(*r, "starve_minutes", u.starve_minutes);
         u.oscillation_switches =
-            int(get(*r, "oscillation_switches", float(u.oscillation_switches)));
-        u.idle_minutes = get(*r, "idle_minutes", u.idle_minutes);
+            int(base::number(*r, "oscillation_switches", float(u.oscillation_switches)));
+        u.idle_minutes = base::number(*r, "idle_minutes", u.idle_minutes);
     }
     if (const moira::Array* needs = root->try_find(moira::Symbol("needs")))
         for (const moira::Array& a : needs->subarrays()) {
             Need n;
-            n.name = tag_of(a);
-            n.decay_per_hour = std::max(0.0f, get(a, "decay_per_hour", n.decay_per_hour));
-            n.critical = get(a, "critical", n.critical);
+            n.name = base::name(a);
+            n.decay_per_hour = std::max(0.0f, base::number(a, "decay_per_hour", n.decay_per_hour));
+            n.critical = base::number(a, "critical", n.critical);
             const auto c = a.find_sym(moira::Symbol("curve"), moira::Symbol("linear"));
             const std::string cs = c ? std::string(c->str()) : "linear";
             n.curve = cs == "quadratic"  ? Curve::Quadratic
@@ -123,16 +96,16 @@ bool load(const moira::Ref<moira::Array>& root, Kit& out, std::string& error) {
     if (const moira::Array* kinds = root->try_find(moira::Symbol("objects")))
         for (const moira::Array& a : kinds->subarrays()) {
             Kind kd;
-            kd.name = tag_of(a);
+            kd.name = base::name(a);
             for (int i = 0; i < 3; ++i) {
-                kd.size[i] = std::max(0.1f, nth(a, "size", size_t(i), kd.size[i]));
-                kd.color[i] = nth(a, "color", size_t(i), kd.color[i]);
+                kd.size[i] = std::max(0.1f, base::number(a, "size", size_t(i), kd.size[i]));
+                kd.color[i] = base::number(a, "color", size_t(i), kd.color[i]);
             }
             if (const moira::Array* ad = a.try_find(moira::Symbol("advertise")))
                 for (const moira::Array& n : ad->subarrays()) {
-                    const int need = k.need(tag_of(n));
+                    const int need = k.need(base::name(n));
                     if (need < 0) {
-                        error = "object " + kd.name + " advertises " + tag_of(n) +
+                        error = "object " + kd.name + " advertises " + base::name(n) +
                                 ", which is not one of (needs ...)";
                         return false;
                     }
@@ -141,19 +114,19 @@ bool load(const moira::Ref<moira::Array>& root, Kit& out, std::string& error) {
                 }
             const auto act = a.find_sym(moira::Symbol("action"), moira::Symbol("use_object"));
             kd.action = act ? *act : moira::Symbol("use_object");
-            kd.minutes = std::max(1.0f, get(a, "minutes", kd.minutes));
-            kd.users = std::max(1, int(get(a, "users", 1)));
-            kd.hours[0] = nth(a, "hours", 0, -1);
-            kd.hours[1] = nth(a, "hours", 1, -1);
+            kd.minutes = std::max(1.0f, base::number(a, "minutes", kd.minutes));
+            kd.users = std::max(1, int(base::number(a, "users", 1)));
+            kd.hours[0] = base::number(a, "hours", 0, -1);
+            kd.hours[1] = base::number(a, "hours", 1, -1);
             k.kinds.push_back(std::move(kd));
         }
     if (const moira::Array* houses = root->try_find(moira::Symbol("households")))
         for (const moira::Array& a : houses->subarrays()) {
             House h;
-            h.name = tag_of(a);
+            h.name = base::name(a);
             if (auto d = a.find_str(moira::Symbol("desc"), "")) h.desc = std::string(*d);
-            h.size[0] = std::max(2.0f, nth(a, "size", 0, h.size[0]));
-            h.size[1] = std::max(2.0f, nth(a, "size", 1, h.size[1]));
+            h.size[0] = std::max(2.0f, base::number(a, "size", 0, h.size[0]));
+            h.size[1] = std::max(2.0f, base::number(a, "size", 1, h.size[1]));
             if (const moira::Array* walls = a.try_find(moira::Symbol("walls")))
                 for (const moira::Array& w : walls->subarrays()) {
                     std::array<float, 4> box{};
@@ -164,9 +137,9 @@ bool load(const moira::Ref<moira::Array>& root, Kit& out, std::string& error) {
             if (const moira::Array* things = a.try_find(moira::Symbol("things")))
                 for (const moira::Array& t : things->subarrays()) {
                     Placed p;
-                    p.kind = k.kind(tag_of(t));
+                    p.kind = k.kind(base::name(t));
                     if (p.kind < 0) {
-                        error = "household " + h.name + " places " + tag_of(t) +
+                        error = "household " + h.name + " places " + base::name(t) +
                                 ", which is not one of (objects ...)";
                         return false;
                     }
@@ -178,13 +151,13 @@ bool load(const moira::Ref<moira::Array>& root, Kit& out, std::string& error) {
             if (const moira::Array* rs = a.try_find(moira::Symbol("residents")))
                 for (const moira::Array& r : rs->subarrays()) {
                     Resident res;
-                    res.name = tag_of(r);
+                    res.name = base::name(r);
                     res.weights.assign(k.needs.size(), 1.0f);
                     if (const moira::Array* w = r.try_find(moira::Symbol("weights")))
                         for (const moira::Array& n : w->subarrays()) {
-                            const int need = k.need(tag_of(n));
+                            const int need = k.need(base::name(n));
                             if (need < 0) {
-                                error = "resident " + res.name + " weighs " + tag_of(n) +
+                                error = "resident " + res.name + " weighs " + base::name(n) +
                                         ", which is not one of (needs ...)";
                                 return false;
                             }
@@ -192,7 +165,7 @@ bool load(const moira::Ref<moira::Array>& root, Kit& out, std::string& error) {
                                 float(n.size() > 1 ? n[1].as_float().value_or(1) : 1);
                         }
                     for (int i = 0; i < 3; ++i)
-                        res.color[i] = nth(r, "color", size_t(i), res.color[i]);
+                        res.color[i] = base::number(r, "color", size_t(i), res.color[i]);
                     h.residents.push_back(std::move(res));
                 }
             k.houses.push_back(std::move(h));
@@ -338,7 +311,11 @@ double share_in_band(const Tally& t, double low, double high) {
 
 Household::Household(const Kit& kit, int house, moira::Context& ctx, moira::Scheduler& clock,
                      uint64_t seed, const std::string& prefix)
-    : kit_(kit), house_(house), ctx_(ctx), clock_(clock), rng_(seeded(seed, uint64_t(house))) {
+    : kit_(kit),
+      house_(house),
+      ctx_(ctx),
+      clock_(clock),
+      rng_(seed + uint64_t(house) * 0x632BE59BD9B4E019ull, 0x5851F42D4C957F2Dull) {
     clock_node_ = ctx_.object(moira::Symbol("clock"));
     const House& h = this->house();
     build_nav();
@@ -382,7 +359,7 @@ Household::Household(const Kit& kit, int house, moira::Context& ctx, moira::Sche
         v->x = at.x;
         v->z = at.z;
         for (size_t n = 0; n < kit_.needs.size(); ++n)
-            v->needs.push_back(float(55 + 40 * uniform(rng_)));
+            v->needs.push_back(float(55 + 40 * rng_.unit()));
         v->zero_minutes.assign(kit_.needs.size(), 0);
         v->below.assign(kit_.needs.size(), false);
         v->action = idle_symbol();
@@ -541,7 +518,7 @@ void Household::decide(Villager& v, const std::string& why) {
     while (n < dec.options.size() && int(n) < std::max(1, r.choice_top) &&
            dec.options[n].score >= best * r.choice_within)
         total += dec.options[n++].score;
-    float pick = float(uniform(rng_)) * total;
+    float pick = float(rng_.unit()) * total;
     size_t c = 0;
     while (c + 1 < n && pick >= dec.options[c].score) pick -= dec.options[c++].score;
     dec.chosen = int(c);
@@ -763,8 +740,10 @@ SoakResult soak(const Kit& kit, const SoakOptions& o) {
         prepare(ctx, clock, kit, &errors[size_t(w)]);
         const long steps = long(o.days * 86400 / o.step_seconds);
         for (int i = w; i < result.households; i += threads) {
-            Household h(kit, i % int(kit.houses.size()), ctx, clock,
-                        seeded(o.seed, uint64_t(i) + 1));
+            Household h(
+                kit, i % int(kit.houses.size()), ctx, clock,
+                base::Rng(o.seed + (uint64_t(i) + 1) * 0x632BE59BD9B4E019ull, 0x5851F42D4C957F2Dull)
+                    .state);
             for (long s = 0; s < steps; ++s) h.step(o.step_seconds);
             tallies[size_t(i)] = h.tally();
         }

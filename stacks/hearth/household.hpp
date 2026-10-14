@@ -20,6 +20,7 @@
 #pragma once
 
 #include <base/nav.hpp>
+#include <base/rng.hpp>
 
 #include <moira/config.hpp>
 #include <moira/object.hpp>
@@ -242,7 +243,7 @@ private:
     moira::Context& ctx_;
     moira::Scheduler& clock_;
     moira::Node clock_node_;
-    uint64_t rng_;
+    base::Rng rng_;
     double minute_ = 0;
     int last_hour_ = -1;
     base::NavMesh nav_;

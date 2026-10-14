@@ -1,5 +1,7 @@
 #include "fight.hpp"
 
+#include <base/rng.hpp>
+#include <base/words.hpp>
 #include <moira/std_interop.hpp>
 
 #include <algorithm>
@@ -33,17 +35,11 @@ const moira::Array* section(const moira::Array& root, const char* tag) {
     return root.try_find(moira::Symbol(tag));
 }
 
-std::string tag_of(const moira::Array& a) {
-    if (a.empty()) return {};
-    auto s = a[0].as_sym();
-    return s ? std::string(s->str()) : std::string();
-}
-
 bool read_brains(const moira::Array* list, std::vector<Brain>& out) {
     if (!list) return true;
     for (const moira::Array& b : list->subarrays()) {
         Brain brain;
-        brain.name = tag_of(b);
+        brain.name = base::name(b);
         brain.reaction = std::clamp(get_int(b, "reaction", brain.reaction), 0, 63);
         brain.block = per_mille(get_float(b, "block", 0));
         brain.aggression = per_mille(get_float(b, "aggression", 0));
@@ -97,7 +93,7 @@ bool load(const moira::Array& root, Roster& out, std::string& error) {
     }
     for (const moira::Array& fa : fighters->subarrays()) {
         FighterData d;
-        d.name = tag_of(fa);
+        d.name = base::name(fa);
         d.health = get_int(fa, "health", d.health);
         d.width = mm(get_float(fa, "width", 0.6));
         d.height = mm(get_float(fa, "height", 1.8));
@@ -109,7 +105,7 @@ bool load(const moira::Array& root, Roster& out, std::string& error) {
         if (moves)
             for (const moira::Array& ma : moves->subarrays()) {
                 Move m;
-                m.name = tag_of(ma);
+                m.name = base::name(ma);
                 m.button = button_named(get_sym(ma, "button", "light"));
                 m.crouching = get_int(ma, "crouching", 0) != 0;
                 m.startup = std::max(1, get_int(ma, "startup", 1));
@@ -402,8 +398,7 @@ void step(World& w, const Roster& roster, const Rules& rules, const Input input[
 
 void Pilot::reset(const Brain* brain, uint64_t seed) {
     brain_ = brain;
-    rng_ = seed * 0x9E3779B97F4A7C15ull + 0x632BE59BD9B4E019ull;
-    if (rng_ == 0) rng_ = 1;
+    rng_ = base::Rng(seed, 0x632BE59BD9B4E019ull);
     seen_count_ = 0;
     plan_ = 0;
     next_decision_ = 0;
@@ -416,10 +411,7 @@ void Pilot::reset(const Brain* brain, uint64_t seed) {
 }
 
 uint32_t Pilot::roll() noexcept {
-    rng_ ^= rng_ >> 12;
-    rng_ ^= rng_ << 25;
-    rng_ ^= rng_ >> 27;
-    return static_cast<uint32_t>(((rng_ * 0x2545F4914F6CDD1Dull) >> 33) % 1000u);
+    return static_cast<uint32_t>((rng_.next() >> 33) % 1000u);
 }
 
 Input Pilot::think(const World& w, const Roster& roster, int me) {

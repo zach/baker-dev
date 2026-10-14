@@ -12,6 +12,7 @@
 
 #include <base/app.hpp>
 #include <base/render.hpp>
+#include <base/words.hpp>
 
 #include <SDL3/SDL.h>
 #include <imgui.h>
@@ -50,15 +51,6 @@ contraption::Rules current_rules() {
     return r;
 }
 
-moira::Error not_found(const std::string& what) {
-    return moira::make_error(moira::ErrorCode::NotFound, what);
-}
-
-bool truthy(const moira::Node& n) {
-    if (auto f = n.as_float()) return *f != 0;
-    return true;
-}
-
 class ContraptionGame final : public base::Game {
 public:
     void bind(moira::Context& ctx) override {
@@ -71,7 +63,7 @@ public:
                          const int l = catalog_.level(std::string(name.str()));
                          if (l < 0)
                              return moira::Unexpected(
-                                 not_found("no level " + std::string(name.str())));
+                                 base::not_found("no level " + std::string(name.str())));
                          select(l);
                          return {};
                      }),
@@ -84,7 +76,7 @@ public:
                          const int k = catalog_.kind(std::string(kind.str()));
                          if (k < 0)
                              return moira::Unexpected(
-                                 not_found("no kind " + std::string(kind.str())));
+                                 base::not_found("no kind " + std::string(kind.str())));
                          Piece p;
                          p.name = "placed" + std::to_string(placed_.size());
                          p.kind = k;
@@ -118,9 +110,9 @@ public:
                          const int ia = judging_->find(std::string(a.str()));
                          const int ib = judging_->find(std::string(b.str()));
                          if (ia < 0 || ib < 0)
-                             return moira::Unexpected(
-                                 not_found("puzzle.in names a piece the level does not have: " +
-                                           std::string(ia < 0 ? a.str() : b.str())));
+                             return moira::Unexpected(base::not_found(
+                                 "puzzle.in names a piece the level does not have: " +
+                                 std::string(ia < 0 ? a.str() : b.str())));
                          return judging_->inside(ia, ib);
                      }),
             "In a goal: whether piece a's center is inside bucket b.");
@@ -383,7 +375,7 @@ private:
             judging_ = &run;
             auto r = ctx_->eval(g);
             judging_ = nullptr;
-            return r && truthy(*r);
+            return r && base::truthy(*r);
         };
     }
 
