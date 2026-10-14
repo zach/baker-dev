@@ -34,7 +34,9 @@ static_assert(L::kValue == 0 && L::kType == 8 && L::kSize == 4 && L::kFile == 8)
 static_assert(sizeof(String) == 8 && sizeof(Symbol) == 8);
 
 constexpr char kMagic[10] = {'M', 'O', 'I', 'R', 'A', '.', 'D', 'A', 'T', 'B'};
-constexpr uint16_t kVersion = 3;  // 2: packs' harness metadata, origins (D91); 3: D119
+// 2: packs' harness metadata, origins (D91); 3: the header hashed (D119); 4: '' keys no tag
+// in the tag run (D125).
+constexpr uint16_t kVersion = 4;
 constexpr uint32_t kEndian = 0x01020304;
 
 // Offsets count from the start of the file. The blob follows the header: arrays from the
@@ -299,9 +301,8 @@ private:
         }
         // The tag run, as symbol indexes of this file (D77).
         for (uint32_t i = 0; i < a.size(); ++i) {
-            const Array* c = nodes[i].try_array();
-            const auto tag = c && !c->empty() ? c->nodes()[0].try_sym() : std::nullopt;
-            const uint32_t key = tag ? static_cast<uint32_t>(symbol(*tag)) : kNoTag;
+            const Symbol tag = detail::tag_of(nodes[i]);
+            const uint32_t key = tag.empty() ? kNoTag : static_cast<uint32_t>(symbol(tag));
             put(out, at + sizeof(Array) + size_t{i} * 4, key);
         }
     }

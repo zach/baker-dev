@@ -1,12 +1,15 @@
 // Lookup: find by tag, typed reads, fallbacks, paths, Convert<T>, sorted mode, errors.
 #include <doctest.h>
 #include <baker/array.hpp>
+#include <baker/cache.hpp>
+#include <baker/config.hpp>
 #include <baker/parse.hpp>
 #include <baker/path.hpp>
 #include <baker/std_interop.hpp>
 #include <baker/write.hpp>
 
 #include "alloc_counter.hpp"
+#include "ok.hpp"
 
 #include <array>
 #include <cstdint>
@@ -16,6 +19,7 @@
 #include <vector>
 
 using namespace baker;
+using baker::test::ok;
 
 namespace {
 
@@ -89,6 +93,33 @@ TEST_CASE("tag is an array's first symbol, or the empty symbol") {
     auto pos = array("thing", array("pos", 1.5, 2.5, 3.5));
     CHECK(pos->get<double>("pos.1", 0.0).value_or(-1) == 2.5);
     CHECK(pos->get<double>("pos.7", 9.0).value_or(-1) == 9.0);
+}
+
+TEST_CASE("'' is no tag, for lookup, merge, and the cache alike (D125)") {
+    auto root = ok(read_string("('' 1) (a 2)", "t.dta"));
+    CHECK(root->size() == 2);
+    CHECK((*root)[0].try_array()->tag() == Symbol());
+    CHECK_FALSE(root->try_find(Symbol("")));  // the tag run keys it as no tag
+    CHECK(root->try_find("a"));
+    auto sorted = Array::make_copy(root->nodes());
+    sorted->sort_for_lookup();
+    CHECK_FALSE(sorted->try_find(Symbol("")));
+    CHECK(sorted->try_find("a"));
+    // Merged as a value, not matched by key: the second replaces the first, children and
+    // all, where a key would have merged their children.
+    auto merged =
+        merge(*ok(read_string("('' (x 1))", "a.dta")), *ok(read_string("('' (y 2))", "b.dta")));
+    REQUIRE(merged->size() == 1);
+    CHECK(merged->nodes()[0].try_array()->size() == 2);  // '' and (y 2)
+    // A cache keeps the meaning.
+    std::string bytes;
+    REQUIRE(write_cache(*root, TextSink{[](void* u, std::string_view t) {
+                                            static_cast<std::string*>(u)->append(t);
+                                        },
+                                        &bytes}));
+    auto back = ok(read_cache_bytes(bytes, "t.datb"));
+    CHECK_FALSE(back->try_find(Symbol("")));
+    CHECK(back->try_find("a"));
 }
 
 TEST_CASE("typed finds read the value after the tag") {

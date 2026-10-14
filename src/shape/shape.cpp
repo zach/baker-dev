@@ -262,7 +262,8 @@ struct Checker {
         Vec<baker::Symbol> seen;
         for (uint32_t i = first; i < a.size(); ++i) {
             const Array* f = a[i].try_array();
-            const auto tag = f && !f->empty() ? (*f)[0].try_sym() : std::nullopt;
+            // '' is no tag (D125).
+            const auto tag = f && !f->tag().empty() ? std::optional(f->tag()) : std::nullopt;
             if (!tag) {
                 report(warnings, ErrorCode::NotFound,
                        "a value that is not a field of shape " + quoted(s.name), a);
@@ -319,7 +320,7 @@ struct Checker {
                     continue;
                 }
                 nested[e] = true;
-                instance(*e, *s, !e->empty() && (*e)[0].try_sym() ? 1 : 0);
+                instance(*e, *s, e->tag().empty() ? 0 : 1);
                 continue;
             }
             if (!fits(n, t)) {
@@ -365,7 +366,7 @@ struct Checker {
         for (const Node& n : a) {
             const Array* c = n.array();
             if (!c) continue;
-            const auto tag = !c->empty() ? (*c)[0].try_sym() : std::nullopt;
+            const auto tag = !c->tag().empty() ? std::optional(c->tag()) : std::nullopt;
             if (tag && chain.empty() && *tag == names().shapes) continue;  // declarations
             if (tag) chain.push_back(*tag);
             if (tag && !nested.count(c)) {

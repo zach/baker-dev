@@ -3661,3 +3661,24 @@ three alternating runs against `fd99ac7`, pinned to one CPU, with the same bench
 - **Unchanged:** every other `bench_call` row is within noise. `{add1 1}` read 80.7–81.8 ns
   before and 82.2–85.2 after, at the same instructions (220,503,011 and 220,503,076 for
   200,000 calls): code layout.
+
+## D125. Gap 26: `''` is no tag, everywhere
+
+*The owner's decision (2026-10-14), as recommended: D115's meaning.*
+
+- **The disagreement.** `Array::tag()` (D115) returned the empty Symbol for `('' 1)`, as
+  for an untagged array. But four other places tagged it: lookup (`try_find('')` found it
+  through the tag run, and sorted lookup through its own `tag_of`), merge (it matched two
+  such arrays by key and merged their children), the Config's leaves, and the cache's tag
+  run.
+- **Now.** `Array::tag()` is the one meaning, with `detail::tag_of(const Node&)` for nodes:
+  - the tag run keys `''` as no tag;
+  - `find_sorted('')` finds nothing;
+  - merge treats `('' ...)` as a value;
+  - the Config's `is_tagged` and the shape checker's walk follow suit.
+
+  The cache's tag run writes no tag for `''`. Its format is version 4, so a version-3
+  cache is rebuilt.
+- **Data.** Nothing in the tests, examples, stacks or docs used `''` as a key.
+- **Test** (`test_lookup.cpp`): linear and sorted lookup, merge, and a cache round trip.
+  Against the previous code it fails four times.
