@@ -5,6 +5,7 @@
 #include <baker/shape.hpp>
 #include <baker/std_interop.hpp>
 
+#include "alloc_counter.hpp"
 #include "ok.hpp"
 
 #include <algorithm>
@@ -95,6 +96,22 @@ TEST_CASE("a nested shape tagged with its own name is checked once") {
         (attack (dmg 12))
     )");
     CHECK(texts(r.errors).size() == 3);  // 50, 11, and the loose attack's 12
+}
+
+TEST_CASE("checking allocates the same for 10 instances as for 1,000 (gap 20)") {
+    auto allocations_for = [](int units) {
+        std::string text = "(shapes (vec (x float) (y float)) (unit (hp int) (pos vec)))";
+        for (int i = 0; i < units; ++i) text += "(unit (hp 1) (pos (x 1) (y 2)))";
+        auto tree = ok(read_string(text, "t.dta"));
+        shape::Set set;
+        shape::Report report;
+        set.add(*tree, report);
+        const test::AllocationScope scope;
+        shape::check(*tree, set, report);
+        return scope.count();
+    };
+    if (!test::counting_allocations()) return;
+    CHECK(allocations_for(1000) == allocations_for(10));
 }
 
 TEST_CASE("malformed declarations are located errors; unknown shapes are reported") {

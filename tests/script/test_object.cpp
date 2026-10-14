@@ -381,6 +381,26 @@ TEST_CASE("an object deleted during a call stays until the host's eval returns")
     CHECK_FALSE(ctx.try_resolve(ctx.object("p")));
 }
 
+int g_counted_destroyed = 0;
+struct Counted : Object<Counted> {
+    ~Counted() override { ++g_counted_destroyed; }
+    static void bind(Binder<Counted>&) {}
+};
+
+TEST_CASE("the host removing an object {new} made destroys it") {
+    Context ctx;
+    ctx.add_type<Counted>();
+    auto made = ok(ctx.eval("{new Counted c}"));
+    ObjectBase* c = ctx.try_resolve(made);
+    REQUIRE(c);
+    g_counted_destroyed = 0;
+    // Outside any call or tick the removal is at once, and the Context owned the object:
+    // it is destroyed, as {delete} and a deferred removal destroy it. It once leaked.
+    ctx.remove(*c);
+    CHECK(g_counted_destroyed == 1);
+    CHECK_FALSE(ctx.try_resolve(made));
+}
+
 TEST_CASE("objects made while a method's arguments are evaluated do not move its receiver") {
     Context ctx;
     ctx.add_type<Person>();

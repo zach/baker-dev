@@ -238,6 +238,7 @@ struct Context::Impl {
     void remove(ObjectHandle h) noexcept;
     // A removal made during a tick, applied at the sync point (D67).
     void defer_removal(ObjectHandle h);
+    void remove_now(ObjectHandle h) noexcept;
     // Storage a redefinition replaces: kept while a call may still be running from it.
     void retire(Vec<detail::Overload>& overloads);
     void retire(Vec<ScriptClass::Handler>& handlers);

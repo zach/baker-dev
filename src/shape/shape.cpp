@@ -234,9 +234,17 @@ struct Checker {
     const Set& set;
     Vec<Error>& errors;
     Vec<Error>& warnings;
-    Vec<baker::Symbol> chain;            // the tags of the arrays from the root to here
-    Vec<const Shape*> keyed;             // the (keyed) shapes, which match by place, not by tag
-    HashMap<const Array*, bool> nested;  // checked already, as a field's value
+    Vec<baker::Symbol> chain;   // the tags of the arrays from the root to here
+    Vec<const Shape*> keyed;    // the (keyed) shapes, which match by place, not by tag
+    Vec<const Shape*> by_name;  // by Symbol::index(): the shape of that name (gap 20)
+    // Arrays checked already as a field's value, below the instance being walked: a stack,
+    // emptied as the walk leaves that instance (D119, gap 20).
+    Vec<const Array*> nested;
+    Vec<baker::Symbol> seen;  // the fields each instance on the stack has, from its mark
+
+    [[nodiscard]] const Shape* shape_named(baker::Symbol name) const noexcept {
+        return name.index() < by_name.size() ? by_name[name.index()] : nullptr;
+    }
 
     [[nodiscard]] Str path() const {
         Str p;
@@ -259,7 +267,7 @@ struct Checker {
 
     // `a`'s fields, from `first`, against `s`.
     void instance(const Array& a, const Shape& s, uint32_t first) {
-        Vec<baker::Symbol> seen;
+        const size_t mark = seen.size();
         for (uint32_t i = first; i < a.size(); ++i) {
             const Array* f = a[i].try_array();
             // '' is no tag (D125).
@@ -281,10 +289,12 @@ struct Checker {
             }
             chain.pop_back();
         }
+        const auto mine = seen.begin() + static_cast<std::ptrdiff_t>(mark);
         for (const Field& field : s.fields)
-            if (!field.optional && std::find(seen.begin(), seen.end(), field.name) == seen.end())
+            if (!field.optional && std::find(mine, seen.end(), field.name) == seen.end())
                 report(errors, ErrorCode::NotFound,
                        quoted(s.name) + " has no " + quoted(field.name), a);
+        seen.resize(mark);
     }
 
     // One field's array: its values against the field's type and range.
@@ -293,7 +303,7 @@ struct Checker {
         if (field.type == Type::Any) return;
         if (field.type == Type::Shape) {
             if (const Shape* s = known(f, field)) {
-                nested[&f] = true;
+                nested.push_back(&f);
                 instance(f, *s, 1);
             }
             return;
@@ -319,7 +329,7 @@ struct Checker {
                            quoted(field.name) + " holds " + quoted(s->name) + " arrays", f);
                     continue;
                 }
-                nested[e] = true;
+                nested.push_back(e);
                 instance(*e, *s, e->tag().empty() ? 0 : 1);
                 continue;
             }
@@ -341,7 +351,7 @@ struct Checker {
     }
 
     const Shape* known(const Array& f, const Field& field) {
-        const Shape* s = set.find(field.shape);
+        const Shape* s = shape_named(field.shape);
         if (!s)
             report(errors, ErrorCode::NotFound,
                    quoted(field.name) + " is of the unknown shape " + quoted(field.shape), f);
@@ -369,13 +379,15 @@ struct Checker {
             const auto tag = !c->tag().empty() ? std::optional(c->tag()) : std::nullopt;
             if (tag && chain.empty() && *tag == names().shapes) continue;  // declarations
             if (tag) chain.push_back(*tag);
-            if (tag && !nested.count(c)) {
-                const Shape* by_tag = set.find(*tag);
+            const size_t mark = nested.size();
+            if (tag && std::find(nested.begin(), nested.end(), c) == nested.end()) {
+                const Shape* by_tag = shape_named(*tag);
                 if (by_tag && !by_tag->keyed && governs(*by_tag)) instance(*c, *by_tag, 1);
                 for (const Shape* s : keyed)
                     if (governs(*s)) instance(*c, *s, 1);
             }
             if (c->height() > 1) walk(*c);
+            nested.resize(mark);  // what this array's instance checked lies below it
             if (tag) chain.pop_back();
         }
     }
@@ -386,9 +398,12 @@ struct Checker {
 void check(const Array& tree, const Set& shapes, Report& report) {
     Vec<Error> errors(report.errors.begin(), report.errors.end());
     Vec<Error> warnings(report.warnings.begin(), report.warnings.end());
-    Checker checker{shapes, errors, warnings, {}, {}, {}};
-    for (const Shape& s : shapes.shapes())
+    Checker checker{shapes, errors, warnings, {}, {}, {}, {}, {}};
+    for (const Shape& s : shapes.shapes()) {
         if (s.keyed && !s.at.empty()) checker.keyed.push_back(&s);
+        if (s.name.index() >= checker.by_name.size()) checker.by_name.resize(s.name.index() + 1);
+        if (!checker.by_name[s.name.index()]) checker.by_name[s.name.index()] = &s;  // as find()
+    }
     checker.walk(tree);
     report.errors = List<Error>({errors.data(), errors.size()});
     report.warnings = List<Error>({warnings.data(), warnings.size()});
