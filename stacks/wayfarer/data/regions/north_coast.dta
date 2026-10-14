@@ -1,0 +1,9 @@
+; The north coast's missions.
+(missions
+   (lighthouse_signal
+      (region north_coast)
+      (unlock {mission.done harbor_intro})
+      (objectives
+         (reach (goal {at_poi lighthouse}) (hint_after 120))
+         (light (goal {flag lamp_lit}) (requires reach)))
+      (reward (xp 300) (item spyglass))))

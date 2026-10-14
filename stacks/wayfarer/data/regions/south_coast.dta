@@ -1,0 +1,13 @@
+; The south coast's missions: where the game starts.
+(missions
+   (harbor_intro
+      (region south_coast)
+      (objectives
+         (arrive (goal {at_poi harbor}) (hint_after 60)))
+      (reward (xp 100) (item climbing_gloves)))
+   (market_errand
+      (region south_coast)
+      (unlock {mission.done harbor_intro})
+      (objectives
+         (oil (goal {has_item lamp_oil}) (hint_after 180)))
+      (reward (xp 100))))

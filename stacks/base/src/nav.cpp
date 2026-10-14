@@ -98,6 +98,10 @@ NavMesh::~NavMesh() = default;
 
 bool NavMesh::init(const NavSettings& settings) {
     settings_ = settings;
+    // A tile must be a whole number of voxels across, or neighbours do not meet and Detour
+    // cannot join them: the voxel is made a little larger or smaller to fit.
+    settings_.cell_size =
+        settings.tile_size / std::max(1.0f, std::round(settings.tile_size / settings.cell_size));
     impl_ = std::make_unique<Impl>();
     impl_->mesh = dtAllocNavMesh();
     impl_->query = dtAllocNavMeshQuery();
@@ -106,8 +110,8 @@ bool NavMesh::init(const NavSettings& settings) {
     p.orig[0] = settings.origin_x;
     p.orig[1] = settings.bottom;
     p.orig[2] = settings.origin_z;
-    p.tileWidth = settings.tile_size;
-    p.tileHeight = settings.tile_size;
+    p.tileWidth = settings_.tile_size;
+    p.tileHeight = settings_.tile_size;
     int tile_bits = 1;
     while ((1 << tile_bits) < settings.max_tiles) ++tile_bits;
     tile_bits = std::min(tile_bits, 14);
@@ -148,7 +152,7 @@ bool NavMesh::add_tile(int tx, int tz, const NavGeometry& g, std::string* error)
     c.minRegionArea = 8 * 8;
     c.mergeRegionArea = 20 * 20;
     c.maxVertsPerPoly = 6;
-    c.tileSize = int(s.tile_size / c.cs);
+    c.tileSize = int(std::lround(s.tile_size / c.cs));
     c.borderSize = c.walkableRadius + 3;
     c.width = c.tileSize + c.borderSize * 2;
     c.height = c.width;

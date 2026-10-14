@@ -60,7 +60,7 @@ struct NavSettings {
     float tile_size = 32;  // metres, square
     float origin_x = 0;    // the corner of tile (0, 0)
     float origin_z = 0;
-    float cell_size = 0.25f;  // the voxel grid
+    float cell_size = 0.25f;  // the voxel grid; init() rounds it to a whole number per tile
     float cell_height = 0.1f;
     float agent_height = 1.8f;
     float agent_radius = 0.35f;
