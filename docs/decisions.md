@@ -3464,3 +3464,24 @@ set while scratch is disabled waits rather than being refused.*
   merge silently put the tweaks back. It now waits while scratch is disabled; the merge
   that enables scratch retunes them.
 - **Tests** (`test_m3b.cpp`): both fail against the previous code.
+
+## D119. The cache hashes its header; a nested shape is checked once
+
+*Found in a fresh review of the core (2026-10-14).*
+
+- **The cache's header was outside its hash.** The hash covered the bytes after the
+  64-byte header, and the loader checked only that `root` and `meta` were aligned offsets
+  among the arrays. A cache of `(a 1) (b 2)` with `root` changed from 64 to 128 loaded,
+  and returned `(a 1)` as the tree. The hash now covers the whole file, the header read with
+  its own hash field as 0, and `root` must be 64, where the writer always puts it. Format
+  version 3: a version 2 cache is refused by version, and rebuilt by `read_cached` and a
+  Config's `cache_dir` as any stale cache is. The test flips each header word from the
+  hash on; against the previous code three of them loaded. `read_cache` hashes 64 bytes
+  more: `bench_cache`'s load rows, three alternating runs against `adc20b3`, read
+  3.75–4.87 ms before and 3.20–4.84 after (noise).
+- **`baker::shape` reported a nested shape's errors twice.** A field of shape type, or a
+  `(list S)`, checks its arrays against `S`; the walk then met the same arrays again and,
+  since an unkeyed shape governs every array tagged with its name, checked them by tag.
+  `(boss (attacks (attack (dmg 50))))` reported the range error twice through every Config
+  load. The checker now remembers the arrays it checked as a field's value and does not
+  check them again by tag (a loose `(attack ...)` still is). Test in `test_shape.cpp`.

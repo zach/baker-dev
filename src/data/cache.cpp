@@ -34,7 +34,7 @@ static_assert(L::kValue == 0 && L::kType == 8 && L::kSize == 4 && L::kFile == 8)
 static_assert(sizeof(String) == 8 && sizeof(Symbol) == 8);
 
 constexpr char kMagic[10] = {'M', 'O', 'I', 'R', 'A', '.', 'D', 'A', 'T', 'B'};
-constexpr uint16_t kVersion = 2;  // 2: packs' harness metadata, origins (D91)
+constexpr uint16_t kVersion = 3;  // 2: packs' harness metadata, origins (D91); 3: D119
 constexpr uint32_t kEndian = 0x01020304;
 
 // Offsets count from the start of the file. The blob follows the header: arrays from the
@@ -61,7 +61,7 @@ struct Header {
     uint8_t pointer_bytes;
     uint8_t flags;
     uint16_t reserved;
-    uint64_t hash;  // of every byte after the header
+    uint64_t hash;  // of the whole file, this field read as 0 (file_hash)
     uint32_t file_bytes;
     uint32_t root;
     uint32_t arrays_end;  // strings start here
@@ -101,6 +101,15 @@ uint64_t hash_bytes(const char* p, size_t n) noexcept {
     for (; i < n; ++i) r = (r ^ static_cast<unsigned char>(p[i])) * k;
     for (const uint64_t x : h) r = std::rotl((r ^ x) * k, 31);
     return r ^ (r >> 32);
+}
+
+// The header's bytes as they lie in the file, with its hash field zeroed, and the rest.
+uint64_t file_hash(const char* file, size_t bytes) noexcept {
+    char header[sizeof(Header)];
+    std::memcpy(header, file, sizeof header);
+    std::memset(header + offsetof(Header, hash), 0, sizeof(uint64_t));
+    return std::rotl(hash_bytes(header, sizeof header), 1) ^
+           hash_bytes(file + sizeof header, bytes - sizeof header);
 }
 
 template <class T>
@@ -228,8 +237,8 @@ public:
                             {reinterpret_cast<std::byte*>(out.data()) + sizeof(Header),
                              out.size() - sizeof(Header)});
         }
-        h.hash = hash_bytes(out.data() + sizeof(Header), out.size() - sizeof(Header));
         put(out, 0, h);
+        put(out, offsetof(Header, hash), file_hash(out.data(), out.size()));
         return {};
     }
 
@@ -331,12 +340,11 @@ Expected<Ref<Array>> load(char* file, size_t bytes, std::string_view name, const
     auto array_at = [&](uint32_t off) {
         return off >= sizeof h && off < h.arrays_end && off % 8 == 0;
     };
-    const bool fits = h.file_bytes == bytes && array_at(h.root) &&
+    const bool fits = h.file_bytes == bytes && h.root == sizeof h &&
                       (h.meta == 0 || array_at(h.meta)) && (h.flags & ~kEnciphered) == 0 &&
                       h.arrays_end <= h.blob_end && h.blob_end <= h.symbols && h.symbols % 8 == 0 &&
                       h.symbols <= bytes && h.symbol_count <= (bytes - h.symbols) / 8;
-    if (!fits || h.hash != hash_bytes(file + sizeof h, bytes - sizeof h))
-        return bad(name, "is damaged");
+    if (!fits || h.hash != file_hash(file, bytes)) return bad(name, "is damaged");
     if (h.flags & kEnciphered)
         cipher->decrypt(cipher->user,
                         {reinterpret_cast<std::byte*>(file) + sizeof h, bytes - sizeof h});
