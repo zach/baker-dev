@@ -327,3 +327,58 @@ TEST_CASE("the reference lists types, their methods and properties, and script c
     CHECK(ref.find("### `Goblin` (script class)\n\n- `{<Goblin> hit $n}` (script)\n") !=
           std::string::npos);
 }
+
+TEST_CASE("an object deleted during a call stays until the host's eval returns") {
+    Context ctx;
+    ctx.add_type<Person>();
+    // During a method's arguments, a native method's and an object's own.
+    auto r = ctx.eval("{do {new Person q} {q grow {do {delete q} 1}}}");
+    REQUIRE(r);
+    CHECK(*r->try_float() == doctest::Approx(7.0));
+    CHECK(ctx.object("q").type() != Type::Object);
+    REQUIRE(ctx.eval("{new Person q}"));
+    (void)ok(ctx.eval("{q set mood {delete q}}"));
+    CHECK(ctx.object("q").type() != Type::Object);
+    // The host's eval is the outermost call: later commands still reach the object.
+    REQUIRE(ctx.eval("{new Person q}"));
+    CHECK(*ok(ctx.eval("{delete q} {q grow 1}")).try_float() == doctest::Approx(7.0));
+    auto stale = ctx.eval("{q grow 1}");
+    REQUIRE_FALSE(stale);
+    CHECK(stale.error().code() == ErrorCode::NotFound);
+    // C++ removing an object from inside a call waits the same way.
+    Person p;
+    REQUIRE(ctx.add(p, "p"));
+    REQUIRE(ctx.func("drop", [&](Context& c) { c.remove(p); }));
+    (void)ok(ctx.eval("{p grow {do {drop} 1}}"));
+    CHECK(p.height == doctest::Approx(7.0f));
+    CHECK_FALSE(ctx.try_resolve(ctx.object("p")));
+}
+
+TEST_CASE("objects made while a method's arguments are evaluated do not move its receiver") {
+    Context ctx;
+    ctx.add_type<Person>();
+    Person p;
+    REQUIRE(ctx.add(p, "p"));
+    std::string text = "{p get {do";
+    for (int i = 0; i < 40; ++i) text += " {new Person}";
+    text += " nope}}";
+    auto r = ctx.eval(text);
+    REQUIRE_FALSE(r);
+    CHECK(std::string(r.error().message()).find("Person has no property or parameter") !=
+          std::string::npos);
+}
+
+TEST_CASE("a class redefined or extended by its own running handler") {
+    Context ctx;
+    Person p;
+    REQUIRE(ctx.add(p, "p"));
+    ctx.set_profiling(true);  // the handler's counters are written after it returns
+    REQUIRE(ctx.eval("{class Person (ping () {class Person (ping () 5)} 7)}"));
+    CHECK(*ctx.eval("{p ping}")->try_int() == 7);
+    CHECK(*ctx.eval("{p ping}")->try_int() == 5);
+    REQUIRE(ctx.eval(
+        "{class Person (ping () {extend Person (a () 1) (b () 2) (c () 3) (ping () 6)} 8)}"));
+    CHECK(*ctx.eval("{p ping}")->try_int() == 8);
+    CHECK(*ctx.eval("{p ping}")->try_int() == 6);
+    CHECK(*ctx.eval("{p c}")->try_int() == 3);
+}

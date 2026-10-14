@@ -454,14 +454,19 @@ Context* Context::current() noexcept {
     return t_current;
 }
 
+// The host's calls: what waited for the outermost call to return is settled as it does.
 Expected<Node> Context::eval(const Node& node) {
     Scope scope(*this);
-    return impl_->eval(node);
+    Expected<Node> r = impl_->eval(node);
+    if (impl_->unsettled && impl_->depth == 0) impl_->settle();
+    return r;
 }
 
 Expected<Node> Context::run(std::span<const Node> nodes) {
     Scope scope(*this);
-    return impl_->run(nodes);
+    Expected<Node> r = impl_->run(nodes);
+    if (impl_->unsettled && impl_->depth == 0) impl_->settle();
+    return r;
 }
 
 Expected<Node> Context::eval(std::string_view text, std::string_view name) {
@@ -602,7 +607,7 @@ Expected<FuncRef> Context::add_overload(Symbol name, detail::Overload o) {
             e.set_message(Str(e.message()) + "; the script took " + arity_text(n, n) +
                           ", the native takes " + arity_text(o.min_args, o.max_args));
         notice(e);
-        f.overloads.clear();
+        impl_->retire(f.overloads);
         f.refresh();
         f.status = Status::Normal;
         f.doc.clear();

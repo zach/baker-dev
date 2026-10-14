@@ -3405,3 +3405,44 @@ in `src/` changed.*
   The text parse and the cache load are untouched (parse 73.8–92.2 MB/s before, 76.5–85.4
   after: noise). What remains of a write is mostly the zero-fill that keeps the file's
   padding the same on every run, which its hash needs.
+
+## D117. Nothing a running call uses is freed before the host's call returns
+
+*Found in a fresh review of the core (2026-10-14); each reproduced under ASan. The owner
+chose the deferral, as recommended, over re-checking the receiver after each argument
+(which cannot help a native method, whose object is already bound).*
+
+- **The bugs.** D67 deferred removals only while a Scheduler ticks, but a call needs the
+  same protection whenever one is running:
+  - `{q grow {do {delete q} 1}}` destroyed `q` while its native method's arguments were
+    being evaluated, then called the method on it; `{q set x {delete q}}` likewise for
+    `set`.
+  - `{p get {do {new P} ... nope}}`: `{new}` grew the slot table, and `send` then named the
+    class through its stale slot pointer.
+  - A `{func}` that redefined itself (directly, or through a native calling `eval`) freed
+    the body it was running; a handler that ran `{class}` or `{extend}` on its own class
+    freed or moved its `Handler`, whose counters the instrumented path writes after the
+    call returns.
+  - `Scheduler::tick` kept a slot reference across an `until` predicate, which may spawn
+    tasks and move the slots.
+  - A Scheduler made with `chunk = 0` took blocks one at a time but freed its chunks as if
+    they were 0 blocks long, breaking the Allocator's contract that a free names the size
+    allocated.
+- **The fix.** While any call runs (`depth > 0`), `{delete}` and `Context::remove` defer as
+  they do in a tick, and a redefinition moves the overloads or handlers it replaces aside
+  (`retire`) instead of freeing them. `Context::eval` and `Context::run`, the only ways the
+  host starts evaluation, settle both when the outermost one returns; during a tick the
+  removals still wait for the sync point. A destroyed C++ object still leaves at once
+  (D97). `send` looks its slot up again after evaluating arguments, `tick` reads the slot
+  again after the predicate, and the Scheduler keeps `chunk` at least 1.
+- **What a script author sees.** `{delete q}` takes effect when the host's `eval` returns,
+  so later commands in the same `eval` still reach `q`; a function or handler redefined
+  while it runs finishes its old body (`language.md`).
+- **Tests.** One per bug (`test_object.cpp`, `test_eval.cpp`, `test_tasks.cpp`, and
+  `chunk = 0` in `baker_alloc_tests`); against the previous code, five fail under ASan with
+  a heap-use-after-free and the allocator test with live bytes left.
+- **Cost.** Nothing per nested call: three instructions after the host's outermost call
+  (callgrind, `{add 1 2}` through `Context::eval`, 6 instructions a call more in all).
+  `bench_call` pinned to one CPU, six alternating runs against `adc20b3`: `{add 1 2}`
+  37.8–40.7 ns before, 38.0–39.0 after. `bench_tasks`: tick with 10,000 asleep 10.3–10.5 ns
+  before and 9.7–10.5 after; resume 16.4–16.7 and 16.2–17.0.

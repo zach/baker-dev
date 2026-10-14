@@ -215,6 +215,11 @@ struct Context::Impl {
     void remove(ObjectHandle h) noexcept;
     // A removal made during a tick, applied at the sync point (D67).
     void defer_removal(ObjectHandle h);
+    // Storage a redefinition replaces: kept while a call may still be running from it.
+    void retire(Vec<detail::Overload>& overloads);
+    void retire(Vec<ScriptClass::Handler>& handlers);
+    // Called when the host's outermost eval or run has returned, if `unsettled`.
+    void settle();
     // Deletes an object {new} made: its type knows its size.
     void destroy_owned(ObjectBase* object) noexcept { object->type().destroy(alloc, object); }
     [[nodiscard]] Expected<Node> send(ObjectHandle target, const Array& command,
@@ -275,7 +280,13 @@ struct Context::Impl {
 
     Own<Scheduler> scheduler;  // the default one, the object `scheduler`
     uint32_t ticking = 0;      // Schedulers ticking now: removals wait for the sync point
+    // Removals made while a call runs wait for the host's outermost eval or run to return
+    // (and while a Scheduler ticks, for its sync point), and so does what a redefinition
+    // replaced: a call may still be running on the object, or from the definition.
     Vec<ObjectHandle> deferred{alloc};
+    Vec<Vec<detail::Overload>> retired_overloads{alloc};
+    Vec<Vec<ScriptClass::Handler>> retired_handlers{alloc};
+    bool unsettled = false;
 };
 
 // Restores every variable bound since it was made: dynamic scope, undone even on error.

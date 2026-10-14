@@ -35,6 +35,18 @@ Task waiter(Context& ctx, Log& log, const bool& flag) {  // a Context: its defau
     note(log, ctx.scheduler(), "flag");
 }
 
+Task one_tick(Scheduler&) {
+    co_await next_tick();
+}
+// Its predicate spawns enough tasks to move the Scheduler's slots.
+Task spawner(Scheduler& s, int* polls) {
+    co_await until([&s, polls] {
+        if (++*polls == 1) return false;
+        for (int i = 0; i < 200; ++i) (void)s.spawn(one_tick(s));
+        return true;
+    });
+}
+
 struct Guard {
     int* destroyed;
     ~Guard() { ++*destroyed; }
@@ -203,4 +215,14 @@ TEST_CASE("spawning and stepping allocate nothing once the pool is warm") {
     CHECK(st.peak == 64);
     CHECK(st.blocks == 64);
     MESSAGE("a small task's frame: " << st.largest_frame << " bytes");
+}
+
+TEST_CASE("an until predicate may spawn tasks") {
+    Context ctx;
+    Scheduler& s = ctx.scheduler();
+    int polls = 0;
+    REQUIRE(s.spawn(spawner(s, &polls)));
+    for (int i = 0; i < 4; ++i) s.tick(1);
+    CHECK(polls == 2);
+    CHECK(s.stats().live == 0);
 }

@@ -85,7 +85,7 @@ Expected<Node> define(Args a, bool override) {
     f.doc = std::move(doc);
     f.file = a.command().file();
     f.line = a.command().line();
-    f.overloads.clear();
+    a.context().impl().retire(f.overloads);  // this very function may be running
     f.overloads.push_back(std::move(o));
     f.refresh();
     return Node(name);

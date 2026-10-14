@@ -352,9 +352,13 @@ designer can change one type's response without touching its C++. In a handler, 
 the object, and `[name]` reads its property or loose parameter (`{set [hp] 5}` stores
 one). Loose parameters belong to the object's stay in its Context: removing the object
 drops them. `{new T name (param value) ...}` makes an object of a script class or a bound
-type, and `{delete obj}` removes it.
+type, and `{delete obj}` removes it when the host's `eval` or `run` returns (during a
+Scheduler's tick, at its end): until then the commands after it still reach the object,
+and a call already running on it finishes safely.
 
 `{class T ...}` again replaces every handler of `T`: that is what a reloaded script means.
+A handler or `{func}` replaced while it runs finishes its old body; the next call runs the
+new one.
 To add handlers from another file (a task pack adding one action to a type), write
 `{extend T (name ($params) body...) ...}`: it adds each handler, replacing only one of the
 same name. `T` is a class already defined or a bound type. Run an extension after its
