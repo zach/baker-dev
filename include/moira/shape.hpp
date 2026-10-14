@@ -10,7 +10,12 @@
 //       (cadence  float (range 0.2 5) (optional))))
 //
 // A shape governs every array tagged with its name, or, given (at ...), those whose
-// ancestors' tags from the root are the ones listed (`*` matches any). A field has a type
+// ancestors' tags from the root are the ones listed (`*` matches any). A shape declared
+// (keyed) governs every child of the arrays at its (at ...) path, whatever the child's tag:
+// keyed data, as (fighters (kestrel (moves (jab ...) (kick ...)))), which layers merge by
+// name (D108).
+//
+//   (shapes (move (at fighters * moves) (keyed) (startup int (range 1 60)))) A field has a type
 // (int, float, bool, symbol, string, any, (list T), or another shape's name) and the tweak
 // metadata of spec §4. check() reports a field of the wrong type or out of range, or a
 // required field that is missing, as an error; a field the shape does not declare is a
@@ -54,6 +59,7 @@ struct Field {
 struct Shape {
     moira::Symbol name;
     List<moira::Symbol> at;  // ancestors' tags from the root; empty: anywhere
+    bool keyed = false;      // governs every child at `at`, whatever its tag
     List<Field> fields;
     moira::Symbol file;
     int32_t line = 0;

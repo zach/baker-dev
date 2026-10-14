@@ -130,3 +130,31 @@ TEST_CASE("shapes are enumerable, with their metadata, for tuning panels") {
     set = shape::Set();
     CHECK(copy.find("boss_phase")->field("enter_at")->desc == "HP fraction that starts this phase");
 }
+
+TEST_CASE("a (keyed) shape governs every child at its path, whatever its tag (D108)") {
+    const auto r = check_text(R"(
+        (shapes
+          (move (at fighters * moves) (keyed)
+             (startup int (range 1 60))
+             (cancels (list symbol) (optional))))
+        (fighters
+          (kestrel (moves
+             (jab (startup 4) (cancels jab))
+             (heavy (startup 900) (armor 1))
+             (palm (cancels jab))))
+          (wren (moves (poke (startup 3)))))
+        (moves (stray (startup 900)))   ; not under fighters/*/moves
+    )");
+    const auto e = texts(r.errors);
+    const auto w = texts(r.warnings);
+    REQUIRE(e.size() == 2);
+    CHECK(e[0].find("'startup' is 900, outside 1.0 to 60.0") != std::string::npos);
+    CHECK(e[0].find("fighters/kestrel/moves/heavy/startup") != std::string::npos);
+    CHECK(e[1].find("'move' has no 'startup'") != std::string::npos);  // palm
+    REQUIRE(w.size() == 1);
+    CHECK(w[0].find("'armor' is not a field of shape 'move'") != std::string::npos);
+
+    const auto bad = check_text("(shapes (move (keyed) (startup int)))");
+    REQUIRE(bad.errors.size() == 1);
+    CHECK(texts(bad.errors)[0].find("no (at ...)") != std::string::npos);
+}

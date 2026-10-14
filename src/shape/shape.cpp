@@ -13,7 +13,8 @@ namespace {
 
 struct Names {
     moira::Symbol shapes{"shapes"}, at{"at"}, range{"range"}, step{"step"}, kind{"kind"},
-        desc{"desc"}, note{"note"}, optional{"optional"}, list{"list"}, any_tag{"*"};
+        desc{"desc"}, note{"note"}, optional{"optional"}, list{"list"}, any_tag{"*"},
+        keyed{"keyed"};
 };
 const Names& names() {
     static const Names n;
@@ -183,6 +184,10 @@ void Set::add(const Array& tree, Report& report) {
                         a->file(), a->line()));
                     continue;
                 }
+                if (*tag == n.keyed) {
+                    s.keyed = true;
+                    continue;
+                }
                 if (*tag == n.at) {
                     Vec<moira::Symbol> path;
                     for (const Node& p : f->values()) {
@@ -213,8 +218,15 @@ void Set::add(const Array& tree, Report& report) {
             }
         }
     }
-    for (size_t i = 0; i < st_->shapes.size(); ++i)
-        st_->shapes[i].fields = List<Field>({st_->fields[i].data(), st_->fields[i].size()});
+    for (size_t i = 0; i < st_->shapes.size(); ++i) {
+        Shape& s = st_->shapes[i];
+        s.fields = List<Field>({st_->fields[i].data(), st_->fields[i].size()});
+        if (s.keyed && s.at.empty())
+            errors.push_back(make_error(
+                ErrorCode::Syntax,
+                "shape " + quoted(s.name) + " is (keyed) but has no (at ...): keyed under what?",
+                s.file, s.line));
+    }
     report.errors = List<Error>({errors.data(), errors.size()});
 }
 
@@ -225,6 +237,7 @@ struct Checker {
     Vec<Error>& errors;
     Vec<Error>& warnings;
     Vec<moira::Symbol> chain;  // the tags of the arrays from the root to here
+    Vec<const Shape*> keyed;   // the (keyed) shapes, which match by place, not by tag
 
     [[nodiscard]] Str path() const {
         Str p;
@@ -352,8 +365,12 @@ struct Checker {
             const auto tag = !c->empty() ? (*c)[0].try_sym() : std::nullopt;
             if (tag && chain.empty() && *tag == names().shapes) continue;  // declarations
             if (tag) chain.push_back(*tag);
-            if (tag)
-                if (const Shape* s = set.find(*tag); s && governs(*s)) instance(*c, *s, 1);
+            if (tag) {
+                const Shape* by_tag = set.find(*tag);
+                if (by_tag && !by_tag->keyed && governs(*by_tag)) instance(*c, *by_tag, 1);
+                for (const Shape* s : keyed)
+                    if (governs(*s)) instance(*c, *s, 1);
+            }
             if (c->height() > 1) walk(*c);
             if (tag) chain.pop_back();
         }
@@ -365,7 +382,10 @@ struct Checker {
 void check(const Array& tree, const Set& shapes, Report& report) {
     Vec<Error> errors(report.errors.begin(), report.errors.end());
     Vec<Error> warnings(report.warnings.begin(), report.warnings.end());
-    Checker{shapes, errors, warnings, {}}.walk(tree);
+    Checker checker{shapes, errors, warnings, {}, {}};
+    for (const Shape& s : shapes.shapes())
+        if (s.keyed && !s.at.empty()) checker.keyed.push_back(&s);
+    checker.walk(tree);
     report.errors = List<Error>({errors.data(), errors.size()});
     report.warnings = List<Error>({warnings.data(), warnings.size()});
 }

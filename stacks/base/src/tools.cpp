@@ -3,6 +3,7 @@
 #include "base/app.hpp"
 #include "base/sim.hpp"
 
+#include <moira/shape.hpp>
 #include <moira/std_interop.hpp>
 #include <moira/std_script.hpp>
 
@@ -36,8 +37,8 @@ struct Options {
         "%s\n"
         "commands:\n"
         "  sim [--scenario NAME]... [--seeds A-B] [--out DIR] [--step-hz N]\n"
-        "  check                          errors, demand, repeats as JSON; exit 1 on an error\n"
-        "                                 or a call to an undefined function\n"
+        "  check                          errors, demand, repeats as JSON; exit 1 on an error,\n"
+        "                                 a shape error, or a call to an undefined function\n"
         "  reference                      the game's script vocabulary, as Markdown\n"
         "  diff                           what agent.dta changes\n"
         "  promote [--to LAYER] [--write] agent.dta into LAYER (default); --write writes\n"
@@ -237,7 +238,17 @@ int check(Game& game, const Options& o) {
             std::fprintf(stderr, "check: '%s' is not defined (%s:%d)\n", d.name.c_str(),
                          d.sites.empty() ? "?" : d.sites.begin()->file.c_str(),
                          d.sites.empty() ? 0 : int(d.sites.begin()->line));
-    return report.ok() && !unresolved ? 0 : kFailed;
+    // The shapes, over the merged data: a value out of range or of the wrong type fails the
+    // check; a field no shape declares is reported, as demand for a word, and passes.
+    moira::shape::Set shapes;
+    moira::shape::Report shaped;
+    shapes.add(*l.live.config().root(), shaped);
+    moira::shape::check(*l.live.config().root(), shapes, shaped);
+    for (const moira::Error& e : shaped.errors)
+        std::fprintf(stderr, "shape: %s\n", std::string(moira::to_string(e)).c_str());
+    for (const moira::Error& e : shaped.warnings)
+        std::fprintf(stderr, "shape warning: %s\n", std::string(moira::to_string(e)).c_str());
+    return report.ok() && !unresolved && shaped.ok() ? 0 : kFailed;
 }
 
 // Commands over the game's data and its reset state, as a console would run them, without

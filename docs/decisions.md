@@ -3065,3 +3065,27 @@ to Moira's API; the rest is in `stacks/`.*
 - **Measured** (Release, the development container): the cube's 20-second scenario, 1,000
   seeds (1.2 million steps; each run judged), in 13–17 ms for the whole process, load included.
   The cube's step is one addition, so this is the harness's own cost.
+
+## D108. Keyed shapes
+
+*Revisits D85. Found building Duel (`docs/background/game-stacks.md` §4.6, D109): its
+shapes checked nothing.*
+
+- **The gap.** A shape governs arrays tagged with its name (D85). Keyed data, as
+  `(fighters (kestrel (moves (jab ...) (heavy ...))))`, tags each child by its own name, so
+  no shape reached it: `(startup 900)` and an undeclared `(armor 1)` loaded silently. The
+  game-stacks design's §4.6 shape, `(move (at fighters * moves) ...)`, assumed otherwise,
+  and so did `docs/language.md`'s example, which said `(at bosses * phases)` governs
+  `(phase1 ...)`. D85's workaround, `(move (name jab) ...)`, costs layering: repeated tags
+  do not merge one by one, so an agent's layer could not retune one move.
+- **`(keyed)`.** A shape declared `(keyed)` governs every child of the arrays at its
+  `(at ...)` path, whatever the child's tag: `(move (at fighters * moves) (keyed) ...)`. A
+  keyed shape without `(at ...)` is an error at declaration. Matching by name is unchanged;
+  a keyed shape does not also match by its name. `Shape::keyed` is new in the public API.
+- **Cost.** The checker keeps the keyed shapes in a list and tests each against the path of
+  every tagged array; with none declared, nothing changes. `moira::shape` is 421 lines of
+  its 600.
+- **The stacks' `check` command** now runs the shapes over the merged data too: a shape
+  error fails it (exit 1), and an undeclared field is printed as a warning, the demand for
+  a word the game does not have yet.
+- **Docs:** `docs/language.md`'s Shapes section corrected, with keyed children.

@@ -1,10 +1,12 @@
 (pack duel_core (level game) (owners "gameplay-fight" "td-combat") (stage custom))
 ; Duel's vocabulary (game-stacks.md §4.6): what a fighter, a move, and a pilot are. The
-; fight reads these and nothing else; a field it does not know is a warning in check, so a
-; designer can write a move property the fight does not have yet and see it as demand.
+; fight reads these and nothing else. Each is (keyed): it governs every child of its (at ...)
+; path, so a move is (jab ...), which the agent's layer can retune alone. A field the fight
+; does not know is a warning at load, so a designer can write a move property the fight
+; does not have yet (armor, say) and an engineer sees it as demand.
 
 (shapes
-   (fighter (at fighters)
+   (fighter (at fighters) (keyed)
       (health        int   (range 1 100000))
       (width         float (range 0.2 3) (kind meters))
       (height        float (range 0.5 4) (kind meters))
@@ -12,7 +14,7 @@
       (walk_forward  float (range 0 20) (desc "Metres per second"))
       (walk_back     float (range 0 20) (desc "Metres per second"))
       (moves         any))
-   (move (at fighters * moves)
+   (move (at fighters * moves) (keyed)
       (button    symbol (desc "light, heavy, kick, or special"))
       (crouching bool (optional) (desc "With down held"))
       (startup   int (range 1 60) (kind frames) (desc "Frames before the first active frame"))
@@ -25,7 +27,7 @@
       (guard     symbol (optional) (desc "mid (default), low, or overhead"))
       (cancels   (list symbol) (optional))
       (hitbox    (list float) (desc "x y w h, meters, relative to the fighter")))
-   (cpu_level (at cpu)
+   (cpu_level (at cpu) (keyed)
       (reaction     int (range 0 63) (kind frames) (desc "Frames before it sees a move"))
       (block        float (range 0 1) (desc "Chance, per decision near the opponent, it guards"))
       (punish       float (range 0 1) (desc "Chance it attacks a move it sees recovering"))
@@ -34,7 +36,7 @@
       (mash         float (range 0 1) (optional) (desc "Chance, per frame, of a random button"))
       (approach     float (range 0 1) (desc "Chance, per decision, it walks in, not back"))
       (decide_every int (range 1 60) (kind frames)))
-   (bot (at bots)
+   (bot (at bots) (keyed)
       (reaction     int (range 0 63) (kind frames))
       (block        float (range 0 1))
       (punish       float (range 0 1))
