@@ -1,0 +1,22 @@
+; Stuntline's scenarios: each track judged by its AI drivers, headless (game-stacks.md
+; §4.5). Steering noise draws from $seed, so seeds are different drives.
+(scenario canyon_jump
+   (desc "A run-up, the canyon jump, a left to the line")
+   (seconds 0.02)
+   (start {track.load canyon_jump})
+   (objectives track.valid track.pro_finishes track.pro_crashes track.airtime track.skill_spread
+               track.jumps_need_commitment))
+(scenario switchback
+   (desc "Bends to set up, then the jump")
+   (seconds 0.02)
+   (start {track.load switchback})
+   (objectives track.valid track.pro_finishes track.pro_crashes track.airtime track.skill_spread
+               track.jumps_need_commitment))
+
+; The game's own loop: the pro driving on the game's fixed steps must finish as the analyses
+; say it does. The runner and the game agree, or ghosts mean nothing.
+(scenario played_canyon_jump
+   (desc "The pro drives canyon_jump on the game's own steps")
+   (seconds 40)
+   (start {track.load canyon_jump} {track.drive pro})
+   (objectives track.played_finishes))

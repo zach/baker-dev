@@ -12,6 +12,8 @@ lives outside `src/`: Moira's line budget and core rules do not cover it.
 | `agent.md`, `tools/` | The agent harness (design §3): headless simulation, objectives, the commands | Built |
 | `duel/` | Player versus CPU fighting on frame data (design §4.6) | Built; see `duel/README.md` |
 | `ledger/` | A tycoon economy, balanced against bot strategies (design §4.2) | Built; see `ledger/README.md` |
+| `contraption/` | Physics puzzles, side on, on Jolt (design §4.1) | Built; see `contraption/README.md` |
+| `stuntline/` | Stunt races on tracks laid from a kit, on Jolt's vehicle (design §4.5) | Built; see `stuntline/README.md` |
 
 ## Build and run
 
@@ -26,7 +28,7 @@ build-stacks/bin/stacks_cube              # Windows: build-stacks\bin\stacks_cub
 ```
 
 **Without a development machine:** each CI run on GitHub builds the cube for Windows and
-attaches it as the artifact `stacks-cube-windows` (and Duel and Ledger as `stacks-duel-windows` and `stacks-ledger-windows`) (the run's Summary page, under
+attaches it as the artifact `stacks-cube-windows` (and each other game as `stacks-<game>-windows`) (the run's Summary page, under
 Artifacts): a zip with `stacks_cube.exe`, its `data` folder, and a `README.txt` with the
 test steps. It needs no installs.
 

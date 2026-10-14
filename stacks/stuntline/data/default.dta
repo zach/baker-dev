@@ -1,0 +1,40 @@
+; Stuntline's data: the car, the kit of track pieces, the tracks laid from it, and the AI
+; drivers. Edit and save while it runs; the race restarts on the new track.
+#require "../packs/game/stuntline_core.dta"
+
+(car
+   (mass 1500) (width 1.8) (height 0.4) (length 4)
+   (wheel_radius 0.3) (wheel_width 0.1)
+   (max_torque 900) (max_rpm 6000) (max_steer 30)
+   (suspension_min 0.3) (suspension_max 0.5) (suspension_frequency 1.5) (suspension_damping 0.5)
+   (grip 1))
+
+; The kit. A piece's in and out are connector types; a track lays pieces whose ends match.
+(pieces
+   (straight_20 (kind straight) (length 20) (in flat) (out flat))
+   (straight_40 (kind straight) (length 40) (in flat) (out flat))
+   (kicker_15   (kind ramp) (length 15) (rise 3) (in flat) (out lip))
+   (gap_8       (kind gap) (length 8) (in lip) (out lip))
+   (gap_18      (kind gap) (length 18) (in lip) (out lip))
+   (landing_20  (kind ramp) (length 20) (rise -3) (in lip) (out flat))
+   (left_45     (kind turn) (radius 40) (angle 45) (in flat) (out flat))
+   (right_45    (kind turn) (radius 40) (angle -45) (in flat) (out flat))
+   (left_90     (kind turn) (radius 30) (angle 90) (in flat) (out flat))
+   (right_90    (kind turn) (radius 30) (angle -90) (in flat) (out flat)))
+
+(tracks
+   (canyon_jump
+      (desc "A run-up, a jump over the canyon, and a banked left to the line")
+      (lay straight_40 kicker_15 gap_8 landing_20 left_90 straight_40)
+      (par 20))
+   (switchback
+      (desc "Bends to set up, then the jump")
+      (lay straight_20 left_45 right_90 left_45 straight_40 kicker_15 gap_18 landing_20 straight_20)
+      (par 25)))
+
+; AI drivers: the share of each corner's speed they take, how much their steering wanders,
+; and how far ahead they look.
+(drivers
+   (rookie (pace 0.75) (noise 0.15) (look_ahead 10) (top_speed 30))
+   (pro    (pace 0.9)  (noise 0.05) (look_ahead 12) (top_speed 40))
+   (ace    (pace 1)    (noise 0)    (look_ahead 14) (top_speed 50)))

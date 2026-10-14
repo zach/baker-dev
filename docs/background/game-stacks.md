@@ -263,6 +263,9 @@ on PC.
 
 ### 4.1 Contraption: physics-based puzzle levels
 
+*Built (D111): `stacks/contraption/`, side on (bodies locked to x-y), with keyed data and
+`(keyed)` shapes; levels write their pieces as `(pieces (ball (kind ball) ...))`.*
+
 **The question.** Is this level solvable, solvable only the intended way, and does
 solving it feel clever rather than fiddly?
 
@@ -528,6 +531,9 @@ sight, "within the storm") appear as demand.
 
 ### 4.5 Stuntline: stunt race levels from track pieces
 
+*Built (D111): `stacks/stuntline/`, sprints rather than circuits, flat turns (banking waits
+for a road mesh), no loops yet.*
+
 **The question.** Is the track fun to drive: fast, readable, with jumps that land and
 moments of airtime, built quickly from a kit of pieces?
 
@@ -686,6 +692,8 @@ Stuntline); navigation (Hearth, Wayfarer); bot drivers and the runner's statisti
    search and long statistical soak. *Done (D109): `stacks/duel/` and `stacks/ledger/`, each
    playable, with scenarios and objectives that pass; keyed shapes (D108) came out of it.*
 3. **Contraption and Stuntline** next: both reuse Duel's deterministic core and add Jolt.
+   *Done (D111): Jolt in the base, built cross-platform deterministic, with replay hashes
+   that MSVC on Windows reproduces from Linux; both stacks playable, judged headless.*
 4. **Hearth and Wayfarer** last: the largest worlds, the most native code, the most
    content.
 
