@@ -1,0 +1,540 @@
+// Config's write-back (spec §4): planning an edit of a layer's file, writing it, promoting
+// scratch, and the layer tools, layer_effect and diff.
+
+#include "config_impl.hpp"
+
+#include <algorithm>
+#include <cstdio>
+
+#if defined(_WIN32)
+#include <direct.h>
+#else
+#include <sys/stat.h>
+#endif
+
+namespace baker {
+namespace {
+
+// Creates each missing parent directory of `path`. The library avoids std::filesystem
+// (D22), so this is the one place it creates directories, for an optional layer's file.
+void make_parents(const Str& path) {
+    for (size_t at = path.find_first_of("/\\", 1); at != Str::npos;
+         at = path.find_first_of("/\\", at + 1)) {
+        const Str dir = path.substr(0, at);
+#if defined(_WIN32)
+        (void)_mkdir(dir.c_str());
+#else
+        (void)mkdir(dir.c_str(), 0777);
+#endif
+    }
+}
+
+// A tagged array with values in some tree, found by walking tags (first occurrence of
+// each tag, as find and merge use).
+struct Leaf {
+    Str path;  // dotted
+    const Array* holder;
+    Vec<Node> values;
+};
+
+Vec<Node> values_of(const Array& a) {
+    Vec<Node> out;
+    for (size_t i = 1; i < a.size(); ++i)
+        if (!is_tagged(a[i])) out.push_back(a[i]);
+    return out;
+}
+
+int32_t line_at(std::string_view text, uint32_t offset) {
+    const auto end = text.begin() + std::min<size_t>(offset, text.size());
+    return 1 + static_cast<int32_t>(std::count(text.begin(), end, '\n'));
+}
+
+void collect_leaves(const Array& a, size_t first, const Str& prefix, Vec<Leaf>& out) {
+    Vec<Symbol> seen;
+    for (size_t i = first; i < a.size(); ++i) {
+        if (!is_tagged(a[i])) continue;
+        const Array& child = *a[i].try_array();
+        const Symbol tag = *child[0].try_sym();
+        if (std::find(seen.begin(), seen.end(), tag) != seen.end()) continue;
+        seen.push_back(tag);
+        Str path = prefix;
+        if (!path.empty()) path += '.';
+        detail::append_path_name(path, tag.str());
+        if (has_values(child)) out.push_back({path, &child, values_of(child)});
+        collect_leaves(child, 1, path, out);
+    }
+}
+
+Vec<Leaf> leaves_of(const Array& root) {
+    Vec<Leaf> out;
+    collect_leaves(root, 0, "", out);
+    return out;
+}
+
+Str join(const Vec<Node>& values) {
+    Str out;
+    for (const Node& n : values) {
+        if (!out.empty()) out += ' ';
+        out += detail::text_of(n);
+    }
+    return out;
+}
+
+// path[from..] holding `values`, in the pretty-printer's form: (a (b value)). Lines after
+// the first are indented by `indent`.
+Str render_entry(const Path& path, size_t from, const Vec<Node>& values, const Str& indent) {
+    Vec<Node> inner{Node(path[path.size() - 1].name)};
+    inner.insert(inner.end(), values.begin(), values.end());
+    Ref<Array> nest = Array::make_from(inner);
+    for (size_t i = path.size() - 1; i-- > from;) nest = array(path[i].name, Node(nest));
+    Str text = detail::dta_of(*array(Node(nest)));
+    while (!text.empty() && text.back() == '\n') text.pop_back();
+    for (size_t at = text.find('\n'); at != Str::npos; at = text.find('\n', at + 1))
+        text.insert(at + 1, indent);
+    return text;
+}
+
+struct Edit {
+    uint32_t begin, end;
+    Str text;
+};
+
+}  // namespace
+
+namespace config_internal {
+
+bool write_disk_file(std::string_view where, std::string_view text) {
+    const Str path(where);
+    std::FILE* f = std::fopen(path.c_str(), "wb");
+    if (!f) {
+        make_parents(path);
+        f = std::fopen(path.c_str(), "wb");
+    }
+    if (!f) return false;
+    const bool ok = std::fwrite(text.data(), 1, text.size(), f) == text.size();
+    return std::fclose(f) == 0 && ok;
+}
+
+// One node for a value: itself, or (v1 v2 ...) for several.
+}  // namespace config_internal
+
+// Plans writing `values` as `path`'s value into `layer`'s file: replacing only the tokens
+// that hold the old value or, with `insert`, adding the entry as the last child of the
+// deepest ancestor written in that file (or creating an optional layer's absent file).
+// `read_file` gives the file as it is now; it must match what the layer was read from.
+Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
+                                  const Vec<Node>& values, bool insert,
+                                  const LoadSession::Reader& read_file) const {
+    if (layer.path.empty())
+        return Unexpected(refused(quoted(path) + " comes from layer '" + layer.name +
+                                  "', which has no source file"));
+    if (!layer.map)
+        return Unexpected(refused("layer '" + layer.name +
+                                  "' was not read in edit mode, so it cannot be written"));
+    const SourceMap& map = *layer.map;
+    const Symbol main(layer.file);
+    auto unchanged = [&](Symbol file) -> std::optional<Error> {
+        const auto orig = map.text(file);
+        Str disk;
+        if (!orig || !detail::read_with(read_file, file.str(), disk) || disk != *orig)
+            return refused("'" + Str(file.str()) +
+                               "' has changed since it was read; reload before writing back",
+                           file);
+        return std::nullopt;
+    };
+    auto no_index = [&](size_t from, Symbol file, int32_t line) -> std::optional<Error> {
+        for (size_t i = from; i < path.size(); ++i)
+            if (path[i].is_index)
+                return refused(quoted(path) + " names element " + detail::decimal(path[i].index) +
+                                   ", which layer '" + layer.name + "' does not have",
+                               file, line);
+        return std::nullopt;
+    };
+
+    if (layer.missing) {
+        if (!insert) return Unexpected(detail::get_error(*layer.root, path, nullptr));
+        if (auto e = no_index(0, main, 0)) return Unexpected(*e);
+        Str disk;
+        if (detail::read_with(read_file, layer.file, disk))
+            return Unexpected(refused(
+                "'" + layer.file + "' has appeared since it was read; reload before writing back",
+                main));
+        return Plan{main, render_entry(path, 0, values, "") + "\n", true};
+    }
+
+    // Walk the layer's own tree, checking that every step was written literally in a file.
+    auto not_literal = [&](const Array& parent, size_t k) -> std::optional<Error> {
+        const SourceSpan* sp = map.span(parent, k);
+        if (!sp)
+            return refused(
+                quoted(path) + " is in an array assembled by #merge; edit it where it is defined",
+                parent.file(), parent.line());
+        if (!sp->macro.empty()) {
+            const auto text = map.text(sp->file);
+            return refused(quoted(path) + " comes from macro '" + Str(sp->macro.str()) +
+                               "'; edit the macro's definition instead",
+                           sp->file, text ? line_at(*text, sp->begin) : 0);
+        }
+        if (sp->file.empty()) return refused(quoted(path) + " has no source text");
+        return std::nullopt;
+    };
+    const Array* cur = layer.root.get();
+    size_t offset = 0;  // where index 0 is: 1 after a tag, 0 in the root or an element
+    Vec<size_t> targets;
+    size_t missing_from = path.size();
+    for (size_t i = 0; i < path.size(); ++i) {
+        const Path::Segment& seg = path[i];
+        size_t k = cur->size();
+        if (seg.is_index) {
+            k = offset + seg.index < cur->size() ? offset + seg.index : cur->size();
+        } else {
+            for (size_t j = 0; j < cur->size() && k == cur->size(); ++j)
+                if (is_tagged((*cur)[j]) && (*(*cur)[j].try_array())[0].is(seg.name)) k = j;
+        }
+        if (k == cur->size()) {
+            missing_from = i;
+            break;
+        }
+        if (auto e = not_literal(*cur, k)) return Unexpected(*e);
+        const bool last = i + 1 == path.size();
+        if (last && seg.is_index) {
+            targets.push_back(k);
+            break;
+        }
+        const Array* next = (*cur)[k].try_array();
+        if (!next) return Unexpected(detail::get_error(*layer.root, path, nullptr));
+        cur = next;
+        offset = seg.is_index ? 0 : 1;
+        if (last)
+            for (size_t j = 1; j < cur->size(); ++j)
+                if (!is_tagged((*cur)[j])) targets.push_back(j);
+    }
+
+    Vec<Edit> edits;
+    Symbol file;
+    if (missing_from < path.size()) {
+        if (auto e = no_index(missing_from, cur->file(), cur->line())) return Unexpected(*e);
+        if (!insert) return Unexpected(detail::get_error(*layer.root, path, nullptr));
+        file = main;
+        const auto text = map.text(main);
+        if (!text) return Unexpected(refused("no source text for '" + layer.file + "'", main));
+        if (cur == layer.root.get()) {
+            // A new top-level form at the end of the file.
+            const bool newline = !text->empty() && text->back() != '\n';
+            const auto end = static_cast<uint32_t>(text->size());
+            edits.push_back(
+                {end, end,
+                 (newline ? "\n" : "") + render_entry(path, missing_from, values, "") + "\n"});
+        } else {
+            // The last child of the deepest ancestor written in this file itself.
+            const SourceSpan* ext = map.extent(*cur);
+            if (!ext || ext->file != main)
+                return Unexpected(
+                    refused("cannot add " + quoted(path) + " to '" + layer.file +
+                                "': the array it would go in comes from another file (#include or "
+                                "#merge), not this one",
+                            cur->file(), cur->line()));
+            const SourceSpan* last = map.span(*cur, cur->size() - 1);
+            if (!last || last->file != main || last->end > text->size() || ext->end == 0)
+                return Unexpected(
+                    refused("cannot find where to add " + quoted(path), cur->file(), cur->line()));
+            const bool one_line = text->find('\n', ext->begin) == Str::npos ||
+                                  text->find('\n', ext->begin) >= last->begin;
+            if (one_line) {
+                edits.push_back(
+                    {last->end, last->end, " " + render_entry(path, missing_from, values, "")});
+            } else {
+                // Indented like the previous sibling, after the rest of its line.
+                const size_t line_start = text->rfind('\n', last->begin) + 1;
+                size_t ws = line_start;
+                while (ws < last->begin && ((*text)[ws] == ' ' || (*text)[ws] == '\t')) ++ws;
+                const Str indent(text->substr(line_start, ws - line_start));
+                const size_t line_end = text->find('\n', last->end);
+                const auto at = static_cast<uint32_t>(
+                    line_end != Str::npos && line_end < ext->end - 1 ? line_end : last->end);
+                edits.push_back(
+                    {at, at, "\n" + indent + render_entry(path, missing_from, values, indent)});
+            }
+        }
+    } else {
+        Vec<Node> old;
+        for (size_t k : targets) {
+            if (auto e = not_literal(*cur, k)) return Unexpected(*e);  // e.g. (width kWidth)
+            const SourceSpan& sp = *map.span(*cur, k);
+            if (file.empty()) file = sp.file;
+            if (sp.file != file)
+                return Unexpected(refused(quoted(path) + " is written across several files",
+                                          cur->file(), cur->line()));
+            old.push_back((*cur)[k]);
+        }
+        if (targets.size() == values.size()) {
+            for (size_t i = 0; i < targets.size(); ++i) {
+                if (structurally_equal(old[i], values[i])) continue;
+                const SourceSpan& sp = *map.span(*cur, targets[i]);
+                edits.push_back({sp.begin, sp.end, detail::text_of(values[i])});
+            }
+        } else if (targets.empty()) {
+            if (auto e = not_literal(*cur, 0)) return Unexpected(*e);
+            const SourceSpan* tag = map.span(*cur, 0);
+            file = tag->file;
+            edits.push_back({tag->end, tag->end, " " + join(values)});
+        } else {
+            for (size_t i = 1; i < targets.size(); ++i)
+                if (targets[i] != targets[i - 1] + 1)
+                    return Unexpected(
+                        refused("the values of " + quoted(path) +
+                                    " are split by nested arrays, so their number cannot change",
+                                cur->file(), cur->line()));
+            edits.push_back({map.span(*cur, targets.front())->begin,
+                             map.span(*cur, targets.back())->end, join(values)});
+        }
+    }
+    if (edits.empty()) return Plan{file, {}, false};
+
+    if (auto e = unchanged(file)) return Unexpected(*e);
+    Str text(*map.text(file));
+    std::sort(edits.begin(), edits.end(),
+              [](const Edit& a, const Edit& b) { return a.begin > b.begin; });
+    for (const Edit& e : edits) {
+        if (e.begin > e.end || e.end > text.size())
+            return Unexpected(refused("source spans do not match '" + Str(file.str()) + "'", file));
+        text.replace(e.begin, e.end - e.begin, e.text);
+    }
+    return Plan{file, std::move(text), true};
+}
+
+// Writes one value into layer `li`, re-reads that layer and those above (trigger
+// write_back), and drops the scratch entry the file now holds.
+Expected<WriteReport> Config::Impl::write_into(Config& c, size_t li, const Path& path,
+                                               const Vec<Node>& values, bool insert) {
+    auto p = plan(layers[li], path, values, insert, base.reader());
+    if (!p) return Unexpected(std::move(p).error());
+    ReloadRecord rec = begin(trigger_name("write_back"));
+    uint64_t t = rec.start_ns;
+    if (p->changed) {
+        if (!writer(Str(p->file.str()), p->text))
+            return Unexpected(
+                make_error(ErrorCode::Io, "cannot write '" + Str(p->file.str()) + "'", p->file));
+        rec.first_file = p->file;
+        const uint64_t t0 = now();
+        auto r = reread(layers, li, &rec.read_ns, &rec.files_reloaded);
+        t = now();
+        rec.parse_ns = t - t0 - rec.read_ns;
+        if (!r) {
+            rec.outcome = ReloadOutcome::ParseError;
+            finish(c, rec, t);
+            return Unexpected(std::move(r).error());
+        }
+    }
+    // The file holds the value now. Drop it from scratch, unless a layer above still hides it.
+    const Path key = last_is_index(path) ? parent_of(path) : path;
+    const auto it = std::find_if(scratch.begin(), scratch.end(),
+                                 [&](const ScratchEntry& e) { return e.path == key; });
+    ScratchEntry written_edit;  // its journal entry gets the line written (D93)
+    if (it != scratch.end()) {
+        written_edit.key = it->key;
+        written_edit.edit = it->edit;
+        ScratchEntry kept = std::move(*it);
+        scratch.erase(it);
+        Vec<Node> now_values;
+        if (!value_nodes(*merged(), path, now_values) || !same_nodes(now_values, values))
+            scratch.push_back(std::move(kept));
+    }
+    commit(c, rec, t);
+    finish(c, rec, t);
+    WriteReport report;
+    if (p->changed) {
+        const Source s = source_in(layers[li], path);
+        const WrittenLine line{s.file, s.line};
+        report.written = List<WrittenLine>(std::span<const WrittenLine>(&line, 1));
+    }
+    const Source s = source_in(layers[li], path);
+    settle(written_edit, EditFate::Written, {s.file, s.line});
+    return report;
+}
+
+// --- Write-back ---
+
+Expected<WriteReport> Config::write_back(const Path& path) {
+    if constexpr (kShipping) return Unexpected(shipping("write-back"));
+    if (!path.valid()) return Unexpected(detail::get_error(*root_, path, nullptr));
+    Vec<Node> values;
+    if (!impl_->current(*this, path, values))
+        return Unexpected(detail::get_error(*root_, path, nullptr));
+    const auto at = impl_->supplier(path, impl_->layers.size());
+    if (!at)
+        return Unexpected(refused(
+            quoted(path) + " is not in any layer's file; use write_back_to to add it to one"));
+    return impl_->write_into(*this, *at, path, values, false);
+}
+
+Expected<WriteReport> Config::write_back_to(const Path& path, std::string_view layer) {
+    if constexpr (kShipping) return Unexpected(shipping("write-back"));
+    if (!path.valid()) return Unexpected(detail::get_error(*root_, path, nullptr));
+    if (layer == "scratch") return Unexpected(refused("scratch is never written to disk"));
+    Vec<Node> values;
+    if (!impl_->current(*this, path, values))
+        return Unexpected(detail::get_error(*root_, path, nullptr));
+    const auto at = impl_->find_layer(layer);
+    if (!at)
+        return Unexpected(make_error(ErrorCode::NotFound, "no layer named '" + Str(layer) + "'"));
+    return impl_->write_into(*this, *at, path, values, true);
+}
+
+Expected<WriteReport> Config::promote(std::string_view from, std::string_view to) {
+    if constexpr (kShipping) return Unexpected(shipping("promote()"));
+    if (auto ok = impl_->may_change(*this); !ok) return Unexpected(std::move(ok).error());
+    if (to == "scratch") return Unexpected(refused("scratch is never written to disk"));
+    const auto ti = impl_->find_layer(to);
+    const auto fi = impl_->find_layer(from);
+    if (!ti || (!fi && from != "scratch"))
+        return Unexpected(
+            make_error(ErrorCode::NotFound, "no layer named '" + Str(ti ? from : to) + "'"));
+    if (fi == ti) return Unexpected(refused("cannot promote a layer into itself"));
+    const Ref<Array> tree = fi ? impl_->layers[*fi].root : impl_->scratch_root();
+    const Vec<Leaf> leaves = tree ? leaves_of(*tree) : Vec<Leaf>();
+
+    // Plan every entry against the target as each earlier one leaves it, in memory.
+    HashMap<Str, Str> virt;
+    const LoadSession::Reader disk = impl_->base.reader();
+    const LoadSession::Reader vread = [&](std::string_view p, TextSink out) {
+        if (auto it = virt.find(Str(p)); it != virt.end()) {
+            out(it->second);
+            return true;
+        }
+        return disk(p, out);
+    };
+    LayerState target = impl_->layers[*ti];
+    Vec<Error> refusals;
+    for (const Leaf& leaf : leaves) {
+        auto p = impl_->plan(target, Path(leaf.path), leaf.values, true, vread);
+        if (!p) {
+            refusals.push_back(std::move(p).error());
+            continue;
+        }
+        if (!p->changed) continue;
+        virt[Str(p->file.str())] = std::move(p->text);
+        LoadSession before = *impl_->session_below(impl_->layers, *ti);
+        before.set_reader(vread);
+        if (auto r = impl_->read(target, before); !r) refusals.push_back(std::move(r).error());
+    }
+    WriteReport report;
+    if (!refusals.empty()) {  // nothing written
+        report.refused = List<Error>(refusals);
+        return report;
+    }
+    for (const auto& [file, text] : virt)
+        if (!impl_->writer(file, text))
+            return Unexpected(
+                make_error(ErrorCode::Io, "cannot write '" + file + "'", Symbol(file)));
+    ReloadRecord rec = impl_->begin(trigger_name("write_back"));
+    uint64_t t = rec.start_ns;
+    if (!virt.empty()) {
+        const uint64_t t0 = impl_->now();
+        auto r = impl_->reread(impl_->layers, *ti, &rec.read_ns, &rec.files_reloaded);
+        t = impl_->now();
+        rec.parse_ns = t - t0 - rec.read_ns;
+        if (!r) {
+            rec.outcome = ReloadOutcome::ParseError;
+            impl_->finish(*this, rec, t);
+            return Unexpected(std::move(r).error());
+        }
+    }
+    impl_->commit(*this, rec, t);
+    impl_->finish(*this, rec, t);
+    Vec<WrittenLine> written;
+    for (const Leaf& leaf : leaves) {
+        const Source s = impl_->source_in(impl_->layers[*ti], Path(leaf.path));
+        if (!virt.empty()) written.push_back({s.file, s.line});
+        // Scratch's edits are in the file now (D93).
+        if (from == "scratch") {
+            const Symbol key(detail::text_of(Path(leaf.path)));
+            for (const ScratchEntry& e : impl_->scratch)
+                if (e.key == key) impl_->settle(e, EditFate::Written, {s.file, s.line});
+        }
+    }
+    report.written = List<WrittenLine>(written);
+    return report;
+}
+
+// --- Layer tooling ---
+
+Expected<List<LayerEffectEntry>> Config::layer_effect(std::string_view layer) const {
+    const bool is_scratch = layer == "scratch";
+    const auto li = impl_->find_layer(layer);
+    if (!li && !is_scratch)
+        return Unexpected(make_error(ErrorCode::NotFound, "no layer named '" + Str(layer) + "'"));
+    const Ref<Array> tree = li ? impl_->layers[*li].root : impl_->scratch_root();
+    Vec<LayerEffectEntry> out;
+    if (!tree) return List<LayerEffectEntry>();
+    // The stack without this layer.
+    Ref<Array> without = Array::make(0);
+    for (size_t i = 0; i < impl_->layers.size(); ++i)
+        if (impl_->layers[i].options.enabled && (!li || i != *li))
+            without = baker::merge(*without, *impl_->layers[i].root);
+    const Ref<Array> scratch = impl_->scratch_enabled ? impl_->scratch_root() : nullptr;
+    if (!is_scratch && scratch) without = baker::merge(*without, *scratch);
+
+    const Source in_scratch{scratch_name()};
+    Vec<Node> below;
+    for (const Leaf& leaf : leaves_of(*tree)) {
+        LayerEffectEntry e{};
+        const Path path(leaf.path);
+        e.path = Symbol(leaf.path);
+        e.value = pack(leaf.values);
+        e.source = li ? Impl::located(impl_->layers[*li], *leaf.holder) : in_scratch;
+        if (value_nodes(*without, path, below)) e.below = pack(below);
+        // The topmost other layer that supplies the path: it shadows this one if above it.
+        const auto s = impl_->supplier(path, impl_->layers.size(), li ? *li : SIZE_MAX);
+        const bool scratch_has = !is_scratch && impl_->scratch_entry(path);
+        if (scratch_has)
+            e.below_source = in_scratch;
+        else if (s)
+            e.below_source = impl_->source_in(impl_->layers[*s], path);
+        e.shadowed = scratch_has || (li && s && *s > *li);
+        out.push_back(std::move(e));
+    }
+    return List<LayerEffectEntry>(out);
+}
+
+Expected<List<DiffEntry>> Config::diff(std::string_view a, std::string_view b) const {
+    auto tree_of = [&](std::string_view name) -> Expected<Ref<Array>> {
+        if (name == "scratch") {
+            Ref<Array> s = impl_->scratch_root();
+            return s ? s : Array::make(0);
+        }
+        if (auto i = impl_->find_layer(name)) return impl_->layers[*i].root;
+        return Unexpected(make_error(ErrorCode::NotFound, "no layer named '" + Str(name) + "'"));
+    };
+    auto ta = tree_of(a), tb = tree_of(b);
+    if (!ta) return Unexpected(std::move(ta).error());
+    if (!tb) return Unexpected(std::move(tb).error());
+    const Vec<Leaf> la = leaves_of(**ta), lb = leaves_of(**tb);
+    auto source = [&](std::string_view layer, const Leaf& l) {
+        return layer == "scratch" ? Source{scratch_name()} : impl_->located(layer, *l.holder);
+    };
+    // b's leaves by path, each matched at most once.
+    HashMap<Str, size_t> in_b;
+    for (size_t i = 0; i < lb.size(); ++i) in_b.emplace(lb[i].path, i);
+    Vec<bool> matched(lb.size(), false);
+    Vec<DiffEntry> out;
+    for (const Leaf& x : la) {
+        const auto it = in_b.find(x.path);
+        const Leaf* y = it != in_b.end() ? &lb[it->second] : nullptr;
+        if (y) matched[it->second] = true;
+        if (y && same_nodes(x.values, y->values)) continue;
+        DiffEntry d{Symbol(x.path), pack(x.values), std::nullopt, source(a, x), std::nullopt};
+        if (y) {
+            d.b = pack(y->values);
+            d.source_b = source(b, *y);
+        }
+        out.push_back(std::move(d));
+    }
+    for (size_t i = 0; i < lb.size(); ++i)
+        if (!matched[i])
+            out.push_back({Symbol(lb[i].path), std::nullopt, pack(lb[i].values), std::nullopt,
+                           source(b, lb[i])});
+    return List<DiffEntry>(out);
+}
+
+}  // namespace baker

@@ -3558,3 +3558,36 @@ for them next.*
   `layer_effect` 1.29–1.36 ms before and 1.10–1.17 after, and `diff` 3.46–3.54 ms and
   1.25–1.32. With four layers `layer_effect` is mostly its one re-merge of the stack
   without the layer, so the quadratic term mattered little here; it grows with layers.
+
+## D122. `config.cpp` split by subsystem
+
+*From the review of D116–D120 (2026-10-14), which left it for later; the owner asked for
+it next. A move: no behavior changes.*
+
+- **Why.** At 1,750 lines `config.cpp` held four subsystems: layers, merging and scratch;
+  the reload history and loop statistics; write-back planning (one 180-line function) with
+  `promote`; and the layer tools. Its private types were in an anonymous namespace, so no
+  other file could take any of it.
+- **Now.**
+  - `config_impl.hpp` (internal) holds the shared records (`LayerState`, `ScratchEntry`,
+    the loop table) and `Config::Impl`: its state, the small accessors inline, the rest
+    declared. Its helpers are in `baker::config_internal`, not in baker's own names.
+  - `config.cpp` (751 lines) has layers, reading and reload, the merge, scratch and the
+    edit journal, and snapshots.
+  - `config_loop.cpp` (172) has the reload history and loop statistics.
+  - `config_write.cpp` (540) has write-back planning and writing, `promote`,
+    `layer_effect` and `diff`, with the default disk writer.
+
+  Each helper lives in the file that uses it, and only the six shared by two files are
+  declared in the header.
+- **One cost, found and removed.** With its types in an anonymous namespace, every `Impl`
+  method taking one had internal linkage, so GCC could see all of `retune`'s callers and
+  inlined it into `set()`'s fast path. Split out, it became a call: 17 instructions a
+  `set` (callgrind, 200,000 sets). It is now `always_inline` (`__forceinline` on MSVC),
+  which brings `set` to 115.6M instructions against 116.8M before the split. Pinned
+  timings, three alternating runs against `4404b48`: `Config set, a scalar in scratch`
+  87.6–89.1 ns before and 89.8–91.7 after (fewer instructions, so code layout); `reload`
+  of an unchanged small file 3.93–3.97 µs and 3.94–4.01; `mark_visible` 0.30–0.31 ns and
+  0.30.
+- **Size:** the core is 11,181 lines (11,128 before): the header's declarations and three
+  files' preambles.
