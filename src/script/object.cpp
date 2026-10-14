@@ -12,29 +12,8 @@ using detail::ObjectParams;
 
 namespace {
 
-Str quoted(Symbol s) {
-    return "'" + Str(s.str()) + "'";
-}
-
-#if defined(_MSC_VER)
-#define BAKER_COLD __declspec(noinline)
-#else
-#define BAKER_COLD [[gnu::noinline, gnu::cold]]
-#endif
-
-BAKER_COLD Expected<Node> fail(const Array& at, ErrorCode code, std::string_view message) {
-    Error e = make_error(code, message, at.file(), at.line());
-    record_stack(e);
-    return Unexpected(std::move(e));
-}
-
 // An instance of a script-only class.
 struct ScriptObject final : Object<ScriptObject> {};
-
-const Symbol& sym_this() {
-    static const Symbol s("this");
-    return s;
-}
 
 // A bound property, else a loose parameter. Null if neither exists.
 std::optional<Node> get_property(ObjectBase& o, Symbol name, ObjectParams* params) {
@@ -341,7 +320,8 @@ Expected<Node> Context::Impl::send(ObjectHandle target, const Array& command, Co
     if (const detail::MethodEntry* m = type.method(method))
         return invoke_set(method, m->overloads, command, 2, object);
 
-    // The methods every object has.
+    // The methods every object has. Evaluating an argument can move `s` ({new} grows the
+    // slots), though not remove the object: removals wait for the host's eval (D117).
     static const Symbol kGet("get"), kSet("set"), kType("type"), kName("name");
     Args args(self, command, command.begin() + 2, n, 0, false, 2, object);
     if (method == kType || method == kName) {
@@ -359,8 +339,9 @@ Expected<Node> Context::Impl::send(ObjectHandle target, const Array& command, Co
         if (!key) return Unexpected(std::move(key).error());
         if (method == kGet) {
             if (auto v = get_property(*object, *key, object->params_)) return *v;
-            return fail(command, ErrorCode::NotFound,
-                        class_name(*s) + " has no property or parameter " + quoted(*key));
+            return fail(
+                command, ErrorCode::NotFound,
+                class_name(*slot(target)) + " has no property or parameter " + quoted(*key));
         }
         auto value = args.eval(1);
         if (!value) return value;
@@ -427,7 +408,7 @@ Expected<Node> Context::add(ObjectBase& object, Symbol name) {
 
 void Context::remove(ObjectBase& object) noexcept {
     if (object.ctx_ != this) return;
-    if (impl_->ticking)
+    if (impl_->ticking || impl_->depth)
         impl_->defer_removal(object.handle_);
     else
         impl_->remove(object.handle_);
@@ -435,6 +416,31 @@ void Context::remove(ObjectBase& object) noexcept {
 
 void Context::Impl::defer_removal(ObjectHandle h) {
     deferred.push_back(h);
+    unsettled = true;
+}
+
+void Context::Impl::retire(Vec<detail::Overload>& overloads) {
+    if (depth) {
+        retired_overloads.push_back(std::move(overloads));
+        overloads = Vec<detail::Overload>(alloc);
+        unsettled = true;
+    }
+    overloads.clear();
+}
+
+void Context::Impl::retire(Vec<ScriptClass::Handler>& handlers) {
+    if (depth) {
+        retired_handlers.push_back(std::move(handlers));
+        handlers = retired_handlers.back();  // a copy to change; the running ones stay put
+        unsettled = true;
+    }
+}
+
+void Context::Impl::settle() {
+    retired_overloads.clear();
+    retired_handlers.clear();
+    unsettled = false;
+    if (!ticking) self.sync();  // while a Scheduler ticks, removals wait for its sync point
 }
 
 void Context::sync() {
@@ -555,12 +561,10 @@ void register_object_builtins(Context& ctx) {
         Context::Impl& impl = a.context().impl();
         auto cls = Own<ScriptClass>::make(impl.alloc);
         cls->name = name;
-        cls->native = impl.type_named(name);
-        cls->file = a.command().file();
-        cls->line = a.command().line();
         if (auto r = read_handlers(a, impl, cls->handlers); !r) return Unexpected(r.error());
         if (name.index() >= impl.class_by_name.size()) impl.class_by_name.resize(name.index() + 1);
         if (ScriptClass* old = impl.class_by_name[name.index()]) {
+            impl.retire(old->handlers);
             *old = std::move(*cls);  // a redefinition replaces the handlers (a reloaded script)
         } else {
             impl.class_by_name[name.index()] = cls.get();
@@ -586,9 +590,6 @@ void register_object_builtins(Context& ctx) {
                     ErrorCode::NotFound));
             auto made = Own<ScriptClass>::make(impl.alloc);
             made->name = name;
-            made->native = native;
-            made->file = a.command().file();
-            made->line = a.command().line();
             if (name.index() >= impl.class_by_name.size())
                 impl.class_by_name.resize(name.index() + 1);
             impl.class_by_name[name.index()] = made.get();
@@ -597,6 +598,7 @@ void register_object_builtins(Context& ctx) {
         }
         Vec<ScriptClass::Handler> added(impl.alloc);
         if (auto r = read_handlers(a, impl, added); !r) return Unexpected(r.error());
+        impl.retire(cls->handlers);
         for (ScriptClass::Handler& h : added) {
             ScriptClass::Handler* same = nullptr;
             for (ScriptClass::Handler& old : cls->handlers)
@@ -681,20 +683,16 @@ void register_object_builtins(Context& ctx) {
                 ErrorCode::Type, "delete takes an object, not a " + Str(type_name(object.type()))));
         Context::Impl::Slot* s = impl.slot(object.object_handle());
         if (!s) return Node();
-        if (impl.ticking) {  // during a tick, at its end (D67): later tasks still reach it
-            impl.defer_removal(object.object_handle());
-            return Node();
-        }
-        ObjectBase* o = s->object;
-        const bool owned = s->owned;
-        impl.remove(object.object_handle());
-        if (owned) impl.destroy_owned(o);
+        // When the host's eval returns, or during a tick at its end (D67): a call may
+        // still be running on the object, and later tasks in the tick still reach it.
+        impl.defer_removal(object.object_handle());
         return Node();
     };
     if (auto r = ctx.func("delete", destroy))
         r->doc(
-            "`{delete object}`: removes the object (or the object of that name); one `new` "
-            "created is destroyed. Its handles go stale.");
+            "`{delete object}`: removes the object (or the object of that name) when the "
+            "host's eval returns, or at the end of a tick; one `new` created is destroyed. Its "
+            "handles go stale.");
 }
 
 }  // namespace baker

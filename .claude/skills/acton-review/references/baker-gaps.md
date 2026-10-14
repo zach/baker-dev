@@ -1,9 +1,13 @@
 # Baker under the data-oriented lens: known gaps
 
-**Status, 2026-10-13, after D100: no open gaps.** First audited 2026-10-11 at M6 step 1
-(`23f4142`); the audit's reasoning for each closed gap is in its D-entries. Sizes are GCC
-13 on x86-64. Each gap names its path class (SKILL.md, review step 1). When one is fixed,
-or accepted as a deviation, record it in `docs/decisions.md` and update this file.
+**Status, 2026-10-14, after D122: the twelve audited gaps are closed; gaps 13–30 below
+are open.** A fresh review of the core (2026-10-14) fixed what it found that was a bug or a
+measured cost (D116–D122) and recorded the rest here, for later. D117's deferral costs one
+predictable branch per host `eval`, none per call. Before that, **2026-10-13, after D100:
+no open gaps.** First audited 2026-10-11 at M6 step 1 (`23f4142`); the audit's reasoning
+for each closed gap is in its D-entries. Sizes are GCC 13 on x86-64. Each gap names its
+path class (SKILL.md, review step 1). When one is fixed, or accepted as a deviation, record
+it in `docs/decisions.md` and update this file.
 
 | Gap | Decision | When |
 |---|---|---|
@@ -19,6 +23,33 @@ or accepted as a deviation, record it in `docs/decisions.md` and update this fil
 | 10, tooling in the core | accepted as a standing rule; link flags documented (D100) | **done** |
 | 11, the STL in public headers | header-only vocabulary types only (D60); `BAKER_USE_EASTL` inside (D62) | **done** |
 | 12, the reload history under polling | loop statistics keep their own samples (D90 Q1, D92) | **done** |
+
+## Open gaps (the 2026-10-14 review)
+
+Found by the review's four readers and not yet acted on. **Evidence**: *reproduced* means a
+driver or test showed it; *read* means the code says so, but nothing measured it. Measure
+before fixing (SKILL.md, step 5), and do not fix one without a cost that justifies its code.
+
+| Gap | Path | Finding | Evidence |
+|---|---|---|---|
+| 13, a C++-to-script call allocates | hot | `Context::call(object, method, args)` builds a `Vec` and then `Array::make_from`: two allocations per call, also for every `ObjectBase::handle` that falls through to a script handler. One `Array::make(n + 2)` would do. | read |
+| 14, messages skip the handler bit | hot | `send()` walks the type and its bases for a script class on every method call once any `{class}` exists; the one-load `handled_names` test is only in `detail::scripted`. Moving it into `handler_for` saves the walk. Add a `bench_call` row with an unrelated class loaded. | read |
+| 15, `Args::array` copies | hot | A `const Array&` parameter copies the node and pushes it on `kept` (two refcount atomics) even when the argument is a literal array the command already holds. | read |
+| 16, debug-build argument indexing | hot (debug) | `ArgIndex::of(I)` is not forced to compile time, so MSVC's debug build, a stated target (D62), runs a loop per argument per call. | read |
+| 17, `Slot` padding | hot | `Context::Impl::Slot` is 40 bytes; reordered it is 32, two to a cache line. | read |
+| 18, layer records ignore the Config's allocator | load | D61 says a Config's tables take its allocator; `LayerState`'s strings and `deps`, `read()`'s deps, `copy_scratch`, `reread`'s `fresh` and `promote`'s `virt` use the default one. `baker_alloc_tests` passes because nothing reaches `operator new`. | read |
+| 19, the lexer scans strings a byte at a time | load | `lex_string` runs an escape-aware loop where the closing quote is always the first `"`; the newline count is a second loop, written twice; a `;` comment is skipped a byte at a time. `memchr`-style scans and `std::count` would do. | read |
+| 20, the shape checker searches and allocates | load | `walk()` finds a tag's shape by a linear scan of every shape, for each tagged array; `instance()` allocates a `seen` vector per governed array and searches it per field. | read |
+| 21, freshness re-serializes macros | load (development) | `cache.cpp`'s `fresh()` prints every session define's body to text to hash it, on every check of every layer. | read |
+| 22, write-back merges twice | tool | `write_into` merges the whole stack to see whether a layer above hides the value, then `commit` merges again; a `supplier` check answers the first. `source_in` is also computed twice. | read |
+| 23, session copies | tool | `promote` copies the session below for every leaf, and `refresh_read` copies a whole `LoadSession` on every commit even when the top layer's session has not changed. | read |
+| 24, a write's time is in no stage | tool | `write_into` and `promote` start the parse clock after the writer runs, so the write's time falls in no stage, against `finish()`'s promise that the stages tile the change. The "reread, time, mark ParseError" block is written three times; one helper would fix both. | read |
+| 25, quadratic leftovers | tool | `collect_leaves` searches a vector of seen tags per child; `restore` re-marks journal entries O(J·S). | read |
+| 26, the `''` tag | correctness | `Array::tag()` treats the empty symbol as no tag (D115), but lookup's `tag_of` and merge's `tag_of` treat `('' 1)` as tagged. Decide one meaning, then keep one function. | read |
+| 27, latent desyncs | correctness | `merge_into`'s Overwrite branch rebuilds `dst` but not its spans (no caller combines them yet); an included file's nodes count twice toward `max_nodes`; `SourceMap::record_text` keeps the old text when a map is reused. | read |
+| 28, duplicated code | code | `Path::parse` and `Path::matches` tokenize alike; `LoadSession`'s four special members copy the same five fields; origin and pack registration is written in both the Parser and `SessionAccess`; `format_double` and its fallback normalize the decimal point twice; the arity message is built five times in baker::script; `cache.cpp`'s `nodes_at` re-derives `Array::run_bytes`. | read |
+| 29, methods' status | tool | A method's `Status` and replacement are stored, but the reference prints only functions' status, and checks use only `Stub`. Print it, or drop the replacement. | read |
+| 30, build time | build | doctest's implementation is compiled twice (`doctest_main.cpp`, `tests/alloc/main.cpp`, about 6.5 s each at `-O3`), `alloc_counter.cpp` seven times, and `bench_call.cpp` takes 35 s (128 bound types). An OBJECT library for each, and a runtime method count in the bench, would cut them. | reproduced (timed) |
 
 ## Already aligned (keep it that way)
 

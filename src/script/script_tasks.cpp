@@ -30,15 +30,6 @@ struct ScriptTask {
     Node values[kMaxCaptures];
 };
 
-const Symbol& sym_this() {
-    static const Symbol s("this");
-    return s;
-}
-
-bool unset(const Node& n) noexcept {
-    return n.type() == Type::Func && !n.func_record();
-}
-
 // Records the value of every bound $variable `n` names, except globals, $this, and the
 // interp variable: by value, when the task is made (D67).
 bool capture(const Node& n, Context::Impl& impl, ScriptTask& t) {
@@ -54,7 +45,7 @@ bool capture(const Node& n, Context::Impl& impl, ScriptTask& t) {
                     [&](const Global& g) { return g.name == name; }))
         return true;
     const Node* cell = impl.cell_if(name);
-    if (!cell || unset(*cell)) return true;
+    if (!cell || is_unset(*cell)) return true;
     if (t.count == kMaxCaptures) return false;
     t.names[t.count] = name;
     t.values[t.count++] = *cell;

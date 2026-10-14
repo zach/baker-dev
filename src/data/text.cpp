@@ -52,7 +52,7 @@ Number classify_number(std::string_view s) noexcept {
         neg = r[0] == '-';
         r.remove_prefix(1);
     }
-    if (r.empty()) return {};
+    if (r.empty() || (!is_digit(r[0]) && r[0] != '.')) return {};  // every number starts so
 
     if (r.size() > 2 && r[0] == '0' && (r[1] == 'x' || r[1] == 'X')) {
         uint64_t v = 0;
@@ -206,6 +206,16 @@ std::string_view parent_path(std::string_view p) noexcept {
     return i == 1 ? p.substr(0, 1) : p.substr(0, i - 1);
 }
 
+// buf_ is left unset: only the bytes written are read.
+CPath::CPath(std::string_view path) {  // NOLINT(cppcoreguidelines-pro-type-member-init)
+    if (path.size() < sizeof buf_) {
+        std::memcpy(buf_, path.data(), path.size());
+        buf_[path.size()] = '\0';
+    } else {
+        p_ = long_.emplace(path).c_str();
+    }
+}
+
 Str join_path(std::string_view dir, std::string_view p) {
     if (dir.empty()) return Str(p);
     Str out(dir);
@@ -267,6 +277,10 @@ double float_to_decimal_double(float f) noexcept {
             return wide;
     }
     return static_cast<double>(f);
+}
+
+Str quoted(Symbol s) {
+    return "'" + Str(s.str()) + "'";
 }
 
 Str decimal(int64_t value) {

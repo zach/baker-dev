@@ -12,10 +12,6 @@
 namespace baker {
 namespace {
 
-Str quoted(Symbol s) {
-    return "'" + Str(s.str()) + "'";
-}
-
 bool evaluable(const Node& n) noexcept {
     return n.type() == Type::Command || n.type() == Type::Var || n.type() == Type::Property;
 }

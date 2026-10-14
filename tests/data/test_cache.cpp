@@ -189,6 +189,12 @@ TEST_CASE("a damaged or foreign cache is an error, never a crash") {
         flipped[at] = static_cast<char>(flipped[at] ^ 0x10);
         fails(flipped, ErrorCode::Io, "damaged");
     }
+    // The header's offsets too (D119): a damaged root once loaded another array as the tree.
+    for (size_t at = 24; at < 64; at += 4) {
+        std::string flipped = good;
+        flipped[at] = static_cast<char>(flipped[at] ^ 0x40);
+        fails(flipped, ErrorCode::Io, "damaged");
+    }
     std::string version = good;
     version[10] = 99;
     fails(version, ErrorCode::Refused, "format version 99");

@@ -229,9 +229,7 @@ private:
 template <>
 struct Hash<Str> {
     size_t operator()(const Str& s) const noexcept {
-        uint64_t h = 1469598103934665603ull;  // FNV-1a
-        for (const char c : s) h = (h ^ static_cast<unsigned char>(c)) * 1099511628211ull;
-        return static_cast<size_t>(h);
+        return static_cast<size_t>(hash_symbol_text(s.view()));
     }
 };
 

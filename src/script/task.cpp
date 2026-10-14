@@ -26,7 +26,6 @@ struct TaskSlot {
     uint32_t salt = 1;
     Wait wait = Wait::Free;
     bool cancelled = false;
-    Symbol name;
     uint64_t seq = 0;  // spawn order, for a deterministic order within a tick
     bool (*poll)(void*) = nullptr;
     void* waiter = nullptr;
@@ -46,7 +45,9 @@ bool later(const Due& a, const Due& b) noexcept {
 
 struct Scheduler::Impl {
     Impl(Scheduler& s, Context& c, SchedulerOptions o)
-        : self(s), ctx(c), alloc(c.impl().alloc), options(o) {}
+        : self(s), ctx(c), alloc(c.impl().alloc), options(o) {
+        if (options.chunk == 0) options.chunk = 1;  // the size grow() and ~Scheduler agree on
+    }
 
     Scheduler& self;
     Context& ctx;
@@ -89,7 +90,7 @@ struct Scheduler::Impl {
         return reinterpret_cast<char*>(b) + kHeader;
     }
     void grow() {
-        const size_t n = options.chunk ? options.chunk : 1;
+        const size_t n = options.chunk;
         auto* mem = static_cast<char*>(
             detail::allocate(alloc, n * block_bytes(), __STDCPP_DEFAULT_NEW_ALIGNMENT__));
         chunks.push_back(mem);
@@ -231,7 +232,6 @@ Expected<TaskHandle> Scheduler::spawn(Task task, Symbol name) {
     TaskSlot& slot = s.slots[i];
     slot.h = std::exchange(task.h_, {});
     slot.wait = Wait::Pending;
-    slot.name = name;
     slot.seq = s.next_seq++;
     slot.h.promise().slot = i;
     s.pending.push_back(i);
@@ -280,12 +280,13 @@ void Scheduler::tick(double dt) {
     }
     for (size_t k = 0; k < s.untils.size();) {
         const uint32_t i = s.untils[k];
-        TaskSlot& slot = s.slots[i];
+        const TaskSlot& slot = s.slots[i];
         if (slot.wait == Wait::Until && !slot.cancelled && !slot.poll(slot.waiter)) {  // not yet
             ++k;
             continue;
         }
-        if (slot.wait == Wait::Until && !slot.cancelled) take(i, s.now);
+        // The predicate may have spawned a task and moved the slots, so look again.
+        if (s.slots[i].wait == Wait::Until && !s.slots[i].cancelled) take(i, s.now);
         s.untils[k] = s.untils.back();
         s.untils.pop_back();
     }

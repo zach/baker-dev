@@ -3374,3 +3374,236 @@ in `src/` changed.*
   over seeds 1–3 is byte-identical before and after, and the pinned replay hashes hold;
   the 29 stacks tests and Baker's local matrix pass.
 
+
+## D116. The cache writer keeps flat tables
+
+*Found in a fresh review of the core (2026-10-14).*
+
+- **The cost.** `write_cache` was 4–8 times a text parse of the same file, and a
+  development cache miss (`read_cached`, a Config layer with `cache_dir`) is a parse plus a
+  write. Under callgrind, half of a write was `malloc` and `free` for `std::unordered_map`
+  nodes, and most of the rest hashing: an array's address was looked up three times (seen?,
+  placed, written), a string's three, and every child reference once more as it was
+  written; every symbol occurrence went through a second map.
+- **The change.** One open-addressed table of addresses, with no allocation per entry,
+  answers "seen?" once per array or string. As the breadth-first pass meets each array or
+  string node it notes the target's offset (or string index) in order, so the write pass
+  reads them back in the same order and looks nothing up. Symbols number through a flat
+  table indexed by `Symbol::index()`. The file is byte-for-byte the same format.
+- **Benchmarks** (`bench_cache`, release, three alternating runs against `adc20b3`, same
+  machine; the instructions of one write of the small tree fell from about 138M to 54M):
+
+| | 1.2 MB text, 6.2 MB tree | 4.2 MB text, 21.1 MB tree |
+|---|---:|---:|
+| `write_cache`, before | 70.8–92.4 ms | 418.7–447.3 ms |
+| `write_cache`, after | 27.8–36.2 ms | 85.4–104.0 ms |
+| `read_cached`, no cache, before | 91.4–128.2 ms | 545.8–675.8 ms |
+| `read_cached`, no cache, after | 52.7–79.2 ms | 178.8–214.3 ms |
+| Config layer, `cache_dir`, no cache, before | 114.0–156.9 ms | 697.5–1128.3 ms |
+| Config layer, `cache_dir`, no cache, after | 55.5–80.6 ms | 301.0–347.7 ms |
+
+  The text parse and the cache load are untouched (parse 73.8–92.2 MB/s before, 76.5–85.4
+  after: noise). What remains of a write is mostly the zero-fill that keeps the file's
+  padding the same on every run, which its hash needs.
+
+## D117. Nothing a running call uses is freed before the host's call returns
+
+*Found in a fresh review of the core (2026-10-14); each reproduced under ASan. The owner
+chose the deferral, as recommended, over re-checking the receiver after each argument
+(which cannot help a native method, whose object is already bound).*
+
+- **The bugs.** D67 deferred removals only while a Scheduler ticks, but a call needs the
+  same protection whenever one is running:
+  - `{q grow {do {delete q} 1}}` destroyed `q` while its native method's arguments were
+    being evaluated, then called the method on it; `{q set x {delete q}}` likewise for
+    `set`.
+  - `{p get {do {new P} ... nope}}`: `{new}` grew the slot table, and `send` then named the
+    class through its stale slot pointer.
+  - A `{func}` that redefined itself (directly, or through a native calling `eval`) freed
+    the body it was running; a handler that ran `{class}` or `{extend}` on its own class
+    freed or moved its `Handler`, whose counters the instrumented path writes after the
+    call returns.
+  - `Scheduler::tick` kept a slot reference across an `until` predicate, which may spawn
+    tasks and move the slots.
+  - A Scheduler made with `chunk = 0` took blocks one at a time but freed its chunks as if
+    they were 0 blocks long, breaking the Allocator's contract that a free names the size
+    allocated.
+- **The fix.** While any call runs (`depth > 0`), `{delete}` and `Context::remove` defer as
+  they do in a tick, and a redefinition moves the overloads or handlers it replaces aside
+  (`retire`) instead of freeing them. `Context::eval` and `Context::run`, the only ways the
+  host starts evaluation, settle both when the outermost one returns; during a tick the
+  removals still wait for the sync point. A destroyed C++ object still leaves at once
+  (D97). `send` looks its slot up again after evaluating arguments, `tick` reads the slot
+  again after the predicate, and the Scheduler keeps `chunk` at least 1.
+- **What a script author sees.** `{delete q}` takes effect when the host's `eval` returns,
+  so later commands in the same `eval` still reach `q`; a function or handler redefined
+  while it runs finishes its old body (`language.md`).
+- **Tests.** One per bug (`test_object.cpp`, `test_eval.cpp`, `test_tasks.cpp`, and
+  `chunk = 0` in `baker_alloc_tests`); against the previous code, five fail under ASan with
+  a heap-use-after-free and the allocator test with live bytes left.
+- **Cost.** Nothing per nested call: three instructions after the host's outermost call
+  (callgrind, `{add 1 2}` through `Context::eval`, 6 instructions a call more in all).
+  `bench_call` pinned to one CPU, six alternating runs against `adc20b3`: `{add 1 2}`
+  37.8–40.7 ns before, 38.0–39.0 after. `bench_tasks`: tick with 10,000 asleep 10.3–10.5 ns
+  before and 9.7–10.5 after; resume 16.4–16.7 and 16.2–17.0.
+
+## D118. Two scratch-layer fixes
+
+*Found in a fresh review of the core (2026-10-14). The owner chose, as recommended, that a
+set while scratch is disabled waits rather than being refused.*
+
+- **A shorter scratch value hid nothing.** With `(size 1 2 3)` in a layer and
+  `set(Path("size"), {5})`, `get<int>("size.2")` returned the layers' 3: the scratch lookup
+  answered "no entry" for an element past the end of a scratch value, and `get` fell back
+  to the tree of the last merge. `Impl::current`, which write-back and the journal use,
+  already said "past the end" in its own copy of the lookup. The lookup now answers none,
+  found, or past the end (`Config::ScratchHit`); `get` reports the third as NotFound, or
+  returns its fallback, and `current` uses the same lookup.
+- **A set with scratch disabled reached the tweaks.** `retune`, run by both `set` paths,
+  pushed the value into bound tweaks although `get` did not see it, and the next full
+  merge silently put the tweaks back. It now waits while scratch is disabled; the merge
+  that enables scratch retunes them.
+- **Tests** (`test_m3b.cpp`): both fail against the previous code.
+
+## D119. The cache hashes its header; a nested shape is checked once
+
+*Found in a fresh review of the core (2026-10-14).*
+
+- **The cache's header was outside its hash.** The hash covered the bytes after the
+  64-byte header, and the loader checked only that `root` and `meta` were aligned offsets
+  among the arrays. A cache of `(a 1) (b 2)` with `root` changed from 64 to 128 loaded,
+  and returned `(a 1)` as the tree. The hash now covers the whole file, the header read with
+  its own hash field as 0, and `root` must be 64, where the writer always puts it. Format
+  version 3: a version 2 cache is refused by version, and rebuilt by `read_cached` and a
+  Config's `cache_dir` as any stale cache is. The test flips each header word from the
+  hash on; against the previous code three of them loaded. `read_cache` hashes 64 bytes
+  more: `bench_cache`'s load rows, three alternating runs against `adc20b3`, read
+  3.75–4.87 ms before and 3.20–4.84 after (noise).
+- **`baker::shape` reported a nested shape's errors twice.** A field of shape type, or a
+  `(list S)`, checks its arrays against `S`; the walk then met the same arrays again and,
+  since an unkeyed shape governs every array tagged with its name, checked them by tag.
+  `(boss (attacks (attack (dmg 50))))` reported the range error twice through every Config
+  load. The checker now remembers the arrays it checked as a field's value and does not
+  check them again by tag (a loose `(attack ...)` still is). Test in `test_shape.cpp`.
+
+## D120. A polling reload allocates nothing and hashes at memory speed; cleanups
+
+*From the same review (2026-10-14).*
+
+- **Polling.** A host that polls `reload()` each frame reads and hashes every file a layer
+  was built from. Each read allocated a `Str` for the text and another for the path
+  (`read_disk_file` copied it to terminate it for `fopen`), and the hash was FNV-1a, a
+  byte at a time. The text now goes into a buffer the Config keeps, from its allocator; the
+  path is terminated on the stack (`detail::CPath`, which the cache loader already did by
+  hand); and the hash is the cache's four-lane `content_hash`. A test checks an unchanged
+  poll allocates nothing. `bench_cache` has a new row, a reload finding the large file
+  unchanged; three alternating runs against `adc20b3`, pinned to one CPU:
+
+| | 1.2 MB text | 4.2 MB text |
+|---|---:|---:|
+| Config reload, unchanged large file, before | 1.88–2.36 ms | 7.63–8.85 ms |
+| Config reload, unchanged large file, after | 0.19–0.21 ms | 1.00–1.25 ms |
+
+  The one-line file's row is the same (3.88–4.81 µs before, 3.86–4.31 after): it is the
+  system calls.
+- **Tweak metadata** (`range()`, `step()`, `desc()`, `note()`, `kind()`, `group()`, and
+  the trailing-metadata test every bind and reload makes) interned its keys on each call,
+  which hashes the text and locks the global symbol table; a tuning panel calls them for
+  every tweak every frame. The keys are interned once.
+- **Number classification** rejects an atom that cannot be a number on its first
+  character, so a symbol is not scanned twice. A parse runs 2.7% fewer instructions
+  (callgrind, 1.2 MB, 377.0M to 366.8M); the time is within noise (`bench_parse`, pinned,
+  83.3–88.8 MB/s before, 84.1–87.0 after).
+- **`write_dta`'s pretty printer** formatted each array twice, the first time into a
+  temporary string, to learn whether it fit on a line. It now writes the compact form in
+  place and takes it back if it does not fit.
+- **Dead code.** `Node::aux()` and `set_aux()`, reserved for D5's in-node cache, which D44
+  decided not to build; `Array::set_source`, which nothing called; `ScriptClass`'s
+  `native`, `file` and `line`, and `TaskSlot::name` (spawn's name is still used in its
+  error), written and never read.
+- **Duplicates.** `quoted(Symbol)` was written six times (data, shape, and four script
+  files): now once, in `data/text.hpp`. The script files share `BAKER_COLD`, `fail()`,
+  `kUnset`, `is_unset()` and `sym_this()` through `internal.hpp`, where each had two or
+  three copies. Config's `read_into` was parse.cpp's `read_with`, and `Hash<Str>` was
+  FNV-1a written again, with a digit missing from its offset basis.
+- **Tools.** `local_matrix.sh` configured a build directory only when it did not exist,
+  so a changed flag or a failed first configure (the harness, before its X11 headers were
+  installed) was never retried; it now configures every time and counts CMake errors.
+  The header-alone units are written with `file(CONFIGURE)`, so a reconfigure no longer
+  recompiles all 27. `count_lines.py` counts `std_script.hpp` with baker::script.
+- **Benchmarks** of the rest, against `adc20b3`, pinned: `find<float>` 15.3–15.4 ns before
+  and 12.1–12.7 after; `get<int>(Path)` 27.6–28.4 and 29.6–33.3, which callgrind counts at
+  the same instructions (58,598,051 before, 58,597,781 after, in a small driver): code
+  layout. `{add 1 2}` 37.8–39.7 and 38.5–40.6.
+- **Size:** the core is 11,128 lines (11,073 before D116; the fixes of D116–D119 added
+  more than this removed).
+
+## D121. `layer_effect` and `diff` without their quadratic loops
+
+*From the review of D116–D120 (2026-10-14), which left these for later; the owner asked
+for them next.*
+
+- **`layer_effect`** asked, for each leaf, every layer above the one examined whether it
+  supplied the path, each answer a resolve down the whole stack: O(L²) resolves a leaf.
+  The topmost other supplier, which it already found for `below_source`, answers the same
+  question: the leaf is shadowed if that layer is above it (or scratch has it). It also
+  found its own layer by name for each leaf's source, and interned "scratch" for each.
+- **`diff`** matched each leaf of one layer against every leaf of the other, both ways:
+  O(n·m) path comparisons. It now indexes the second layer's leaves by path once.
+- **Test.** The three-layer test also checks a disabled layer (shadows nothing), a layer
+  two above (shadows), and scratch (shadows); it passes against the previous code too,
+  as an equivalence should.
+- **Benchmark** (a driver of four layers of 2,000 leaves, examining the second, release,
+  pinned; the harness's Layers panel calls `layer_effect` each frame while open):
+  `layer_effect` 1.29–1.36 ms before and 1.10–1.17 after, and `diff` 3.46–3.54 ms and
+  1.25–1.32. With four layers `layer_effect` is mostly its one re-merge of the stack
+  without the layer, so the quadratic term mattered little here; it grows with layers.
+
+## D122. `config.cpp` split by subsystem
+
+*From the review of D116–D120 (2026-10-14), which left it for later; the owner asked for
+it next. A move: no behavior changes.*
+
+- **Why.** At 1,750 lines `config.cpp` held four subsystems: layers, merging and scratch;
+  the reload history and loop statistics; write-back planning (one 180-line function) with
+  `promote`; and the layer tools. Its private types were in an anonymous namespace, so no
+  other file could take any of it.
+- **Now.**
+  - `config_impl.hpp` (internal) holds the shared records (`LayerState`, `ScratchEntry`,
+    the loop table) and `Config::Impl`: its state, the small accessors inline, the rest
+    declared. Its helpers are in `baker::config_internal`, not in baker's own names.
+  - `config.cpp` (751 lines) has layers, reading and reload, the merge, scratch and the
+    edit journal, and snapshots.
+  - `config_loop.cpp` (172) has the reload history and loop statistics.
+  - `config_write.cpp` (540) has write-back planning and writing, `promote`,
+    `layer_effect` and `diff`, with the default disk writer.
+
+  Each helper lives in the file that uses it, and only the six shared by two files are
+  declared in the header.
+- **One cost, found and removed.** With its types in an anonymous namespace, every `Impl`
+  method taking one had internal linkage, so GCC could see all of `retune`'s callers and
+  inlined it into `set()`'s fast path. Split out, it became a call: 17 instructions a
+  `set` (callgrind, 200,000 sets). It is now `always_inline` (`__forceinline` on MSVC),
+  which brings `set` to 115.6M instructions against 116.8M before the split. Pinned
+  timings, three alternating runs against `4404b48`: `Config set, a scalar in scratch`
+  87.6–89.1 ns before and 89.8–91.7 after (fewer instructions, so code layout); `reload`
+  of an unchanged small file 3.93–3.97 µs and 3.94–4.01; `mark_visible` 0.30–0.31 ns and
+  0.30.
+- **Size:** the core is 11,181 lines (11,128 before): the header's declarations and three
+  files' preambles.
+
+## D123. The review's remaining findings, recorded as open gaps
+
+*The owner's choice (2026-10-14): fix the config split and `layer_effect` now (D121,
+D122), and record the rest for later.*
+
+The review that produced D116–D122 also reported findings it did not act on. They are now
+gaps 13–30 in `.claude/skills/acton-review/references/baker-gaps.md`, each with its path
+class and whether anything measured it. Most are only read from the code, so each needs
+measuring before it is fixed (the skill's step 5). The ones on a hot path come first:
+- gap 13, two allocations per C++-to-script call;
+- gap 14, the method walk once any `{class}` exists;
+- gap 15, a refcounted copy per `const Array&` argument.
+
+Gap 18 is a load-path deviation from D61 (layer records on the default allocator).
+Gap 26 needs the owner's decision: whether `('' 1)` is tagged.

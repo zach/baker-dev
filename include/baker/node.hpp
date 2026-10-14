@@ -169,12 +169,10 @@ public:
         return n;
     }
 
-    Node(const Node& o) noexcept
-        : value_(o.value_), type_(o.type_), aux_{o.aux_[0], o.aux_[1], o.aux_[2]} {
+    Node(const Node& o) noexcept : value_(o.value_), type_(o.type_) {
         if (counted()) detail::retain_payload(value_.p);
     }
-    Node(Node&& o) noexcept
-        : value_(o.value_), type_(o.type_), aux_{o.aux_[0], o.aux_[1], o.aux_[2]} {
+    Node(Node&& o) noexcept : value_(o.value_), type_(o.type_) {
         o.type_ = Type::Int;
         o.value_.i = 0;
     }
@@ -192,7 +190,6 @@ public:
     void swap(Node& o) noexcept {
         std::swap(value_, o.value_);
         std::swap(type_, o.type_);
-        std::swap(aux_, o.aux_);
     }
 
     [[nodiscard]] Type type() const noexcept { return type_; }
@@ -303,18 +300,6 @@ public:
         return type_ == Type::Float ? std::bit_cast<uint64_t>(value_.f) : 0;
     }
 
-    // 24 spare bits, reserved for baker::script (resolved-handler generation; see
-    // docs/decisions.md D5). Copied with the node; ignored by equality and printing.
-    [[nodiscard]] uint32_t aux() const noexcept {
-        return static_cast<uint32_t>(aux_[0]) | (static_cast<uint32_t>(aux_[1]) << 8) |
-               (static_cast<uint32_t>(aux_[2]) << 16);
-    }
-    void set_aux(uint32_t v) noexcept {
-        aux_[0] = static_cast<uint8_t>(v);
-        aux_[1] = static_cast<uint8_t>(v >> 8);
-        aux_[2] = static_cast<uint8_t>(v >> 16);
-    }
-
 private:
     [[nodiscard]] static constexpr Type array_kind(Type k) noexcept {
         return k == Type::Command || k == Type::Property ? k : Type::Array;
@@ -343,8 +328,7 @@ private:
         const void* p;
     } value_;
     Type type_;
-    uint8_t aux_[3] = {0, 0, 0};
-    // 4 more bytes of padding remain; do not spend them without a reason.
+    // 7 bytes of padding remain; do not spend them without a reason.
 };
 
 static_assert(sizeof(Node) == 16, "Node must stay 16 bytes");

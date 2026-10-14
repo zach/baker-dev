@@ -88,6 +88,15 @@ TEST_CASE("types, lists, nested shapes, and what is not checked") {
     CHECK(w.size() == 2);
 }
 
+TEST_CASE("a nested shape tagged with its own name is checked once") {
+    const auto r = check_text(R"(
+        (shapes (attack (dmg int (range 0 10))) (boss (attacks (list attack)) (main attack)))
+        (boss (attacks (attack (dmg 50)) (attack (dmg 1))) (main (dmg 11)))
+        (attack (dmg 12))
+    )");
+    CHECK(texts(r.errors).size() == 3);  // 50, 11, and the loose attack's 12
+}
+
 TEST_CASE("malformed declarations are located errors; unknown shapes are reported") {
     const auto r = check_text(R"((shapes (s (a) (b float (range 2 1)) (c (list)) 5) 7)
                                   (s (c 1) (d 2)) (shapes (t (u nowhere))) (t (u 1)))");

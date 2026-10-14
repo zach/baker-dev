@@ -173,14 +173,11 @@ TEST_CASE("array construction helpers") {
     CHECK((*made)[1].array()->height() == 2);
 }
 
-TEST_CASE("structural equality ignores locations and aux bits") {
+TEST_CASE("structural equality ignores locations") {
     auto a = Array::make_copy(std::vector<Node>{Node(1), Node(Symbol("x"))}, "a.dta", 1);
     auto b = Array::make_copy(std::vector<Node>{Node(1), Node(Symbol("x"))}, "b.dta", 99);
     CHECK(structurally_equal(*a, *b));
-    Node n1(5), n2(5);
-    n1.set_aux(0xABCDEF);
-    CHECK(n1.aux() == 0xABCDEF);
-    CHECK(structurally_equal(n1, n2));
+    CHECK(structurally_equal(Node(5), Node(5)));
     CHECK_FALSE(structurally_equal(Node(1), Node(1.0f)));
     CHECK_FALSE(structurally_equal(Node(0.0f), Node(-0.0f)));
     CHECK_FALSE(structurally_equal(Node(array(1)), Node(array(1), Type::Command)));

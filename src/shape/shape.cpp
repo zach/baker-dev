@@ -21,9 +21,7 @@ const Names& names() {
     return n;
 }
 
-Str quoted(baker::Symbol s) {
-    return "'" + Str(s.str()) + "'";
-}
+using baker::detail::quoted;
 
 // The built-in type a symbol names, or Shape: another shape's name.
 Type type_named(baker::Symbol s) {
@@ -236,8 +234,9 @@ struct Checker {
     const Set& set;
     Vec<Error>& errors;
     Vec<Error>& warnings;
-    Vec<baker::Symbol> chain;  // the tags of the arrays from the root to here
-    Vec<const Shape*> keyed;   // the (keyed) shapes, which match by place, not by tag
+    Vec<baker::Symbol> chain;            // the tags of the arrays from the root to here
+    Vec<const Shape*> keyed;             // the (keyed) shapes, which match by place, not by tag
+    HashMap<const Array*, bool> nested;  // checked already, as a field's value
 
     [[nodiscard]] Str path() const {
         Str p;
@@ -292,7 +291,10 @@ struct Checker {
         const Values v = f.values();
         if (field.type == Type::Any) return;
         if (field.type == Type::Shape) {
-            if (const Shape* s = known(f, field)) instance(f, *s, 1);
+            if (const Shape* s = known(f, field)) {
+                nested[&f] = true;
+                instance(f, *s, 1);
+            }
             return;
         }
         if (field.type != Type::List && v.size() != 1) {
@@ -316,6 +318,7 @@ struct Checker {
                            quoted(field.name) + " holds " + quoted(s->name) + " arrays", f);
                     continue;
                 }
+                nested[e] = true;
                 instance(*e, *s, !e->empty() && (*e)[0].try_sym() ? 1 : 0);
                 continue;
             }
@@ -365,7 +368,7 @@ struct Checker {
             const auto tag = !c->empty() ? (*c)[0].try_sym() : std::nullopt;
             if (tag && chain.empty() && *tag == names().shapes) continue;  // declarations
             if (tag) chain.push_back(*tag);
-            if (tag) {
+            if (tag && !nested.count(c)) {
                 const Shape* by_tag = set.find(*tag);
                 if (by_tag && !by_tag->keyed && governs(*by_tag)) instance(*c, *by_tag, 1);
                 for (const Shape* s : keyed)
@@ -382,7 +385,7 @@ struct Checker {
 void check(const Array& tree, const Set& shapes, Report& report) {
     Vec<Error> errors(report.errors.begin(), report.errors.end());
     Vec<Error> warnings(report.warnings.begin(), report.warnings.end());
-    Checker checker{shapes, errors, warnings, {}, {}};
+    Checker checker{shapes, errors, warnings, {}, {}, {}};
     for (const Shape& s : shapes.shapes())
         if (s.keyed && !s.at.empty()) checker.keyed.push_back(&s);
     checker.walk(tree);

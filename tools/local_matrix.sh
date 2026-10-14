@@ -24,8 +24,10 @@ declare -A cfg=(
 status=0
 for n in "${!cfg[@]}"; do
   dir=$root/$n
-  [ -d "$dir" ] || cmake -S . -B "$dir" -G Ninja ${cfg[$n]} >/dev/null 2>&1
-  errs=$(cmake --build "$dir" -- -k 0 2>&1 | grep -cE "error:|warning:")
+  # Configured every time (cheap when nothing changed), so a changed flag, or a first
+  # configure that failed, is not left behind; its errors count with the build's.
+  conf=$(cmake -S . -B "$dir" -G Ninja ${cfg[$n]} 2>&1 | grep -cE "CMake Error")
+  errs=$(( conf + $(cmake --build "$dir" -- -k 0 2>&1 | grep -cE "error:|warning:") ))
   res=$(UBSAN_OPTIONS=halt_on_error=1 ctest --test-dir "$dir" -j8 2>&1 | grep -E "tests passed")
   echo "$n: $errs errors/warnings; $res"
   [ "$errs" = 0 ] && [[ "$res" == 100%* ]] || status=1

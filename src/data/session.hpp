@@ -21,6 +21,9 @@ struct CacheFile {
 
 // The cache's checksum, also of the files a load read (cache.cpp).
 [[nodiscard]] uint64_t content_hash(std::string_view bytes) noexcept;
+// Reads `path` through `reader` into `text`, replacing what it held (parse.cpp).
+bool read_with(const LoadSession::Reader& reader, std::string_view path, Str& text);
+
 // The cache at `path`, replayed on the session, if it loads and is fresh; else null.
 [[nodiscard]] Ref<Array> read_fresh_cache(std::string_view path, LoadSession& session);
 

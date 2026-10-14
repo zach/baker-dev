@@ -11,10 +11,6 @@
 namespace baker {
 namespace {
 
-Str quoted(Symbol s) {
-    return "'" + Str(s.str()) + "'";
-}
-
 // Ints wrap on overflow, as two's complement, rather than being undefined.
 int64_t wrap(uint64_t v) noexcept {
     return static_cast<int64_t>(v);
@@ -85,7 +81,7 @@ Expected<Node> define(Args a, bool override) {
     f.doc = std::move(doc);
     f.file = a.command().file();
     f.line = a.command().line();
-    f.overloads.clear();
+    a.context().impl().retire(f.overloads);  // this very function may be running
     f.overloads.push_back(std::move(o));
     f.refresh();
     return Node(name);
@@ -112,8 +108,7 @@ Expected<Node> Context::Impl::run_script(const ScriptBody& body, Args& args,
         kept.push_back(std::move(*r));
     }
     Rebind rebind(*this);
-    static const Symbol kThis("this");
-    if (this_node) bind(kThis, *this_node);
+    if (this_node) bind(sym_this(), *this_node);
     for (size_t i = 0; i < body.params.size(); ++i) bind(body.params[i], kept[first + i]);
     return run(body.definition->nodes().subspan(body.body));
 }
@@ -167,7 +162,7 @@ void register_builtins(Context& ctx) {
                 from = 1;
                 for (const Node& b : a.raw(0).try_array()->nodes()) {
                     if (b.type() == Type::Var) {
-                        impl.bind(b.var_name(), Node::func(nullptr));
+                        impl.bind(b.var_name(), kUnset);
                         continue;
                     }
                     const Array* pair = b.try_array();

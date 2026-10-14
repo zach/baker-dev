@@ -283,13 +283,18 @@ public:
     template <class T>
     [[nodiscard]] Expected<T> get(const Path& path) const {
         Values v;
-        if (scratch_dirty_ && scratch_values(path, v)) return from_scratch<T>(path, v);
+        if (scratch_dirty_)
+            if (const ScratchHit hit = scratch_values(path, v); hit != ScratchHit::None)
+                return from_scratch<T>(path, hit, v);
         return root_->get<T>(path);
     }
     template <class T>
     [[nodiscard]] Expected<T> get(const Path& path, T fallback) const {
         Values v;
-        if (scratch_dirty_ && scratch_values(path, v)) return from_scratch<T>(path, v);
+        if (scratch_dirty_)
+            if (const ScratchHit hit = scratch_values(path, v); hit != ScratchHit::None)
+                return hit == ScratchHit::PastEnd ? std::move(fallback)
+                                                  : from_scratch<T>(path, hit, v);
         return root_->get<T>(path, std::move(fallback));
     }
     [[nodiscard]] Expected<Source> source(const Path& path) const;
@@ -386,15 +391,19 @@ private:
     friend class TweakBase;
 
     void bind(TweakBase& t);
-    // The scratch values `path` names (exactly, or one element of them), if any.
-    [[nodiscard]] bool scratch_values(const Path& path, Values& out) const noexcept;
-    [[nodiscard]] static Error scratch_type_error(const Path& path,
-                                                  const detail::ConvertInfo& info);
+    // The scratch values `path` names (exactly, or one element of them): none, found, or
+    // an element past the end of a scratch value, which hides the layers' longer one.
+    enum class ScratchHit : uint8_t { None, Found, PastEnd };
+    [[nodiscard]] ScratchHit scratch_values(const Path& path, Values& out) const noexcept;
+    // `info` null: past the end.
+    [[nodiscard]] static Error scratch_error(const Path& path, const detail::ConvertInfo* info);
     template <class T>
-    [[nodiscard]] static Expected<T> from_scratch(const Path& path, const Values& v) {
+    [[nodiscard]] static Expected<T> from_scratch(const Path& path, ScratchHit hit,
+                                                  const Values& v) {
+        static constexpr detail::ConvertInfo kInfo = detail::convert_info<T>();
         T out{};
-        if (Convert<T>::from(v, out)) return out;
-        return Unexpected(scratch_type_error(path, detail::convert_info<T>()));
+        if (hit == ScratchHit::Found && Convert<T>::from(v, out)) return out;
+        return Unexpected(scratch_error(path, hit == ScratchHit::Found ? &kInfo : nullptr));
     }
     void stamp_visible() noexcept;
     [[nodiscard]] size_t history_size() const noexcept;

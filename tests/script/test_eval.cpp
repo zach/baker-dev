@@ -290,3 +290,14 @@ TEST_CASE("calling a native function allocates nothing") {
     CHECK(scope.count() == 0);
     CHECK(sum == 300);
 }
+
+TEST_CASE("a function redefined while it runs finishes its old body") {
+    Context ctx;
+    REQUIRE(ctx.func("redefine", [](Context& c) { return c.eval("{func f () 2}").has_value(); }));
+    REQUIRE(ctx.eval("{func f () {redefine} {func g () 9} 3}"));
+    CHECK(*ctx.eval("{f}")->try_int() == 3);
+    CHECK(*ctx.eval("{f}")->try_int() == 2);
+    REQUIRE(ctx.eval("{func h () {func h () 1} 4}"));
+    CHECK(*ctx.eval("{h}")->try_int() == 4);
+    CHECK(*ctx.eval("{h}")->try_int() == 1);
+}

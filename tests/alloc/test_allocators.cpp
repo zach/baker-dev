@@ -234,7 +234,7 @@ TEST_CASE("tasks allocate through the Context's allocator, and nothing through o
                            .has_value();
             for (int i = 0; i < 6; ++i) s.tick(1);
             ok = ok && s.stats().live == 0;
-            baker::Scheduler other(ctx, {.frame_bytes = 1024});
+            baker::Scheduler other(ctx, {.frame_bytes = 1024, .chunk = 0});  // 0: one at a time
             ok = ok && other.spawn(counter(other, &n)).has_value();  // left running: freed with it
             other.tick(1);
         }

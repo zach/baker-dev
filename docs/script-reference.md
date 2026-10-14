@@ -99,7 +99,7 @@ A parameter in [brackets] is optional, `unevaluated` is passed as written, and
 
 - `{delete value}` → value
 
-*Native.* `{delete object}`: removes the object (or the object of that name); one `new` created is destroyed. Its handles go stale.
+*Native.* `{delete object}`: removes the object (or the object of that name) when the host's eval returns, or at the end of a tick; one `new` created is destroyed. Its handles go stale.
 
 ### `do`
 

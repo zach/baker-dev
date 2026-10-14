@@ -61,7 +61,7 @@ def sources(directory, keep):
 
 
 def is_script_header(p):
-    return p.name.startswith(SCRIPT_HEADERS)
+    return p.name.removeprefix("std_").startswith(SCRIPT_HEADERS)
 
 
 def is_shape_header(p):
