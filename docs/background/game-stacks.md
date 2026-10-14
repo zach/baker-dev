@@ -218,7 +218,7 @@ None of this needs a change to Moira:
 
 | Tool | Built on |
 |---|---|
-| `check` | `moira::check` with `{.packs = &cfg.session()}`, and `to_json` (`docs/check-json.md`): errors, one-way warnings, demand, repetition, single-owner findings |
+| `check` | `moira::check` with `{.packs = &cfg.read_session()}`, and `to_json` (`docs/check-json.md`): errors, one-way warnings, demand, repetition, single-owner findings |
 | `reference` | `moira::reference`: every function, shape, pack, and generated file; the vocabulary the agent may use |
 | `eval` | The remote console, on loopback |
 | `source` | `cfg.source(path)`: where a value came from, origin included |

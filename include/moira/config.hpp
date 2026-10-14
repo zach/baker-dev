@@ -335,8 +335,17 @@ public:
     void freeze() noexcept { frozen_ = true; }
     [[nodiscard]] bool frozen() const noexcept { return frozen_; }
 
-    // The session each layer is read with: include_dirs, defines, limits, reader.
+    // The session each layer is read with: include_dirs, defines, limits, reader, pack
+    // levels. Each layer reads a copy of it, so what the files declare (packs, origins) is
+    // not here; read_session() has that.
     [[nodiscard]] LoadSession& session() noexcept;
+    // What the layers' files declared, as read (D110): a copy of the session after the last
+    // file layer was read, with every layer's packs, origins, macros, and defines (a
+    // disabled layer's too: layers read in order, each over the one below). Refreshed at
+    // every merge, before the validators run; its address is stable for the Config's life,
+    // so it is the session to give check, check_validator, to_json, and reference:
+    //   cfg.add_validator(moira::check_validator(ctx, {.packs = &cfg.read_session()}));
+    [[nodiscard]] const LoadSession& read_session() const noexcept;
     // Replaces file writing for write-back (default: the local filesystem).
     void set_writer(Writer writer);
 

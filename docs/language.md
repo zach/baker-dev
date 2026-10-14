@@ -194,8 +194,10 @@ reach into one task's harness. Moira warns, never fails, on two kinds of reach:
   is a warning in `session.warnings()`, once per file and macro, with file and line
   (D82). A Config forwards it to its warning handler.
 - **Calls**, in `check`: a call, in a pack's file, to a script function defined in a
-  softer pack's file is a warning in `CheckReport::warnings` (D83). Pass the session:
-  `moira::check(tree, ctx, report, {.packs = &cfg.session()})`.
+  softer pack's file is a warning in `CheckReport::warnings` (D83). Pass the session that
+  read the files: through a Config, `read_session()`, which holds every layer's packs
+  (D110), not `session()`, which each layer reads a copy of:
+  `moira::check(tree, ctx, report, {.packs = &cfg.read_session()})`.
 
 Softer using harder is the point of the levels, and passes silently; so does everything
 in files that declare no pack, so a small project pays nothing. By convention a pack's
@@ -395,7 +397,7 @@ them; `moira::find_repeats(trees)` (`<moira/repeats.hpp>`) does the same without
 repeat: 3 times, 10 nodes: (enemy (hp 30) (speed 2) (loot coin)) at a.dta:2, b.dta:2, c.dta:5
 ```
 
-With the session (`{.packs = &cfg.session()}`), each pack that declares one owner is a
+With the session (`{.packs = &cfg.read_session()}`), each pack that declares one owner is a
 **finding**, informational, never an error: a harness one person keeps.
 
 Run it in CI over every data file, and on every merge in a development build: a Config
@@ -403,14 +405,14 @@ runs its validators after each push, toggle, reload, and restore, and sends what
 to its warning handler (D102).
 
 ```cpp
-cfg.add_validator(moira::check_validator(ctx, {.packs = &cfg.session()}));
+cfg.add_validator(moira::check_validator(ctx, {.packs = &cfg.read_session()}));
 ```
 
 The validator reports errors and one-way warnings; the demand report, repeats, and
 findings are for tools. `ctx` must outlive the Config's use of it. For a build
-artifact, `to_json(report, &cfg.session())` writes the whole report, packs included, as
+artifact, `to_json(report, &cfg.read_session())` writes the whole report, packs included, as
 versioned JSON that is the same bytes for the same data ([schema](check-json.md)); and
-`reference(ctx, &cfg.session())` adds the packs and the files tools generated to the
+`reference(ctx, &cfg.read_session())` adds the packs and the files tools generated to the
 reference: the harness register.
 
 ## Errors

@@ -225,8 +225,8 @@ int check(Game& game, const Options& o) {
     for (const auto& t : trees) raw.push_back(t.get());
     moira::CheckReport report;
     moira::check(std::span<const moira::Array* const>(raw.data(), raw.size()), l.ctx, report,
-                 {.packs = &l.live.config().session()});
-    std::printf("%s\n", moira::to_json(report, &l.live.config().session()).c_str());
+                 {.packs = &l.live.config().read_session()});
+    std::printf("%s\n", moira::to_json(report, &l.live.config().read_session()).c_str());
     // A call to a function nobody defined is demand to Moira: a word the data asks for. In
     // an agent's edit it is nearly always a typo, so it fails the check unless declared a
     // stub ({func name () (status stub) ...}), which is how a push-up is written.
@@ -278,7 +278,7 @@ int eval(Game& game, const Options& o) {
 int reference(Game& game, const Options& o) {
     Loaded l;
     if (!load(game, l, o)) return kError;
-    std::printf("%s", moira::reference(l.ctx, &l.live.config().session()).c_str());
+    std::printf("%s", moira::reference(l.ctx, &l.live.config().read_session()).c_str());
     return 0;
 }
 

@@ -8,8 +8,8 @@ as a build artifact and diff it from one milestone to the next (spec §5, D95). 
 ```cpp
 moira::CheckReport report;
 const moira::Array* trees[] = {game.get(), level.get()};
-moira::check(trees, ctx, report, {.packs = &cfg.session()});
-std::ofstream("check.json") << moira::to_json(report, &cfg.session());
+moira::check(trees, ctx, report, {.packs = &cfg.read_session()});
+std::ofstream("check.json") << moira::to_json(report, &cfg.read_session());
 ```
 
 `tests/script/check_expected.json` is a complete example, checked byte for byte by the test

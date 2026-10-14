@@ -3139,8 +3139,37 @@ D108.*
   the load, 7–15 ms. Ledger's 60 runs (30 first hours stepped at 60 Hz, 30 ten-hour soaks
   of four companies) in 0.51–0.53 s; a load alone 5.3–5.7 ms. Sanitizers: every stacks
   test passes under ASan and UBSan.
-- **Open** (recorded for a later step): packs read through a Config never reach
+- **Open** (closed by D110): packs read through a Config never reach
   `cfg.session()`, since each layer reads with its own session copy, so `check` and
   `reference` see no packs (no single-owner finding, no one-way warnings). The session
   after the top layer holds them all; a Config accessor for it is the likely fix.
 - **CI** packages Duel and Ledger for Windows beside the cube (`stacks-<game>-windows`).
+
+## D110. `Config::read_session()`: the pack register through a Config
+
+*Closes the gap D109 left open.*
+
+- **The gap.** A Config reads each layer with a session of its own, a copy of the one
+  below, so the packs and origins its files declared never reached `cfg.session()`, the
+  session the docs told hosts to give `check`, `check_validator`, `to_json`, and `reference`.
+  Through a Config the one-way rule for calls (D83), the single-owner finding (D94), and the
+  harness register (D95) saw nothing; in the stacks, `check` listed no packs, and an agent's
+  task pack with only `"agent"` as owner raised no alarm (game-stacks.md §3.4). D107 was
+  the same shape of gap for `#autorun`.
+- **`read_session()`** (new): a copy of the session after the last file layer was read,
+  which holds every layer's packs, origins, macros, and defines, since each layer reads over
+  a copy of the one below (a disabled layer's declarations included). The Config refreshes
+  it at every merge, before the validators run, at an address stable for the Config's life,
+  so `check_validator(ctx, {.packs = &cfg.read_session()})` stays valid across reloads.
+  `session()` stays what each layer is read with (include dirs, defines, pack levels).
+- **Callers.** The stacks' base (its validator, `check`, `reference`) and every doc that said
+  `&cfg.session()` (`language.md`, `check-json.md`, `cookbook.md`, `game-stacks.md`).
+- **Cost.** One session copy per merge (a push, reload, toggle, or restore), never on the
+  scratch fast path. `bench_cache`, Release, three runs each, against `origin/main` in a
+  worktree on the same machine: a 1.2 MB layer pushed without a cache 307–401 ms after and
+  325–390 ms before; with a fresh cache 53–58 ms against 43–56 ms; an unchanged reload
+  2,469–2,498 ns against 2,478–2,613 ns; a scratch set 64.2–64.3 ns against 62.2–64.3 ns.
+  All within run-to-run noise.
+- **Seen in the stacks.** `stacks_duel check` lists `duel_core`; `stacks_ledger reference`
+  has the Packs and Origins sections (`economy.xlsx`, `sheets-export`); a task pack an agent
+  writes with one owner is a finding in `check`.

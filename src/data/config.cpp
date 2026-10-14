@@ -344,6 +344,7 @@ struct Config::Impl {
     ConfigOptions options;
     Str cache_dir{alloc};  // options.cache_dir views this
     LoadSession base;
+    LoadSession as_read;  // read_session(): the last file layer's session, as of the last merge
     Writer writer = write_disk_file;
     Callback<void(const Error&)> warn;
     struct Check {
@@ -770,12 +771,22 @@ struct Config::Impl {
         return r;
     }
 
+    // read_session(): the session after the last file layer, which carries every layer's
+    // packs and origins (each layer reads over a copy of the one below).
+    void refresh_read() {
+        const LoadSession* top = &base;
+        for (const LayerState& l : layers)
+            if (!l.path.empty() && l.after) top = l.after.get();
+        as_read = *top;
+    }
+
     // Installs a new merged tree, rebinds tweaks, then fires the reload callbacks, timing
     // the merge, bind, and notify stages from `t`.
     void commit(Config& c, ReloadRecord& rec, uint64_t& t) {
         const Ref<Array> before = std::move(c.root_);
         c.root_ = merged();
         c.scratch_dirty_ = false;
+        refresh_read();
         for (const Check& v : validators) v.fn(*c.root_, warn);
         lap(rec.merge_ns, t);
         ++c.epoch_;
@@ -1120,6 +1131,10 @@ Config::~Config() {
 
 LoadSession& Config::session() noexcept {
     return impl_->base;
+}
+
+const LoadSession& Config::read_session() const noexcept {
+    return impl_->as_read;
 }
 
 void Config::set_writer(Writer writer) {
