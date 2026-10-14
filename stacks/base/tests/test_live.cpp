@@ -85,3 +85,26 @@ TEST_CASE("live: a data file defines script functions with #autorun, redefined o
     REQUIRE(f);
     CHECK(f->as_int().value_or(0) == 2);  // the agent layer's, run after the default's
 }
+
+TEST_CASE("live: changed is called after the load and each change, after #autorun") {
+    test::ScratchDir dir("changed");
+    REQUIRE(test::write(dir.path / "default.dta", "#autorun {func live_test.g () 3}\n(a 1)"));
+    moira::Context ctx;
+    base::Live live(ctx);
+    int calls = 0;
+    int64_t a = 0, g = 0;
+    REQUIRE(live.open(
+        {.data_dir = dir.path.string(), .watch = false, .changed = [&](const moira::Config& cfg) {
+             ++calls;
+             a = cfg.root()->get<int64_t>("a").value_or(0);
+             auto r = ctx.eval("{live_test.g}");  // #autorun has run
+             g = r ? r->as_int().value_or(0) : 0;
+         }}));
+    CHECK(calls == 1);
+    CHECK(a == 1);
+    CHECK(g == 3);
+    REQUIRE(test::write(dir.path / "agent.dta", "(a 2)"));
+    CHECK(live.reload_now());
+    CHECK(calls == 2);
+    CHECK(a == 2);
+}

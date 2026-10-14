@@ -1,0 +1,6 @@
+; The frame data's own scenario: nothing is stepped that matters; the objectives read the
+; frame table and the combo search, which depend on the data alone, not the seed.
+(scenario frame_data
+   (desc "Frame advantage, combo damage, and infinites, from the data")
+   (seconds 0.02)
+   (objectives duel.no_infinites duel.combo_ceiling duel.block_advantage))

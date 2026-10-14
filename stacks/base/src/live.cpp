@@ -3,6 +3,7 @@
 #include <moira/shape.hpp>
 #include <moira/std_interop.hpp>
 
+#include <filesystem>
 #include <utility>
 
 namespace base {
@@ -18,6 +19,7 @@ Live::Live(moira::Context& ctx) : ctx_(ctx) {
 
 bool Live::open(const LiveOptions& options) {
     data_dir_ = options.data_dir;
+    changed_ = options.changed;
     moira::LoadSession& session = cfg_.session();
     session.set_pack_levels({"engine", "game", "task"});
     session.add_include_dir(data_dir_);
@@ -42,6 +44,11 @@ bool Live::open(const LiveOptions& options) {
     if (options.watch) {
         watching_ = watcher_.watch(data_dir_);
         if (!watching_) log("watcher: " + watcher_.error() + "; edits will not reload");
+        std::error_code ec;
+        const std::filesystem::path packs =
+            std::filesystem::path(data_dir_).parent_path() / "packs";
+        if (watching_ && std::filesystem::is_directory(packs, ec) && !watcher_.watch(packs))
+            log("watcher: " + watcher_.error() + "; pack edits will not reload");
     }
     return true;
 }
@@ -58,6 +65,7 @@ void Live::autorun() {
     stack_changed_ = false;
     for (const moira::Node& command : cfg_.autorun())
         if (auto r = ctx_.eval(command); !r) log(std::string(moira::describe(r.error())));
+    if (changed_) changed_(cfg_);
 }
 
 bool Live::reload_now() {

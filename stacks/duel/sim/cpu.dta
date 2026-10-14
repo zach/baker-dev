@@ -1,0 +1,39 @@
+; Duel's scenarios: the CPU at each difficulty against the player bots (data/default.dta,
+; (bots ...)), over an hour of rounds each (about a hundred rounds, so a win
+; rate is steady from one seed to the next); then the combo search and the frame table.
+; Run them with `stacks_duel sim`; each is judged by the objectives it names in ../metrics.
+(scenario easy_vs_masher
+   (desc "A newcomer mashing buttons against the easy CPU")
+   (seconds 3600)
+   (start {duel.p1 masher} {duel.p2 easy} {duel.reset})
+   (objectives duel.easy_vs_masher duel.reaction_floor))
+(scenario normal_vs_masher
+   (desc "A newcomer mashing against the normal CPU")
+   (seconds 3600)
+   (start {duel.p1 masher} {duel.p2 normal} {duel.reset})
+   (objectives duel.normal_vs_masher duel.reaction_floor))
+(scenario hard_vs_masher
+   (desc "A newcomer mashing against the hard CPU")
+   (seconds 3600)
+   (start {duel.p1 masher} {duel.p2 hard} {duel.reset})
+   (objectives duel.hard_vs_masher duel.reaction_floor))
+(scenario easy_vs_combo
+   (desc "A player who knows the combos against the easy CPU")
+   (seconds 3600)
+   (start {duel.p1 combo} {duel.p2 easy} {duel.reset})
+   (objectives duel.easy_vs_combo duel.reaction_floor))
+(scenario normal_vs_combo
+   (desc "A player who knows the combos against the normal CPU")
+   (seconds 3600)
+   (start {duel.p1 combo} {duel.p2 normal} {duel.reset})
+   (objectives duel.normal_vs_combo duel.reaction_floor))
+(scenario hard_vs_combo
+   (desc "A player who knows the combos against the hard CPU")
+   (seconds 3600)
+   (start {duel.p1 combo} {duel.p2 hard} {duel.reset})
+   (objectives duel.hard_vs_combo duel.reaction_floor))
+(scenario normal_vs_turtle
+   (desc "A defensive player against the normal CPU")
+   (seconds 3600)
+   (start {duel.p1 turtle} {duel.p2 normal} {duel.reset})
+   (objectives duel.normal_vs_turtle duel.reaction_floor))
