@@ -1,5 +1,7 @@
 #include "economy.hpp"
 
+#include <base/rng.hpp>
+#include <base/words.hpp>
 #include <moira/std_interop.hpp>
 
 #include <algorithm>
@@ -7,12 +9,6 @@
 
 namespace ledger {
 namespace {
-
-std::string tag_of(const moira::Array& a) {
-    if (a.empty()) return {};
-    auto s = a[0].as_sym();
-    return s ? std::string(s->str()) : std::string();
-}
 
 double get_float(const moira::Array& a, const char* tag, double fallback) {
     return a.find_float(moira::Symbol(tag), fallback).value_or(fallback);
@@ -35,16 +31,6 @@ std::string get_text(const moira::Array& a, const char* tag) {
 moira::Node raw(const moira::Array& a, const char* tag) {
     if (const moira::Array* f = a.try_find(moira::Symbol(tag)); f && f->size() > 1) return (*f)[1];
     return {};
-}
-
-uint64_t next(uint64_t& s) {
-    s ^= s >> 12;
-    s ^= s << 25;
-    s ^= s >> 27;
-    return s * 0x2545F4914F6CDD1Dull;
-}
-double unit(uint64_t& s) {
-    return static_cast<double>(next(s) >> 11) * (1.0 / 9007199254740992.0);
 }
 
 // Today's demand for a good: its base demand, varied by the day's draw.
@@ -76,7 +62,7 @@ bool load(const moira::Ref<moira::Array>& root, Economy& out, std::string& error
     if (const moira::Array* goods = root->try_find(moira::Symbol("goods")))
         for (const moira::Array& a : goods->subarrays()) {
             Good g;
-            g.name = tag_of(a);
+            g.name = base::name(a);
             g.base_price = get_float(a, "base_price", 1);
             g.demand = std::max(1.0, get_float(a, "demand", 100));
             g.spoil_days = static_cast<int>(get_float(a, "spoil_days", 0));
@@ -90,7 +76,7 @@ bool load(const moira::Ref<moira::Array>& root, Economy& out, std::string& error
     if (const moira::Array* buildings = root->try_find(moira::Symbol("buildings")))
         for (const moira::Array& a : buildings->subarrays()) {
             Building b;
-            b.name = tag_of(a);
+            b.name = base::name(a);
             b.cost = static_cast<int64_t>(std::llround(get_float(a, "cost", 0)));
             b.upkeep = get_float(a, "upkeep", 0);
             b.rate = std::max(1, static_cast<int>(get_float(a, "rate", 1)));
@@ -132,7 +118,7 @@ bool load(const moira::Ref<moira::Array>& root, Economy& out, std::string& error
     if (const moira::Array* list = root->try_find(moira::Symbol("strategies")))
         for (const moira::Array& a : list->subarrays()) {
             Strategy s;
-            s.name = tag_of(a);
+            s.name = base::name(a);
             s.kind = get_sym(a, "kind");
             if (s.kind.empty()) s.kind = s.name;
             s.reserve = get_float(a, "reserve", 0);
@@ -145,7 +131,7 @@ bool load(const moira::Ref<moira::Array>& root, Economy& out, std::string& error
     if (const moira::Array* list = root->try_find(moira::Symbol("milestones")))
         for (const moira::Array& a : list->subarrays()) {
             Milestone m;
-            m.name = tag_of(a);
+            m.name = base::name(a);
             m.desc = get_text(a, "desc");
             m.when = raw(a, "when");
             m.target_day = static_cast<int>(get_float(a, "target_day", 0));
@@ -191,10 +177,9 @@ void start(Company& c, const Economy& e, const Rules& r, const std::string& name
     c.milestone_day.assign(e.milestones.size(), -1);
     // The market's draws depend on the seed alone, so companies compared on one seed face the
     // same days; the strategy's own draws are its own.
-    c.market_rng = seed * 0x9E3779B97F4A7C15ull + 0xD1B54A32D192ED03ull;
-    c.rng = c.market_rng ^ (uint64_t(strategy + 2) * 0xBF58476D1CE4E5B9ull);
-    if (c.market_rng == 0) c.market_rng = 1;
-    if (c.rng == 0) c.rng = 1;
+    const uint64_t market = seed * 0x9E3779B97F4A7C15ull + 0xD1B54A32D192ED03ull;
+    c.market_rng = base::Rng::at(market);
+    c.rng = base::Rng::at(market ^ (uint64_t(strategy + 2) * 0xBF58476D1CE4E5B9ull));
 }
 
 bool build(Company& c, const Economy& e, int building) {
@@ -296,11 +281,11 @@ void decide(Company& c, const Economy& e) {
     const auto& w = c.worth_by_day;
     if (s.kind != "random" && w.size() > 30 && w.back() < w[w.size() - 31]) return;
     if (s.kind == "random") {
-        if (unit(c.rng) < s.build_chance) {
+        if (c.rng.unit() < s.build_chance) {
             std::vector<int> can;
             for (size_t b = 0; b < e.buildings.size(); ++b)
                 if (c.unlocked[b] && c.money >= e.buildings[b].cost) can.push_back(int(b));
-            if (!can.empty()) build(c, e, can[next(c.rng) % can.size()]);
+            if (!can.empty()) build(c, e, can[c.rng.next() % can.size()]);
         }
         return;
     }
@@ -376,7 +361,7 @@ void day(Company& c, const Economy& e, const Rules& r) {
     for (size_t g = 0; g < e.goods.size(); ++g) {
         // The market clears a share of what was sold; tomorrow's demand is drawn.
         c.saturation[g] *= 1.0 - r.recovery;
-        c.demand_factor[g] = 1.0 + e.goods[g].volatility * (2.0 * unit(c.market_rng) - 1.0);
+        c.demand_factor[g] = 1.0 + e.goods[g].volatility * (2.0 * c.market_rng.unit() - 1.0);
     }
     if (c.money < 0 && s && s->kind != "random") {
         int worst = -1;

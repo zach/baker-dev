@@ -8,6 +8,7 @@
 // on any compiler and CPU (§7), and a replay is its inputs.
 #pragma once
 
+#include <base/rng.hpp>
 #include <moira/array.hpp>
 
 #include <cstdint>
@@ -160,7 +161,7 @@ private:
     [[nodiscard]] bool chance(int per_mille) noexcept { return int(roll()) < per_mille; }
 
     const Brain* brain_ = nullptr;
-    uint64_t rng_ = 1;
+    base::Rng rng_;
     static constexpr int kHistory = 64;
     Fighter seen_[kHistory];  // the opponent, by frame, for reaction delay
     int seen_count_ = 0;

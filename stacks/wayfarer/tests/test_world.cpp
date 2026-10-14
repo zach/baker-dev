@@ -157,3 +157,15 @@ TEST_CASE("wayfarer: bots explore; the direct one finishes the missions, in orde
     CHECK(c.found == 3);
     CHECK(c.longest_gap > 0);
 }
+
+TEST_CASE("wayfarer: the navigation key changes with the geometry, not with a speed") {
+    wayfarer::World w = world(kYard);
+    const uint64_t key = wayfarer::nav_key(w);
+    w.rules.run_speed = 9;
+    w.rules.discover_radius = 50;
+    CHECK(wayfarer::nav_key(w) == key);
+    w.rules.climb_max = 3;
+    CHECK(wayfarer::nav_key(w) != key);
+    wayfarer::World moved = world(replace(kYard, "(36 48 6 8 4)", "(36 48 6 8 5)"));
+    CHECK(wayfarer::nav_key(moved) != key);
+}

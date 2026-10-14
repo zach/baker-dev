@@ -13,6 +13,7 @@
 
 #include <base/app.hpp>
 #include <base/render.hpp>
+#include <base/words.hpp>
 
 #include <SDL3/SDL.h>
 #include <imgui.h>
@@ -67,10 +68,6 @@ hearth::Rules current_rules() {
     return r;
 }
 
-moira::Error not_found(const std::string& what) {
-    return moira::make_error(moira::ErrorCode::NotFound, what);
-}
-
 double per_day(int events, const hearth::Tally& t) {
     return t.character_days > 0 ? double(events) / t.character_days : 0;
 }
@@ -91,7 +88,7 @@ public:
                          const int h = kit_.house(std::string(name.str()));
                          if (h < 0)
                              return moira::Unexpected(
-                                 not_found("no household " + std::string(name.str())));
+                                 base::not_found("no household " + std::string(name.str())));
                          spawn(h);
                          return {};
                      }),
@@ -106,7 +103,7 @@ public:
                              home_ ? home_->villager(std::string(who.str())) : nullptr;
                          if (!v)
                              return moira::Unexpected(
-                                 not_found("no villager " + std::string(who.str())));
+                                 base::not_found("no villager " + std::string(who.str())));
                          return home_->why(*v);
                      }),
             "A villager's last decision: the options, their scores, the pick, and its margin.");
@@ -116,7 +113,7 @@ public:
                              home_ ? home_->villager(std::string(who.str())) : nullptr;
                          if (!v)
                              return moira::Unexpected(
-                                 not_found("no villager " + std::string(who.str())));
+                                 base::not_found("no villager " + std::string(who.str())));
                          return v->need(need);
                      }),
             "A villager's need, 0 to 100.");
@@ -181,7 +178,7 @@ public:
                          const int k = kit_.kind(std::string(kind.str()));
                          if (k < 0 || size_t(k) >= soak_.tally.uses_by_kind.size())
                              return moira::Unexpected(
-                                 not_found("no object " + std::string(kind.str())));
+                                 base::not_found("no object " + std::string(kind.str())));
                          return int64_t(soak_.tally.uses_by_kind[size_t(k)]);
                      }),
             "In the last soak: how often villagers chose things of a kind.");
@@ -282,14 +279,13 @@ public:
         cam.at[2] = 0.2f;
         cam.fov_y_degrees = 50;
         r.camera(cam);
-        box(r, 0, -0.1f, 0, 0, h.size[0], 0.2f, h.size[1], 0.78f, 0.72f, 0.62f);
-        for (const auto& w : h.walls)
-            box(r, w[0], 0.6f, w[1], 0, w[2], 1.2f, w[3], 0.9f, 0.88f, 0.84f);
+        r.box(0, -0.1f, 0, h.size[0], 0.2f, h.size[1], 0.78f, 0.72f, 0.62f);
+        for (const auto& w : h.walls) r.box(w[0], 0.6f, w[1], w[2], 1.2f, w[3], 0.9f, 0.88f, 0.84f);
         for (const auto& t : home_->things()) {
             const hearth::Kind& k = kit_.kinds[size_t(t->kind)];
             const float dim = t->users > 0 ? 1.0f : 0.8f;
-            box(r, t->x, k.size[1] / 2, t->z, t->yaw * kRadians, k.size[0], k.size[1], k.size[2],
-                k.color[0] * dim, k.color[1] * dim, k.color[2] * dim);
+            r.box(t->x, k.size[1] / 2, t->z, k.size[0], k.size[1], k.size[2], k.color[0] * dim,
+                  k.color[1] * dim, k.color[2] * dim, t->yaw * kRadians);
         }
         for (size_t i = 0; i < home_->villagers().size(); ++i) {
             const hearth::Villager& v = *home_->villagers()[i];
@@ -298,9 +294,9 @@ public:
             const float* c = v.resident.color;
             const float lift = int(i) == selected_ ? 0.15f : 0;
             if (lying)
-                box(r, v.x, 0.7f, v.z, 0, 0.45f, 0.3f, 1.6f, c[0], c[1], c[2]);
+                r.box(v.x, 0.7f, v.z, 0.45f, 0.3f, 1.6f, c[0], c[1], c[2]);
             else
-                box(r, v.x, 0.85f + lift, v.z, 0, 0.45f, 1.7f, 0.35f, c[0], c[1], c[2]);
+                r.box(v.x, 0.85f + lift, v.z, 0.45f, 1.7f, 0.35f, c[0], c[1], c[2]);
         }
         const int m = int(home_->minute());
         r.text(2, 3, "%s   day %d  %02d:%02d   x%.0f", h.name.c_str(), m / 1440 + 1, (m / 60) % 24,
@@ -377,9 +373,9 @@ private:
         if (k == "script_errors") return int64_t(t.script_errors);
         if (k == "decisions") return int64_t(t.decisions);
         if (k == "interrupts") return int64_t(t.interrupts);
-        return moira::Unexpected(not_found("no event kind " + k +
-                                           "; stuck, oscillating, starving, script_errors, "
-                                           "decisions, or interrupts"));
+        return moira::Unexpected(base::not_found("no event kind " + k +
+                                                 "; stuck, oscillating, starving, script_errors, "
+                                                 "decisions, or interrupts"));
     }
 
     std::string report() const {
@@ -411,22 +407,6 @@ private:
         for (auto& v : timeline_) v.assign(kit_.needs.size(), std::vector<float>(kTimeline, 0));
         last_sample_ = -1;
         selected_ = 0;
-    }
-
-    static void box(base::Renderer& r, float x, float y, float z, float yaw, float w, float h,
-                    float d, float cr, float cg, float cb) {
-        base::Box b;
-        b.center[0] = x;
-        b.center[1] = y;
-        b.center[2] = z;
-        b.size[0] = w;
-        b.size[1] = h;
-        b.size[2] = d;
-        b.rotation[1] = yaw;
-        b.color[0] = cr;
-        b.color[1] = cg;
-        b.color[2] = cb;
-        r.box(b);
     }
 
     moira::Context* ctx_ = nullptr;

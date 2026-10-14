@@ -7,6 +7,7 @@
 // in data and script); prices are doubles. A run is a function of the data and the seed.
 #pragma once
 
+#include <base/rng.hpp>
 #include <moira/array.hpp>
 
 #include <cstdint>
@@ -88,7 +89,7 @@ struct Company {
     int day = 0, debt_days = 0;
     bool bankrupt = false;
     std::vector<int64_t> worth_by_day;  // net worth at the end of each day
-    uint64_t rng = 1, market_rng = 1;
+    base::Rng rng, market_rng;
 
     [[nodiscard]] double price(const Economy& e, int good) const;
     [[nodiscard]] int64_t worth(const Economy& e, const Rules& r) const;

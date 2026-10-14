@@ -16,6 +16,7 @@
 #include <base/app.hpp>
 #include <base/physics.hpp>
 #include <base/render.hpp>
+#include <base/words.hpp>
 
 #include <Jolt/Math/Trigonometry.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
@@ -81,10 +82,6 @@ wayfarer::Traversal current_rules() {
     return t;
 }
 
-moira::Error not_found(const std::string& what) {
-    return moira::make_error(moira::ErrorCode::NotFound, what);
-}
-
 float dist(const base::NavPoint& a, const base::NavPoint& b) {
     return std::sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y) +
                      (a.z - b.z) * (a.z - b.z));
@@ -100,12 +97,14 @@ public:
         auto poi_of = [this](moira::Symbol s) -> moira::Expected<int> {
             const int p = world_.poi(std::string(s.str()));
             if (p < 0)
-                return moira::Unexpected(not_found("no point of interest " + std::string(s.str())));
+                return moira::Unexpected(
+                    base::not_found("no point of interest " + std::string(s.str())));
             return p;
         };
         auto mission_of = [this](moira::Symbol s) -> moira::Expected<int> {
             const int m = world_.mission(std::string(s.str()));
-            if (m < 0) return moira::Unexpected(not_found("no mission " + std::string(s.str())));
+            if (m < 0)
+                return moira::Unexpected(base::not_found("no mission " + std::string(s.str())));
             return m;
         };
         // The natives objectives are written in (§4.4, "L2").
@@ -121,7 +120,8 @@ public:
                      [this](moira::Symbol s) -> moira::Expected<bool> {
                          const int f = world_.flag(std::string(s.str()));
                          if (f < 0)
-                             return moira::Unexpected(not_found("no flag " + std::string(s.str())));
+                             return moira::Unexpected(
+                                 base::not_found("no flag " + std::string(s.str())));
                          return bool(progress_.flags >> f & 1);
                      }),
             "In a goal: whether a flag is set (a point of interest sets it when visited).");
@@ -129,7 +129,8 @@ public:
                      [this](moira::Symbol s) -> moira::Expected<bool> {
                          const int i = world_.item(std::string(s.str()));
                          if (i < 0)
-                             return moira::Unexpected(not_found("no item " + std::string(s.str())));
+                             return moira::Unexpected(
+                                 base::not_found("no item " + std::string(s.str())));
                          return progress_.has(i);
                      }),
             "In a goal: whether the player holds an item.");
@@ -160,7 +161,7 @@ public:
                          while (o < os.size() && os[o].name != objective.str()) ++o;
                          if (o == os.size())
                              return moira::Unexpected(
-                                 not_found("no objective " + std::string(objective.str())));
+                                 base::not_found("no objective " + std::string(objective.str())));
                          progress_.started |= uint64_t(1) << *m;
                          progress_.objectives[size_t(*m)] = (uint64_t(1) << o) - 1;
                          return {};
@@ -194,7 +195,8 @@ public:
                      [this](moira::Symbol s) -> moira::Expected<void> {
                          const int i = world_.item(std::string(s.str()));
                          if (i < 0)
-                             return moira::Unexpected(not_found("no item " + std::string(s.str())));
+                             return moira::Unexpected(
+                                 base::not_found("no item " + std::string(s.str())));
                          progress_.items |= uint64_t(1) << i;
                          return {};
                      }),
@@ -242,8 +244,8 @@ public:
                          wayfarer::Style st;
                          if (!wayfarer::parse_style(std::string(style.str()), st))
                              return moira::Unexpected(
-                                 not_found("no bot style " + std::string(style.str()) +
-                                           "; direct, curious, or completionist"));
+                                 base::not_found("no bot style " + std::string(style.str()) +
+                                                 "; direct, curious, or completionist"));
                          prepare();
                          pacing_ = wayfarer::explore(world_, nav_, st, float(seconds), seed_);
                          pacing_style_ = std::string(style.str());
@@ -297,7 +299,6 @@ public:
         world_ = std::move(next);
         loaded_ = true;
         built_.resize(world_.cells.size());
-        prepared_ = false;
         proved_ = false;
         if (first || progress_.objectives.size() != world_.missions.size() ||
             progress_.found.size() != world_.pois.size())
@@ -378,13 +379,13 @@ public:
             const bool built = !built_[c].empty();
             const float half = world_.cell_size / 2;
             const float g = built ? 1.0f : 0.75f;
-            box(r, float(cell.cx) * world_.cell_size + half, -0.25f,
-                float(cell.cz) * world_.cell_size + half, world_.cell_size, 0.5f, world_.cell_size,
-                0.42f * g, 0.62f * g, 0.36f * g);
+            r.box(float(cell.cx) * world_.cell_size + half, -0.25f,
+                  float(cell.cz) * world_.cell_size + half, world_.cell_size, 0.5f,
+                  world_.cell_size, 0.42f * g, 0.62f * g, 0.36f * g);
             if (!built) continue;
             for (const wayfarer::Block& b : cell.blocks)
-                box(r, b.x, b.y + b.h / 2, b.z, b.w, b.h, b.d, b.climb ? 0.62f : 0.6f,
-                    b.climb ? 0.48f : 0.6f, b.climb ? 0.34f : 0.62f);
+                r.box(b.x, b.y + b.h / 2, b.z, b.w, b.h, b.d, b.climb ? 0.62f : 0.6f,
+                      b.climb ? 0.48f : 0.6f, b.climb ? 0.34f : 0.62f);
         }
         for (size_t i = 0; i < world_.pois.size(); ++i) {
             const wayfarer::Poi& q = world_.pois[i];
@@ -394,11 +395,11 @@ public:
             if (q.landmark) c[0] = 0.75f, c[1] = 0.75f, c[2] = 0.8f;
             if (target) c[0] = 1, c[1] = 0.8f, c[2] = 0.15f;
             if (!progress_.found[i]) c[0] *= 0.5f, c[1] *= 0.5f, c[2] *= 0.5f;
-            box(r, q.at.x, q.at.y + h / 2, q.at.z, 0.4f, h, 0.4f, c[0], c[1], c[2]);
+            r.box(q.at.x, q.at.y + h / 2, q.at.z, 0.4f, h, 0.4f, c[0], c[1], c[2]);
         }
         const float tint = climbing_ ? 0.6f : 1.0f;
-        box(r, p.x, p.y + 0.9f, p.z, 0.7f, 1.8f, 0.7f, 0.9f * tint, 0.3f, 0.25f);
-        if (gliding_) box(r, p.x, p.y + 2.0f, p.z, 3.2f, 0.08f, 1.2f, 0.95f, 0.9f, 0.7f);
+        r.box(p.x, p.y + 0.9f, p.z, 0.7f, 1.8f, 0.7f, 0.9f * tint, 0.3f, 0.25f);
+        if (gliding_) r.box(p.x, p.y + 2.0f, p.z, 3.2f, 0.08f, 1.2f, 0.95f, 0.9f, 0.7f);
         r.text(2, 3, "missions %d/%zu   cells built %d/%zu   %s%s", int(missions_done()),
                world_.missions.size(), built_count(), world_.cells.size(),
                climbing_  ? "climbing"
@@ -732,8 +733,7 @@ private:
         if (!ctx_ || command.type() != moira::Type::Command) return false;
         auto r = ctx_->eval(command);
         if (!r) return false;
-        if (auto f = r->as_float()) return *f != 0;
-        return true;
+        return base::truthy(*r);
     }
 
     size_t missions_done() const {
@@ -777,11 +777,15 @@ private:
 
     void prepare() {
         world_.rules = current_rules();
-        if (prepared_) return;
+        // Built again only when the geometry it depends on changes: a reload that tunes a
+        // speed keeps it (it took 174 ms a reload before, D114), and a tuned climb_max
+        // rebuilds it.
+        const uint64_t key = wayfarer::nav_key(world_);
+        if (key == nav_key_) return;
         std::string error;
         if (!wayfarer::build_nav(world_, nav_, &error))
             std::fprintf(stderr, "wayfarer: %s\n", error.c_str());
-        prepared_ = true;
+        nav_key_ = key;
     }
 
     std::string proof_report() const {
@@ -882,21 +886,6 @@ private:
         ImGui::Dummy(ImVec2(size, size));
     }
 
-    static void box(base::Renderer& r, float x, float y, float z, float w, float h, float d,
-                    float cr, float cg, float cb) {
-        base::Box b;
-        b.center[0] = x;
-        b.center[1] = y;
-        b.center[2] = z;
-        b.size[0] = w;
-        b.size[1] = h;
-        b.size[2] = d;
-        b.color[0] = cr;
-        b.color[1] = cg;
-        b.color[2] = cb;
-        r.box(b);
-    }
-
     moira::Context* ctx_ = nullptr;
     wayfarer::World world_;
     bool loaded_ = false;
@@ -926,7 +915,8 @@ private:
     float stall_ = 0, best_ = 0;
     // The analyses.
     base::NavMesh nav_;
-    bool prepared_ = false, proved_ = false;
+    uint64_t nav_key_ = 0;  // what nav_ was built for; 0: nothing yet
+    bool proved_ = false;
     wayfarer::Proof proof_;
     wayfarer::Pacing pacing_;
     std::string pacing_style_;

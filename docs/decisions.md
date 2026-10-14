@@ -3338,8 +3338,8 @@ in `src/` changed.*
 - **Demand.** `check` over every stack's data, scenarios, and objectives: no errors,
   warnings, unresolved words, stubs, repetitions, or findings. The demand is in the C++,
   which `check` does not read: `tag_of` (an array's first symbol) written in 6 games, a
-  seeded RNG in 5, `not_found`, a `box` helper in 5 each, float and positional readers in 4
-  and 2, command truth in 3: 30 copies of words Moira and the base lack.
+  seeded RNG in 6, `not_found` and a `box` helper in 5 each, float and positional readers in
+  4 and 2, command truth in 3: 31 copies of words Moira and the base lack.
 - **The register's finding**: a bus factor of 1 at every layer. Every pack names two owner
   roles, as `check` asks, and one person fills them all; only the register shows it.
 - **Flight**: one external harness, Ledger's spreadsheet, adopted by design and visible
@@ -3347,7 +3347,30 @@ in `src/` changed.*
   Recast/Detour adopted); the analyses (cheese search, proof, bots, soak) are genesis-stage
   ideas fixed in C++, one each.
 - **Interventions proposed**: fix Wayfarer's loop (keep the analyses' mesh until its
-  geometry changes); push the 30 copies up to Moira (`Array::tag()`, a positional reader) and
+  geometry changes); push the 31 copies up to Moira (`Array::tag()`, a positional reader) and
   the base (RNG, `Box` constructors, `not_found`, command truth); a second gardener when
   there is a second person.
+
+## D115. The audit's interventions: Wayfarer's loop, and the copies pushed up
+
+*The first two interventions of D114, the owner's choice, applied and re-measured
+(`stacks/audit.md` §8). One addition to Moira's API.*
+
+- **Wayfarer's loop.** Its analyses' navigation mesh is rebuilt only when
+  `wayfarer::nav_key` changes: every cell's source, the cell size, `climb_max`, `step`, and
+  the glide ratio. Edit-to-see for a tweak: 15.9 ms median, 19.9 ms worst, against 174.1 and
+  215.1 (D114). A test checks the key changes with the geometry and not with a speed; the
+  old flag also kept the analyses on a stale mesh after `climb_max` was tuned in a panel.
+- **`Array::tag()`** in Moira: an array's first node if a symbol, else the empty Symbol.
+  Six stacks had written it. Reading a value by position needed nothing new: a path indexes
+  values (`get<double>("pos.1", 0)`), and a test now says so beside `tag()`; that no stack
+  found it is a finding about the docs, not the API. The core is 11,073 lines of 15,000.
+- **The base** gained `rng.hpp` (`base::Rng`, xorshift64*, seeded per stream: each stack
+  keeps its own stream constant, so every result stays the same), `words.hpp`
+  (`base::name`, `base::number` by path or by position, `base::not_found`, `base::truthy`),
+  a `stacks_words` header-only target, and `Renderer::box` for the common box.
+- **Results.** Copies left: 1 of 31 (Contraption's box helper, which also turns about z and
+  draws spheres: a specialisation). The stacks are 112 lines shorter. Every stack's `sim`
+  over seeds 1–3 is byte-identical before and after, and the pinned replay hashes hold;
+  the 29 stacks tests and Moira's local matrix pass.
 

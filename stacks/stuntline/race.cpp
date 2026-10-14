@@ -8,6 +8,8 @@
 #include <Jolt/Physics/Vehicle/VehicleConstraint.h>
 #include <Jolt/Physics/Vehicle/WheeledVehicleController.h>
 
+#include <base/rng.hpp>
+#include <base/words.hpp>
 #include <moira/std_interop.hpp>
 
 #include <algorithm>
@@ -24,28 +26,9 @@ constexpr float kGravity = 9.81f;
 constexpr float kThickness = 0.25f;  // half the road's thickness
 constexpr float kOpen = 1000;        // a speed limit that does not limit
 
-std::string tag_of(const moira::Array& a) {
-    if (a.empty()) return {};
-    auto s = a[0].as_sym();
-    return s ? std::string(s->str()) : std::string();
-}
-float get(const moira::Array& a, const char* tag, float fallback) {
-    return static_cast<float>(a.find_float(moira::Symbol(tag), fallback).value_or(fallback));
-}
 std::string sym(const moira::Array& a, const char* tag) {
     auto s = a.find_sym(moira::Symbol(tag), moira::Symbol());
     return s ? std::string(s->str()) : std::string();
-}
-
-uint64_t next(uint64_t& s) {
-    s ^= s >> 12;
-    s ^= s << 25;
-    s ^= s >> 27;
-    return s * 0x2545F4914F6CDD1Dull;
-}
-float uniform(uint64_t& s) {  // -1 .. 1
-    return static_cast<float>(static_cast<double>(next(s) >> 11) * (2.0 / 9007199254740992.0) -
-                              1.0);
 }
 
 // Heading, then pitch up, then roll: the orientation of a stretch of road.
@@ -91,36 +74,37 @@ bool load(const moira::Array& root, Kit& out, std::string& error) {
     Kit k;
     if (const moira::Array* c = root.try_find(moira::Symbol("car"))) {
         Car& car = k.car;
-        car.mass = get(*c, "mass", car.mass);
-        car.half_width = get(*c, "width", car.half_width * 2) / 2;
-        car.half_height = get(*c, "height", car.half_height * 2) / 2;
-        car.half_length = get(*c, "length", car.half_length * 2) / 2;
-        car.wheel_radius = get(*c, "wheel_radius", car.wheel_radius);
-        car.wheel_width = get(*c, "wheel_width", car.wheel_width);
-        car.max_torque = get(*c, "max_torque", car.max_torque);
-        car.max_rpm = get(*c, "max_rpm", car.max_rpm);
-        car.max_steer = get(*c, "max_steer", car.max_steer);
-        car.suspension_min = get(*c, "suspension_min", car.suspension_min);
-        car.suspension_max = get(*c, "suspension_max", car.suspension_max);
-        car.suspension_frequency = get(*c, "suspension_frequency", car.suspension_frequency);
-        car.suspension_damping = get(*c, "suspension_damping", car.suspension_damping);
-        car.grip = get(*c, "grip", car.grip);
+        car.mass = base::number(*c, "mass", car.mass);
+        car.half_width = base::number(*c, "width", car.half_width * 2) / 2;
+        car.half_height = base::number(*c, "height", car.half_height * 2) / 2;
+        car.half_length = base::number(*c, "length", car.half_length * 2) / 2;
+        car.wheel_radius = base::number(*c, "wheel_radius", car.wheel_radius);
+        car.wheel_width = base::number(*c, "wheel_width", car.wheel_width);
+        car.max_torque = base::number(*c, "max_torque", car.max_torque);
+        car.max_rpm = base::number(*c, "max_rpm", car.max_rpm);
+        car.max_steer = base::number(*c, "max_steer", car.max_steer);
+        car.suspension_min = base::number(*c, "suspension_min", car.suspension_min);
+        car.suspension_max = base::number(*c, "suspension_max", car.suspension_max);
+        car.suspension_frequency =
+            base::number(*c, "suspension_frequency", car.suspension_frequency);
+        car.suspension_damping = base::number(*c, "suspension_damping", car.suspension_damping);
+        car.grip = base::number(*c, "grip", car.grip);
     }
     if (const moira::Array* list = root.try_find(moira::Symbol("pieces")))
         for (const moira::Array& a : list->subarrays()) {
             PieceDef p;
-            p.name = tag_of(a);
+            p.name = base::name(a);
             const std::string kind = sym(a, "kind");
             p.kind = kind == "ramp"   ? Kind::Ramp
                      : kind == "gap"  ? Kind::Gap
                      : kind == "turn" ? Kind::Turn
                                       : Kind::Straight;
-            p.length = std::max(1.0f, get(a, "length", p.length));
-            p.rise = get(a, "rise", 0);
-            p.radius = std::max(5.0f, get(a, "radius", p.radius));
-            p.angle = get(a, "angle", p.angle);
-            p.bank = get(a, "bank", 0);
-            p.width = std::max(3.0f, get(a, "width", p.width));
+            p.length = std::max(1.0f, base::number(a, "length", p.length));
+            p.rise = base::number(a, "rise", 0);
+            p.radius = std::max(5.0f, base::number(a, "radius", p.radius));
+            p.angle = base::number(a, "angle", p.angle);
+            p.bank = base::number(a, "bank", 0);
+            p.width = std::max(3.0f, base::number(a, "width", p.width));
             p.in = sym(a, "in");
             p.out = sym(a, "out");
             k.pieces.push_back(std::move(p));
@@ -132,9 +116,9 @@ bool load(const moira::Array& root, Kit& out, std::string& error) {
     if (const moira::Array* list = root.try_find(moira::Symbol("tracks")))
         for (const moira::Array& a : list->subarrays()) {
             Track t;
-            t.name = tag_of(a);
+            t.name = base::name(a);
             if (auto d = a.find_str(moira::Symbol("desc"), "")) t.desc = std::string(*d);
-            t.par = get(a, "par", t.par);
+            t.par = base::number(a, "par", t.par);
             if (const moira::Array* lay = a.try_find(moira::Symbol("lay")))
                 for (size_t i = 1; i < lay->size(); ++i) {
                     auto s = (*lay)[i].as_sym();
@@ -160,11 +144,11 @@ bool load(const moira::Array& root, Kit& out, std::string& error) {
     if (const moira::Array* list = root.try_find(moira::Symbol("drivers")))
         for (const moira::Array& a : list->subarrays()) {
             Driver d;
-            d.name = tag_of(a);
-            d.pace = get(a, "pace", d.pace);
-            d.noise = get(a, "noise", d.noise);
-            d.look_ahead = get(a, "look_ahead", d.look_ahead);
-            d.top_speed = get(a, "top_speed", d.top_speed);
+            d.name = base::name(a);
+            d.pace = base::number(a, "pace", d.pace);
+            d.noise = base::number(a, "noise", d.noise);
+            d.look_ahead = base::number(a, "look_ahead", d.look_ahead);
+            d.top_speed = base::number(a, "top_speed", d.top_speed);
             k.drivers.push_back(std::move(d));
         }
     out = std::move(k);
@@ -449,7 +433,7 @@ void Race::wheel(int i, float pos[3], float quat[4]) const {
     store(m.GetQuaternion(), quat);
 }
 
-Controls drive(const Driver& d, const Kit& kit, const Race& race, uint64_t& rng) {
+Controls drive(const Driver& d, const Kit& kit, const Race& race, base::Rng& rng) {
     const Layout& l = race.layout();
     Controls c;
     float pos[3], quat[4];
@@ -465,7 +449,8 @@ Controls drive(const Driver& d, const Kit& kit, const Race& race, uint64_t& rng)
     const JPH::Vec3 to(t.pos[0] - pos[0], 0, t.pos[2] - pos[2]);
     const float angle = JPH::ATan2(to.Dot(left), to.Dot(forward));
     const float max_steer = kit.car.max_steer * kRadians;
-    c.right = std::clamp(-angle / max_steer + d.noise * uniform(rng), -1.0f, 1.0f);
+    c.right = std::clamp(-angle / max_steer + d.noise * static_cast<float>(rng.unit() * 2.0 - 1.0),
+                         -1.0f, 1.0f);
 
     // Speed: the slowest corner within braking distance, at this driver's pace.
     const float v = race.speed();
@@ -486,8 +471,7 @@ Controls drive(const Driver& d, const Kit& kit, const Race& race, uint64_t& rng)
 Result race(const Kit& kit, const Layout& layout, const Driver& d, uint64_t seed,
             float max_seconds) {
     Race r(kit, layout);
-    uint64_t rng = seed * 0x9E3779B97F4A7C15ull + 0x2545F4914F6CDD1Dull;
-    if (rng == 0) rng = 1;
+    base::Rng rng(seed, 0x2545F4914F6CDD1Dull);
     const int steps = int(max_seconds / Race::kDt);
     for (int i = 0; i < steps && !r.finished(); ++i) r.step(drive(d, kit, r, rng));
     Result out;

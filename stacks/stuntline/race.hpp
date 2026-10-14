@@ -8,6 +8,7 @@
 #pragma once
 
 #include <base/physics.hpp>
+#include <base/rng.hpp>
 
 #include <moira/array.hpp>
 
@@ -159,7 +160,7 @@ private:
 };
 
 // The controls an AI driver gives this step. `rng` is its own random state.
-[[nodiscard]] Controls drive(const Driver& d, const Kit& kit, const Race& race, uint64_t& rng);
+[[nodiscard]] Controls drive(const Driver& d, const Kit& kit, const Race& race, base::Rng& rng);
 
 struct Result {
     bool finished = false;

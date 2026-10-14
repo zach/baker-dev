@@ -74,6 +74,23 @@ TEST_CASE("find returns the first child array with the tag") {
     CHECK(array("x", Array::make(0))->try_find("k") == nullptr);
 }
 
+TEST_CASE("tag is an array's first symbol, or the empty symbol") {
+    auto root = menu_root();
+    const Array* menu = root->try_find("menu");
+    REQUIRE(menu);
+    CHECK(menu->tag() == Symbol("menu"));
+    std::vector<std::string> names;
+    for (const Array& item : menu->subarrays()) names.emplace_back(item.tag().str());
+    CHECK(names == std::vector<std::string>{"bacon and eggs", "fruit and cereal"});
+    CHECK(array(1, 2)->tag() == Symbol());
+    CHECK(array(str("k"), 1)->tag() == Symbol());
+    CHECK(Array::make(0)->tag() == Symbol());
+    // A value at a position is a path: (pos 1 2 3), index 1.
+    auto pos = array("thing", array("pos", 1.5, 2.5, 3.5));
+    CHECK(pos->get<double>("pos.1", 0.0).value_or(-1) == 2.5);
+    CHECK(pos->get<double>("pos.7", 9.0).value_or(-1) == 9.0);
+}
+
 TEST_CASE("typed finds read the value after the tag") {
     auto root = menu_root();
     const Array& eggs = *root->try_find("menu")->try_find("bacon and eggs");
