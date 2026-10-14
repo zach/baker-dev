@@ -237,12 +237,22 @@ Shapes are declared in data, in one `(shapes ...)` container, each tagged by its
   A field without `optional` is required.
 - **What a shape governs:** every array tagged with its name, anywhere in the tree. `(at
   ...)` narrows it to arrays whose ancestors' tags, from the root, are the ones listed;
-  `*` matches any one tag. The example above governs `(phase1 ...)` in
-  `(bosses (dragon (phases (phase1 ...))))`.
-- **Keyed children are not reached** (D85). In `(bosses (dragon ...) (golem ...))` each
-  boss is tagged by its own name, so no shape named `boss` governs them. Write data a
-  shape should check as `(boss (name dragon) ...)`, or narrow with `(at ...)` to the
-  children of a known parent, as `boss_phase` does.
+  `*` matches any one tag. The example above governs each `(boss_phase ...)` in
+  `(bosses (dragon (phases (boss_phase ...) (boss_phase ...))))`.
+- **Keyed children** are tagged by their own names, as in `(bosses (dragon ...) (golem
+  ...))`, so no shape is named after them. Declare the shape `(keyed)`, with an `(at ...)`
+  naming their parent, and it governs every child there, whatever its tag (D108):
+
+  ```dta
+  (shapes
+     (move (at fighters * moves) (keyed)
+        (startup int (range 1 60) (kind frames))))
+  (fighters (kestrel (moves (jab (startup 4)) (heavy (startup 9)))))
+  ```
+
+  Keyed data is what layers merge by name: a layer above can retune `heavy` alone. Data
+  written `(boss (name dragon) ...)` is governed by name, but repeated tags do not merge
+  one by one.
 - **Layers merge shapes like any data**, because the container is tagged `shapes` and
   each shape by its name: a later layer adds a shape, adds a field, or retunes one
   field's range.
