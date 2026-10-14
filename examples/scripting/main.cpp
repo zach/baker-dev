@@ -1,10 +1,10 @@
 // Script: native functions, script functions, typed lookups that evaluate, eval, and
 // check.
 //
-//   moira_example_scripting path/to/examples/scripting/rules.dta
-#include <moira/parse.hpp>
-#include <moira/script.hpp>
-#include <moira/std_script.hpp>
+//   baker_example_scripting path/to/examples/scripting/rules.dta
+#include <baker/parse.hpp>
+#include <baker/script.hpp>
+#include <baker/std_script.hpp>
 
 #include <cstdint>
 #include <cstdio>
@@ -12,22 +12,22 @@
 
 namespace {
 
-void show(moira::Context& ctx, const char* text) {
+void show(baker::Context& ctx, const char* text) {
     auto r = ctx.eval(text);
     if (r)
-        std::printf("%s => %s\n", text, moira::to_string(*r).c_str());
+        std::printf("%s => %s\n", text, baker::to_string(*r).c_str());
     else
-        std::printf("%s => error:\n%s\n", text, moira::describe(r.error()).data());
+        std::printf("%s => error:\n%s\n", text, baker::describe(r.error()).data());
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
     if (argc < 2) return 2;
-    moira::Context ctx;
+    baker::Context ctx;
 
     // A native function: parameter and result types are deduced from the lambda.
-    auto spawn = ctx.func("spawn", [](moira::Symbol kind, int64_t count) {
+    auto spawn = ctx.func("spawn", [](baker::Symbol kind, int64_t count) {
         std::printf("  spawn %lld %s\n", static_cast<long long>(count), kind.c_str());
         return count;
     });
@@ -38,18 +38,18 @@ int main(int argc, char** argv) {
     // Read from its own directory, so errors name the file as its author knows it.
     const std::filesystem::path path = argv[1];
     if (path.has_parent_path()) std::filesystem::current_path(path.parent_path());
-    auto tree = moira::read_file(path.filename().string());
-    if (!tree) return std::printf("%s\n", moira::to_string(tree.error()).data()), 1;
+    auto tree = baker::read_file(path.filename().string());
+    if (!tree) return std::printf("%s\n", baker::to_string(tree.error()).data()), 1;
 
     // check walks the data without running it: a call with the wrong arguments is an error,
     // and a call to a function nobody has written yet is the demand report.
-    std::printf("check:\n%s", moira::to_string(moira::check(**tree, ctx)).c_str());
+    std::printf("check:\n%s", baker::to_string(baker::check(**tree, ctx)).c_str());
 
     // Running the file's top level defines `scaled`.
     if (!ctx.run((*tree)->nodes())) return 1;
 
     // Typed lookups evaluate commands and variables in the current Context.
-    const moira::Array& root = **tree;
+    const baker::Array& root = **tree;
     std::printf("grunt hp %lld, brute hp %lld, brute damage %lld\n",
                 static_cast<long long>(*root.get<int64_t>("enemy.grunt.hp")),
                 static_cast<long long>(*root.get<int64_t>("enemy.brute.hp")),
@@ -61,8 +61,8 @@ int main(int argc, char** argv) {
 
     // A handler is an array of commands, run in order.
     std::printf("on_enter:\n");
-    if (const moira::Array* on_enter = root.try_get("level.on_enter"))
-        for (const moira::Node& command : on_enter->nodes().subspan(1))
+    if (const baker::Array* on_enter = root.try_get("level.on_enter"))
+        for (const baker::Node& command : on_enter->nodes().subspan(1))
             if (!ctx.eval(command)) return 1;
 
     // eval runs text, as a console would.

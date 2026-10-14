@@ -13,7 +13,7 @@ game plays as before:
 ```
 stacks_cube                                   play (the base's app)
 stacks_cube sim [--scenario NAME]... [--seeds A-B] [--out DIR]
-stacks_cube check                             moira::check over data, scenarios, metrics; JSON;
+stacks_cube check                             baker::check over data, scenarios, metrics; JSON;
                                               exit 1 on an error or an undefined, unstubbed call
 stacks_cube reference                         the vocabulary: functions, shapes, packs (Markdown)
 stacks_cube diff                              what agent.dta changes, value by value
@@ -77,7 +77,7 @@ not run (a missing scenario, a broken file): CI can gate on it.
 ## Script functions from data
 
 A data file defines script functions with `#autorun {func ...}`: task packs, stubs for a
-push-up, helpers for scenarios. Moira's `Config` reads each layer with a session of its own,
+push-up, helpers for scenarios. Baker's `Config` reads each layer with a session of its own,
 so the commands a layer's `#autorun` collected were out of reach; `Config::autorun()` (D107)
 returns them, enabled layers bottom to top. `Live` runs them after the load and at the frame
 after any change to the stack (a reload, a toggle from a panel), so a redefinition in
@@ -85,7 +85,7 @@ after any change to the stack (a reload, a toggle from a panel), so a redefiniti
 
 ## Check and shapes
 
-`check` also runs the shapes (`moira::shape`) over the merged data: a value out of range or
+`check` also runs the shapes (`baker::shape`) over the merged data: a value out of range or
 of the wrong type fails it, and a field no shape declares is printed as a warning, which
 is how a designer's request for a word the game lacks shows up. Stacks keep data keyed, as
 `(moves (jab ...))`, so a layer can retune one entry; their shapes are `(keyed)` (D108).

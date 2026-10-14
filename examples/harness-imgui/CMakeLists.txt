@@ -1,4 +1,4 @@
-# The reference harness (D87 Q1): Dear ImGui panels over Moira, in a GLFW and OpenGL 3
+# The reference harness (D87 Q1): Dear ImGui panels over Baker, in a GLFW and OpenGL 3
 # window. Dear ImGui and GLFW are fetched at pinned releases, never vendored, as EASTL is.
 # The panels are also built into a headless test that needs no window: ImGui with no
 # backend, a few frames, and assertions on what changed.
@@ -9,24 +9,24 @@ FetchContent_Declare(imgui
 FetchContent_MakeAvailable(imgui)
 
 # Dear ImGui has no CMake build of its own: its core sources, without the demo.
-add_library(moira_imgui STATIC
+add_library(baker_imgui STATIC
   ${imgui_SOURCE_DIR}/imgui.cpp
   ${imgui_SOURCE_DIR}/imgui_draw.cpp
   ${imgui_SOURCE_DIR}/imgui_tables.cpp
   ${imgui_SOURCE_DIR}/imgui_widgets.cpp)
-target_include_directories(moira_imgui SYSTEM PUBLIC ${imgui_SOURCE_DIR})
-target_compile_features(moira_imgui PUBLIC cxx_std_20)
+target_include_directories(baker_imgui SYSTEM PUBLIC ${imgui_SOURCE_DIR})
+target_compile_features(baker_imgui PUBLIC cxx_std_20)
 # Its sources are not ours to warn about.
-set_target_properties(moira_imgui PROPERTIES COMPILE_WARNING_AS_ERROR OFF)
-target_compile_options(moira_imgui PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/w,-w>)
+set_target_properties(baker_imgui PROPERTIES COMPILE_WARNING_AS_ERROR OFF)
+target_compile_options(baker_imgui PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/w,-w>)
 
-add_library(moira_harness_panels STATIC panels.cpp)
-target_link_libraries(moira_harness_panels PUBLIC moira::script moira::shape moira_imgui)
+add_library(baker_harness_panels STATIC panels.cpp)
+target_link_libraries(baker_harness_panels PUBLIC baker::script baker::shape baker_imgui)
 
-if(MOIRA_BUILD_TESTS)
-  add_executable(moira_harness_test test_panels.cpp)
-  target_link_libraries(moira_harness_test PRIVATE moira_harness_panels moira_doctest_main)
-  add_test(NAME moira_harness_test COMMAND moira_harness_test
+if(BAKER_BUILD_TESTS)
+  add_executable(baker_harness_test test_panels.cpp)
+  target_link_libraries(baker_harness_test PRIVATE baker_harness_panels baker_doctest_main)
+  add_test(NAME baker_harness_test COMMAND baker_harness_test
            WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 endif()
 
@@ -44,10 +44,10 @@ set_target_properties(glfw PROPERTIES COMPILE_WARNING_AS_ERROR OFF)
 target_compile_options(glfw PRIVATE $<IF:$<C_COMPILER_ID:MSVC>,/w,-w>)
 find_package(OpenGL REQUIRED)
 
-add_executable(moira_harness main.cpp
+add_executable(baker_harness main.cpp
   ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
   ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp)
-target_include_directories(moira_harness SYSTEM PRIVATE ${imgui_SOURCE_DIR}/backends)
-target_link_libraries(moira_harness PRIVATE moira_harness_panels glfw OpenGL::GL)
-target_compile_definitions(moira_harness PRIVATE
-  MOIRA_HARNESS_DATA="${CMAKE_CURRENT_SOURCE_DIR}/data")
+target_include_directories(baker_harness SYSTEM PRIVATE ${imgui_SOURCE_DIR}/backends)
+target_link_libraries(baker_harness PRIVATE baker_harness_panels glfw OpenGL::GL)
+target_compile_definitions(baker_harness PRIVATE
+  BAKER_HARNESS_DATA="${CMAKE_CURRENT_SOURCE_DIR}/data")

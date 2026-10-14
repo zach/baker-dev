@@ -3,9 +3,9 @@
 #include "base/app.hpp"
 #include "base/sim.hpp"
 
-#include <moira/shape.hpp>
-#include <moira/std_interop.hpp>
-#include <moira/std_script.hpp>
+#include <baker/shape.hpp>
+#include <baker/std_interop.hpp>
+#include <baker/std_script.hpp>
 
 #include <algorithm>
 #include <cstdio>
@@ -103,7 +103,7 @@ Options parse(int argc, char** argv, const std::string& data) {
 
 // The game's data, as the commands see it: default.dta and agent.dta, without local.dta.
 struct Loaded {
-    moira::Context ctx;
+    baker::Context ctx;
     Live live{ctx};
     Game* game = nullptr;  // bound to ctx: unbound before it goes
     Loaded() = default;
@@ -120,7 +120,7 @@ bool load(Game& game, Loaded& l, const Options& o) {
     const bool ok = l.live.open({.data_dir = o.data,
                                  .watch = false,
                                  .local = false,
-                                 .changed = [&game](const moira::Config& c) { game.load(c); }});
+                                 .changed = [&game](const baker::Config& c) { game.load(c); }});
     std::vector<std::string> log;
     if (l.live.take_log(log))
         for (const std::string& line : log) std::fprintf(stderr, "%s\n", line.c_str());
@@ -147,7 +147,7 @@ int sim(Game& game, const Options& o) {
     Loaded l;
     if (!load(game, l, o)) return kError;
     std::vector<Objective> objectives;
-    std::vector<moira::Ref<moira::Array>> metric_trees;
+    std::vector<baker::Ref<baker::Array>> metric_trees;
     std::string error;
     if (!load_objectives(o.metrics, objectives, metric_trees, error)) {
         std::fprintf(stderr, "%s\n", error.c_str());
@@ -212,13 +212,13 @@ int check(Game& game, const Options& o) {
     Loaded l;
     if (!load(game, l, o)) return kError;
     // The merged data, every scenario, and every objective: the agent writes all three.
-    std::vector<moira::Ref<moira::Array>> trees{l.live.config().root()};
+    std::vector<baker::Ref<baker::Array>> trees{l.live.config().root()};
     std::vector<fs::path> files;
     scenario_files(o, files);
     for (const fs::path& f : files) {
-        auto t = moira::read_file(f.string());
+        auto t = baker::read_file(f.string());
         if (!t) {
-            std::fprintf(stderr, "%s\n", std::string(moira::describe(t.error())).c_str());
+            std::fprintf(stderr, "%s\n", std::string(baker::describe(t.error())).c_str());
             return kError;
         }
         trees.push_back(*t);
@@ -229,33 +229,33 @@ int check(Game& game, const Options& o) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return kError;
     }
-    std::vector<const moira::Array*> raw;
+    std::vector<const baker::Array*> raw;
     for (const auto& t : trees) raw.push_back(t.get());
-    moira::CheckReport report;
-    moira::check(std::span<const moira::Array* const>(raw.data(), raw.size()), l.ctx, report,
+    baker::CheckReport report;
+    baker::check(std::span<const baker::Array* const>(raw.data(), raw.size()), l.ctx, report,
                  {.packs = &l.live.config().read_session()});
-    std::printf("%s\n", moira::to_json(report, &l.live.config().read_session()).c_str());
-    // A call to a function nobody defined is demand to Moira: a word the data asks for. In
+    std::printf("%s\n", baker::to_json(report, &l.live.config().read_session()).c_str());
+    // A call to a function nobody defined is demand to Baker: a word the data asks for. In
     // an agent's edit it is nearly always a typo, so it fails the check unless declared a
     // stub ({func name () (status stub) ...}), which is how a push-up is written.
     const bool unresolved =
         std::any_of(report.demand.begin(), report.demand.end(),
-                    [](const moira::CheckReport::Demand& d) { return !d.stub; });
-    for (const moira::CheckReport::Demand& d : report.demand)
+                    [](const baker::CheckReport::Demand& d) { return !d.stub; });
+    for (const baker::CheckReport::Demand& d : report.demand)
         if (!d.stub)
             std::fprintf(stderr, "check: '%s' is not defined (%s:%d)\n", d.name.c_str(),
                          d.sites.empty() ? "?" : d.sites.begin()->file.c_str(),
                          d.sites.empty() ? 0 : int(d.sites.begin()->line));
     // The shapes, over the merged data: a value out of range or of the wrong type fails the
     // check; a field no shape declares is reported, as demand for a word, and passes.
-    moira::shape::Set shapes;
-    moira::shape::Report shaped;
+    baker::shape::Set shapes;
+    baker::shape::Report shaped;
     shapes.add(*l.live.config().root(), shaped);
-    moira::shape::check(*l.live.config().root(), shapes, shaped);
-    for (const moira::Error& e : shaped.errors)
-        std::fprintf(stderr, "shape: %s\n", std::string(moira::to_string(e)).c_str());
-    for (const moira::Error& e : shaped.warnings)
-        std::fprintf(stderr, "shape warning: %s\n", std::string(moira::to_string(e)).c_str());
+    baker::shape::check(*l.live.config().root(), shapes, shaped);
+    for (const baker::Error& e : shaped.errors)
+        std::fprintf(stderr, "shape: %s\n", std::string(baker::to_string(e)).c_str());
+    for (const baker::Error& e : shaped.warnings)
+        std::fprintf(stderr, "shape warning: %s\n", std::string(baker::to_string(e)).c_str());
     return report.ok() && !unresolved && shaped.ok() ? 0 : kFailed;
 }
 
@@ -265,20 +265,20 @@ int eval(Game& game, const Options& o) {
     if (o.commands.empty()) usage("eval needs a command: eval \"{...}\"");
     Loaded l;
     if (!load(game, l, o)) return kError;
-    l.ctx.var("seed") = moira::Node(static_cast<int64_t>(o.seed_first));
+    l.ctx.var("seed") = baker::Node(static_cast<int64_t>(o.seed_first));
     game.reset(o.seed_first);
     int status = 0;
     for (const std::string& command : o.commands) {
         auto r = l.ctx.eval(command);
         if (!r) {
-            std::fprintf(stderr, "%s\n", std::string(moira::describe(r.error())).c_str());
+            std::fprintf(stderr, "%s\n", std::string(baker::describe(r.error())).c_str());
             status = kFailed;
             continue;
         }
         if (auto text = r->as_str())
             std::printf("%.*s\n", int(text->size()), text->data());
         else
-            std::printf("%s\n", moira::to_string(*r).c_str());
+            std::printf("%s\n", baker::to_string(*r).c_str());
     }
     return status;
 }
@@ -286,15 +286,15 @@ int eval(Game& game, const Options& o) {
 int reference(Game& game, const Options& o) {
     Loaded l;
     if (!load(game, l, o)) return kError;
-    std::printf("%s", moira::reference(l.ctx, &l.live.config().read_session()).c_str());
+    std::printf("%s", baker::reference(l.ctx, &l.live.config().read_session()).c_str());
     return 0;
 }
 
 // One line per value the agent layer sets: path, the value below it, its value, where.
-int print_effect(moira::Config& cfg, const char* heading) {
+int print_effect(baker::Config& cfg, const char* heading) {
     auto effect = cfg.layer_effect("agent");
     if (!effect) {
-        std::fprintf(stderr, "%s\n", std::string(moira::to_string(effect.error())).c_str());
+        std::fprintf(stderr, "%s\n", std::string(baker::to_string(effect.error())).c_str());
         return kError;
     }
     if (effect->empty()) {
@@ -302,10 +302,10 @@ int print_effect(moira::Config& cfg, const char* heading) {
         return 0;
     }
     std::printf("%s\n", heading);
-    for (const moira::LayerEffectEntry& e : *effect) {
-        const std::string below = e.below ? moira::to_string(*e.below) : std::string("(new)");
+    for (const baker::LayerEffectEntry& e : *effect) {
+        const std::string below = e.below ? baker::to_string(*e.below) : std::string("(new)");
         std::printf("  %s  %s -> %s  (%s:%d)%s\n", e.path.c_str(), below.c_str(),
-                    moira::to_string(e.value).c_str(), e.source.file.c_str(), int(e.source.line),
+                    baker::to_string(e.value).c_str(), e.source.file.c_str(), int(e.source.line),
                     e.shadowed ? "  shadowed" : "");
     }
     return 0;
@@ -326,13 +326,13 @@ int promote(Game& game, const Options& o) {
     }
     auto report = l.live.config().promote("agent", o.to);
     if (!report) {
-        std::fprintf(stderr, "%s\n", std::string(moira::describe(report.error())).c_str());
+        std::fprintf(stderr, "%s\n", std::string(baker::describe(report.error())).c_str());
         return kError;
     }
-    for (const moira::Error& e : report->refused)
-        std::fprintf(stderr, "refused: %s\n", std::string(moira::to_string(e)).c_str());
+    for (const baker::Error& e : report->refused)
+        std::fprintf(stderr, "refused: %s\n", std::string(baker::to_string(e)).c_str());
     if (!report->ok()) return kFailed;
-    for (const moira::WrittenLine& w : report->written)
+    for (const baker::WrittenLine& w : report->written)
         std::printf("wrote %s:%d\n", w.file.c_str(), int(w.line));
     std::printf("agent.dta is unchanged: empty it once the promotion is reviewed\n");
     return 0;

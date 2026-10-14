@@ -2,7 +2,7 @@
 """Exports Ledger's economy.xlsx to data/economy.dta (game-stacks.md §4.2).
 
 The spreadsheet is the designers' harness, kept first-class: this script turns its Goods and
-Buildings sheets into data, with an (origin ...) form, so Moira's source() names the sheet
+Buildings sheets into data, with an (origin ...) form, so Baker's source() names the sheet
 behind every number and `reference` lists the tool. Each line ends with the sheet row it
 came from, so a tuned value in agent.dta can be reported as the cell to change.
 

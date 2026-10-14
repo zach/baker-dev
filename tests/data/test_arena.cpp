@@ -1,15 +1,15 @@
 // D64: a load's tree lives in one arena, counted as a whole.
 #include <doctest.h>
-#include <moira/array.hpp>
-#include <moira/parse.hpp>
+#include <baker/array.hpp>
+#include <baker/parse.hpp>
 
 #include "alloc_counter.hpp"
 #include "ok.hpp"
 
 #include <string>
 
-using namespace moira;
-using moira::test::ok;
+using namespace baker;
+using baker::test::ok;
 
 namespace {
 // `n` tagged arrays, each with a string: (k0 "v0") (k1 "v1") ...

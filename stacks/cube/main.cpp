@@ -11,20 +11,20 @@
 // headless and judges the runs by metrics/*.dta; `check`, `reference`, `diff`, `promote`.
 #include <base/app.hpp>
 
-#include <moira/std_interop.hpp>
+#include <baker/std_interop.hpp>
 
 #include <array>
 
-static moira::Tweak<float> kSpin{
+static baker::Tweak<float> kSpin{
     "cube.spin", 45.0f, {.range = {-720, 720}, .desc = "Degrees per second"}};
-static moira::Tweak<float> kSize{
+static baker::Tweak<float> kSize{
     "cube.size", 1.0f, {.range = {0.1f, 5}, .desc = "Edge, in meters"}};
-static moira::Tweak<std::array<float, 3>> kColor{"cube.color", {0.9f, 0.5f, 0.2f}};
-static moira::Tweak<float> kTilt{
+static baker::Tweak<std::array<float, 3>> kColor{"cube.color", {0.9f, 0.5f, 0.2f}};
+static baker::Tweak<float> kTilt{
     "cube.tilt", 20.0f, {.range = {-90, 90}, .desc = "Degrees about x"}};
-static moira::Tweak<float> kDistance{"camera.distance", 4.0f, {.range = {1, 50}}};
-static moira::Tweak<float> kHeight{"camera.height", 1.5f, {.range = {-20, 20}}};
-static moira::Tweak<std::array<float, 3>> kClear{"scene.clear", {0.10f, 0.10f, 0.12f}};
+static baker::Tweak<float> kDistance{"camera.distance", 4.0f, {.range = {1, 50}}};
+static baker::Tweak<float> kHeight{"camera.height", 1.5f, {.range = {-20, 20}}};
+static baker::Tweak<std::array<float, 3>> kClear{"scene.clear", {0.10f, 0.10f, 0.12f}};
 
 namespace {
 
@@ -32,7 +32,7 @@ constexpr float kRadiansPerDegree = 0.017453292f;
 
 class CubeGame final : public base::Game {
 public:
-    void bind(moira::Context& ctx) override {
+    void bind(baker::Context& ctx) override {
         (void)ctx.func("cube.reset", [this] { angle_ = previous_ = 0; });
         (void)ctx.func("cube.angle", [this] { return double(angle_); });
         (void)ctx.func("cube.turns", [this] { return double(angle_) / 360.0; });

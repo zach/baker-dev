@@ -2,12 +2,12 @@
 
 // Tasks: work that runs over time, as C++20 coroutines (spec §5, "Tasks").
 //
-//   moira::Task blink(moira::Scheduler& s, Light& light) {
+//   baker::Task blink(baker::Scheduler& s, Light& light) {
 //       for (int i = 0; i < 3; ++i) {
 //           light.on();
-//           co_await moira::delay(100);
+//           co_await baker::delay(100);
 //           light.off();
-//           co_await moira::until([] { return player_ready(); });
+//           co_await baker::until([] { return player_ready(); });
 //       }
 //   }
 //   auto h = ctx.scheduler().spawn(blink(ctx.scheduler(), light), "blink");
@@ -27,9 +27,9 @@
 // globals), and sees those values each step (D67). Made in a handler, it ends when its
 // $this object is removed. Each returns a handle for {scheduler cancel $h}.
 
-#include <moira/error.hpp>
-#include <moira/node.hpp>
-#include <moira/object.hpp>
+#include <baker/error.hpp>
+#include <baker/node.hpp>
+#include <baker/object.hpp>
 
 #include <coroutine>
 #include <cstddef>
@@ -38,7 +38,7 @@
 #include <type_traits>
 #include <utility>
 
-namespace moira {
+namespace baker {
 
 class Context;
 class Scheduler;
@@ -121,7 +121,7 @@ public:
         std::suspend_always initial_suspend() noexcept { return {}; }
         std::suspend_always final_suspend() noexcept { return {}; }
         void return_void() noexcept {}
-        void unhandled_exception() noexcept;  // never: Moira builds without exceptions
+        void unhandled_exception() noexcept;  // never: Baker builds without exceptions
     };
 
     Task() noexcept = default;
@@ -232,4 +232,4 @@ private:
     Impl* impl_;
 };
 
-}  // namespace moira
+}  // namespace baker

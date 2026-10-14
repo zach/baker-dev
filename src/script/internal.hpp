@@ -1,17 +1,17 @@
 #pragma once
 
-// The inside of a Context, shared by the files of moira::script.
+// The inside of a Context, shared by the files of baker::script.
 
-#include <moira/object.hpp>
-#include <moira/script.hpp>
-#include <moira/task.hpp>
+#include <baker/object.hpp>
+#include <baker/script.hpp>
+#include <baker/task.hpp>
 
 #include "common/containers.hpp"
 
 #include <algorithm>
 #include <utility>
 
-namespace moira {
+namespace baker {
 
 namespace detail {
 
@@ -263,7 +263,7 @@ struct Context::Impl {
     NoticeSink sink = nullptr;
     void* sink_user = nullptr;
 
-    // Statistics and tracing (not under MOIRA_SHIPPING).
+    // Statistics and tracing (not under BAKER_SHIPPING).
     bool profiling = false;
     bool tracing = false;
     bool instrumented = false;  // profiling || tracing: the one test on the call path
@@ -297,4 +297,4 @@ private:
     size_t mark_;
 };
 
-}  // namespace moira
+}  // namespace baker

@@ -1,6 +1,6 @@
 # Fuzzer regressions
 
-Inputs on which `moira_parse_fuzzer` once found a bug, one file each (`*.bin`, raw
+Inputs on which `baker_parse_fuzzer` once found a bug, one file each (`*.bin`, raw
 bytes). The data-layer tests run the fuzz property over every file here.
 
 | File | Bug |

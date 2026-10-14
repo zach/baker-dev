@@ -12,7 +12,7 @@
 #include <cstdint>
 #include <string_view>
 
-namespace moira {
+namespace baker {
 
 namespace detail {
 
@@ -49,7 +49,7 @@ public:
     [[nodiscard]] uint64_t hash() const noexcept { return e_->hash; }
     [[nodiscard]] bool empty() const noexcept { return e_->size == 0; }
     // Dense index, in interning order (the empty symbol is 0), for tables indexed by
-    // symbol: moira::script keeps its functions and variables this way.
+    // symbol: baker::script keeps its functions and variables this way.
     [[nodiscard]] uint32_t index() const noexcept { return e_->index; }
 
     friend bool operator==(Symbol a, Symbol b) noexcept { return a.e_ == b.e_; }
@@ -75,4 +75,4 @@ inline Symbol operator""_sym(const char* s, size_t n) {
 }
 }  // namespace literals
 
-}  // namespace moira
+}  // namespace baker

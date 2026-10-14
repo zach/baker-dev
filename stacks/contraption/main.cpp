@@ -16,8 +16,8 @@
 
 #include <SDL3/SDL.h>
 #include <imgui.h>
-#include <moira/std_interop.hpp>
-#include <moira/std_script.hpp>
+#include <baker/std_interop.hpp>
+#include <baker/std_script.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -26,13 +26,13 @@
 #include <string>
 #include <vector>
 
-static moira::Tweak<float> kRunSeconds{
+static baker::Tweak<float> kRunSeconds{
     "contraption.run_seconds", 12.0f, {.range = {1, 120}, .desc = "An attempt's time limit"}};
-static moira::Tweak<float> kHoldSeconds{
+static baker::Tweak<float> kHoldSeconds{
     "contraption.hold_seconds", 0.5f, {.range = {0, 10}, .desc = "How long the goal must hold"}};
-static moira::Tweak<float> kGrid{
+static baker::Tweak<float> kGrid{
     "contraption.grid", 0.05f, {.range = {0, 1}, .desc = "Metres a placement snaps to"}};
-static moira::Tweak<float> kAngleStep{
+static baker::Tweak<float> kAngleStep{
     "contraption.angle_step", 5.0f, {.range = {0, 45}, .desc = "Degrees a placement snaps to"}};
 
 namespace {
@@ -53,29 +53,29 @@ contraption::Rules current_rules() {
 
 class ContraptionGame final : public base::Game {
 public:
-    void bind(moira::Context& ctx) override {
+    void bind(baker::Context& ctx) override {
         ctx_ = &ctx;
         auto doc = [](auto f, const char* text) {
             if (f) f->doc(text);
         };
         doc(ctx.func("puzzle.load",
-                     [this](moira::Symbol name) -> moira::Expected<void> {
+                     [this](baker::Symbol name) -> baker::Expected<void> {
                          const int l = catalog_.level(std::string(name.str()));
                          if (l < 0)
-                             return moira::Unexpected(
+                             return baker::Unexpected(
                                  base::not_found("no level " + std::string(name.str())));
                          select(l);
                          return {};
                      }),
             "Opens a level of (levels ...), with the tray empty.");
-        doc(ctx.func("puzzle.level", [this] { return moira::Symbol(level().name); }),
+        doc(ctx.func("puzzle.level", [this] { return baker::Symbol(level().name); }),
             "The open level.");
         doc(ctx.func("puzzle.place",
-                     [this](moira::Symbol kind, double x, double y,
-                            double angle) -> moira::Expected<void> {
+                     [this](baker::Symbol kind, double x, double y,
+                            double angle) -> baker::Expected<void> {
                          const int k = catalog_.kind(std::string(kind.str()));
                          if (k < 0)
-                             return moira::Unexpected(
+                             return baker::Unexpected(
                                  base::not_found("no kind " + std::string(kind.str())));
                          Piece p;
                          p.name = "placed" + std::to_string(placed_.size());
@@ -105,12 +105,12 @@ public:
         doc(ctx.func("puzzle.solved", [this] { return solved_; }),
             "Whether the running machine has solved the level.");
         doc(ctx.func("puzzle.in",
-                     [this](moira::Symbol a, moira::Symbol b) -> moira::Expected<bool> {
+                     [this](baker::Symbol a, baker::Symbol b) -> baker::Expected<bool> {
                          if (!judging_) return false;
                          const int ia = judging_->find(std::string(a.str()));
                          const int ib = judging_->find(std::string(b.str()));
                          if (ia < 0 || ib < 0)
-                             return moira::Unexpected(base::not_found(
+                             return baker::Unexpected(base::not_found(
                                  "puzzle.in names a piece the level does not have: " +
                                  std::string(ia < 0 ? a.str() : b.str())));
                          return judging_->inside(ia, ib);
@@ -156,7 +156,7 @@ public:
             "The cheaper solution the last search found, as data a scenario can place.");
     }
 
-    void load(const moira::Config& cfg) override {
+    void load(const baker::Config& cfg) override {
         contraption::Catalog next;
         std::string error;
         if (!contraption::load(cfg.root(), next, error)) {
@@ -370,8 +370,8 @@ private:
 
     contraption::GoalTest goal() {
         return [this](contraption::Run& run) {
-            const moira::Node& g = level().goal;
-            if (!ctx_ || g.type() != moira::Type::Command) return false;
+            const baker::Node& g = level().goal;
+            if (!ctx_ || g.type() != baker::Type::Command) return false;
             judging_ = &run;
             auto r = ctx_->eval(g);
             judging_ = nullptr;
@@ -455,7 +455,7 @@ private:
         mouse_y_ = cam_y_ + (1 - 2 * my / float(height)) * t;
     }
 
-    moira::Context* ctx_ = nullptr;
+    baker::Context* ctx_ = nullptr;
     contraption::Catalog catalog_;
     bool loaded_ = false;
     int level_ = 0;

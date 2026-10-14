@@ -12,6 +12,6 @@ market and recover over the following days. The Ledger window:
   1x 4x 16x       the clock; a day is five seconds at 1x; "+30 days" jumps ahead
   milestones      the designer's target days, ticked when you reach them
 
-F1 shows and hides Moira's panels. The goods and buildings come from a
+F1 shows and hides Baker's panels. The goods and buildings come from a
 spreadsheet (data\economy.dta is its export); the rules and milestones are in
 data\default.dta, which you can edit in Notepad while the game runs.

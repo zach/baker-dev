@@ -1,8 +1,8 @@
-#include <moira/source_map.hpp>
+#include <baker/source_map.hpp>
 
 #include "common/containers.hpp"
 
-namespace moira {
+namespace baker {
 
 struct SourceMap::Tables {
     struct Entry {
@@ -56,4 +56,4 @@ void SourceMap::record_text(Symbol file, std::string_view text) {
     t_->texts.emplace(file, Str(text));
 }
 
-}  // namespace moira
+}  // namespace baker

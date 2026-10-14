@@ -1,6 +1,6 @@
-#include <moira/array.hpp>
-#include <moira/node.hpp>
-#include <moira/write.hpp>
+#include <baker/array.hpp>
+#include <baker/node.hpp>
+#include <baker/write.hpp>
 
 #include "common/containers.hpp"
 
@@ -12,7 +12,7 @@
 #include <new>
 #include <type_traits>
 
-namespace moira {
+namespace baker {
 
 static_assert(std::is_standard_layout_v<String>);
 
@@ -72,4 +72,4 @@ Error Node::range_error() const {
                       detail::preview(*this) + " is out of range for the requested type");
 }
 
-}  // namespace moira
+}  // namespace baker

@@ -8,9 +8,9 @@
 #include <Jolt/Physics/Vehicle/VehicleConstraint.h>
 #include <Jolt/Physics/Vehicle/WheeledVehicleController.h>
 
+#include <baker/std_interop.hpp>
 #include <base/rng.hpp>
 #include <base/words.hpp>
-#include <moira/std_interop.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -26,8 +26,8 @@ constexpr float kGravity = 9.81f;
 constexpr float kThickness = 0.25f;  // half the road's thickness
 constexpr float kOpen = 1000;        // a speed limit that does not limit
 
-std::string sym(const moira::Array& a, const char* tag) {
-    auto s = a.find_sym(moira::Symbol(tag), moira::Symbol());
+std::string sym(const baker::Array& a, const char* tag) {
+    auto s = a.find_sym(baker::Symbol(tag), baker::Symbol());
     return s ? std::string(s->str()) : std::string();
 }
 
@@ -70,9 +70,9 @@ int Kit::driver(const std::string& name) const {
     return -1;
 }
 
-bool load(const moira::Array& root, Kit& out, std::string& error) {
+bool load(const baker::Array& root, Kit& out, std::string& error) {
     Kit k;
-    if (const moira::Array* c = root.try_find(moira::Symbol("car"))) {
+    if (const baker::Array* c = root.try_find(baker::Symbol("car"))) {
         Car& car = k.car;
         car.mass = base::number(*c, "mass", car.mass);
         car.half_width = base::number(*c, "width", car.half_width * 2) / 2;
@@ -90,8 +90,8 @@ bool load(const moira::Array& root, Kit& out, std::string& error) {
         car.suspension_damping = base::number(*c, "suspension_damping", car.suspension_damping);
         car.grip = base::number(*c, "grip", car.grip);
     }
-    if (const moira::Array* list = root.try_find(moira::Symbol("pieces")))
-        for (const moira::Array& a : list->subarrays()) {
+    if (const baker::Array* list = root.try_find(baker::Symbol("pieces")))
+        for (const baker::Array& a : list->subarrays()) {
             PieceDef p;
             p.name = base::name(a);
             const std::string kind = sym(a, "kind");
@@ -113,13 +113,13 @@ bool load(const moira::Array& root, Kit& out, std::string& error) {
         error = "no (pieces ...) in the data";
         return false;
     }
-    if (const moira::Array* list = root.try_find(moira::Symbol("tracks")))
-        for (const moira::Array& a : list->subarrays()) {
+    if (const baker::Array* list = root.try_find(baker::Symbol("tracks")))
+        for (const baker::Array& a : list->subarrays()) {
             Track t;
             t.name = base::name(a);
-            if (auto d = a.find_str(moira::Symbol("desc"), "")) t.desc = std::string(*d);
+            if (auto d = a.find_str(baker::Symbol("desc"), "")) t.desc = std::string(*d);
             t.par = base::number(a, "par", t.par);
-            if (const moira::Array* lay = a.try_find(moira::Symbol("lay")))
+            if (const baker::Array* lay = a.try_find(baker::Symbol("lay")))
                 for (size_t i = 1; i < lay->size(); ++i) {
                     auto s = (*lay)[i].as_sym();
                     const int p = s ? k.piece(std::string(s->str())) : -1;
@@ -141,8 +141,8 @@ bool load(const moira::Array& root, Kit& out, std::string& error) {
         error = "no (tracks ...) in the data";
         return false;
     }
-    if (const moira::Array* list = root.try_find(moira::Symbol("drivers")))
-        for (const moira::Array& a : list->subarrays()) {
+    if (const baker::Array* list = root.try_find(baker::Symbol("drivers")))
+        for (const baker::Array& a : list->subarrays()) {
             Driver d;
             d.name = base::name(a);
             d.pace = base::number(a, "pace", d.pace);

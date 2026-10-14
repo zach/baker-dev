@@ -1,7 +1,7 @@
 // Context: dispatch, variables, overload resolution, and registration.
 #include "internal.hpp"
 
-#include <moira/parse.hpp>
+#include <baker/parse.hpp>
 
 #include "common/containers.hpp"
 #include "data/text.hpp"
@@ -11,7 +11,7 @@
 #include <intrin.h>
 #endif
 
-namespace moira {
+namespace baker {
 namespace {
 
 thread_local Context* t_current = nullptr;
@@ -31,15 +31,15 @@ Str quoted(Symbol s) {
 // Errors are built out of line, so the evaluator's frames, which nest once per script call,
 // hold no message temporaries.
 #if defined(_MSC_VER)
-#define MOIRA_COLD __declspec(noinline)
+#define BAKER_COLD __declspec(noinline)
 #else
-#define MOIRA_COLD [[gnu::noinline, gnu::cold]]
+#define BAKER_COLD [[gnu::noinline, gnu::cold]]
 #endif
 // Context::Impl::call's body, inlined where it is plain and where it is instrumented.
 #if defined(_MSC_VER)
-#define MOIRA_INLINE __forceinline
+#define BAKER_INLINE __forceinline
 #else
-#define MOIRA_INLINE [[gnu::always_inline]] inline
+#define BAKER_INLINE [[gnu::always_inline]] inline
 #endif
 
 }  // namespace
@@ -47,7 +47,7 @@ Str quoted(Symbol s) {
 // The stack is recorded where an error is made or first passes a call, with every frame
 // still live; an error that has one keeps it as it unwinds further. Nothing on the
 // successful path pays for it.
-MOIRA_COLD void record_stack(Error& e) {
+BAKER_COLD void record_stack(Error& e) {
     if (!e.stack().empty() || !t_current) return;
     for (const CallFrame* c = t_current->impl().top; c; c = c->parent)
         e.push_stack(t_current->stack_entry(*c));
@@ -55,44 +55,44 @@ MOIRA_COLD void record_stack(Error& e) {
 
 namespace {
 
-MOIRA_COLD void locate(Error& e, const Array& at) {
+BAKER_COLD void locate(Error& e, const Array& at) {
     if (e.file().empty()) {
         e.set_location(at.file(), at.line());
     }
     record_stack(e);
 }
 
-MOIRA_COLD Expected<Node> fail(const Array& at, ErrorCode code, std::string_view message) {
+BAKER_COLD Expected<Node> fail(const Array& at, ErrorCode code, std::string_view message) {
     Error e = make_error(code, message, at.file(), at.line());
     record_stack(e);
     return Unexpected(std::move(e));
 }
 
-MOIRA_COLD Expected<Node> bad_head(const Array& command) {
+BAKER_COLD Expected<Node> bad_head(const Array& command) {
     if (command.empty()) return fail(command, ErrorCode::Syntax, "empty command {}");
     return fail(command, ErrorCode::Type,
                 "a command starts with a function or an object, not a " +
                     Str(type_name(command[0].type())));
 }
 
-MOIRA_COLD Expected<Node> not_function(const Array& command, Symbol name) {
+BAKER_COLD Expected<Node> not_function(const Array& command, Symbol name) {
     return fail(command, ErrorCode::NotFound, quoted(name) + " is not a function");
 }
 
-MOIRA_COLD Expected<Node> too_deep(const Array& command, uint32_t depth, uintptr_t used) {
+BAKER_COLD Expected<Node> too_deep(const Array& command, uint32_t depth, uintptr_t used) {
     return fail(command, ErrorCode::Limit,
                 "calls nested too deep (" + detail::decimal(depth) + " calls, " +
                     detail::decimal(static_cast<int64_t>(used / 1024)) + " KB of stack)");
 }
 
-MOIRA_COLD Expected<Node> bad_arity(const Array& command, Symbol name, const detail::Overload& o,
+BAKER_COLD Expected<Node> bad_arity(const Array& command, Symbol name, const detail::Overload& o,
                                     size_t n) {
     return fail(command, ErrorCode::Type,
                 quoted(name) + " takes " + arity_text(o.min_args, o.max_args) + ", given " +
                     detail::decimal(static_cast<int64_t>(n)));
 }
 
-MOIRA_COLD Expected<Node> no_overload(const Array& command, Symbol name,
+BAKER_COLD Expected<Node> no_overload(const Array& command, Symbol name,
                                       const Vec<detail::Overload>& overloads, const Node* values,
                                       size_t n) {
     Str given;
@@ -106,13 +106,13 @@ MOIRA_COLD Expected<Node> no_overload(const Array& command, Symbol name,
                 "no overload of " + quoted(name) + " takes (" + given + "); it has" + have);
 }
 
-MOIRA_COLD Expected<Node> not_object(const Array& command, const Node& head) {
+BAKER_COLD Expected<Node> not_object(const Array& command, const Node& head) {
     return fail(
         command, ErrorCode::Type,
         "a command starts with a function or an object, not a " + Str(type_name(head.type())));
 }
 
-MOIRA_COLD Expected<Node> not_set(Symbol name) {
+BAKER_COLD Expected<Node> not_set(Symbol name) {
     return Unexpected(make_error(ErrorCode::NotFound, "$" + Str(name.str()) + " is not set"));
 }
 
@@ -123,12 +123,12 @@ Expected<Node> invoke(const detail::Overload& o, Args& args, const Array& comman
     return r;
 }
 
-// Evaluates a Command or Var for moira::data's typed lookups.
+// Evaluates a Command or Var for baker::data's typed lookups.
 Expected<Node> evaluate_for_data(const Node& n) {
     if (!t_current)
         return Unexpected(make_error(ErrorCode::NotFound,
                                      "a " + Str(type_name(n.type())) +
-                                         " value needs a current moira::Context on this thread"));
+                                         " value needs a current baker::Context on this thread"));
     return t_current->eval(n);
 }
 
@@ -249,7 +249,7 @@ Expected<Node> Context::Impl::eval(const Node& n) {
     }
 }
 
-MOIRA_INLINE Expected<Node> Context::Impl::call_body(const Array& command, Counters** counted) {
+BAKER_INLINE Expected<Node> Context::Impl::call_body(const Array& command, Counters** counted) {
     if (command.empty()) return bad_head(command);
     // The head names a function, or is an object: named, an Object node, or a command or
     // variable that evaluates to one (spec §5, "Object commands evaluate slot 0").
@@ -323,7 +323,7 @@ Expected<Node> Context::Impl::call(const Array& command) {
     return call_body(command, nullptr);
 }
 
-MOIRA_COLD Expected<Node> Context::Impl::call_instrumented(const Array& command) {
+BAKER_COLD Expected<Node> Context::Impl::call_instrumented(const Array& command) {
     const uint32_t level = depth;
     if (tracing && trace_sink) trace_sink(trace_user, TraceEvent{&command, level, nullptr});
     Counters* counters = nullptr;
@@ -714,4 +714,4 @@ void VarRef::unset() noexcept {
     *cell_ = kUnset;
 }
 
-}  // namespace moira
+}  // namespace baker

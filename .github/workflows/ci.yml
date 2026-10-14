@@ -17,14 +17,14 @@ jobs:
           - { name: clang-18 C++23,     os: ubuntu-24.04,  cc: clang-18, cxx: clang++-18, std: 23, flags: "" }
           - { name: clang-18 libc++,    os: ubuntu-24.04,  cc: clang-18, cxx: clang++-18, std: 20, flags: "-DCMAKE_CXX_FLAGS=-stdlib=libc++ -DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++", packages: "libc++-18-dev libc++abi-18-dev" }
           - { name: gcc-13 C++23,       os: ubuntu-24.04,  cc: gcc-13,   cxx: g++-13,     std: 23, flags: "" }
-          - { name: data only,          os: ubuntu-24.04,  cc: gcc-13,   cxx: g++-13,     std: 20, flags: "-DMOIRA_BUILD_SCRIPT=OFF" }
-          - { name: asan+ubsan,         os: ubuntu-24.04,  cc: clang-18, cxx: clang++-18, std: 20, flags: "-DMOIRA_SANITIZE=address,undefined" }
-          - { name: tsan,               os: ubuntu-24.04,  cc: clang-18, cxx: clang++-18, std: 20, flags: "-DMOIRA_SANITIZE=thread" }
-          - { name: plain refcounts,    os: ubuntu-24.04,  cc: gcc-13,   cxx: g++-13,     std: 20, flags: "-DMOIRA_ATOMIC_REFCOUNT=OFF" }
-          - { name: shipping,           os: ubuntu-24.04,  cc: gcc-13,   cxx: g++-13,     std: 20, flags: "-DMOIRA_SHIPPING=ON" }
-          - { name: eastl,              os: ubuntu-24.04,  cc: gcc-13,   cxx: g++-13,     std: 20, flags: "-DMOIRA_USE_EASTL=ON" }
-          - { name: harness,            os: ubuntu-24.04,  cc: gcc-13,   cxx: g++-13,     std: 20, flags: "-DMOIRA_BUILD_HARNESS=ON", packages: "libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgl-dev" }
-          - { name: msvc C++20,         os: windows-2022,  cc: cl,       cxx: cl,         std: 20, flags: "-DMOIRA_BUILD_HARNESS=ON" }
+          - { name: data only,          os: ubuntu-24.04,  cc: gcc-13,   cxx: g++-13,     std: 20, flags: "-DBAKER_BUILD_SCRIPT=OFF" }
+          - { name: asan+ubsan,         os: ubuntu-24.04,  cc: clang-18, cxx: clang++-18, std: 20, flags: "-DBAKER_SANITIZE=address,undefined" }
+          - { name: tsan,               os: ubuntu-24.04,  cc: clang-18, cxx: clang++-18, std: 20, flags: "-DBAKER_SANITIZE=thread" }
+          - { name: plain refcounts,    os: ubuntu-24.04,  cc: gcc-13,   cxx: g++-13,     std: 20, flags: "-DBAKER_ATOMIC_REFCOUNT=OFF" }
+          - { name: shipping,           os: ubuntu-24.04,  cc: gcc-13,   cxx: g++-13,     std: 20, flags: "-DBAKER_SHIPPING=ON" }
+          - { name: eastl,              os: ubuntu-24.04,  cc: gcc-13,   cxx: g++-13,     std: 20, flags: "-DBAKER_USE_EASTL=ON" }
+          - { name: harness,            os: ubuntu-24.04,  cc: gcc-13,   cxx: g++-13,     std: 20, flags: "-DBAKER_BUILD_HARNESS=ON", packages: "libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgl-dev" }
+          - { name: msvc C++20,         os: windows-2022,  cc: cl,       cxx: cl,         std: 20, flags: "-DBAKER_BUILD_HARNESS=ON" }
           - { name: msvc C++latest,     os: windows-2022,  cc: cl,       cxx: cl,         std: 23, flags: "" }
     env:
       UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
@@ -49,7 +49,7 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
-  # The game stacks (stacks/README.md): a separate project over Moira, for Windows PC.
+  # The game stacks (stacks/README.md): a separate project over Baker, for Windows PC.
   # Linux builds it too, as the container the stacks are developed in does.
   stacks:
     name: stacks ${{ matrix.name }}
@@ -121,14 +121,14 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18 \
-            -DMOIRA_BUILD_FUZZERS=ON -DMOIRA_BUILD_TESTS=OFF -DMOIRA_BUILD_TOOLS=OFF \
-            -DMOIRA_SANITIZE=address,undefined
+            -DBAKER_BUILD_FUZZERS=ON -DBAKER_BUILD_TESTS=OFF -DBAKER_BUILD_TOOLS=OFF \
+            -DBAKER_SANITIZE=address,undefined
           cmake --build build
       - name: Fuzz the parser for 2 minutes
         run: |
           mkdir -p corpus artifacts
           cp tests/corpus/*.dta tests/fuzz_regressions/*.bin corpus/
-          build/moira_parse_fuzzer -dict=fuzz/dta.dict -max_len=4096 -max_total_time=120 \
+          build/baker_parse_fuzzer -dict=fuzz/dta.dict -max_len=4096 -max_total_time=120 \
             -print_final_stats=1 -artifact_prefix=artifacts/ corpus
       - name: Fuzz lookups for 1 minute
         run: |
@@ -138,7 +138,7 @@ jobs:
               { echo "$p"; cat "$f"; } > "lookup_corpus/$(basename "$f").$(echo "$p" | md5sum | cut -c1-8)"
             done
           done
-          build/moira_lookup_fuzzer -dict=fuzz/dta.dict -max_len=4096 -max_total_time=60 \
+          build/baker_lookup_fuzzer -dict=fuzz/dta.dict -max_len=4096 -max_total_time=60 \
             -print_final_stats=1 -artifact_prefix=artifacts/ lookup_corpus
       - if: failure()
         uses: actions/upload-artifact@v4
@@ -153,10 +153,10 @@ jobs:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y ninja-build
       - run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DMOIRA_BUILD_BENCH=ON -DMOIRA_BUILD_TESTS=OFF
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBAKER_BUILD_BENCH=ON -DBAKER_BUILD_TESTS=OFF
           cmake --build build
-          build/moira_bench_parse
-          build/moira_bench_lookup
+          build/baker_bench_parse
+          build/baker_bench_lookup
 
   format:
     runs-on: ubuntu-24.04
@@ -177,5 +177,5 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y ninja-build clang-tidy-18
       - name: clang-tidy over src (.clang-tidy, D103)
         run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMOIRA_BUILD_TESTS=OFF -DMOIRA_BUILD_EXAMPLES=OFF
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBAKER_BUILD_TESTS=OFF -DBAKER_BUILD_EXAMPLES=OFF
           run-clang-tidy-18 -p build -quiet 'src/.*\.cpp$'

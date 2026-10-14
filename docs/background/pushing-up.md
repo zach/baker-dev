@@ -63,7 +63,7 @@ property of a layer, made up of five measurable things:
 | **Generality** | Would be the same in another title | Exists because of this game |
 | **Reach** | Memory, threads, platform, physics, rendering | Only what harder layers expose |
 
-The layers order cleanly by this measure: L0 (Moira) hardest, then the engine harness, the
+The layers order cleanly by this measure: L0 (Baker) hardest, then the engine harness, the
 game harness, the task harness, and the instance data softest. Shumaker's rule generalizes
 directly: **each layer may depend on harder layers, never on softer ones.**
 
@@ -153,7 +153,7 @@ For a harness tree this is the property that makes pushing up cheap:
   implements `boss.find_cover` natively at L2 with the same signature.
 - The call site doesn't change. The data doesn't change. The designer never notices.
 
-Moira already gets most of the way there: native functions and script functions share call
+Baker already gets most of the way there: native functions and script functions share call
 syntax. What's missing is a defined rule for what happens when both exist with the same
 name — that's the first spec change in §8.
 
@@ -173,7 +173,7 @@ debug-global escape hatch, generalized from values to verbs.
 | **L4 → L3** | "I keep setting up the same phase transition" | Designer → gardener | Macro or script function in the task pack | Minutes to hours; no rebuild |
 | **L3 → L2** | "The workbench needs to know which players are in cover" | Gardener → gameplay engineer or technical designer | Script function in the game pack, or a new native game verb | Hours to days; maybe a rebuild |
 | **L2 → L1** | "The game needs line-of-sight queries" | Gameplay engineer → engine/tools engineer | Native binding of an engine capability | Days; rebuild; review |
-| **L1 → L0** | "The engine harness needs write-back" | Tools engineer → Moira | Change to the substrate | Rare; versioned; size-budget gate |
+| **L1 → L0** | "The engine harness needs write-back" | Tools engineer → Baker | Change to the substrate | Rare; versioned; size-budget gate |
 
 Patterns that apply at every boundary:
 
@@ -236,9 +236,9 @@ an implementation moved. The boss's behavior stayed in data the whole time.
 
 ---
 
-## 8. What this changes in Moira
+## 8. What this changes in Baker
 
-Applied to `moira-spec.md`:
+Applied to `baker-spec.md`:
 
 1. **Name-compatible hardening.** Script and native functions share one namespace. A
    native registration of a name already defined in script supersedes it, with a logged
@@ -247,7 +247,7 @@ Applied to `moira-spec.md`:
    a tier — native, script, or macro — and an optional status — `stub`, `provisional`, or
    `deprecated (use X)` — all shown in the generated reference.
 
-2. **A demand report.** `moira::check` additionally reports every unresolved command head
+2. **A demand report.** `baker::check` additionally reports every unresolved command head
    and object method, and every call to a function marked `stub`, with all call sites,
    aggregated across everything it was given. This is the push-up backlog, generated from
    the data.
@@ -255,7 +255,7 @@ Applied to `moira-spec.md`:
 3. **Call statistics.** In non-shipping builds, each function record keeps a call count and
    cumulative time, updated without allocation. `ctx.stats()` returns them, and a helper
    lists hardening candidates: script functions above a configurable threshold. Compiled
-   out under `MOIRA_SHIPPING`.
+   out under `BAKER_SHIPPING`.
 
 4. **Pack layers and the one-way rule.** A harness pack may begin with a declaration —
    `(pack boss (layer task) (requires game engine))` — naming its layer from an ordered,

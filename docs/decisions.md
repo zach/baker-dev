@@ -59,9 +59,9 @@ repository cleanly MIT. We vendor none and CI fetches none.
 *Spec §1 table vs. §5; `background/halo-tags-vs-dataarray.md` §6.*
 
 The §1 table says `Object*`; §5 says a 32-bit salted handle. The handle wins. In
-`moira::data`, `Type::Object` is an opaque 32-bit handle (16 index + 16 salt) that copies,
-compares, prints, and round-trips but cannot be resolved; `moira::data` knows nothing
-about `Context`. `moira::script` owns the per-`Context` object table and does strong
+`baker::data`, `Type::Object` is an opaque 32-bit handle (16 index + 16 salt) that copies,
+compares, prints, and round-trips but cannot be resolved; `baker::data` knows nothing
+about `Context`. `baker::script` owns the per-`Context` object table and does strong
 (`get`) and weak (`try_get`) resolution.
 
 ## D5. Handler cache: rewrite slot 0 in place
@@ -103,19 +103,19 @@ stored under the spec's name. All six companion documents are in `docs/backgroun
 
 ## D8. Known extension point: epoch-cached pure commands
 
-*From `background/seexpr-vs-moira.md` §8.* A command whose inputs are all tweaks is
+*From `background/seexpr-vs-baker.md` §8.* A command whose inputs are all tweaks is
 constant until reload and could be memoized on the reload epoch if its functions were
 marked pure. Not built — it adds a purity annotation and an evaluation cache for a
-workload Moira doesn't have. Recorded so it isn't reinvented by accident.
+workload Baker doesn't have. Recorded so it isn't reinvented by accident.
 
 ## D9. M0 build layout
 
-- Three CMake targets: `moira_data` (`moira::data`), `moira_script` (`moira::script`,
-  links `moira::data` PUBLIC), and the interface umbrella `moira` (`moira::moira`).
-  `MOIRA_BUILD_SCRIPT=OFF` builds the data layer alone; CI has a job that does exactly
+- Three CMake targets: `baker_data` (`baker::data`), `baker_script` (`baker::script`,
+  links `baker::data` PUBLIC), and the interface umbrella `baker` (`baker::baker`).
+  `BAKER_BUILD_SCRIPT=OFF` builds the data layer alone; CI has a job that does exactly
   that, so a reverse dependency fails the build.
-- Build switches: `MOIRA_BUILD_SCRIPT`, `MOIRA_BUILD_TESTS`, `MOIRA_ATOMIC_REFCOUNT`,
-  `MOIRA_SHIPPING`, `MOIRA_NO_EXCEPTIONS`, `MOIRA_SANITIZE` (`address,undefined` etc.).
+- Build switches: `BAKER_BUILD_SCRIPT`, `BAKER_BUILD_TESTS`, `BAKER_ATOMIC_REFCOUNT`,
+  `BAKER_SHIPPING`, `BAKER_NO_EXCEPTIONS`, `BAKER_SANITIZE` (`address,undefined` etc.).
   Feature switches become compile definitions on the library targets.
 - doctest 2.4.11 vendored under `third_party/doctest/` (MIT), recorded in
   `THIRD_PARTY.md`.
@@ -147,7 +147,7 @@ workload Moira doesn't have. Recorded so it isn't reinvented by accident.
   They resolve against the including file's directory, then `LoadSession::include_dirs`.
 - Two directives beyond the spec, both from the DTA format: `#include_opt` (missing file is
   not an error) and `#autorun {cmd}`, whose commands are collected in
-  `LoadSession::autorun` for the host or `moira::script` to run.
+  `LoadSession::autorun` for the host or `baker::script` to run.
 - `#define NAME (body)` defines a macro, but only if the `(` is on the same line as the
   name; otherwise `#define NAME` is a flag and the array that follows is ordinary data.
   Macros and flags share one table, so `#ifdef` sees both.
@@ -208,8 +208,8 @@ well above the 40 MB/s target, so there is no reason yet for a lock-free table.
 - **Corpus.** Per D3 there is no Harmonix corpus here. The hand-written corpus in
   `tests/corpus/` parses and round-trips at 100%, and so does every prefix of every
   file. The real-corpus gate is run locally with
-  `moira_parse_corpus --roundtrip <checkout>`; first run 2026-10-13, recorded in D101.
-- **Fuzzing.** `moira_parse_fuzzer` (libFuzzer, ASan+UBSan, seeded from the corpus) checks
+  `baker_parse_corpus --roundtrip <checkout>`; first run 2026-10-13, recorded in D101.
+- **Fuzzing.** `baker_parse_fuzzer` (libFuzzer, ASan+UBSan, seeded from the corpus) checks
   that every input either fails with a located error or parses and round-trips. It found
   two bugs, both in BOM handling (`tests/fuzz_regressions/`), and then ran clean for 1.2M
   execs (the M1 gate). A 10M-exec run (spec §8) then finished clean: 10,000,000 execs in
@@ -217,7 +217,7 @@ well above the 40 MB/s target, so there is no reason yet for a lock-free table.
   CI fuzzes for two minutes per push.
 - **No-exceptions build** compiles with `-fno-exceptions` and runs the full suite; CI has
   a job for it.
-- **Size.** `moira::data` is about 1,920 counted lines after M1, roughly half of the
+- **Size.** `baker::data` is about 1,920 counted lines after M1, roughly half of the
   4,000 soft budget (D2). The parser and preprocessor are about 640 of those, `Node` about
   260. As D2 predicted, the full scope will pass 4,000; candidates for trimming later are
   the `expected` shim (about 100 lines, gone once C++23 is the floor) and the error-message
@@ -229,7 +229,7 @@ well above the 40 MB/s target, so there is no reason yet for a lock-free table.
 Decided 2026-10-11 after the core-types research (`background/core-types-references.md`).*
 
 Int is stored as `int64_t` and Float as `double`. The spec's reason for 32 bits was node
-size, but on the 64-bit targets Moira requires the payload is 8 bytes anyway because it
+size, but on the 64-bit targets Baker requires the payload is 8 bytes anyway because it
 holds pointers, so widening costs nothing; `sizeof(Node)` is still 16. Every reference
 value type examined stores scalars at 64 bits (Lua 5.4, Luau, Godot's Variant, UE5's
 doubles for world positions), and 32-bit floats represent integers exactly only to
@@ -263,14 +263,14 @@ doubles for world positions), and 32-bit floats represent integers exactly only 
 `ObjectHandle` is a 32-bit table index plus a 32-bit salt, the layout of Unreal's
 `FWeakObjectPtr` (`ObjectIndex` + `ObjectSerialNumber`). 65,536 live objects per context
 is too few for current games, and EnTT's and flecs' defaults are far larger. The handle
-still fits the Node's 8-byte payload, so this costs nothing; moira::script (M5) is its
+still fits the Node's 8-byte payload, so this costs nothing; baker::script (M5) is its
 first user.
 
 ## D20. Refcounts are atomic by default
 
 *Deviates from spec §2 (non-atomic by default, atomic as an option).*
 
-`MOIRA_ATOMIC_REFCOUNT` now defaults to ON. Copying a Node that holds a String or Array
+`BAKER_ATOMIC_REFCOUNT` now defaults to ON. Copying a Node that holds a String or Array
 writes its refcount, so the spec's "multi-thread read after freeze" model was only safe if
 readers never copied a Node, an easy rule to break. Unreal made the same call: UE5's
 `TSharedPtr` defaults to `ESPMode::ThreadSafe`. The evidence offered for non-atomic counts
@@ -279,23 +279,23 @@ in job-system engines turned out to be unverifiable (`background/core-types-refe
 Cost: no measurable difference on the parse benchmark (about 145–170 MB/s either way,
 within run-to-run noise). M2's lookup benchmarks will measure copy-heavy paths. The
 setting is always passed as a PUBLIC compile definition, because translation units that
-disagree would violate the ODR; `-DMOIRA_ATOMIC_REFCOUNT=OFF` remains for
+disagree would violate the ODR; `-DBAKER_ATOMIC_REFCOUNT=OFF` remains for
 single-threaded programs and has its own CI job.
 
 ## D21. The Expected<T> choice is made once, by the library's build
 
-`Expected<T>` is `std::expected` in C++23 and Moira's shim in C++20. Compiled functions
+`Expected<T>` is `std::expected` in C++23 and Baker's shim in C++20. Compiled functions
 like `try_read_file` return it, and the Itanium ABI does not mangle return types, so a
 C++20 library linked into a C++23 program (or the reverse) would have linked silently
 with two different layouts. CMake now checks once, at configure time, whether the
-library's build has `std::expected`, and exports `MOIRA_STD_EXPECTED=0/1` with the
+library's build has `std::expected`, and exports `BAKER_STD_EXPECTED=0/1` with the
 target. A consumer that cannot match gets a compile-time `#error`; a C++23 consumer of a
 C++20 build simply uses the shim too. Builds without CMake fall back to detecting it per
 translation unit, and must then compile everything at one standard.
 
 ## D22. Portability fixes from the core-types review
 
-- **No `std::filesystem` in the library.** Moira never opens files itself (the
+- **No `std::filesystem` in the library.** Baker never opens files itself (the
   `LoadSession` reader does), so include paths are joined and normalized lexically, in
   about 40 lines; both `/` and `\` separate. This drops a dependency that console and VFS
   users avoid. The tools and tests still use it.
@@ -308,7 +308,7 @@ translation unit, and must then compile everything at one standard.
 ## D23. Symbols stay case-sensitive
 
 *Decided 2026-10-11.* Unreal's `FName` compares case-insensitively and keeps the first
-spelling for display. Moira keeps DTA's case-sensitive identity instead: "first spelling
+spelling for display. Baker keeps DTA's case-sensitive identity instead: "first spelling
 wins" would let the printer change a symbol's case depending on load order, which breaks
 round-tripping and minimal write-back diffs (M3). To catch `Health` versus `health`
 mistakes anyway, a failed lookup suggests a case variant of the name when one exists (M2,
@@ -324,7 +324,7 @@ Re-verified on 2026-10-11 with every configuration passing locally:
 - a build with the Apple formatting fallback forced on.
 
 The fuzzer ran 2M execs clean on the new number handling, reaching 1,325 edges.
-`moira::data` is now 2,063 counted lines; vendored fast_float is third-party and not
+`baker::data` is now 2,063 counted lines; vendored fast_float is third-party and not
 counted (D2).
 
 ## D25. Lookup API shape
@@ -346,7 +346,7 @@ counted (D2).
 - **Fallback overloads return the fallback only when the key is absent.** A present value
   of the wrong type is still an error: silently using the default because a designer wrote
   `(price "12")` is the failure located errors exist to prevent. Because they can throw,
-  the fallback forms are compiled out under `MOIRA_NO_EXCEPTIONS`; the twin is
+  the fallback forms are compiled out under `BAKER_NO_EXCEPTIONS`; the twin is
   `try_find(tag, fallback)` / `try_get(path, fallback)`, which returns `Expected<T>` with
   the same semantics. (`try_find<T>(tag).value_or(x)` is the "default on any failure"
   form, if that is really wanted.)
@@ -359,7 +359,7 @@ counted (D2).
   someone stored it. The file and line, which locate the value precisely, are always
   present.
 - **Commands and Vars.** Typed lookups are where M4's implicit evaluation will happen. In
-  M2 a Command or Var value is a clean error saying it needs `moira::script`, which is also
+  M2 a Command or Var value is a clean error saying it needs `baker::script`, which is also
   the spec's required behavior for a data-only build. Raw access (`find`, `at`,
   `Convert<Node>`) never evaluates.
 
@@ -446,7 +446,7 @@ Parse throughput is unchanged at about 127 MB/s.
 
 - **Errors** carry the key, expected and actual types, file, line, and path; failed name
   lookups suggest the quoted-symbol spelling (D6) or a case variant (D23).
-- **Fuzzing.** A second libFuzzer target, `moira_lookup_fuzzer`, takes a path and DTA
+- **Fuzzing.** A second libFuzzer target, `baker_lookup_fuzzer`, takes a path and DTA
   text and checks that every typed lookup either succeeds or fails with a located error,
   that a path prints back as itself, and that sorted and linear `find` agree on every array
   in the tree. It ran 2.2M execs clean under ASan+UBSan locally; CI runs it for a minute
@@ -456,7 +456,7 @@ Parse throughput is unchanged at about 127 MB/s.
   no-exceptions (gcc and clang). The parse fuzzer re-ran 1.36M execs clean after the
   empty-array change. MSVC is covered only by CI. Under TSan the allocation-count test
   reports itself skipped, because TSan's runtime owns `operator new`.
-- **Size.** `moira::data` is 2,718 counted lines, up 387 from M1. Lookup, paths, sorted
+- **Size.** `baker::data` is 2,718 counted lines, up 387 from M1. Lookup, paths, sorted
   mode, and their error messages are about 250 of those; the built-in converters most of
   the rest.
 
@@ -475,7 +475,7 @@ children are appended. So `(width 3)` over `(width 2 (range 0 10))` gives
 that must reach the third `phase` needs keyed phases (`phase_3`).
 
 `#merge` (fill-missing, D15) and layers (overwrite) are one routine, `detail::merge_into`,
-with a policy flag; `moira::merge()` exposes it. Merging never mutates: changed arrays are
+with a policy flag; `baker::merge()` exposes it. Merging never mutates: changed arrays are
 rebuilt, unchanged ones are shared, and a rebuilt array takes the file and line of whichever
 side supplied its values.
 
@@ -584,11 +584,11 @@ callbacks, after tweaks have been rebound and their `on_change` callbacks run.
 
 ## D38. freeze() marks the end of the initial load
 
-*Spec §6 (`MOIRA_SHIPPING`: "reload and layer mutation no-ops after initial load").*
+*Spec §6 (`BAKER_SHIPPING`: "reload and layer mutation no-ops after initial load").*
 
 "After initial load" needs a moment to happen at, so `Config::freeze()` is it, in every
 build: afterwards reload, layer changes, and live edits are refused. It is useful outside
-shipping too, for anything that wants the config immutable. Under `MOIRA_SHIPPING`,
+shipping too, for anything that wants the config immutable. Under `BAKER_SHIPPING`,
 `reload()` is always inert, live edits and write-back are refused, and `dev_only` tweaks
 ignore the data. `ConfigOptions::live_layers` is the spec's "explicitly enabled layer path":
 it lets layers change after `freeze()`, for live-ops overlays in a shipped game.
@@ -611,7 +611,7 @@ it lets layers change after `freeze()`, for live-ops overlays in a shipped game.
   each a macro (`TRUE`, `kDefaultVolume`, `kMaxPlayers`) named with file and line.
 - **Fuzzing.** The parse fuzzer, now also checking edit-mode spans, ran 1.5M execs clean
   under ASan+UBSan.
-- **Size: over budget.** `moira::data` is 4,002 counted lines, up 1,284 in M3, which crosses
+- **Size: over budget.** `baker::data` is 4,002 counted lines, up 1,284 in M3, which crosses
   the spec's 4,000 (soft, D2). The largest parts are `config.cpp` 571 (write-back about
   200; layers, reload, provenance, live edits the rest), `tweak.hpp`/`tweak.cpp` 347,
   `config.hpp` 125, and `merge.cpp` 82. Flagged here and to the project owner, as §0 asks.
@@ -624,7 +624,7 @@ Decided by the project owner, 2026-10-11, after M3 crossed 4,000 (D39).*
 
 The goal has moved from the original's minimal core to a more capable library: layers,
 provenance, write-back, and the harness instrumentation of M10 are all beyond what the
-70 KB original did. The soft budget for the core (`moira::data` plus `moira::script`,
+70 KB original did. The soft budget for the core (`baker::data` plus `baker::script`,
 counted by `tools/count_lines.py`) is now 8,000 non-test, non-comment lines. Everything
 else in D2 stands: it is reported in CI, not enforced; each milestone records its count;
 and disproportionate growth is still called out. M10's fallback (move the repetition
@@ -670,9 +670,9 @@ M4 onward does not touch them. Choices made while specifying, where the request 
 - **Toggling and restoring are layer changes**: refused after `freeze()` unless
   `live_layers`, and every one fires the reload callbacks and records a telemetry entry.
 
-The request mentions "the two Moira-shaped rows of the environment slice". That term is
+The request mentions "the two Baker-shaped rows of the environment slice". That term is
 not defined in the spec or the background documents. M9's done-when therefore names what
-the run shows instead: edit-to-see time with Moira's share measured, and a tuned value
+the run shows instead: edit-to-see time with Baker's share measured, and a tuned value
 written back as a one-line diff. If the slice is defined elsewhere, it should be added to
 `docs/background/` and M9 should cite it.
 
@@ -683,7 +683,7 @@ replacing the earlier request D41 recorded. The brief is kept as
 `docs/background/m3b-environment-readiness.md`.*
 
 A studio's readiness gate has four data-layer tests: edit-to-see time measured with
-Moira's share visible; values tuned in play saved as minimal diffs; experiments that do not
+Baker's share visible; values tuned in play saved as minimal diffs; experiments that do not
 block each other, with A/B comparison; and a return to an exact configuration state. M3b
 exposes what Config already holds for each: reload stages, the layer stack, provenance,
 and edit-mode spans. The spec now carries the brief's four changes: reload telemetry
@@ -721,7 +721,7 @@ Two reconciliations with decisions already made:
 
 - **Line budget.** The brief asks for counts against 4,000; the budget is 8,000 since D40,
   and M3b reports against that.
-- **Shipping and layer pushes.** "Layer mutation is inert under `MOIRA_SHIPPING`" is read
+- **Shipping and layer pushes.** "Layer mutation is inert under `BAKER_SHIPPING`" is read
   as D38 already defines it: layers can be pushed during the initial load (before
   `freeze()`), and `ConfigOptions::live_layers` remains the explicit live-ops path.
   Toggles, `set`, write-back, and `promote` are inert in shipping, as the brief says.
@@ -801,7 +801,7 @@ Results:
   gcc's unused-function warning in the shipping build. MSVC is covered by CI. Its debug STL
   allocates more per container copy, so the snapshot test compares a 2-entry and a
   500-entry config instead of bounding the count.
-- **Size.** `moira::data` is 4,747 counted lines (core 4,759), up 745 in M3b. That is over
+- **Size.** `baker::data` is 4,747 counted lines (core 4,759), up 745 in M3b. That is over
   the 4,000 the brief cites and under the 8,000 budget of D40.
 
 ## D44. Functions and variables live in per-Context tables (supersedes D5)
@@ -837,7 +837,7 @@ per symbol for functions, and 16 KB per page of variables.
 *Spec §5, "Evaluation semantics"; M4 plan Q2.*
 
 `find_int`, `get<T>` and the other typed lookups evaluate a Command or Var value, as §5
-says. `moira::data` stays independent of `moira::script` through one hook:
+says. `baker::data` stays independent of `baker::script` through one hook:
 `detail::set_evaluator`, installed by the first Context constructed.
 
 - **Only on the slow path.** A lookup converts the raw values first. Only if that fails,
@@ -846,13 +846,13 @@ says. `moira::data` stays independent of `moira::script` through one hook:
   inside them.
 - **Raw reads stay raw.** `find`, `at`, `Convert<Node>` and `find<Node>` never evaluate.
 - **Errors.** A value that evaluates to the wrong type is reported as what it evaluated
-  to: `'name' is symbol, not int`. Without `moira::script`, the M2 message stands.
+  to: `'name' is symbol, not int`. Without `baker::script`, the M2 message stands.
 - **Which Context.** The calling thread's current Context:
   - the innermost `Context::Scope`;
   - else the Context running the current `try_eval`;
   - else the first Context created on the thread, which stays current until destroyed.
 
-  With none, the lookup fails cleanly: "needs a current moira::Context on this thread".
+  With none, the lookup fails cleanly: "needs a current baker::Context on this thread".
 
 Inside a native function, `Args::get<T>(i)` evaluates its argument; `args.raw(i)` does
 not. A `Node` parameter is evaluated; `Raw<Node>` is the unevaluated one.
@@ -928,7 +928,7 @@ not. A `Node` parameter is evaluated; `Raw<Node>` is the unevaluated one.
   are errors until M5.
 - **The reference** is `docs/script-reference.md`, generated from a default Context.
   - `tests/script/test_check.cpp` fails when it drifts.
-  - Running the script tests with `MOIRA_UPDATE_REFERENCE=1` rewrites it.
+  - Running the script tests with `BAKER_UPDATE_REFERENCE=1` rewrites it.
 
 Results:
 
@@ -961,8 +961,8 @@ Results:
   - C4702 (unreachable code) flagged an `if constexpr` with no `else` in a header
     template.
   - The recursion test overflowed the stack in debug builds; see Safety.
-- **Size.** `moira::data` is 4,807 counted lines (+48, the hook and the symbol index).
-  `moira::script` is 1,396. The core total is 6,203 of 8,000, up 1,444 in M4, under the
+- **Size.** `baker::data` is 4,807 counted lines (+48, the hook and the symbol index).
+  `baker::script` is 1,396. The core total is 6,203 of 8,000, up 1,444 in M4, under the
   plan's 1,600–1,750 estimate. That leaves 1,797 lines for M5–M8 and M10's core
   instrumentation. As the plan said, this is likely to run out around M8, and each
   milestone will flag it.
@@ -1092,8 +1092,8 @@ for the core is now 10,000 non-test, non-comment lines. The rest of D2 and D40 s
   tests: its fake stack keeps address-taken locals on the heap, so measuring the stack
   budget (D47) from a local's address saw nonsense. The budget now reads the frame
   address (`__builtin_frame_address`, `_AddressOfReturnAddress` on MSVC).
-- **Size.** The core is 7,142 of 10,000 lines (D48), up 939 in M5: `moira::script`
-  +917, `moira::data` +22. That is about 160 lines over the plan's estimate of 780. The
+- **Size.** The core is 7,142 of 10,000 lines (D48), up 939 in M5: `baker::script`
+  +917, `baker::data` +22. That is about 160 lines over the plan's estimate of 780. The
   overrun is mostly property paths, `{new}` for native types, and the reference and
   `check` additions.
 
@@ -1115,9 +1115,9 @@ for the core is now 10,000 non-test, non-comment lines. The rest of D2 and D40 s
   An error that already has a stack keeps it as it unwinds further. A call that failed
   before it started (an unknown function, an arity error, too deep) is not on its own
   stack; its error is located at it.
-- **Exceptions.** The plan was to catch `moira::Exception` around each native thunk.
+- **Exceptions.** The plan was to catch `baker::Exception` around each native thunk.
   Measured, a `try` there added about 10 ns to every native call, so it is not done.
-  Instead, `moira::data` has a stack-recorder hook (as it has an evaluator hook, D45), and
+  Instead, `baker::data` has a stack-recorder hook (as it has an evaluator hook, D45), and
   the `Exception` constructor calls it. An exception thrown from a native function records
   the frames it is thrown through, at the throw, and costs nothing until then.
 - **Rendering.**
@@ -1144,8 +1144,8 @@ was written.*
     there are many"; no last-minute decisions).
 - **Q2, statistics.** Non-shipping builds always count calls, with one increment beside
   the function record. Timing is off until `ctx.set_profiling(true)`. All of it compiles
-  out under `MOIRA_SHIPPING`.
-- **Q3, tracing.** Compiled out under `MOIRA_SHIPPING`. The API still compiles and does
+  out under `BAKER_SHIPPING`.
+- **Q3, tracing.** Compiled out under `BAKER_SHIPPING`. The API still compiles and does
   nothing.
 
 M6's remaining steps (messages, statistics, tracing) wait for the hygiene work in D54–D56
@@ -1153,14 +1153,14 @@ M6's remaining steps (messages, statistics, tracing) wait for the hygiene work i
 
 ## D54. No exceptions, and no `try_` prefix
 
-*Deviates from spec §6 ("every throwing API has a non-throwing twin", `MOIRA_NO_EXCEPTIONS`).
+*Deviates from spec §6 ("every throwing API has a non-throwing twin", `BAKER_NO_EXCEPTIONS`).
 Decided by the project owner 2026-10-11.*
 
 - **The throwing forms are removed.** Every fallible API returns `Expected<T>`. This
   removes:
-  - `moira::Exception`;
+  - `baker::Exception`;
   - `detail::raise`;
-  - the `MOIRA_EXCEPTIONS` and `MOIRA_NO_EXCEPTIONS` switches and the CI job for them;
+  - the `BAKER_EXCEPTIONS` and `BAKER_NO_EXCEPTIONS` switches and the CI job for them;
   - D52's stack-recorder hook, which existed only for exceptions.
 
   The library builds with exceptions disabled (`-fno-exceptions`, `/EHs-c-`) in every CI
@@ -1170,7 +1170,7 @@ Decided by the project owner 2026-10-11.*
   It is one mechanical rename across the API, tests, examples, and docs. `[[nodiscard]]`
   on every `Expected` keeps a failure from being dropped silently.
 - **Native functions report failure by returning `Expected`,** as they already could. A
-  C++ exception escaping a native function is now the host's bug; Moira does not catch
+  C++ exception escaping a native function is now the host's bug; Baker does not catch
   it.
 - **Why.** A console codebase builds with exceptions off. A library that offers throwing
   forms invites them into game code, and that is the entanglement the TD guards against
@@ -1191,7 +1191,7 @@ the project owner 2026-10-11 (gap 11 of `acton-review`).*
 
   That rules out every container, `std::string`, `std::function`, `std::shared_ptr` and
   `unique_ptr`, `<memory>`, `<functional>`, `<algorithm>`, and `<tuple>`. (The owner first
-  chose Moira-owned vocabulary types, then decided the same day that the std ones are fine:
+  chose Baker-owned vocabulary types, then decided the same day that the std ones are fine:
   they do not allocate, and reimplementing them buys nothing.)
 - **`Error` becomes a handle.** It is an owning pointer to an error record (code, message,
   location, path, stack) allocated through the allocator (D56) on the error path only.
@@ -1199,14 +1199,14 @@ the project owner 2026-10-11 (gap 11 of `acton-review`).*
 - **Callbacks** are a function pointer plus `void*`, as `NoticeSink` already is. No
   `std::function`.
 - **Inside `src/`,** containers go through one internal alias layer (`src/common/containers.hpp`)
-  that maps to the STL by default, or to EASTL with `MOIRA_USE_EASTL=ON`, always with
-  Moira's allocator (D56). This follows the owner's rule: where reimplementing an STL
+  that maps to the STL by default, or to EASTL with `BAKER_USE_EASTL=ON`, always with
+  Baker's allocator (D56). This follows the owner's rule: where reimplementing an STL
   class would otherwise be needed, at least allow EASTL instead
   (<https://github.com/electronicarts/EASTL>). Naked `std::` containers in `src/` are
   not allowed.
 - **Checked in CI:** a test compiles each public header alone and fails if it reaches any
   standard header outside the allowed list. It checks the preprocessor's dependency
-  output, not by eye. An EASTL job builds with `MOIRA_USE_EASTL=ON`.
+  output, not by eye. An EASTL job builds with `BAKER_USE_EASTL=ON`.
   EASTL is fetched for that job only and is not vendored.
 
 ## D56. Per-Context allocators, and an arena per load
@@ -1262,7 +1262,7 @@ L2) to measure them.
 
 - **What is gone:**
   - `Exception`, `detail::raise`, and every throwing form;
-  - `MOIRA_EXCEPTIONS` and `MOIRA_NO_EXCEPTIONS`, and both "no exceptions" CI jobs;
+  - `BAKER_EXCEPTIONS` and `BAKER_NO_EXCEPTIONS`, and both "no exceptions" CI jobs;
   - D52's stack-recorder hook.
 
   Every target builds with `-fno-exceptions` (`/EHs-c-` with `_HAS_EXCEPTIONS=0` on MSVC):
@@ -1295,11 +1295,11 @@ L2) to measure them.
   check the returned error.
 - **A latent issue surfaced.** One test called `set` and `write_back` in the shipping
   build, where both are refused. The throwing form had hidden it. The test now expects
-  the refusal under `MOIRA_SHIPPING`.
+  the refusal under `BAKER_SHIPPING`.
 - **Performance, on this container:**
   - `{add 1 2}` is 32–34 ns, unchanged (target 40, zero allocations).
   - **`-fno-exceptions` itself slows lookup.** HEAD's own benchmark, built with
-    `MOIRA_NO_EXCEPTIONS=ON`, reads `try_find_float` on a 20-child array at about 17 ns
+    `BAKER_NO_EXCEPTIONS=ON`, reads `try_find_float` on a 20-child array at about 17 ns
     on average and 29 ns for the last key. With exceptions on, the same build reads 17 and
     24 ns. The new library matches the no-exceptions numbers exactly (17.3 and 28.9 ns
     with that benchmark file). The cause was not investigated: D57's M8 layout work
@@ -1317,7 +1317,7 @@ L2) to measure them.
 
 - **The rule holds and is enforced.**
   - Public headers reach only D55's allowed headers. `tools/check_headers.py` (CTest
-    `moira_header_allowlist`) walks each header's include closure and fails on anything
+    `baker_header_allowlist`) walks each header's include closure and fails on anything
     else.
   - A CMake object library compiles every public header on its own.
   - The count went 81 → 59 → 53 → 51 → 24 → 17 → 0 over sub-steps 2a–2f.
@@ -1327,16 +1327,16 @@ L2) to measure them.
   preprocesses to 35,005 lines instead of 81,222 (the allowed headers alone are 31,434),
   and compiles at `-O2` in about 0.5 s instead of 1.35 s.
 - **Opt-in interop headers.** Headers named `std_*.hpp` are exempt by name, and nothing
-  else in Moira includes them:
-  - `<moira/std_interop.hpp>` (data): `std::hash<Symbol>`, `Convert<>` for
+  else in Baker includes them:
+  - `<baker/std_interop.hpp>` (data): `std::hash<Symbol>`, `Convert<>` for
     `std::string`/`vector`/`array`, `string_out()`, `to_string()` for nodes, arrays,
     paths, and stack entries, `to_dta()`, and `strings(List<Symbol>)`;
-  - `<moira/std_script.hpp>` (script): `to_string(CheckReport)`, `reference(ctx)`, and
-    `script_backtrace()` returning strings. It is separate so that `moira::data` never
+  - `<baker/std_script.hpp>` (script): `to_string(CheckReport)`, `reference(ctx)`, and
+    `script_backtrace()` returning strings. It is separate so that `baker::data` never
     includes a script header.
 - **New small types.** Each is a minimal piece of what the STL would provide, and each
   is tested:
-  - `TextOut` (`text.hpp`): a function pointer and a context. All text Moira produces is
+  - `TextOut` (`text.hpp`): a function pointer and a context. All text Baker produces is
     written through it: `write(node)`, `write_dta`, `Path::write`, the check report, the
     reference, the backtrace, and file readers.
   - `Callback<Sig>` (`callback.hpp`): an owning, copyable callable for stored host code
@@ -1412,11 +1412,11 @@ and the first half of D56.*
   must not depend on the owner's allocator living that long. The headers call two
   out-of-line functions, `detail::default_alloc` and `detail::default_free`, so they still
   include nothing new.
-- **The interface** is D56's struct, in `<moira/allocator.hpp>`. An allocator must not
-  return null. If one does, Moira aborts, as `operator new` failing did with exceptions
+- **The interface** is D56's struct, in `<baker/allocator.hpp>`. An allocator must not
+  return null. If one does, Baker aborts, as `operator new` failing did with exceptions
   off. `free` receives the size that was allocated.
 - **The default allocator** is `operator new` unless the host calls
-  `set_default_allocator()` before Moira first allocates. After that it returns false and
+  `set_default_allocator()` before Baker first allocates. After that it returns false and
   changes nothing, because blocks already handed out must be freed where they came from.
 - **Lifetime.** An owner's allocator must outlive the owner and anything copied out of it
   (a `ConfigSnapshot`). Copies keep their source's allocator, as both the STL and EASTL
@@ -1427,8 +1427,8 @@ and the first half of D56.*
   usually the default. Plumbing the owner into every nested string would mean an
   allocator argument at every construction, for no change in what reaches the heap.
 - **The alias layer** is `src/common/containers.hpp`. `Vec<T>`, `Str`, and `HashMap<K, V>`
-  are the STL's by default, or EASTL's with `MOIRA_USE_EASTL=ON`. Each holds a pointer to
-  a Moira `Allocator`, which is the default allocator unless the owner passes its own.
+  are the STL's by default, or EASTL's with `BAKER_USE_EASTL=ON`. Each holds a pointer to
+  a Baker `Allocator`, which is the default allocator unless the owner passes its own.
   `Str` is a thin class over the backend string, because EASTL's string does not convert
   to `std::string_view`. Naked `std::` containers and `std::string` are gone from `src/`,
   along with `std::to_string`, `make_unique`/`make_shared`, and the `std_*.hpp` interop
@@ -1444,8 +1444,8 @@ and the first half of D56.*
 step 4.*
 
 - **The API.**
-  - `<moira/allocator.hpp>` has `Allocator`, `default_allocator()`, and
-    `set_default_allocator()`, which returns false once Moira has allocated.
+  - `<baker/allocator.hpp>` has `Allocator`, `default_allocator()`, and
+    `set_default_allocator()`, which returns false once Baker has allocated.
   - `Context(alloc)` and `Config(options, alloc)` each take one, defaulting to the
     default allocator.
   - `{new T}` objects come from the Context's allocator. A type record now carries a
@@ -1469,7 +1469,7 @@ step 4.*
     buffer comes from `operator new`.
   - EASTL needs pointer ranges, not `std::span` iterators, without its
     std-iterator-category switch. Four call sites changed.
-- **EASTL.** `MOIRA_USE_EASTL=ON` fetches EASTL 3.27.01 at a pinned commit with
+- **EASTL.** `BAKER_USE_EASTL=ON` fetches EASTL 3.27.01 at a pinned commit with
   FetchContent. EASTL in turn fetches EABase. A host that already has an `EASTL` target
   uses its own. Neither is vendored; `THIRD_PARTY.md` lists them.
   - EASTL is private to the two libraries. Public headers are unchanged, so a host
@@ -1478,9 +1478,9 @@ step 4.*
     674 script, 11 allocator).
   - There is a CI job (`eastl`) and a local-matrix entry for it.
   - It is not built on MSVC in CI.
-- **The test** is `moira_alloc_tests`. Its `main` installs a malloc default allocator
+- **The test** is `baker_alloc_tests`. Its `main` installs a malloc default allocator
   before anything runs. In a separate file, because doctest's implementation brings in
-  `<windows.h>`, whose `TextOut` macro renames `moira::TextOut`.
+  `<windows.h>`, whose `TextOut` macro renames `baker::TextOut`.
   - A Config pushes, reads, sets, snapshots, reloads, restores, and removes layers with a
     bound tweak. A Context registers a native, adds an object, defines a function and a
     class, runs `{new}` and `{delete}`, and fails a call.
@@ -1534,7 +1534,7 @@ step 4.*
   - The §7 targets hold: `{add 1 2}` ≤ 40 ns, and `find_float` ≤ 25 ns on average.
 - **Size.** The core is 7,792 lines, up 159 in step 3 against a plan of +200.
 - **Found on the way: `TextOut` collides with Win32.** `<windows.h>` defines `TextOut` as
-  `TextOutA`/`TextOutW`. A Windows host that includes it before a Moira header calls
+  `TextOutA`/`TextOutW`. A Windows host that includes it before a Baker header calls
   functions that do not exist in the library, and fails to link. Step 2 introduced the
   name. Renaming it is a public API change, so it waits for the owner.
 
@@ -1542,16 +1542,16 @@ step 4.*
 
 *Decided by the project owner 2026-10-11.*
 
-- **The rule.** Breaking changes are allowed and encouraged. Moira keeps no
+- **The rule.** Breaking changes are allowed and encouraged. Baker keeps no
   backward-compatibility layers, deprecated aliases, or unused legacy code paths. An API
   change updates every caller in the repository and deletes the old form. `CLAUDE.md`
   states the rule for every session.
   - Script-level `Status::Deprecated` stays: it lets script authors mark their own
-    functions, and is not a compatibility layer in Moira's API.
+    functions, and is not a compatibility layer in Baker's API.
   - A search of the code found no other compatibility layer to remove.
 - **`TextOut` is renamed `TextSink`** with no alias, which settles D62's open question.
   `<windows.h>` defines `TextOut` as a macro, so a Windows host that included it before a
-  Moira header failed to link. `TextSink` matches `NoticeSink`. Functions that return
+  Baker header failed to link. `TextSink` matches `NoticeSink`. Functions that return
   one keep their names (`str_out`, `string_out`).
 
 ## D64. M5b step 4 design: one refcount per load
@@ -1646,7 +1646,7 @@ outlives its load keeps its tree alive), choosing D56's named fallback.*
     - `set` counts a foreign arena once;
     - `#merge` makes no self-dependency;
     - host-built arrays keep solo counts.
-  - `moira_alloc_tests` checks that 50 reloads of a changing file keep the Config's live
+  - `baker_alloc_tests` checks that 50 reloads of a changing file keep the Config's live
     bytes flat, and that everything is freed after.
   - The alloc test (D61) now covers trees, which come from the owner's allocator: 19
     allocations for the Config scenario and 110 for the Context.
@@ -1712,7 +1712,7 @@ answers. The call stack was step 1 (D52). M6 is done, and `docs/m6-plan.md` is d
   - **When.** Outside shipping, calls are always counted: one flag test and one increment
     per call, 4 instructions by cachegrind.
   - **Timing** waits for `set_profiling(true)` and reads a `TimeSource`, now in
-    `<moira/clock.hpp>`. Self time subtracts what callees took.
+    `<baker/clock.hpp>`. Self time subtracts what callees took.
   - **Reading.** `stats()` sorts by self time, then calls. `reset_stats()` clears the
     counters, and `hardening_candidates(threshold)` lists the script entries at or above
     the threshold. Reading allocates; counting and timing do not, which a test checks.
@@ -1784,7 +1784,7 @@ answers. The call stack was step 1 (D52). M6 is done, and `docs/m6-plan.md` is d
 *Recorded 2026-10-12. Implements spec §5's tasks with D58's pool and D67's answers. M7 is
 done, and `docs/m7-plan.md` is deleted.*
 
-- **The C++ side** is `<moira/task.hpp>`: `Task`, `Scheduler`, `TaskHandle`, and the
+- **The C++ side** is `<baker/task.hpp>`: `Task`, `Scheduler`, `TaskHandle`, and the
   awaitables `delay(t)`, `until(predicate)`, and `next_tick()`.
   - **Frames come from the Scheduler's pool, never the heap.** The pool hands out blocks
     of the frame budget (4 KB by default), in chunks of 64 taken from the Context's
@@ -1855,7 +1855,7 @@ done, and `docs/m7-plan.md` is deleted.*
   - `test_tasks.cpp` (C++) and `test_script_tasks.cpp` (script) cover timing, order,
     locals and captures across suspends, cancellation, the budget, `max_tasks`, `$this`,
     waits, errors, the sync point, and zero allocations once warm;
-  - `moira_alloc_tests` runs C++ and script tasks on a Context with a counting allocator:
+  - `baker_alloc_tests` runs C++ and script tasks on a Context with a counting allocator:
     no global `operator new`, and 154 allocations through its allocator, all freed.
 - **CI.** From the M7a push on, every CI job failed within seconds without a runner
   (`runner_id` 0, no logs). That is an Actions account or service problem, not a build
@@ -1902,14 +1902,14 @@ recommended.*
   - What it checks: the header records every file the load read with a content hash,
     and the session's defines.
   - Who checks: `cache_fresh` and `read_cached`. Shipping trusts the cache.
-- **Q3, writers.** A `moira_bake` tool (in `tools/`, outside the core) for build steps, and
+- **Q3, writers.** A `baker_bake` tool (in `tools/`, outside the core) for build steps, and
   `read_cached`, which rewrites a stale cache in development.
 - **Q4, Config.** `ConfigOptions::cache_dir`: outside edit mode, file layers load through
   `read_cached`, and reload rewrites the caches of changed files. Edit mode reads text.
 
 ## D71. M8.1: the cache writer and the in-place load
 
-*Results of M8.1 (`docs/m8-plan.md` §1–2).* `include/moira/cache.hpp`: `write_cache` (to a
+*Results of M8.1 (`docs/m8-plan.md` §1–2).* `include/baker/cache.hpp`: `write_cache` (to a
 path or a `TextSink`), `read_cache` (a path, through a session), and `read_cache_bytes`.
 
 - **The file is the arena block.** `Arena::create_holding` makes the arena, a block
@@ -1977,7 +1977,7 @@ files, and its `#autorun` commands are collected. The cache records those effect
 (defines and macros added or removed, and the autorun commands) and loading it applies
 them, so a cache load leaves the session as the text load did.
 
-## D73. M8.2: staleness, replay, `read_cached`, the `Cipher`, `moira_bake`
+## D73. M8.2: staleness, replay, `read_cached`, the `Cipher`, `baker_bake`
 
 *Results of M8.2 (`docs/m8-plan.md` §3–4, D70, D72).*
 
@@ -2000,14 +2000,14 @@ them, so a cache load leaves the session as the text load did.
   keeps that block alive, as it keeps a text load's arena.
 - **`read_cached(text, cache, session)`.** In development: the cache if it is fresh,
   otherwise the text, recorded, and a new cache written; failing to write it is not an
-  error. Under `MOIRA_SHIPPING`: the cache if it loads, else the text, and nothing is
+  error. Under `BAKER_SHIPPING`: the cache if it loads, else the text, and nothing is
   written. Reads go through the session's reader, but caches are written with `fopen`:
   a host with its own file system writes through `write_cache(root, TextSink, ...)`.
 - **`Cipher`** (spec §9): two functions over the bytes after the header, in place, and a
   user pointer, set as `LoadSession::cipher`. The hash covers the enciphered bytes, so
   damage is found before deciphering; an enciphered cache read without a cipher is an
   error. No implementation ships; the header keeps the anecdote.
-- **`moira_bake [-D NAME]... [-I DIR]... IN.dta OUT.datb`** (`tools/`, outside the core)
+- **`baker_bake [-D NAME]... [-I DIR]... IN.dta OUT.datb`** (`tools/`, outside the core)
   writes a recorded cache; a ctest bakes a corpus file.
 - **Not recorded:** the session's include directories and reader. A different directory
   list that finds a different file is caught only through the missed candidates the load
@@ -2039,7 +2039,7 @@ them, so a cache load leaves the session as the text load did.
   tree and replays the layer's defines on the session the layers above see; otherwise the
   text is parsed, recorded, and a new cache written through the Config's writer
   (`set_writer`), so a host's own file system gets it too. A cache that cannot be written
-  is not an error. Under `MOIRA_SHIPPING` a layer trusts its cache, and writes none.
+  is not an error. Under `BAKER_SHIPPING` a layer trusts its cache, and writes none.
 - **Reload needed no new code.** The layer's reader still records every file read, now
   except the cache itself: on a fresh cache, the freshness check's re-reads are the
   layer's dependencies; on a miss, the parse's. A changed file makes `reload()` re-read
@@ -2048,7 +2048,7 @@ them, so a cache load leaves the session as the text load did.
   way.
 - **The directory must exist;** the Config does not create it.
 - **Shipping gets its caches from a development build's Config:** a build step pushes the
-  same layers, with the same paths and `cache_dir`, and the directory ships. `moira_bake`
+  same layers, with the same paths and `cache_dir`, and the directory ships. `baker_bake`
   would bake each file alone, without the macros the layers below give it.
 - **Edit mode reads text,** as before: write-back needs source maps.
 - The freshness check behind a fresh cache moved into `detail::read_fresh_cache`, which
@@ -2236,10 +2236,10 @@ structurally equal trees.*
   layer from text in 45 ms, not 450), and the arena's empty `Vec` allocated under MSVC
   (D71).
 - **The core** is 9,850 lines of the 15,000 budget (D69), against the plan's ~9,690.
-  `moira_bake` is in `tools/`, outside the core.
+  `baker_bake` is in `tools/`, outside the core.
 - `docs/m8-plan.md` is deleted; its answers are D70 and D72.
 - **Naming.** Commits called M8's steps M8a–M8d; this file calls them M8.1–M8.4, because
-  the spec's milestone M8b is `moira::shape`, which is next.
+  the spec's milestone M8b is `baker::shape`, which is next.
 
 ## D80. M8b: shapes and packs, answers
 
@@ -2248,8 +2248,8 @@ structurally equal trees.*
 - **Q1, what a shape governs:** every array tagged with the shape's name, anywhere in the
   tree; `(at path)` in the declaration narrows it to arrays under a path.
 - **Q2, "reported at load":** Config runs a validator after each merge (a callback
-  moira::data defines and moira::shape provides), so pushes, reloads, and restores report
-  violations, located, through the Config's warning sink. moira::data knows nothing of
+  baker::data defines and baker::shape provides), so pushes, reloads, and restores report
+  violations, located, through the Config's warning sink. baker::data knows nothing of
   shapes.
 - **Q3, the name:** what spec §1 calls a pack's *layer* is its **level**:
   `(pack name (level game))`, `session.set_pack_levels({"engine", "game", "task"})`. A
@@ -2324,7 +2324,7 @@ structurally equal trees.*
 ## D84. M8b, step 4: shapes are declared in `(shapes ...)`
 
 *Answered by the project owner 2026-10-12, as recommended; with the design note for
-`moira::shape` (`docs/m8b-plan.md` §3, D80).*
+`baker::shape` (`docs/m8b-plan.md` §3, D80).*
 
 - **The deviation.** Spec §6 writes `(shape boss_phase (field ...) ...)` at the top level.
   Config merges layers by tag, so every such form would be tagged `shape`, and a second
@@ -2342,8 +2342,8 @@ structurally equal trees.*
 
   Layers merge it like any data: a later layer adds a shape, adds a field, or retunes one
   field's range.
-- **The library.** `moira_shape` (`include/moira/shape.hpp`, `src/shape/`), namespace
-  `moira::shape`, depends only on moira::data, built unless `MOIRA_BUILD_SHAPE=OFF`, and
+- **The library.** `baker_shape` (`include/baker/shape.hpp`, `src/shape/`), namespace
+  `baker::shape`, depends only on baker::data, built unless `BAKER_BUILD_SHAPE=OFF`, and
   counted apart from the core against spec §6's 600 lines.
   - `Set`: the shapes read from trees' `(shapes ...)`; a later declaration of a field
     replaces an earlier one. Malformed declarations are located errors.
@@ -2357,16 +2357,16 @@ structurally equal trees.*
     finding names the file, line, and path.
   - Enumeration: `set.shapes()`, each shape with its fields and their metadata.
 - **"At load" (D80 Q2).** Config gains `set_validator(...)`, called after every merge
-  with the merged root and the warning handler; `moira::shape::validator()` returns one
+  with the merged root and the warning handler; `baker::shape::validator()` returns one
   that reads the root's `(shapes ...)` and checks the root against them.
 
-## D85. M8b, step 4: `moira::shape`
+## D85. M8b, step 4: `baker::shape`
 
 *Results of `docs/m8b-plan.md` §3 (D80, D84).*
 
-- **The library** is `moira_shape` (`include/moira/shape.hpp`, `src/shape/shape.cpp`):
+- **The library** is `baker_shape` (`include/baker/shape.hpp`, `src/shape/shape.cpp`):
   400 lines of spec §6's 600, outside the core, which `tools/count_lines.py` now reports
-  separately. It links moira::data only; the data-only build builds it too.
+  separately. It links baker::data only; the data-only build builds it too.
 - **What D84 described, built**, with two settlements:
   - A field declared again (by `Set::add` of another tree) keeps the metadata the new
     declaration does not restate, as Config's merge of two layers would.
@@ -2376,7 +2376,7 @@ structurally equal trees.*
   (golem ...))` the children are tagged by their names, so no shape governs them; the
   data must write `(boss (name dragon) ...)`. Recorded as a limitation, for the owner to
   revisit if real data asks.
-- **Config.** `cfg.set_validator(moira::shape::validator())` checks every merge: each
+- **Config.** `cfg.set_validator(baker::shape::validator())` checks every merge: each
   push, pop, toggle, reload, and restore reports errors and warnings, located, through the
   warning handler. The load itself never fails on a shape.
 - **Tests** (`tests/shape/`): corpus-style boss data and a patch layer loaded through
@@ -2391,7 +2391,7 @@ structurally equal trees.*
 
 ## D86. M8b results
 
-*M8b (spec §10): `moira::shape` (shape declarations, shape-aware `check`, the
+*M8b (spec §10): `baker::shape` (shape declarations, shape-aware `check`, the
 enumeration API) and `#require`.*
 
 - **1. A shape violation in corpus-style data is reported at load, with file and line:
@@ -2407,7 +2407,7 @@ enumeration API) and `#require`.*
   for the spec's `(shape name ...)` (D84). Matching by tag does not reach keyed children
   (D85).
 - **Sizes:** the core is 10,103 lines (of 15,000; the plan estimated about 10,060), and
-  `moira::shape` 400 (of 600, outside the core).
+  `baker::shape` 400 (of 600, outside the core).
 - `docs/m8b-plan.md` is deleted; its answers are D80 and D84.
 
 ## D87. M9: the docs and examples, answers
@@ -2415,7 +2415,7 @@ enumeration API) and `#require`.*
 *`docs/m9-plan.md` Q1–Q4, answered by the project owner 2026-10-12, each as recommended.*
 
 - **Q1, `harness-imgui`:** Dear ImGui fetched at a pinned release (as EASTL is), GLFW and
-  OpenGL 3 for the window, behind `MOIRA_BUILD_HARNESS` (off by default). The panels are
+  OpenGL 3 for the window, behind `BAKER_BUILD_HARNESS` (off by default). The panels are
   plain functions over a `Config`, `TweakRegistry`, and `Context`, so CI runs them
   headless: ImGui with no backend, a few frames, and assertions on what changed.
 - **Q2, `remote-console`:** portable, with BSD sockets and a small Winsock shim, built and
@@ -2489,7 +2489,7 @@ personal `local` layer by the convention in spec §4.*
     52-line socket shim, tested over loopback on every CI platform, MSVC included (D87
     Q2).
   - `examples/harness-imgui` (D87 Q1): Dear ImGui v1.92.9b and GLFW 3.4 at pinned
-    commits, behind `MOIRA_BUILD_HARNESS`; Tweaks, Shapes, Console, Loop, Layers, and
+    commits, behind `BAKER_BUILD_HARNESS`; Tweaks, Shapes, Console, Loop, Layers, and
     Snapshots panels, provenance on hover, write-back. CI builds it on Linux and MSVC and
     runs its panels headless. The local matrix gains a harness configuration.
 - **A gap the docs exposed, fixed (D88):** a tweak of several numbers could not carry
@@ -2497,7 +2497,7 @@ personal `local` layer by the convention in spec §4.*
   change.
 - **Not changed:** no benchmark row; the core changed only in `TweakBase::bind`, which
   runs per tweak on each merge. The core is 10,116 lines of 15,000 (10,103 before; D88),
-  and `moira::shape` 400 of 600.
+  and `baker::shape` 400 of 600.
 - `docs/m9-plan.md` is deleted; its answers are D87.
 
 ## D90. M10: harness instrumentation, answers
@@ -2512,8 +2512,8 @@ personal `local` layer by the convention in spec §4.*
 - **Q2, journal values (as recommended):** inline, up to four nodes each for the old and
   new values, with the true count; about 160 bytes an entry in a ring allocated once, so
   `set`'s fast path stays allocation-free.
-- **Q3, the repetition report: in moira::data,** not in `check` as the spec puts it and
-  the plan recommended. `moira::find_repeats(trees, options, out)` needs no Context, so
+- **Q3, the repetition report: in baker::data,** not in `check` as the spec puts it and
+  the plan recommended. `baker::find_repeats(trees, options, out)` needs no Context, so
   data-only projects have it; `check` calls it and reports the result in `CheckReport`.
 - **Q4, owner findings (as recommended):** packs that declare `(owners ...)` with fewer
   than two names. A pack without the form is not reported.
@@ -2639,10 +2639,10 @@ personal `local` layer by the convention in spec §4.*
 
 *Results of `docs/m10-plan.md` §5 and §6 (D90 Q3, Q4).*
 
-- **`moira::find_repeats(trees, options)`** (`<moira/repeats.hpp>`, moira::data, as Q3
+- **`baker::find_repeats(trees, options)`** (`<baker/repeats.hpp>`, baker::data, as Q3
   chose) returns a `List<Repeat>`: one occurrence as a node (`form`), its size in nodes
   counted recursively, and every site (file, line). The plan wrote it with an out
-  parameter; a returned `List` is how Moira hands back results elsewhere. Options:
+  parameter; a returned `List` is how Baker hands back results elsewhere. Options:
   `min_nodes` (6) and `min_repeats` (3; 0 turns it off).
 - **How.** Each array is hashed once (memoized by address) from its nodes' types and
   values and its children's hashes; arrays, commands, and properties are told apart.
@@ -2678,7 +2678,7 @@ personal `local` layer by the convention in spec §4.*
 *Results of `docs/m10-plan.md` §7, and the reference's part of §3 and §4 (D90).*
 
 - **`write_json(report, sink, &session)`**, and `to_json(report, &session)` in
-  `<moira/std_script.hpp>`: one object, `"schema": "moira.check/1"`, then `errors`,
+  `<baker/std_script.hpp>`: one object, `"schema": "baker.check/1"`, then `errors`,
   `warnings`, `demand`, `repeats`, `findings`, and `packs`. Documented field by field in
   `docs/check-json.md`, with the versioning rule: fields are added only with a new minor
   version, removed or renamed only with a new major.
@@ -2695,7 +2695,7 @@ personal `local` layer by the convention in spec §4.*
   Without a session the reference is unchanged, so `docs/script-reference.md` is too.
 - **Tests:** a check over two files whose report has something in every section, written
   twice and compared byte for byte, then against `tests/script/check_expected.json`
-  (regenerated with `MOIRA_UPDATE_REFERENCE=1`, as the reference is); an empty report; the
+  (regenerated with `BAKER_UPDATE_REFERENCE=1`, as the reference is); an empty report; the
   reference's Packs and Origins sections, and their absence without a session.
 - **Cost:** tool paths only; nothing on a runtime path changed.
 - **Size:** the core is 10,955 lines (10,772 before; the plan estimated 230 for the JSON
@@ -2722,22 +2722,22 @@ check output.*
   locations: met** (D94).
 - **5. A one-owner pack is reported: met** (D94), once per report, as a finding.
 - **6. Check JSON output is schema-versioned and stable across runs: met** (D95):
-  `moira.check/1`, documented in `docs/check-json.md`, and compared byte for byte across
+  `baker.check/1`, documented in `docs/check-json.md`, and compared byte for byte across
   two runs and against a checked-in file.
 - **7. All instrumentation adds no allocations on the hot path and compiles out under
-  `MOIRA_SHIPPING`: met.** Tweak reads and lookup are untouched (the codegen test still
+  `BAKER_SHIPPING`: met.** Tweak reads and lookup are untouched (the codegen test still
   finds one load). `mark_visible()` is one branch and allocates nothing, and a fast-path
-  `set` with the journal on allocates nothing, both tested; under `MOIRA_SHIPPING` the
+  `set` with the journal on allocates nothing, both tested; under `BAKER_SHIPPING` the
   statistics and journal are empty and `mark_visible()` does nothing, tested in the
   shipping build. The tools (`check`, `find_repeats`, JSON, the reference) stay in every
   build (D90 Q5) and cost nothing unless called. One cost is recorded rather than hidden:
   the journal's time stamp makes a fast-path `set` 51–65 ns against 18–24 (D93).
 - **8. The core stays within the 15,000-line budget: met.** 10,955 lines (10,116 before
   M10; the plan estimated about 11,000), so the repetition report did not need to move into
-  a tool. `moira::shape` is 400 of 600, unchanged.
+  a tool. `baker::shape` is 400 of 600, unchanged.
 - **Deviations and settlements:** `origin` only as a file's leading declaration (D91);
   `check` takes a span of trees and `CheckOptions` (D94); `restore` reverts journal
-  entries (D93); the repetition report in moira::data (D90 Q3).
+  entries (D93); the repetition report in baker::data (D90 Q3).
 - **The harness** (step 6): its Loop panel shows `loop_stats()` per layer and per file
   above the reload bars, and a Journal panel lists the session's edits with their fates;
   the headless test checks both.
@@ -2776,7 +2776,7 @@ allocator half of acton-review gap 6.*
   destruction (D97), or by the Context's. A removed and re-added object starts with none.
   Nothing outlives the allocator it came from, and `ObjectBase` keeps its 32 bytes.
 - **Docs:** `language.md` says parameters belong to the object's stay in its Context.
-- **Tests** (`moira_alloc_tests`): setting parameters allocates through the Context's
+- **Tests** (`baker_alloc_tests`): setting parameters allocates through the Context's
   counting allocator; removing the object returns every byte; a re-added object has none;
   an object that outlives its Context leaves nothing to free. Against the previous code
   the test fails twice: the bytes stay after removal, and the parameter survives.
@@ -2837,12 +2837,12 @@ open gap left.*
   indirect call, then `record()`'s guard). The prototype kept the virtual destructor (40
   bytes an object); doing it for real removes the vtable, so destruction goes through the
   `TypeRecord` and every derived type's constructors must set the pointer, a change to how
-  every game object is declared, for 5 ns. Moira binds the game's objects, which often
+  every game object is declared, for 5 ns. Baker binds the game's objects, which often
   have vtables of their own.
 - **10, accepted as a standing rule.** A minimal game (load, read, a tweak, a function, an
   object, `eval`; GCC 13, `-O2`, static libraries) links:
 
-  | build | Moira code | tooling in it |
+  | build | Baker code | tooling in it |
   |---|---:|---:|
   | release | 626.7 KB | 57.7 KB |
   | shipping | 580.2 KB | 41.5 KB |
@@ -2855,11 +2855,11 @@ open gap left.*
   `layer_effect` (12.9 KB), the journal (0.8 KB), all dropped by `--gc-sections`, and the
   source maps loading reaches (4.8 KB) stay. MSVC's release defaults drop unused
   functions already (`/O2` implies `/Gy`; `/OPT:REF` without `/DEBUG`). Splitting
-  `config.cpp` (B) or a `moira::tools` library (C) would save a default-flags build about
+  `config.cpp` (B) or a `baker::tools` library (C) would save a default-flags build about
   36 KB, and C would move 1,117 lines out of the core at the price of five `Config`
   members becoming free functions; neither changes a build with sections.
 - **Docs:** the cookbook's "Linking a shipped game" gives the flags, checked with a
-  CMake project that adds Moira as a subdirectory (409 KB of Moira code, shipping).
+  CMake project that adds Baker as a subdirectory (409 KB of Baker code, shipping).
 - **Gaps table:** 2m, 6 and 10 move to the closed list; gap 10's rule (a tool adds no
   field to a hot structure, and costs nothing unless called) moves to "Already aligned".
 
@@ -2875,7 +2875,7 @@ are reported, outside the gate.*
   turned back into text by community tools. Only a few sets are raw DTA with Harmonix's
   comments: Rock Band PS2 (the set spec §8 names), Guitar Hero II PS2 Deluxe and 360 DLC,
   and Karaoke Revolution Xbox.
-- **`moira_parse_corpus --milo-paths`** reads the dump as its archives were laid out. The
+- **`baker_parse_corpus --milo-paths`** reads the dump as its archives were laid out. The
   dump stores a `..` that climbs above an archive's root as a directory named `(..)`, so
   `rb1/ps2/config` including `../../../system/run/config/macros.dta` finds it under
   `rb1/ps2/(..)/(..)/`. Files the dump lacks (title updates hold only the files they
@@ -2888,7 +2888,7 @@ are reported, outside the gate.*
 - **The gate: raw DTA, 464 of 464** files parse and round-trip: RB1 PS2 304, GH2 PS2
   Deluxe 120, GH2 360 DLC 40.
 - **Karaoke Revolution** (2004, three builds, 566 files): 387 parse. 172 use an older
-  syntax, `#macros.dta` for include and `##kara.dta` for merge, which Moira does not take,
+  syntax, `#macros.dta` for include and `##kara.dta` for merge, which Baker does not take,
   and 7 have a string Harmonix never closed (`french_screens.dta:596`, `"...de la
   profession.)`).
 - **Converted sets: 30,684 of 30,979** (99.05%). Every remaining failure comes from the
@@ -2916,11 +2916,11 @@ are reported, outside the gate.*
   replaced by `add_validator(v)`, which returns an id, and `remove_validator(id)`, as
   `on_reload` works. They run after every merge in the order they were added. Every
   caller changed.
-- **`moira::check_validator(ctx, options)`** (moira::script) runs `check` over the merged
+- **`baker::check_validator(ctx, options)`** (baker::script) runs `check` over the merged
   root and sends its errors and one-way warnings to the Config's warning handler. The
   demand report, repeats, and one-owner findings are for tools, so it reports none of
   them and skips the repetition pass. The Config cannot call `check` itself, since
-  moira::data does not depend on moira::script; the validator is how a flag reaches it,
+  baker::data does not depend on baker::script; the validator is how a flag reaches it,
   as `shape::validator()` already did for shapes. `ctx` and `options.packs` must outlive
   the Config's use of it.
 - **Test** (`test_check`): a push of an overlay with a wrong call is reported at the push,
@@ -2969,7 +2969,7 @@ are reported, outside the gate.*
 
 ## D104. No DTB compatibility module
 
-*Spec §9's P3 stretch goal (`MOIRA_DTB_COMPAT`). Decided by the project owner 2026-10-13:
+*Spec §9's P3 stretch goal (`BAKER_DTB_COMPAT`). Decided by the project owner 2026-10-13:
 skipped.*
 
 - **What research found.** The DTB layouts and both ciphers are well documented by
@@ -2981,11 +2981,11 @@ skipped.*
   fixtures are three byte arrays in arson's LGPL tests. A reader checked only against an
   encoder written alongside it would not show that it reads what the games shipped, and
   testing the corpus from binary, the goal's stated purpose, cannot be done.
-- Spec §0's line stands: Moira is not bit-compatible with Harmonix's `.dtb`.
+- Spec §0's line stands: Baker is not bit-compatible with Harmonix's `.dtb`.
 
 ## D105. What the DTB research says about `.datb`
 
-*Results of D104's research, compared with Moira's own cache (spec §9, D70–D74, D79).*
+*Results of D104's research, compared with Baker's own cache (spec §9, D70–D74, D79).*
 
 - **Confirmed.** DTB has no version field, so tools guess its variants from bytes; its
   16-bit child counts forced a new layout for RB4; it writes every symbol inline at each
@@ -3003,16 +3003,16 @@ skipped.*
 
 ## D106. The game stacks' base
 
-*`docs/background/game-stacks.md` §2 and §6, step 1. Outside Moira: `stacks/` is a
-separate CMake project over this repository's Moira, and nothing in `src/` changed.*
+*`docs/background/game-stacks.md` §2 and §6, step 1. Outside Baker: `stacks/` is a
+separate CMake project over this repository's Baker, and nothing in `src/` changed.*
 
 - **What.** `stacks/base/`: `Live` (the Config, the layers `default`, `local`, `agent`,
   the shape and check validators, pack levels, and the file system's clock as the
   Config's), `Watcher` (`ReadDirectoryChangesW` on Windows, inotify on Linux), `FixedStep`,
-  a bgfx renderer behind a small API, and `run`, the frame loop over SDL3 with Moira's
+  a bgfx renderer behind a small API, and `run`, the frame loop over SDL3 with Baker's
   ImGui panels and remote console, both from `examples/` as they are. `stacks/cube/` is
   the acceptance game: every value a tweak.
-- **The watcher, not polling.** Moira's harness example polls, reading and hashing every
+- **The watcher, not polling.** Baker's harness example polls, reading and hashing every
   file four times a second; that adds up to 250 ms to every edit and grows with the data.
   The base reloads only after the system reports a saved `.dta` file, and passes the
   file's write time as the reload's origin.
@@ -3036,7 +3036,7 @@ separate CMake project over this repository's Moira, and nothing in `src/` chang
 ## D107. The agent harness, and `Config::autorun`
 
 *`docs/background/game-stacks.md` §3; `stacks/agent.md` is the design note. One addition
-to Moira's API; the rest is in `stacks/`.*
+to Baker's API; the rest is in `stacks/`.*
 
 - **`Config::autorun()`** (new). A Config reads each layer with a session of its own, so
   the commands a layer's `#autorun` collected stayed in that session, out of a host's reach,
@@ -3057,8 +3057,8 @@ to Moira's API; the rest is in `stacks/`.*
   scenario and a seed reproduce. Results are `.dta`. Exit 0, 1, or 2: passed, an objective
   failed, could not run. `Game` moved to `base/game.hpp`, without SDL, and gained
   `reset(seed)`, called before play and before each run.
-- **`check` is stricter for agents** than `moira::check`: a call to a function nobody
-  defined is demand to Moira, but in an agent's edit it is nearly always a typo, so it fails
+- **`check` is stricter for agents** than `baker::check`: a call to a function nobody
+  defined is demand to Baker, but in an agent's edit it is nearly always a typo, so it fails
   unless the function is a declared stub (`#autorun {func name () (status stub) ...}`).
 - **`promote`** shows what it would write unless given `--write`, which the agent's
   instructions forbid: promotion is a person's decision (§9).
@@ -3083,7 +3083,7 @@ shapes checked nothing.*
   keyed shape without `(at ...)` is an error at declaration. Matching by name is unchanged;
   a keyed shape does not also match by its name. `Shape::keyed` is new in the public API.
 - **Cost.** The checker keeps the keyed shapes in a list and tests each against the path of
-  every tagged array; with none declared, nothing changes. `moira::shape` is 421 lines of
+  every tagged array; with none declared, nothing changes. `baker::shape` is 421 lines of
   its 600.
 - **The stacks' `check` command** now runs the shapes over the merged data too: a shape
   error fails it (exit 1), and an undeclared field is printed as a warning, the demand for
@@ -3176,7 +3176,7 @@ D108.*
 
 ## D111. Jolt in the base; Contraption and Stuntline
 
-*`docs/background/game-stacks.md` §6, step 3, and §4.1, §4.5. Outside Moira: nothing in
+*`docs/background/game-stacks.md` §6, step 3, and §4.1, §4.5. Outside Baker: nothing in
 `src/` changed. Each stack's README is its design note.*
 
 - **Jolt Physics 5.5.0**, fetched at a pinned release, built with
@@ -3230,7 +3230,7 @@ D108.*
 
 ## D112. Recast/Detour in the base; Hearth and Wayfarer
 
-*`docs/background/game-stacks.md` §6, step 4, and §4.3, §4.4. Outside Moira: nothing in
+*`docs/background/game-stacks.md` §6, step 4, and §4.3, §4.4. Outside Baker: nothing in
 `src/` changed. Each stack's README is its design note. Every stack of §4 is now built.*
 
 - **Recast/Detour 1.6.0** in the base (`base::NavMesh`), the owner's choice over a grid of
@@ -3240,7 +3240,7 @@ D108.*
   a tile of 213 stops at 63.9 m, so neighbouring tiles never met (the voxel is now rounded to
   fit the tile); and Detour's nearest polygon within a box can have its nearest point outside
   the box (`nearest` now checks the reach).
-- **Hearth** (`stacks/hearth/`): villagers and smart objects are Moira objects (`Villager`,
+- **Hearth** (`stacks/hearth/`): villagers and smart objects are Baker objects (`Villager`,
   `Thing`); an action is a `{class villager ...}` handler that starts a `thread_task` on
   `clock`, a Scheduler in game minutes ("walk to the fridge, open it, eat, close it" is
   data); a need below critical sends the typed message `NeedCritical`, script first, then
@@ -3273,7 +3273,7 @@ D108.*
 - **Runner and game agree.** Two played scenarios walk the proof's paths with the game's own
   character on Jolt: a climb to the lighthouse and a glide to the island. Both pass on every
   seed.
-- **A gap in Moira, found.** A second `{class villager ...}` replaces the first (a
+- **A gap in Baker, found.** A second `{class villager ...}` replaces the first (a
   reloaded script redefines its class), so an L3 task pack could not add one action to the
   villager: the agent's authoring loop of §4.3 needs a way to extend a class from another
   file. Fixed in D113 with `{extend}`, the owner's choice.
@@ -3313,13 +3313,13 @@ merge.*
 - **`check`** reads `{extend}` as it reads `{class}`: the handlers an extension adds are
   not demand. The reference lists the word.
 - **Cost.** Definition time only: dispatch is unchanged. The core is 11,068 lines of 15,000
-  (`moira::script` 3,896). Hearth's test of a stuck action now adds that action with
+  (`baker::script` 3,896). Hearth's test of a stuck action now adds that action with
   `{extend villager ...}`, as a task pack would.
 
 ## D114. The harness audit of the stacks
 
 *`docs/background/reading-a-studio.md` §7, run on all seven games after step 4 of
-game-stacks.md §6, as §6 asks. The full audit is `stacks/audit.md`. Outside Moira: nothing
+game-stacks.md §6, as §6 asks. The full audit is `stacks/audit.md`. Outside Baker: nothing
 in `src/` changed.*
 
 - **What it could not do.** The method watches people and interviews them; the stacks have
@@ -3329,7 +3329,7 @@ in `src/` changed.*
   `Config::loop_stats()` as text, so a script reads a running game's loop through the
   console. Ten saves of a tweak in `local.dta` per game (Release, OpenGL under Xvfb, the
   development container): edit-to-see median 5.4 ms (cube), 6.3 (Duel), 12.3 (Ledger),
-  10.0 (Contraption), 12.4 (Stuntline), 17.0 (Hearth), worst 24.4; Moira's reload 0.12–0.23
+  10.0 (Contraption), 12.4 (Stuntline), 17.0 (Hearth), worst 24.4; Baker's reload 0.12–0.23
   ms median in every game. **Wayfarer: 174 ms median, 215 ms worst**, all the game's own:
   its gating view rebuilds the analyses' nine navigation tiles (about 16 ms each) after every
   reload, even for a run speed. Inside the one-second target, and ten times the others.
@@ -3339,7 +3339,7 @@ in `src/` changed.*
   warnings, unresolved words, stubs, repetitions, or findings. The demand is in the C++,
   which `check` does not read: `tag_of` (an array's first symbol) written in 6 games, a
   seeded RNG in 6, `not_found` and a `box` helper in 5 each, float and positional readers in
-  4 and 2, command truth in 3: 31 copies of words Moira and the base lack.
+  4 and 2, command truth in 3: 31 copies of words Baker and the base lack.
 - **The register's finding**: a bus factor of 1 at every layer. Every pack names two owner
   roles, as `check` asks, and one person fills them all; only the register shows it.
 - **Flight**: one external harness, Ledger's spreadsheet, adopted by design and visible
@@ -3347,21 +3347,21 @@ in `src/` changed.*
   Recast/Detour adopted); the analyses (cheese search, proof, bots, soak) are genesis-stage
   ideas fixed in C++, one each.
 - **Interventions proposed**: fix Wayfarer's loop (keep the analyses' mesh until its
-  geometry changes); push the 31 copies up to Moira (`Array::tag()`, a positional reader) and
+  geometry changes); push the 31 copies up to Baker (`Array::tag()`, a positional reader) and
   the base (RNG, `Box` constructors, `not_found`, command truth); a second gardener when
   there is a second person.
 
 ## D115. The audit's interventions: Wayfarer's loop, and the copies pushed up
 
 *The first two interventions of D114, the owner's choice, applied and re-measured
-(`stacks/audit.md` §8). One addition to Moira's API.*
+(`stacks/audit.md` §8). One addition to Baker's API.*
 
 - **Wayfarer's loop.** Its analyses' navigation mesh is rebuilt only when
   `wayfarer::nav_key` changes: every cell's source, the cell size, `climb_max`, `step`, and
   the glide ratio. Edit-to-see for a tweak: 15.9 ms median, 19.9 ms worst, against 174.1 and
   215.1 (D114). A test checks the key changes with the geometry and not with a speed; the
   old flag also kept the analyses on a stale mesh after `climb_max` was tuned in a panel.
-- **`Array::tag()`** in Moira: an array's first node if a symbol, else the empty Symbol.
+- **`Array::tag()`** in Baker: an array's first node if a symbol, else the empty Symbol.
   Six stacks had written it. Reading a value by position needed nothing new: a path indexes
   values (`get<double>("pos.1", 0)`), and a test now says so beside `tag()`; that no stack
   found it is a finding about the docs, not the API. The core is 11,073 lines of 15,000.
@@ -3372,5 +3372,5 @@ in `src/` changed.*
 - **Results.** Copies left: 1 of 31 (Contraption's box helper, which also turns about z and
   draws spheres: a specialisation). The stacks are 112 lines shorter. Every stack's `sim`
   over seeds 1–3 is byte-identical before and after, and the pinned replay hashes hold;
-  the 29 stacks tests and Moira's local matrix pass.
+  the 29 stacks tests and Baker's local matrix pass.
 

@@ -1,6 +1,6 @@
-#include <moira/array.hpp>
-#include <moira/path.hpp>
-#include <moira/write.hpp>
+#include <baker/array.hpp>
+#include <baker/path.hpp>
+#include <baker/write.hpp>
 
 #include "common/containers.hpp"
 #include "text.hpp"
@@ -15,14 +15,14 @@
 #include <fast_float.h>
 
 // libc++ on Apple ships double std::to_chars only for recent deployment targets, so Apple
-// builds use the portable formatter. Define MOIRA_FORCE_FORMAT_FALLBACK to use it anywhere.
-#if defined(MOIRA_FORCE_FORMAT_FALLBACK) || (defined(__APPLE__) && defined(_LIBCPP_VERSION))
-#define MOIRA_FORMAT_FALLBACK 1
+// builds use the portable formatter. Define BAKER_FORCE_FORMAT_FALLBACK to use it anywhere.
+#if defined(BAKER_FORCE_FORMAT_FALLBACK) || (defined(__APPLE__) && defined(_LIBCPP_VERSION))
+#define BAKER_FORMAT_FALLBACK 1
 #else
-#define MOIRA_FORMAT_FALLBACK 0
+#define BAKER_FORMAT_FALLBACK 0
 #endif
 
-namespace moira::detail {
+namespace baker::detail {
 namespace {
 bool is_digit(char c) noexcept {
     return c >= '0' && c <= '9';
@@ -140,7 +140,7 @@ Str format_double_fallback(double v) {
 }
 
 Str format_double(double v) {
-#if MOIRA_FORMAT_FALLBACK
+#if BAKER_FORMAT_FALLBACK
     return format_double_fallback(v);
 #else
     char buf[64];
@@ -293,4 +293,4 @@ Str dta_of(const Array& root) {
     return out;
 }
 
-}  // namespace moira::detail
+}  // namespace baker::detail

@@ -2,13 +2,13 @@
 
 #include <string_view>
 
-namespace moira {
+namespace baker {
 
 inline constexpr int kVersionMajor = 0;
 inline constexpr int kVersionMinor = 0;
 inline constexpr int kVersionPatch = 1;
 
-// Version string of the moira::data library this program linked against.
+// Version string of the baker::data library this program linked against.
 [[nodiscard]] std::string_view version() noexcept;
 
-}  // namespace moira
+}  // namespace baker

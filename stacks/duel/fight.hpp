@@ -1,6 +1,6 @@
 // Duel's simulation (game-stacks.md §4.6): two fighters, frame data, boxes against boxes, a
 // CPU opponent, and the analyses the agent runs over the data: frame tables and a combo
-// search. No window and no Moira here beyond reading the data, so the headless runner, the
+// search. No window and no Baker here beyond reading the data, so the headless runner, the
 // game, and the tests step the same code.
 //
 // Everything is an integer: time in frames, distance in millimetres, chances in per mille.
@@ -8,8 +8,8 @@
 // on any compiler and CPU (§7), and a replay is its inputs.
 #pragma once
 
+#include <baker/array.hpp>
 #include <base/rng.hpp>
-#include <moira/array.hpp>
 
 #include <cstdint>
 #include <string>
@@ -98,7 +98,7 @@ struct Roster {
 
 // Reads (fighters ...), (cpu ...), and (bots ...) from the merged data. False, with the
 // reason, when a fighter has no moves or more than 32, or a cancel names no move.
-[[nodiscard]] bool load(const moira::Array& root, Roster& out, std::string& error);
+[[nodiscard]] bool load(const baker::Array& root, Roster& out, std::string& error);
 
 enum class State : uint8_t { Idle, Walk, Crouch, Attack, Hitstun, Blockstun, Down };
 

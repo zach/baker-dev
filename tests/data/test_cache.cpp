@@ -1,8 +1,8 @@
 // The binary cache (D70): a cache load gives the tree the text load gave, as one block.
 #include <doctest.h>
-#include <moira/cache.hpp>
-#include <moira/parse.hpp>
-#include <moira/std_interop.hpp>
+#include <baker/cache.hpp>
+#include <baker/parse.hpp>
+#include <baker/std_interop.hpp>
 
 #include "alloc_counter.hpp"
 #include "ok.hpp"
@@ -15,8 +15,8 @@
 #include <string>
 #include <vector>
 
-using namespace moira;
-using moira::test::ok;
+using namespace baker;
+using baker::test::ok;
 namespace fs = std::filesystem;
 
 namespace {
@@ -92,7 +92,7 @@ std::string big_text(size_t bytes) {
 
 TEST_CASE("every corpus file loads from a cache as it does from text") {
     std::vector<fs::path> files;
-    for (const auto& e : fs::directory_iterator(MOIRA_CORPUS_DIR))
+    for (const auto& e : fs::directory_iterator(BAKER_CORPUS_DIR))
         if (e.path().extension() == ".dta") files.push_back(e.path());
     REQUIRE(files.size() >= 8);
     for (const fs::path& p : files) {
@@ -181,8 +181,8 @@ TEST_CASE("a damaged or foreign cache is an error, never a crash") {
         CHECK(r.error().code() == code);
         CHECK_MESSAGE(to_string(r.error()).find(says) != std::string::npos, to_string(r.error()));
     };
-    fails("", ErrorCode::Io, "not a Moira cache");
-    fails("(a 1)", ErrorCode::Io, "not a Moira cache");
+    fails("", ErrorCode::Io, "not a Baker cache");
+    fails("(a 1)", ErrorCode::Io, "not a Baker cache");
     fails(good.substr(0, good.size() - 8), ErrorCode::Io, "damaged");
     for (size_t at : {good.size() / 2, good.size() - 1, size_t{80}}) {
         std::string flipped = good;
@@ -234,7 +234,7 @@ TEST_CASE("read_cached uses a fresh cache and rewrites a stale one") {
     dir.write("inc.dta", "(b 2)");
     const std::string cache = dir.path("main.datb");
 
-    // Baked, as moira_bake does: read_cached writes no cache in shipping builds.
+    // Baked, as baker_bake does: read_cached writes no cache in shipping builds.
     LoadSession first;
     first.record_for_cache = true;
     auto root = ok(read_file(main, first));

@@ -1,10 +1,10 @@
 // Script tasks (spec §5, D67): {scheduler delay_task|interp_task|thread_task ...}.
 #include <doctest.h>
-#include <moira/object.hpp>
-#include <moira/parse.hpp>
-#include <moira/script.hpp>
-#include <moira/task.hpp>
-#include <moira/write.hpp>
+#include <baker/object.hpp>
+#include <baker/parse.hpp>
+#include <baker/script.hpp>
+#include <baker/task.hpp>
+#include <baker/write.hpp>
 
 #include "alloc_counter.hpp"
 #include "ok.hpp"
@@ -13,8 +13,8 @@
 #include <string>
 #include <vector>
 
-using namespace moira;
-using moira::test::ok;
+using namespace baker;
+using baker::test::ok;
 
 namespace {
 

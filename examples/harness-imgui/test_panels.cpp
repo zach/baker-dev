@@ -3,7 +3,7 @@
 #include "panels.hpp"
 
 #include <doctest.h>
-#include <moira/std_interop.hpp>
+#include <baker/std_interop.hpp>
 
 #include <imgui.h>
 
@@ -35,11 +35,11 @@ std::string read(const fs::path& p) {
 // A harness over files in a fresh directory, with its own tweaks.
 struct Harness {
     fs::path dir = fs::current_path() / "harness_test";
-    moira::TweakRegistry registry;
-    moira::Tweak<int> radius{"ball.radius", 10, {}, registry};
-    moira::Tweak<float> bounce{"ball.bounce", 0.5f, {}, registry};
-    moira::Config cfg{{.tweaks = &registry}};
-    moira::Context ctx;
+    baker::TweakRegistry registry;
+    baker::Tweak<int> radius{"ball.radius", 10, {}, registry};
+    baker::Tweak<float> bounce{"ball.bounce", 0.5f, {}, registry};
+    baker::Config cfg{{.tweaks = &registry}};
+    baker::Context ctx;
     harness::TweaksState tweaks;
     harness::ShapesState shapes;
     harness::ConsoleState console;
@@ -103,7 +103,7 @@ TEST_CASE("the panels draw, and their requests do what their buttons say") {
     CHECK(h.console.log[1] == "=> 3");
     CHECK(h.console.log[3].find("'nope' is not a function  (<console>:1)") != std::string::npos);
 
-    if constexpr (!moira::kShipping) {
+    if constexpr (!baker::kShipping) {
         // Tweaks: a slider's edit goes to scratch, and shows as unsaved.
         h.tweaks.request = {harness::TweaksState::Request::Set, "ball.radius", {30}};
         h.frame();
@@ -133,7 +133,7 @@ TEST_CASE("the panels draw, and their requests do what their buttons say") {
         // Snapshots: capture A, change, capture B, flip between them.
         h.snapshots.request = harness::SnapshotsState::CaptureA;
         h.frame();
-        REQUIRE(h.cfg.set("ball.radius", moira::Node(50)));
+        REQUIRE(h.cfg.set("ball.radius", baker::Node(50)));
         h.snapshots.request = harness::SnapshotsState::CaptureB;
         h.frame();
         h.snapshots.request = harness::SnapshotsState::Flip;
@@ -164,7 +164,7 @@ TEST_CASE("the panels draw, and their requests do what their buttons say") {
         // Journal: every edit above, with its fate.
         std::vector<std::string> lines;
         h.cfg.journal(
-            [&](const moira::JournalEntry& e) { lines.push_back(harness::journal_line(e)); });
+            [&](const baker::JournalEntry& e) { lines.push_back(harness::journal_line(e)); });
         REQUIRE(lines.size() >= 4);
         CHECK(lines[0] == "ball/radius  24 -> 30  (default.dta:3)  written tester.dta:1");
         CHECK(lines[1] == "ball/bounce  0.8 -> 0.75  (default.dta:5)  written default.dta:5");
@@ -173,15 +173,15 @@ TEST_CASE("the panels draw, and their requests do what their buttons say") {
         std::ofstream(h.dir / "default.dta", std::ios::binary | std::ios::app) << "(extra 1)\n";
         REQUIRE(h.cfg.reload({.origin_ns = 1}));
         h.cfg.mark_visible();
-        const moira::LoopStats stats = h.cfg.loop_stats();
+        const baker::LoopStats stats = h.cfg.loop_stats();
         REQUIRE(stats.files.size() == 1);
         CHECK(stats.files[0].edits == 1);
-        CHECK(stats.layers[0].name == moira::Symbol("default"));
+        CHECK(stats.layers[0].name == baker::Symbol("default"));
         h.frame();
 
         // Loop: every change above was recorded, and the panel draws them.
         size_t records = 0;
-        h.cfg.each_reload([&](const moira::ReloadRecord&) { ++records; });
+        h.cfg.each_reload([&](const baker::ReloadRecord&) { ++records; });
         CHECK(records >= 5);
         h.frame();
     }

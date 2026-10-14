@@ -1,9 +1,9 @@
 // Debugging: the script call stack, error stacks, and script_backtrace (spec §5, M6).
 #include <doctest.h>
-#include <moira/object.hpp>
-#include <moira/parse.hpp>
-#include <moira/script.hpp>
-#include <moira/std_script.hpp>
+#include <baker/object.hpp>
+#include <baker/parse.hpp>
+#include <baker/script.hpp>
+#include <baker/std_script.hpp>
 
 #include "alloc_counter.hpp"
 
@@ -11,8 +11,8 @@
 #include <vector>
 #include "ok.hpp"
 
-using namespace moira;
-using moira::test::ok;
+using namespace baker;
+using baker::test::ok;
 
 namespace {
 
@@ -53,13 +53,13 @@ TEST_CASE("an error four calls deep carries its stack, innermost first") {
         CHECK(e.stack()[i].on.empty());
     }
     CHECK(describe(e) ==
-          "moira: '%' by zero  (boss.dta:1)\n"
+          "baker: '%' by zero  (boss.dta:1)\n"
           "  in {%}  (boss.dta:1)\n"
           "  in {d}  (boss.dta:2)\n"
           "  in {c}  (boss.dta:4)\n"
           "  in {b}  (boss.dta:5)\n"
           "  in {a}  (boss.dta:6)");
-    CHECK(to_string(e) == "moira: '%' by zero  (boss.dta:1)");  // still one line
+    CHECK(to_string(e) == "baker: '%' by zero  (boss.dta:1)");  // still one line
     CHECK(ctx.top_frame() == nullptr);                          // every frame has unwound
 }
 

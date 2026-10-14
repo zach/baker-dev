@@ -9,19 +9,19 @@
 #include <cstdint>
 #include <string_view>
 
-namespace moira {
+namespace baker {
 class Array;
 class Node;
 class Path;
-}  // namespace moira
+}  // namespace baker
 
-namespace moira::detail {
+namespace baker::detail {
 
 // At most about `max_chars` of the compact form of `node`, ending in "..." if cut. Safe on
 // huge or heavily shared trees; for error messages (write.cpp).
 [[nodiscard]] Str preview(const Node& node, size_t max_chars = 40);
 
-// The text forms std_interop.hpp gives a host, for messages and edits inside Moira.
+// The text forms std_interop.hpp gives a host, for messages and edits inside Baker.
 [[nodiscard]] Str text_of(const Path& path, size_t count = SIZE_MAX, char separator = '/');
 [[nodiscard]] Str text_of(const Node& node);
 [[nodiscard]] Str dta_of(const Array& root);
@@ -60,7 +60,7 @@ void append_path_name(Str& out, std::string_view name);
 // Apple deployment targets); exposed for tests.
 [[nodiscard]] Str format_double_fallback(double v);
 
-// Lexical path handling. Moira never touches the file system itself (LoadSession's reader
+// Lexical path handling. Baker never touches the file system itself (LoadSession's reader
 // does), so include paths are only joined and normalized as text. Both '/' and '\\' are
 // separators; results use '/'.
 [[nodiscard]] bool is_absolute_path(std::string_view p) noexcept;
@@ -70,4 +70,4 @@ void append_path_name(Str& out, std::string_view name);
 [[nodiscard]] std::string_view parent_path(std::string_view p) noexcept;
 [[nodiscard]] Str join_path(std::string_view dir, std::string_view p);
 
-}  // namespace moira::detail
+}  // namespace baker::detail

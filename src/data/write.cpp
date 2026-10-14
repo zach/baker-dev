@@ -1,4 +1,4 @@
-#include <moira/write.hpp>
+#include <baker/write.hpp>
 
 #include "common/containers.hpp"
 
@@ -7,7 +7,7 @@
 #include <charconv>
 #include <cstdio>
 
-namespace moira {
+namespace baker {
 namespace {
 
 char open_of(Type t) noexcept {
@@ -180,4 +180,4 @@ Str preview(const Node& node, size_t max_chars) {
 }
 }  // namespace detail
 
-}  // namespace moira
+}  // namespace baker

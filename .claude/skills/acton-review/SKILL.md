@@ -1,19 +1,19 @@
 ---
 name: acton-review
-description: Review Moira designs, milestone plans, and diffs the way a data-oriented console-engine technical director (Mike Acton's school) would. Use when writing or reviewing an M-plan, a decisions.md entry, a hot-path change (evaluation, dispatch, tweaks, messages, tasks, the binary cache), or anything that adds allocation, indirection, abstraction, or runtime work; also when the user asks "what would Acton say", for a data-oriented or performance review, or to check alignment with console engine practice.
+description: Review Baker designs, milestone plans, and diffs the way a data-oriented console-engine technical director (Mike Acton's school) would. Use when writing or reviewing an M-plan, a decisions.md entry, a hot-path change (evaluation, dispatch, tweaks, messages, tasks, the binary cache), or anything that adds allocation, indirection, abstraction, or runtime work; also when the user asks "what would Acton say", for a data-oriented or performance review, or to check alignment with console engine practice.
 ---
 
-# Data-oriented review for Moira
+# Data-oriented review for Baker
 
-Moira is being built for a project whose technical director is Mike Acton. His views stand
+Baker is being built for a project whose technical director is Mike Acton. His views stand
 in for those of high-end console engine programmers generally. He says out loud what many
 technical directors think (see "Why the line is held"). This skill turns those views
-into review questions you can check against Moira's code and plans. Where Moira chooses
+into review questions you can check against Baker's code and plans. Where Baker chooses
 something else, the review makes the choice explicit and costed. The burden of proof is
 on the choice, not on the reviewer.
 
-Sources and how sure each attribution is: `references/sources.md`. Moira's known gaps
-against this lens: `references/moira-gaps.md`. Read both before a full review.
+Sources and how sure each attribution is: `references/sources.md`. Baker's known gaps
+against this lens: `references/baker-gaps.md`. Read both before a full review.
 
 ## Why the line is held (read this first)
 
@@ -61,11 +61,11 @@ choices show it:
   carefully curated engine codebase, carelessly introducing the STL, unwinding
   exceptions, or RTTI goes very badly.
 
-**Moira is at the very heart of a game engine, so it must be thoroughly Acton-compatible.**
+**Baker is at the very heart of a game engine, so it must be thoroughly Acton-compatible.**
 Expect extreme skepticism from any TD evaluating it, and design for that review.
 - A TD who sees that a recommended library depends on, say, Boost will roll their eyes,
   and the recommender will be teased for it.
-- Moira's answer has to be visible in its build: zero external runtime dependencies
+- Baker's answer has to be visible in its build: zero external runtime dependencies
   (spec §6), every costly feature off or removable by a switch, nothing paid for unless
   it is used.
 
@@ -82,7 +82,7 @@ of the CppCon 2014 deck's PDF (201 pages), checked against the deck itself
 1. **"The transformation of data is the only purpose of any program"** (the keynote
    abstract). Slide 29 puts it as: "The purpose of all programs, and all parts of those
    programs, is to transform data from one form to another." The programmer's job is to
-   solve data-transformation problems, not to write code. Every Moira subsystem is a
+   solve data-transformation problems, not to write code. Every Baker subsystem is a
    transform: text → tree, tree → merged config, command → value, cache file → tree. Name
    the input, the output, and the cost of each one.
 2. **Know your data, and know your hardware.**
@@ -111,7 +111,7 @@ of the CppCon 2014 deck's PDF (201 pages), checked against the deck itself
    - "The more context you have, the better you can make the solution. Don't throw away
      data you need." (slide 41)
    - "NUMA extends to I/O and pre-built data all the way back through time to original
-     source creation." (slide 42) In Moira's terms: a decision the bake can make should
+     source creation." (slide 42) In Baker's terms: a decision the bake can make should
      not be thrown away and remade at runtime.
 7. **Reason about cost, including the cost of change.**
    - "Everything is a data problem. Including usability, maintenance, debug-ability,
@@ -125,7 +125,7 @@ of the CppCon 2014 deck's PDF (201 pages), checked against the deck itself
    transformation should be proportional to the amount of surprise in the data." His
    example is a UI, where frame B is almost always identical to frame A, so redrawing it
    should cost almost nothing. Expected values take the cheap path, and only surprising
-   ones pay. Moira's reload compares content and re-merges from the lowest change (D35)
+   ones pay. Baker's reload compares content and re-merges from the lowest change (D35)
    in this spirit: a tweak that did not change should cost nothing.
 9. **From "Everyone Watching This Is Fired" (GDC 2019).** These items are verbatim, as
    reported from the slides:
@@ -195,7 +195,7 @@ See "Where the school disagrees" below.
 45–46): "Software is a platform." "Code should be designed around a model of the world."
 "Code is more important than data." In the talk: "Reality is not a hack… Reality is the
 actual problem", and "if you think the right way is some way other than the way that
-actually works in context, then your idea of the right way is wrong." Moira's own hazards
+actually works in context, then your idea of the right way is wrong." Baker's own hazards
 with each lie:
 - treating the library as a platform for every possible game;
 - an object model that mirrors designers' nouns, not the data's access patterns;
@@ -206,21 +206,21 @@ transcript):
 - **"Performance by default."** "Your first instinct when you put something in Unity
   should be a good first level approximation of the right answer", not something "you
   need to rethink or throw away". It should also be "optimizable by default": later work
-  improves the same layout instead of starting over. For Moira, the obvious API (a
+  improves the same layout instead of starting over. For Baker, the obvious API (a
   one-line tweak, `ctx.func`, `{bob grow 10}`) must be the fast path. There should be no
   convenient-but-slow API with an expert-only fast one beside it.
 - **Hard rules, few of them.** "These aren't complicated rules, but they're hard rules":
   declare what you read and what you write; streams of small data; value types only.
   Declaring access is what lets the system verify correctness and race freedom.
-  Moira's equivalent is in its signatures: `Raw<T>` marks what a function will not
+  Baker's equivalent is in its signatures: `Raw<T>` marks what a function will not
   evaluate.
 - **Nothing opaque.** Component memory is "blocks of memory organized into 64K chunks,
   none of which is opaque". The compiler's output is inspectable too. "This is not about
-  making things more opaque for you." Users must be able to see the layout of Moira's
+  making things more opaque for you." Users must be able to see the layout of Baker's
   data and the cost of its calls (static asserts, the reference, benchmarks, statistics,
   the trace hook).
 - **An entity is an index.** "An entity is nothing more than a lookup index or an ID into
-  those parallel streams… think about it as a database key." Moira's salted object handles
+  those parallel streams… think about it as a database key." Baker's salted object handles
   follow the same idea.
 - **Few, named sync points.** Named barriers replace a hand-drawn graph of dependencies
   between systems, because that "becomes sort of too complicated for you to manage" and
@@ -263,7 +263,7 @@ library, so it still may not:
 - add work to a hot path, even when the tool is not in use.
 
 Acton's critics mainly fault him for applying console-hot-path rules to all programs.
-That is a point about other programs: Moira is engine core, and its tool code is only
+That is a point about other programs: Baker is engine core, and its tool code is only
 relaxed inside these limits.
 
 ### 2. State the transform
@@ -276,7 +276,7 @@ relaxed inside these limits.
 
 ### 3. Hot-path rules (check every item)
 - **Allocation.** The hot path allocates nothing after warm-up, and a test proves it with
-  `tests/support/alloc_counter`, not by inspection. Moira already does this for calls,
+  `tests/support/alloc_counter`, not by inspection. Baker already does this for calls,
   methods, `get`/`set`, and tweak reads. New hot paths must add the same test.
 - **Indirection.** Count the dependent loads (pointer chases) per operation. Each likely
   cache miss on a cold path costs about 100+ cycles. A `shared_ptr`, a `std::function`, a
@@ -292,7 +292,7 @@ relaxed inside these limits.
     measures it as signal against noise: bits of information used per frame, divided by
     cache-line bytes loaded per frame (slides 147–148). Do the same arithmetic for any
     hot struct under review.
-  - Prefer index-addressed flat arrays (Moira's per-Context tables indexed by
+  - Prefer index-addressed flat arrays (Baker's per-Context tables indexed by
     `Symbol::index()`, D44) to maps.
   - New per-element structs on a hot path get a `static_assert(sizeof(...))`, as `Node`
     (16) and `Array` (24) have.
@@ -306,29 +306,29 @@ relaxed inside these limits.
   outside the loop, with the cases split.
 - **Strings.** None on a hot path. Names are `Symbol`s, interned or hashed at load or at
   bake time. A `std::string` built during a call is a finding, except on the error path.
-- **Exceptions and RTTI.** None, anywhere. Moira has no throwing forms (D54) and builds
+- **Exceptions and RTTI.** None, anywhere. Baker has no throwing forms (D54) and builds
   with exceptions off and no RTTI (D49's `TypeRecord`). Every fallible API returns
   `Expected`. A `throw`, a `try`, or a `dynamic_cast` in a change is a finding. (D52
   measured a `try` alone at about 10 ns per call.)
 - **Templates.** Acton's stated cost is compile time and slower code, and his stated
-  alternative is generated code. Moira's binding templates remove per-call marshalling
+  alternative is generated code. Baker's binding templates remove per-call marshalling
   decisions, which is a real use. Still ask:
   - what does each template cost in compile time, in code size per instantiation, and in
     debug-build speed;
   - would a small code generator do it better?
 
   A template that only buys "genericity" for one real use case is a finding. Watch the
-  build time of a translation unit that includes `<moira/object.hpp>` like a benchmark.
-- **Shipping.** Development-only work compiles out under `MOIRA_SHIPPING`
+  build time of a translation unit that includes `<baker/object.hpp>` like a benchmark.
+- **Shipping.** Development-only work compiles out under `BAKER_SHIPPING`
   (`if constexpr (kShipping)`), and the shipping CI job proves it.
 - **Removability.** For any technology a change leans on, ask whether a game could turn
   it off or replace it later, without rewriting callers. Ask before it spreads, because
-  it cannot be asked after. Moira's existing answers are the model:
+  it cannot be asked after. Baker's existing answers are the model:
   - no exceptions at all (D54) and no RTTI;
   - a per-Context allocator and an arena per load (D56);
-  - `MOIRA_USE_EASTL` for internal containers (D55);
-  - `MOIRA_ATOMIC_REFCOUNT`;
-  - `MOIRA_SHIPPING`.
+  - `BAKER_USE_EASTL` for internal containers (D55);
+  - `BAKER_ATOMIC_REFCOUNT`;
+  - `BAKER_SHIPPING`.
 
   A new dependency on the global heap, the STL in a public signature, or a mandatory
   callback type is a finding unless it comes with its switch or its funnel.
@@ -343,9 +343,9 @@ relaxed inside these limits.
 - **Memory ownership.** Who owns each allocation, from which heap, and when is it freed?
   Every Context and Config takes an allocator and passes it to the tables it keeps, and a
   load builds in one arena (D61, D62, D64). A new allocation goes through its owner's
-  allocator, never global `operator new`; `moira_alloc_tests` fails otherwise.
+  allocator, never global `operator new`; `baker_alloc_tests` fails otherwise.
 - **Iteration speed is a requirement, not a nicety.** Insomniac's engine group built
-  designers' tools themselves, and fast iteration (hot reload, live tweaks) is why Moira
+  designers' tools themselves, and fast iteration (hot reload, live tweaks) is why Baker
   exists. A data-oriented review must not trade away designer iteration time without
   saying so. Weigh the frame-time cost against the iteration-time cost explicitly.
 
@@ -367,7 +367,7 @@ Accepted deviations go into `docs/decisions.md` as a D-entry (spec §11: deviati
 deviating silently is not). Do not rewrite code to follow this lens without a finding that
 names its cost.
 
-## Applying it to Moira's subsystems
+## Applying it to Baker's subsystems
 
 | Area | The question a data-oriented TD asks |
 |---|---|
@@ -387,7 +387,7 @@ names its cost.
 
 - **Templates and generic code.** Insomniac had no hard rule against templates, only
   strong suspicion: "occasionally a good use", usually "a poor use", and "cripples compile
-  times". Moira's binding layer is templates, deliberately: spec §5 deduces signatures
+  times". Baker's binding layer is templates, deliberately: spec §5 deduces signatures
   so that binding needs no macro tables. Accept templates where they move work to compile
   time and both the benchmarks and the build times hold. Flag them
   where they only add generality, and consider a generator for anything bulky.
@@ -402,7 +402,7 @@ names its cost.
   "two orders of magnitude" over "C# scripts".
   - The inference, not his words: he accepts a higher-level language for game code when
     its rules let the system lay data out and compile it well.
-  - For Moira, that means judging the evaluator on whether data stays out of the
+  - For Baker, that means judging the evaluator on whether data stays out of the
     per-entity loop and gets baked, not on whether there is an interpreter at all.
   - A second researcher's unquoted claim that he preferred compiled graphs to
     interpreted bytecode is consistent with this, but is still not citable.
@@ -414,7 +414,7 @@ names its cost.
     kept off the per-entity hot loop and whether its data is baked.
 - **Scope.** Critics (Shamus Young, HN and gamedev.net practitioners) accept the
   performance argument but reject applying it to every program. That is fair for
-  business software and editors. It does not soften the lens for Moira, which sits in the
+  business software and editors. It does not soften the lens for Baker, which sits in the
   engine's core:
   - runtime and load paths face the full lens;
   - tool paths face the cost-of-change lens, within the limits in review step 1.

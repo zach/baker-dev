@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-namespace moira::test {
+namespace baker::test {
 
 // A fresh directory of files for one test.
 class TempDir {
@@ -18,7 +18,7 @@ public:
     TempDir() {
         static std::atomic<int> counter{0};
         dir_ = std::filesystem::temp_directory_path() /
-               ("moira_test_" + std::to_string(counter++) + "_" + std::to_string(std::rand()));
+               ("baker_test_" + std::to_string(counter++) + "_" + std::to_string(std::rand()));
         std::filesystem::remove_all(dir_);
         std::filesystem::create_directories(dir_);
     }
@@ -70,4 +70,4 @@ inline std::vector<std::string> diff_lines(const std::string& a, const std::stri
     return out;
 }
 
-}  // namespace moira::test
+}  // namespace baker::test

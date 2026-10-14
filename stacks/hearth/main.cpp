@@ -17,8 +17,8 @@
 
 #include <SDL3/SDL.h>
 #include <imgui.h>
-#include <moira/std_interop.hpp>
-#include <moira/std_script.hpp>
+#include <baker/std_interop.hpp>
+#include <baker/std_script.hpp>
 
 #include <algorithm>
 #include <array>
@@ -28,25 +28,25 @@
 #include <string>
 #include <vector>
 
-static moira::Tweak<float> kSpeed{
+static baker::Tweak<float> kSpeed{
     "hearth.speed", 60.0f, {.range = {1, 3600}, .desc = "Game seconds per real second"}};
-static moira::Tweak<float> kWalkSpeed{
+static baker::Tweak<float> kWalkSpeed{
     "hearth.walk_speed", 1.4f, {.range = {0.2f, 5}, .desc = "Metres a second"}};
-static moira::Tweak<int> kChoiceTop{
+static baker::Tweak<int> kChoiceTop{
     "hearth.choice_top", 3, {.range = {1, 10}, .desc = "Picks among this many best"}};
-static moira::Tweak<float> kChoiceWithin{
+static baker::Tweak<float> kChoiceWithin{
     "hearth.choice_within", 0.7f, {.range = {0, 1}, .desc = "...within this share of the best"}};
-static moira::Tweak<float> kDistanceScale{
+static baker::Tweak<float> kDistanceScale{
     "hearth.distance_scale", 25.0f, {.range = {1, 200}, .desc = "Metres at which appeal halves"}};
-static moira::Tweak<float> kOffHours{
+static baker::Tweak<float> kOffHours{
     "hearth.off_hours", 0.2f, {.range = {0, 1}, .desc = "Appeal outside a thing's hours"}};
-static moira::Tweak<float> kIdleMinutes{
+static baker::Tweak<float> kIdleMinutes{
     "hearth.idle_minutes", 10.0f, {.range = {1, 120}, .desc = "Wait when nothing appeals"}};
-static moira::Tweak<float> kStuckMinutes{
+static baker::Tweak<float> kStuckMinutes{
     "hearth.stuck_minutes", 60.0f, {.range = {5, 600}, .desc = "No progress this long is stuck"}};
-static moira::Tweak<float> kStarveMinutes{
+static baker::Tweak<float> kStarveMinutes{
     "hearth.starve_minutes", 120.0f, {.range = {5, 1440}, .desc = "At zero this long starves"}};
-static moira::Tweak<int> kOscillation{
+static baker::Tweak<int> kOscillation{
     "hearth.oscillation_switches", 6, {.range = {2, 50}, .desc = "Back and forth this often"}};
 
 namespace {
@@ -74,20 +74,20 @@ double per_day(int events, const hearth::Tally& t) {
 
 class HearthGame final : public base::Game {
 public:
-    void bind(moira::Context& ctx) override {
+    void bind(baker::Context& ctx) override {
         ctx_ = &ctx;
         ctx.add_type<hearth::Villager>();
         ctx.add_type<hearth::Thing>();
-        clock_ = std::make_unique<moira::Scheduler>(ctx);
-        (void)ctx.add(*clock_, moira::Symbol("clock"));
+        clock_ = std::make_unique<baker::Scheduler>(ctx);
+        (void)ctx.add(*clock_, baker::Symbol("clock"));
         auto doc = [](auto f, const char* text) {
             if (f) f->doc(text);
         };
         doc(ctx.func("hearth.spawn",
-                     [this](moira::Symbol name) -> moira::Expected<void> {
+                     [this](baker::Symbol name) -> baker::Expected<void> {
                          const int h = kit_.house(std::string(name.str()));
                          if (h < 0)
-                             return moira::Unexpected(
+                             return baker::Unexpected(
                                  base::not_found("no household " + std::string(name.str())));
                          spawn(h);
                          return {};
@@ -98,27 +98,27 @@ public:
         doc(ctx.func("hearth.day", [this] { return home_ ? home_->minute() / 1440 : 0.0; }),
             "Game days since the household moved in.");
         doc(ctx.func("hearth.why",
-                     [this](moira::Symbol who) -> moira::Expected<std::string> {
+                     [this](baker::Symbol who) -> baker::Expected<std::string> {
                          hearth::Villager* v =
                              home_ ? home_->villager(std::string(who.str())) : nullptr;
                          if (!v)
-                             return moira::Unexpected(
+                             return baker::Unexpected(
                                  base::not_found("no villager " + std::string(who.str())));
                          return home_->why(*v);
                      }),
             "A villager's last decision: the options, their scores, the pick, and its margin.");
         doc(ctx.func("hearth.need",
-                     [this](moira::Symbol who, moira::Symbol need) -> moira::Expected<double> {
+                     [this](baker::Symbol who, baker::Symbol need) -> baker::Expected<double> {
                          hearth::Villager* v =
                              home_ ? home_->villager(std::string(who.str())) : nullptr;
                          if (!v)
-                             return moira::Unexpected(
+                             return baker::Unexpected(
                                  base::not_found("no villager " + std::string(who.str())));
                          return v->need(need);
                      }),
             "A villager's need, 0 to 100.");
         doc(ctx.func("hearth.events",
-                     [this](moira::Symbol kind) -> moira::Expected<int64_t> {
+                     [this](baker::Symbol kind) -> baker::Expected<int64_t> {
                          if (!home_) return int64_t(0);
                          return count(home_->tally(), kind);
                      }),
@@ -141,15 +141,15 @@ public:
         doc(ctx.func("hearth.soak_threads", [this](int64_t n) { threads_ = int(n); }),
             "Worker threads for the next soak; 0 is the machine's (at most 8).");
         doc(ctx.func("hearth.soak_events",
-                     [this](moira::Symbol kind) -> moira::Expected<int64_t> {
+                     [this](baker::Symbol kind) -> baker::Expected<int64_t> {
                          return count(soak_.tally, kind);
                      }),
             "In the last soak: stuck, oscillating, starving, script_errors, decisions, or "
             "interrupts.");
         doc(ctx.func("hearth.soak_rate",
-                     [this](moira::Symbol kind) -> moira::Expected<double> {
+                     [this](baker::Symbol kind) -> baker::Expected<double> {
                          auto n = count(soak_.tally, kind);
-                         if (!n) return moira::Unexpected(n.error());
+                         if (!n) return baker::Unexpected(n.error());
                          return per_day(int(*n), soak_.tally);
                      }),
             "In the last soak: events of a kind per character-day.");
@@ -174,10 +174,10 @@ public:
                      }),
             "In the last soak: the mean routine entropy, in bits.");
         doc(ctx.func("hearth.soak_kind_uses",
-                     [this](moira::Symbol kind) -> moira::Expected<int64_t> {
+                     [this](baker::Symbol kind) -> baker::Expected<int64_t> {
                          const int k = kit_.kind(std::string(kind.str()));
                          if (k < 0 || size_t(k) >= soak_.tally.uses_by_kind.size())
-                             return moira::Unexpected(
+                             return baker::Unexpected(
                                  base::not_found("no object " + std::string(kind.str())));
                          return int64_t(soak_.tally.uses_by_kind[size_t(k)]);
                      }),
@@ -194,20 +194,20 @@ public:
             "wall clock: for a person, not an objective.");
     }
 
-    void unbind(moira::Context&) override {
+    void unbind(baker::Context&) override {
         home_.reset();
         clock_.reset();
         ctx_ = nullptr;
     }
 
-    void load(const moira::Config& cfg) override {
+    void load(const baker::Config& cfg) override {
         hearth::Kit next;
         std::string error;
         if (!hearth::load(cfg.root(), next, error)) {
             std::fprintf(stderr, "hearth: %s; keeping the last good data\n", error.c_str());
             return;
         }
-        for (const moira::Node& n : cfg.autorun()) next.setup.push_back(n);
+        for (const baker::Node& n : cfg.autorun()) next.setup.push_back(n);
         const std::string open = loaded_ ? kit_.houses[size_t(house_)].name : std::string();
         home_.reset();  // it refers to the kit
         kit_ = std::move(next);
@@ -365,7 +365,7 @@ public:
     }
 
 private:
-    static moira::Expected<int64_t> count(const hearth::Tally& t, moira::Symbol kind) {
+    static baker::Expected<int64_t> count(const hearth::Tally& t, baker::Symbol kind) {
         const std::string k(kind.str());
         if (k == "stuck") return int64_t(t.stuck);
         if (k == "oscillating") return int64_t(t.oscillating);
@@ -373,7 +373,7 @@ private:
         if (k == "script_errors") return int64_t(t.script_errors);
         if (k == "decisions") return int64_t(t.decisions);
         if (k == "interrupts") return int64_t(t.interrupts);
-        return moira::Unexpected(base::not_found("no event kind " + k +
+        return baker::Unexpected(base::not_found("no event kind " + k +
                                                  "; stuck, oscillating, starving, script_errors, "
                                                  "decisions, or interrupts"));
     }
@@ -409,8 +409,8 @@ private:
         selected_ = 0;
     }
 
-    moira::Context* ctx_ = nullptr;
-    std::unique_ptr<moira::Scheduler> clock_;
+    baker::Context* ctx_ = nullptr;
+    std::unique_ptr<baker::Scheduler> clock_;
     hearth::Kit kit_;
     bool loaded_ = false;
     int house_ = 0;

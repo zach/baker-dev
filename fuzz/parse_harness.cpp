@@ -1,16 +1,16 @@
 #include "parse_harness.hpp"
 
-#include <moira/cache.hpp>
-#include <moira/parse.hpp>
-#include <moira/source_map.hpp>
-#include <moira/std_interop.hpp>
-#include <moira/write.hpp>
+#include <baker/cache.hpp>
+#include <baker/parse.hpp>
+#include <baker/source_map.hpp>
+#include <baker/std_interop.hpp>
+#include <baker/write.hpp>
 
 #include <algorithm>
 #include <cstdint>
 #include <string>
 
-namespace moira::fuzz {
+namespace baker::fuzz {
 namespace {
 
 // Walks the tree as if fully expanded, stopping when `budget` runs out. Macro sharing
@@ -92,4 +92,4 @@ bool check_parse(std::string_view data) {
     return second && structurally_equal(**first, **second);
 }
 
-}  // namespace moira::fuzz
+}  // namespace baker::fuzz

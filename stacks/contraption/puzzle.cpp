@@ -7,9 +7,9 @@
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Constraints/HingeConstraint.h>
 
+#include <baker/std_interop.hpp>
 #include <base/rng.hpp>
 #include <base/words.hpp>
-#include <moira/std_interop.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -21,9 +21,9 @@ namespace {
 constexpr float kRadians = 0.017453292f;
 constexpr float kDepth = 0.5f;  // half the depth of every piece, in z
 
-bool read_piece(const moira::Array& a, const Catalog& c, Piece& out, std::string& error) {
+bool read_piece(const baker::Array& a, const Catalog& c, Piece& out, std::string& error) {
     out.name = base::name(a);
-    auto k = a.find_sym(moira::Symbol("kind"), moira::Symbol());
+    auto k = a.find_sym(baker::Symbol("kind"), baker::Symbol());
     out.kind = k ? c.kind(std::string(k->str())) : -1;
     if (out.kind < 0) {
         error = "piece " + out.name + " has no (kind ...) of (kinds ...)";
@@ -49,14 +49,14 @@ int Catalog::level(const std::string& name) const {
     return -1;
 }
 
-bool load(const moira::Ref<moira::Array>& root, Catalog& out, std::string& error) {
+bool load(const baker::Ref<baker::Array>& root, Catalog& out, std::string& error) {
     Catalog c;
     c.tree = root;
-    if (const moira::Array* kinds = root->try_find(moira::Symbol("kinds")))
-        for (const moira::Array& a : kinds->subarrays()) {
+    if (const baker::Array* kinds = root->try_find(baker::Symbol("kinds")))
+        for (const baker::Array& a : kinds->subarrays()) {
             Kind k;
             k.name = base::name(a);
-            auto shape = a.find_sym(moira::Symbol("shape"), moira::Symbol("box"));
+            auto shape = a.find_sym(baker::Symbol("shape"), baker::Symbol("box"));
             const std::string sh = shape ? std::string(shape->str()) : "box";
             k.shape = sh == "sphere" ? Shape::Sphere : sh == "bucket" ? Shape::Bucket : Shape::Box;
             k.w = std::max(0.02f, base::number(a, "size", 0, 1));
@@ -71,19 +71,19 @@ bool load(const moira::Ref<moira::Array>& root, Catalog& out, std::string& error
         error = "no (kinds ...) in the data";
         return false;
     }
-    if (const moira::Array* levels = root->try_find(moira::Symbol("levels")))
-        for (const moira::Array& a : levels->subarrays()) {
+    if (const baker::Array* levels = root->try_find(baker::Symbol("levels")))
+        for (const baker::Array& a : levels->subarrays()) {
             Level l;
             l.name = base::name(a);
-            if (auto d = a.find_str(moira::Symbol("desc"), "")) l.desc = std::string(*d);
-            if (const moira::Array* p = a.try_find(moira::Symbol("pieces")))
-                for (const moira::Array& pa : p->subarrays()) {
+            if (auto d = a.find_str(baker::Symbol("desc"), "")) l.desc = std::string(*d);
+            if (const baker::Array* p = a.try_find(baker::Symbol("pieces")))
+                for (const baker::Array& pa : p->subarrays()) {
                     Piece piece;
                     if (!read_piece(pa, c, piece, error)) return false;
                     l.pieces.push_back(std::move(piece));
                 }
-            if (const moira::Array* t = a.try_find(moira::Symbol("tray")))
-                for (const moira::Array& ta : t->subarrays()) {
+            if (const baker::Array* t = a.try_find(baker::Symbol("tray")))
+                for (const baker::Array& ta : t->subarrays()) {
                     const int k = c.kind(base::name(ta));
                     if (k < 0) {
                         error = "level " + l.name + ": the tray names " + base::name(ta) +
@@ -92,13 +92,13 @@ bool load(const moira::Ref<moira::Array>& root, Catalog& out, std::string& error
                     }
                     l.tray.emplace_back(k, ta.size() > 1 ? int(ta[1].as_int().value_or(1)) : 1);
                 }
-            if (const moira::Array* p = a.try_find(moira::Symbol("intended")))
-                for (const moira::Array& pa : p->subarrays()) {
+            if (const baker::Array* p = a.try_find(baker::Symbol("intended")))
+                for (const baker::Array& pa : p->subarrays()) {
                     Piece piece;
                     if (!read_piece(pa, c, piece, error)) return false;
                     l.intended.push_back(std::move(piece));
                 }
-            if (const moira::Array* g = a.try_find(moira::Symbol("goal")); g && g->size() > 1)
+            if (const baker::Array* g = a.try_find(baker::Symbol("goal")); g && g->size() > 1)
                 l.goal = (*g)[1];
             for (int i = 0; i < 4; ++i)
                 l.bounds[i] = base::number(a, "bounds", size_t(i), l.bounds[i]);

@@ -7,14 +7,14 @@
 // parsing and write-back, M3, are how source text is preserved). Values that have no
 // DTA spelling are listed in docs/decisions.md (D13).
 
-#include <moira/array.hpp>
-#include <moira/error.hpp>
-#include <moira/node.hpp>
-#include <moira/text.hpp>
+#include <baker/array.hpp>
+#include <baker/error.hpp>
+#include <baker/node.hpp>
+#include <baker/text.hpp>
 
 #include <string_view>
 
-namespace moira {
+namespace baker {
 
 struct WriteOptions {
     int indent = 2;  // spaces per nesting level
@@ -28,10 +28,10 @@ void write(const Array& array, TextSink out);
 
 // Writes the file form of a root array: each top-level node on its own line,
 // pretty-printed, no enclosing parentheses. Reading it back gives a structurally equal
-// tree. <moira/std_interop.hpp> has to_string(node) and to_dta(root), returning strings.
+// tree. <baker/std_interop.hpp> has to_string(node) and to_dta(root), returning strings.
 void write_dta(const Array& root, TextSink out, const WriteOptions& options = {});
 
 [[nodiscard]] Expected<void> write_file(std::string_view path, const Array& root,
                                         const WriteOptions& options = {});
 
-}  // namespace moira
+}  // namespace baker

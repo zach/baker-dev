@@ -1,6 +1,6 @@
 // The repetition report (repeats.hpp, D94).
 
-#include <moira/repeats.hpp>
+#include <baker/repeats.hpp>
 
 #include "common/containers.hpp"
 #include "session.hpp"
@@ -10,7 +10,7 @@
 #include <bit>
 #include <cstring>
 
-namespace moira {
+namespace baker {
 namespace {
 
 uint64_t mix(uint64_t h, uint64_t v) noexcept {
@@ -157,4 +157,4 @@ List<Repeat> find_repeats(const Array& tree, const RepeatOptions& options) {
     return find_repeats(std::span<const Array* const>(trees, 1), options);
 }
 
-}  // namespace moira
+}  // namespace baker

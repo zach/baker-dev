@@ -1,6 +1,6 @@
 #include "economy.hpp"
 
-#include <moira/parse.hpp>
+#include <baker/parse.hpp>
 
 #include <doctest.h>
 
@@ -22,7 +22,7 @@ const char* kData = R"(
 )";
 
 ledger::Economy economy(const char* text = kData) {
-    auto tree = moira::read_string(text);
+    auto tree = baker::read_string(text);
     REQUIRE(tree);
     ledger::Economy e;
     std::string error;
@@ -39,13 +39,13 @@ TEST_CASE("ledger: recipes read as inputs, an arrow, an output") {
     CHECK(e.buildings[0].output == e.good("wheat"));
     CHECK(e.buildings[1].inputs.size() == 2);
     CHECK(e.buildings[1].output == e.good("flour"));
-    CHECK(e.buildings[1].unlock.type() == moira::Type::Command);
+    CHECK(e.buildings[1].unlock.type() == baker::Type::Command);
     CHECK(e.strategies[0].kind == "greedy");
     CHECK(e.milestones[0].target_day == 30);
 
     std::string error;
     ledger::Economy bad;
-    auto tree = moira::read_string("(goods (a (base_price 1))) (buildings (x (recipe a -> b)))");
+    auto tree = baker::read_string("(goods (a (base_price 1))) (buildings (x (recipe a -> b)))");
     REQUIRE(tree);
     CHECK_FALSE(ledger::load(*tree, bad, error));
     CHECK(error.find("b") != std::string::npos);

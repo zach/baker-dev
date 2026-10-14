@@ -1,20 +1,20 @@
-// main for moira_alloc_tests, in its own file: DOCTEST_CONFIG_IMPLEMENT brings in
+// main for baker_alloc_tests, in its own file: DOCTEST_CONFIG_IMPLEMENT brings in
 // <windows.h> and its macros, which stay out of the file with the tests.
 
 #define DOCTEST_CONFIG_IMPLEMENT
 #include <doctest.h>
 
-#include <moira/allocator.hpp>
+#include <baker/allocator.hpp>
 
 #include <cstdlib>
 
 int main(int argc, char** argv) {
-    // Before Moira allocates anything: allocations with no owner go through malloc, never
+    // Before Baker allocates anything: allocations with no owner go through malloc, never
     // operator new, so the tests can watch operator new alone.
-    const moira::Allocator heap{
+    const baker::Allocator heap{
         [](void*, size_t size, size_t) -> void* { return std::malloc(size); },
         [](void*, void* p, size_t) { std::free(p); }, nullptr};
-    if (!moira::set_default_allocator(heap)) return 2;
+    if (!baker::set_default_allocator(heap)) return 2;
     doctest::Context context(argc, argv);
     return context.run();
 }

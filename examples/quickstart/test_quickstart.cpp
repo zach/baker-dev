@@ -2,7 +2,7 @@
 // starts the program, edits the file, and presses Enter. Standard input is a stream buffer
 // whose first read makes the edit, so nothing depends on timing.
 //
-//   moira_example_quickstart_test path/to/examples/quickstart/default.dta
+//   baker_example_quickstart_test path/to/examples/quickstart/default.dta
 #include <cstdio>
 #include <fstream>
 #include <iostream>

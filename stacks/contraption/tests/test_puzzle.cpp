@@ -1,6 +1,6 @@
 #include "puzzle.hpp"
 
-#include <moira/parse.hpp>
+#include <baker/parse.hpp>
 
 #include <doctest.h>
 
@@ -33,7 +33,7 @@ const char* kData = R"(
 )";
 
 contraption::Catalog catalog() {
-    auto tree = moira::read_string(kData);
+    auto tree = baker::read_string(kData);
     REQUIRE(tree);
     contraption::Catalog c;
     std::string error;
@@ -61,7 +61,7 @@ TEST_CASE("contraption: levels and kinds read from data") {
 
     contraption::Catalog bad;
     std::string error;
-    auto tree = moira::read_string("(kinds (a (shape box))) (levels (l (pieces (p (kind nope)))))");
+    auto tree = baker::read_string("(kinds (a (shape box))) (levels (l (pieces (p (kind nope)))))");
     REQUIRE(tree);
     CHECK_FALSE(contraption::load(*tree, bad, error));
     CHECK(error.find("kind") != std::string::npos);

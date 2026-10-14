@@ -3,8 +3,8 @@
 // Ref<T>: intrusive reference-counted pointer.
 //
 // Refcounts are atomic by default, so Nodes and Refs may be copied and dropped on any
-// thread; mutation is still single-threaded. Define MOIRA_ATOMIC_REFCOUNT=0 (CMake:
-// -DMOIRA_ATOMIC_REFCOUNT=OFF) for plain counters in single-threaded programs
+// thread; mutation is still single-threaded. Define BAKER_ATOMIC_REFCOUNT=0 (CMake:
+// -DBAKER_ATOMIC_REFCOUNT=OFF) for plain counters in single-threaded programs
 // (docs/decisions.md D20). Every translation unit must agree on the setting.
 //
 // Arrays and strings are not counted one by one: each belongs to an owner, a load's arena or
@@ -15,18 +15,18 @@
 #include <cstring>
 #include <utility>
 
-#if !defined(MOIRA_ATOMIC_REFCOUNT) || MOIRA_ATOMIC_REFCOUNT
-#define MOIRA_ATOMIC_REFCOUNT_ENABLED 1
+#if !defined(BAKER_ATOMIC_REFCOUNT) || BAKER_ATOMIC_REFCOUNT
+#define BAKER_ATOMIC_REFCOUNT_ENABLED 1
 #include <atomic>
 #else
-#define MOIRA_ATOMIC_REFCOUNT_ENABLED 0
+#define BAKER_ATOMIC_REFCOUNT_ENABLED 0
 #endif
 
-namespace moira {
+namespace baker {
 
 namespace detail {
 
-#if MOIRA_ATOMIC_REFCOUNT_ENABLED
+#if BAKER_ATOMIC_REFCOUNT_ENABLED
 using RefCount = std::atomic<uint32_t>;
 inline void retain(RefCount& c) noexcept {
     c.fetch_add(1, std::memory_order_relaxed);
@@ -131,4 +131,4 @@ private:
     T* p_ = nullptr;
 };
 
-}  // namespace moira
+}  // namespace baker

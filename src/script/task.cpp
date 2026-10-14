@@ -1,7 +1,7 @@
 // Tasks: the frame pool, the Scheduler's table of tasks, and the tick (docs/decisions.md D58,
 // D67).
 
-#include <moira/task.hpp>
+#include <baker/task.hpp>
 
 #include "common/containers.hpp"
 #include "internal.hpp"
@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <cstdlib>
 
-namespace moira {
+namespace baker {
 
 namespace {
 // A block of the pool: this header, then the frame, aligned as operator new aligns.
@@ -321,4 +321,4 @@ SchedulerStats Scheduler::stats() const noexcept {
     return impl_->stats;
 }
 
-}  // namespace moira
+}  // namespace baker

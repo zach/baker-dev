@@ -3,7 +3,7 @@
 #   stacks_ledger           the game, and its agent commands (stacks/agent.md)
 add_library(stacks_ledger_economy STATIC economy.cpp)
 target_include_directories(stacks_ledger_economy PUBLIC .)
-target_link_libraries(stacks_ledger_economy PUBLIC stacks_words moira::moira)
+target_link_libraries(stacks_ledger_economy PUBLIC stacks_words baker::baker)
 stacks_target(stacks_ledger_economy)
 
 add_executable(stacks_ledger main.cpp)

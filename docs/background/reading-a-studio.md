@@ -8,9 +8,9 @@ A studio's harnesses are the most legible and most changeable record of how it a
 
 This document treats the harness tree from `harness-tree-vision.md` as a **diagnostic instrument**. It asks three questions of any studio: what environments does each role work inside, what qualities do those environments have, and how does material move between them? It draws on five bodies of work that rarely meet: empirical studies of game postmortems, developer-experience research, notation and end-user-programming theory, organization design, and the industry's own tooling talks.
 
-The conclusion, stated up front: **most process problems in game development are visible first as harness problems** — a slow loop, a missing word, a layer only one person can extend, a tool users route around. Those are measurable, and Moira, as L0, is positioned to measure them. Section 7 turns the research into an audit method; section 9 says what Moira should change.
+The conclusion, stated up front: **most process problems in game development are visible first as harness problems** — a slow loop, a missing word, a layer only one person can extend, a tool users route around. Those are measurable, and Baker, as L0, is positioned to measure them. Section 7 turns the research into an audit method; section 9 says what Baker should change.
 
-Companion to `harness-tree-vision.md`, `pushing-up.md`, `iteration-backgrounder.md`, and `moira-spec.md`. Layers L0–L4 are as defined in the vision doc.
+Companion to `harness-tree-vision.md`, `pushing-up.md`, `iteration-backgrounder.md`, and `baker-spec.md`. Layers L0–L4 are as defined in the vision doc.
 
 ## 1. What the empirical record says
 
@@ -69,7 +69,7 @@ The last column is the important move. A designer whose loop is three seconds bu
 
 [DORA's four keys](https://dora.dev/guides/dora-metrics-four-keys) measure delivery throughput (change lead time, deployment frequency) and stability (change failure rate, failed-deployment recovery time), and DORA reports that top performers do well on all four at once. Each has a direct analogue for content moving through a harness:
 
-| DORA key | Harness analogue | Moira hook that could measure it |
+| DORA key | Harness analogue | Baker hook that could measure it |
 | --- | --- | --- |
 | Change lead time | Time from an idea at L4 to its value in version control | Tweak edit timestamp → write-back commit |
 | Deployment frequency | Reloads per working hour, per role | `Config::reload` count |
@@ -90,7 +90,7 @@ Two features make it unusually fit for harness work. First, dimensions **trade o
 
 The dimensions most diagnostic for game harnesses, each with the question to ask:
 
-| Dimension | Question for a harness | Typical game symptom | Moira feature that addresses it |
+| Dimension | Question for a harness | Typical game symptom | Baker feature that addresses it |
 | --- | --- | --- | --- |
 | Viscosity | How much work is one conceptual change? | Retuning one attack means editing twelve encounter files | Macros, `#merge`, script functions |
 | Hidden dependencies | Can you see what depends on this value? | Changing a shared curve silently alters three bosses | Provenance; demand report call sites |
@@ -99,7 +99,7 @@ The dimensions most diagnostic for game harnesses, each with the question to ask
 | Abstraction gradient | What must you learn before doing anything? | A designer must understand the ability graph to change a cooldown | Generated panels over shapes |
 | Closeness of mapping | Does the notation match the domain? | Tuning "aggression" as five unrelated floats | L2 vocabulary named in designer terms |
 | Secondary notation | Can users add meaning the system ignores? | No place to write "0.6 is unfair on handheld" | `note` metadata, preserved by write-back |
-| Error-proneness | Does the notation invite slips? | A typo in a symbol is a silent no-op | `moira::check`; located errors |
+| Error-proneness | Does the notation invite slips? | A typo in a symbol is a silent no-op | `baker::check`; located errors |
 | Role-expressiveness | Can a reader tell what each part is for? | A wall of numbers with no grouping | `desc`, `group`, dotted prefixes |
 | Provisionality | Can you sketch without committing? | No way to try a value without overwriting the shared one | Layers: write to `local`, promote later |
 
@@ -117,7 +117,7 @@ The model explains three harness-tree phenomena precisely:
 
 ### Learning barriers and the gentle slope
 
-Ko, Myers, and Aung's six learning barriers for end-user programmers — design, selection, coordination, use, understanding, and information — are a checklist for whether a would-be gardener can actually extend a layer. The Ink & Switch "gentle slope" cited in the vision doc is the same idea from the other side: each step from user to creator should cost a little more than the last, never a cliff. In a harness tree, the cliffs are almost always at layer boundaries where the notation changes — from panel to data file, or from data file to C++. Moira's single notation from L1 to L4 is, in these terms, an attempt to remove three of the four cliffs.
+Ko, Myers, and Aung's six learning barriers for end-user programmers — design, selection, coordination, use, understanding, and information — are a checklist for whether a would-be gardener can actually extend a layer. The Ink & Switch "gentle slope" cited in the vision doc is the same idea from the other side: each step from user to creator should cost a little more than the last, never a cliff. In a harness tree, the cliffs are almost always at layer boundaries where the notation changes — from panel to data file, or from data file to C++. Baker's single notation from L1 to L4 is, in these terms, an attempt to remove three of the four cliffs.
 
 ## 4. Lens three: the harness tree is an org chart
 
@@ -177,7 +177,7 @@ Two things follow.
 
 **Crystallization is movement rightward, and pushing up is usually movement downward too.** The `pushing-up.md` worked example is a component travelling from genesis at L3 to product at L2. Wardley's framing adds a warning: moving a component right *before* it has stabilized freezes the wrong design. That is the formal version of "don't push up speculatively."
 
-**Commodity work should be commodity.** Reload, layers, provenance, write-back, and a command channel are the same in every game; they are commodity infrastructure. Every studio that writes its own is spending genesis-grade effort on a commodity component. That is the strategic argument for Moira as a library rather than a pattern: it moves L0 to the right end of the axis for any studio that adopts it.
+**Commodity work should be commodity.** Reload, layers, provenance, write-back, and a command channel are the same in every game; they are commodity infrastructure. Every studio that writes its own is spending genesis-grade effort on a commodity component. That is the strategic argument for Baker as a library rather than a pattern: it moves L0 to the right end of the axis for any studio that adopts it.
 
 ### Pioneers, settlers, town planners — and gardeners
 
@@ -239,7 +239,7 @@ A harness audit takes about two weeks for a mid-sized team, combines stopwatch m
 2. **Time the loops.** For each role's five most frequent tasks, measure edit-to-feel time on target hardware with a stopwatch, by watching real work, not demos. Record the median and the worst case observed. Note every wait and handoff along the way, separating value-adding time from waiting, as a value-stream map would.
 3. **Profile each harness on Cognitive Dimensions.** Interview two or three users per harness using the dimension questions from §3. Blackwell and Green published a user questionnaire for exactly this purpose. Record the answers as short phrases, not scores.
 4. **Map who can extend what.** For each layer, answer three questions: who can add a new word without a rebuild, how many people can do it (fewer than two is a finding), and what interaction mode connects them to the layer's users. Mark where gardener ownership is unclear.
-5. **Collect demand signals.** Unresolved words and stubs (Moira's demand report produces these automatically), cross-layer tickets, copy-pasted constructions, and recurring console command sequences. These are the specification for the next layer, per the vision doc's Phase 2.
+5. **Collect demand signals.** Unresolved words and stubs (Baker's demand report produces these automatically), cross-layer tickets, copy-pasted constructions, and recurring console command sequences. These are the specification for the next layer, per the vision doc's Phase 2.
 6. **Collect flight signals.** Spreadsheets exported into the game, private scripts that bypass an official tool, and the answer to the voluntary-use question: if this harness were optional, would you use it? Flight is the strongest single indicator that a harness has failed property 4.
 7. **Place vocabulary on the evolution map.** For the twenty or so most-used words at L2 and L3, mark their layer and their stage from genesis to commodity. Flag commodity capabilities built in-house and genesis-stage ideas already hardened into code.
 8. **Choose three interventions and re-measure.** Use §8 to pick them. Re-run steps 2, 5, and 6 at the next milestone; the deltas are the result.
@@ -289,21 +289,21 @@ Three principles govern the order.
 
 **Measure friction, not activity.** The only metrics worth collecting are the ones that describe what makes work hard — wait time, interruptions, failed reloads, unresolved words, flight. Counts of commits, reloads, or tweaks touched invite exactly the misuse SPACE warns against.
 
-## 9. What this changes in Moira
+## 9. What this changes in Baker
 
-Moira sits under every harness in the tree, so it is the cheapest place in a studio to put the instruments the audit in §7 needs. Five changes, all observational, all small, all compiled out under `MOIRA_SHIPPING`. The library still owns no I/O, sockets, or threads; it records and hands the host data through callbacks.
+Baker sits under every harness in the tree, so it is the cheapest place in a studio to put the instruments the audit in §7 needs. Five changes, all observational, all small, all compiled out under `BAKER_SHIPPING`. The library still owns no I/O, sockets, or threads; it records and hands the host data through callbacks.
 
 1. **Loop telemetry.** `Config` records, per reload, the time from file-change notification to reload complete, the per-file parse and merge time, and each callback's outcome (`Migrated`, `Punt`, or error). A host may call `cfg.mark_visible()` when the next frame presents, closing the edit-to-feel loop. `cfg.loop_stats()` returns rolling medians and worst cases per file and per layer. This is DORA's lead time and change-failure rate for content, measured where it actually happens.
 2. **An edit journal.** Every live change to a tweak or config value in a session — from a panel, the console, or `eval` — is appended to `cfg.journal()` with old value, new value, provenance, and whether it was later written back. At shutdown or on request the host can list unsaved discoveries. This turns "tuned values lost in the running session" from an anecdote into a count, and gives write-back (§4 of the vision doc) its success metric.
 3. **Harness metadata on packs.** The pack declaration gains optional fields: `(pack boss (layer task) (requires game engine) (owners "td-encounter" "td-combat") (for designers) (stage custom))`. `write_reference` emits them, so the generated reference doubles as the harness register from §7. `check` reports packs with fewer than two owners as an informational finding — the single-gardener failure mode, surfaced from data.
-4. **A repetition report.** `moira::check` hashes command and array subtrees structurally and reports any non-trivial subtree appearing three or more times across the files it was given, with every location. These are crystallization candidates — the vision doc's "third time" rule, computed rather than noticed. It complements the demand report: demand shows words the soft layers are missing, repetition shows words they have already built by hand.
+4. **A repetition report.** `baker::check` hashes command and array subtrees structurally and reports any non-trivial subtree appearing three or more times across the files it was given, with every location. These are crystallization candidates — the vision doc's "third time" rule, computed rather than noticed. It complements the demand report: demand shows words the soft layers are missing, repetition shows words they have already built by hand.
 5. **Origin provenance for external harnesses.** A merged or included file may declare `(origin "economy.xlsx" (tool sheets-export))`. Provenance carries the origin through to every value, so `source()` can answer "this number came from the economy spreadsheet via an export," and the reference can list which external tools feed the config. Fled harnesses become visible and traceable instead of silently competing with the official path.
 
 The demand report, repetition report, and pack metadata should share one stable, documented, machine-readable output format, so a studio can diff them milestone to milestone. A harness audit then becomes partly a build artifact: steps 1, 5, and 6 of §7 are generated, and steps 2 and 4 are pre-filled.
 
-**Size.** Items 3–5 live in `moira::check` and the parser's pack handling and should fit in a few hundred lines. Items 1–2 add counters and a ring buffer to `Config`. None touches the node layout or the evaluation path. If any pushes the core past its 4,000-line budget, item 4 is the one to move into a separate tool.
+**Size.** Items 3–5 live in `baker::check` and the parser's pack handling and should fit in a few hundred lines. Items 1–2 add counters and a ring buffer to `Config`. None touches the node layout or the evaluation path. If any pushes the core past its 4,000-line budget, item 4 is the one to move into a separate tool.
 
-**Considered and not adopted.** Built-in survey prompts, user identity, and any network reporting. Measuring perceived experience matters — DevEx and SPACE both insist on it — but it belongs to the studio's tooling, not to a configuration library. Moira should make the system data trivially available and stop there.
+**Considered and not adopted.** Built-in survey prompts, user identity, and any network reporting. Measuring perceived experience matters — DevEx and SPACE both insist on it — but it belongs to the studio's tooling, not to a configuration library. Baker should make the system data trivially available and stop there.
 
 ## Sources
 
@@ -340,4 +340,4 @@ Game-industry practice
 - GDC 2024 [Tools Design Roundtable: User Research](https://schedule.gdconf.com/session/tools-design-roundtable-day-3-user-research/903347); [community notes from GDC 2021 tools roundtables](https://github.com/Kadino/gdconf_notes/blob/main/gdc2021.md).
 - [Summary of GDC tool talks by Playdead, Croteam, and Epic](https://brainhub.eu/library/custom-tools-in-game-development) (secondary source).
 
-Companion documents: `harness-tree-vision.md`, `pushing-up.md`, `iteration-backgrounder.md`, `halo-tags-vs-dataarray.md`, `seexpr-vs-moira.md`, `moira-spec.md`.
+Companion documents: `harness-tree-vision.md`, `pushing-up.md`, `iteration-backgrounder.md`, `halo-tags-vs-dataarray.md`, `seexpr-vs-baker.md`, `baker-spec.md`.

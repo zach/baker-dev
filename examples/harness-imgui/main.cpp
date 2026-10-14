@@ -1,7 +1,7 @@
-// The reference harness: Moira's tuning panels in a GLFW and OpenGL 3 window, over a
+// The reference harness: Baker's tuning panels in a GLFW and OpenGL 3 window, over a
 // small scene of its own.
 //
-//   moira_harness [data-dir]
+//   baker_harness [data-dir]
 //
 // It pushes the shared data/default.dta, then data/local/<user>.dta as the user's own
 // layer, optional, by the convention in docs/cookbook.md: tuning kept with "Keep for me"
@@ -9,7 +9,7 @@
 // so editing default.dta in a text editor shows at once.
 #include "panels.hpp"
 
-#include <moira/std_interop.hpp>
+#include <baker/std_interop.hpp>
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -25,10 +25,10 @@
 #include <filesystem>
 #include <string>
 
-static moira::Tweak<float> kRadius{"scene.ball.radius", 24.0f};
-static moira::Tweak<std::array<float, 3>> kColor{"scene.ball.color", {1.0f, 0.5f, 0.2f}};
-static moira::Tweak<float> kBounce{"scene.ball.bounce", 0.8f};
-static moira::Tweak<float> kGravity{"scene.gravity", 900.0f};
+static baker::Tweak<float> kRadius{"scene.ball.radius", 24.0f};
+static baker::Tweak<std::array<float, 3>> kColor{"scene.ball.color", {1.0f, 0.5f, 0.2f}};
+static baker::Tweak<float> kBounce{"scene.ball.bounce", 0.8f};
+static baker::Tweak<float> kGravity{"scene.gravity", 900.0f};
 
 namespace {
 
@@ -54,7 +54,7 @@ uint64_t newest_write(const std::string& dir) {
 }
 
 std::string user_name() {
-    for (const char* var : {"MOIRA_USER", "USER", "USERNAME"})
+    for (const char* var : {"BAKER_USER", "USER", "USERNAME"})
         if (const char* v = std::getenv(var); v && *v) return v;
     return "me";
 }
@@ -92,31 +92,31 @@ void scene(Ball& ball, float dt) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    const std::string dir = argc > 1 ? argv[1] : MOIRA_HARNESS_DATA;
+    const std::string dir = argc > 1 ? argv[1] : BAKER_HARNESS_DATA;
 
-    moira::Context ctx;
+    baker::Context ctx;
     harness::ConsoleState console;
-    moira::Config cfg;
+    baker::Config cfg;
     cfg.set_warning_handler(
-        [&](const moira::Error& e) { console.log.push_back(std::string(moira::to_string(e))); });
-    cfg.add_validator(moira::shape::validator());
-    cfg.add_validator(moira::check_validator(ctx));  // script calls, at every merge too
+        [&](const baker::Error& e) { console.log.push_back(std::string(baker::to_string(e))); });
+    cfg.add_validator(baker::shape::validator());
+    cfg.add_validator(baker::check_validator(ctx));  // script calls, at every merge too
     cfg.set_time_source(
         [](void*) { return file_clock_ns(std::filesystem::file_time_type::clock::now()); });
     if (auto r = cfg.push_layer("default", dir + "/default.dta"); !r) {
-        std::fprintf(stderr, "%s\n", moira::to_string(r.error()).data());
+        std::fprintf(stderr, "%s\n", baker::to_string(r.error()).data());
         return 1;
     }
     if (auto r =
             cfg.push_layer("local", dir + "/local/" + user_name() + ".dta", {.optional = true});
         !r) {
-        std::fprintf(stderr, "%s\n", moira::to_string(r.error()).data());
+        std::fprintf(stderr, "%s\n", baker::to_string(r.error()).data());
         return 1;
     }
     Ball ball;
     if (!ctx.func("drop", [&ball] { ball = Ball{}; }) ||
         !ctx.func("tweak", [&cfg](std::string_view path, double v) {
-            return bool(cfg.set(path, moira::Node(v)));
+            return bool(cfg.set(path, baker::Node(v)));
         }))
         return 1;
 
@@ -125,7 +125,7 @@ int main(int argc, char** argv) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
-    GLFWwindow* window = glfwCreateWindow(1400, 900, "Moira harness", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(1400, 900, "Baker harness", nullptr, nullptr);
     if (!window) {
         glfwTerminate();
         return 1;
@@ -149,14 +149,14 @@ int main(int argc, char** argv) {
             now - last_reload > std::chrono::milliseconds(250)) {
             last_reload = now;
             if (auto r = cfg.reload({.trigger = "watcher", .origin_ns = newest_write(dir)}); !r)
-                console.log.push_back(std::string(moira::to_string(r.error())));
+                console.log.push_back(std::string(baker::to_string(r.error())));
         }
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
         scene(ball, std::min(ImGui::GetIO().DeltaTime, 1.0f / 30));
         place(480, 10, 440, 360);
-        harness::tweaks_panel(cfg, moira::TweakRegistry::global(), tweaks);
+        harness::tweaks_panel(cfg, baker::TweakRegistry::global(), tweaks);
         place(930, 10, 460, 360);
         harness::shapes_panel(cfg, shapes);
         place(10, 380, 460, 510);

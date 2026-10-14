@@ -2,10 +2,10 @@
 
 #include "base/fixed_step.hpp"
 
-#include <moira/parse.hpp>
-#include <moira/std_interop.hpp>
-#include <moira/std_script.hpp>
-#include <moira/task.hpp>
+#include <baker/parse.hpp>
+#include <baker/std_interop.hpp>
+#include <baker/std_script.hpp>
+#include <baker/task.hpp>
 
 #include <algorithm>
 #include <cstdio>
@@ -17,19 +17,19 @@ namespace fs = std::filesystem;
 namespace base {
 namespace {
 
-std::string described(const moira::Error& e) {
-    std::string s(moira::describe(e));
+std::string described(const baker::Error& e) {
+    std::string s(baker::describe(e));
     while (!s.empty() && s.back() == '\n') s.pop_back();
     return s;
 }
 
 // The commands among `form`'s values from index `from` on.
-void commands(const moira::Array& form, size_t from, std::vector<moira::Node>& out) {
+void commands(const baker::Array& form, size_t from, std::vector<baker::Node>& out) {
     for (size_t i = from; i < form.size(); ++i)
-        if (form[i].type() == moira::Type::Command) out.push_back(form[i]);
+        if (form[i].type() == baker::Type::Command) out.push_back(form[i]);
 }
 
-bool number(const moira::Node& n, double& out) {
+bool number(const baker::Node& n, double& out) {
     auto v = n.as_float();
     if (!v) return false;
     out = *v;
@@ -37,7 +37,7 @@ bool number(const moira::Node& n, double& out) {
 }
 
 // The form's name: its second value, a symbol. (objective NAME ...), (scenario NAME ...)
-bool form_name(const moira::Array& form, std::string& out) {
+bool form_name(const baker::Array& form, std::string& out) {
     if (form.size() < 2) return false;
     auto s = form[1].as_sym();
     if (!s) return false;
@@ -45,8 +45,8 @@ bool form_name(const moira::Array& form, std::string& out) {
     return true;
 }
 
-std::string text_of(const moira::Array& form, const char* tag) {
-    if (const moira::Array* a = form.try_find(tag); a && a->size() > 1)
+std::string text_of(const baker::Array& form, const char* tag) {
+    if (const baker::Array* a = form.try_find(tag); a && a->size() > 1)
         if (auto s = (*a)[1].as_str()) return std::string(*s);
     return {};
 }
@@ -75,7 +75,7 @@ std::string fixed(double v) {
 }  // namespace
 
 bool load_objectives(const fs::path& dir, std::vector<Objective>& out,
-                     std::vector<moira::Ref<moira::Array>>& trees, std::string& error) {
+                     std::vector<baker::Ref<baker::Array>>& trees, std::string& error) {
     std::error_code ec;
     if (!fs::is_directory(dir, ec)) return true;  // no metrics: nothing to judge by
     std::vector<fs::path> files;
@@ -83,17 +83,17 @@ bool load_objectives(const fs::path& dir, std::vector<Objective>& out,
         if (entry.path().extension() == ".dta") files.push_back(entry.path());
     std::sort(files.begin(), files.end());
     for (const fs::path& file : files) {
-        auto tree = moira::read_file(file.string());
+        auto tree = baker::read_file(file.string());
         if (!tree) {
             error = described(tree.error());
             return false;
         }
-        for (const moira::Array& form : (*tree)->subarrays()) {
-            if (form.empty() || !form[0].is(moira::Symbol("objective"))) continue;
+        for (const baker::Array& form : (*tree)->subarrays()) {
+            if (form.empty() || !form[0].is(baker::Symbol("objective"))) continue;
             Objective o;
             o.file = file.string();
-            const moira::Array* measure = form.try_find("measure");
-            const moira::Array* pass = form.try_find("pass");
+            const baker::Array* measure = form.try_find("measure");
+            const baker::Array* pass = form.try_find("pass");
             if (!form_name(form, o.name) || !measure || measure->size() < 2 || !pass ||
                 pass->size() < 2) {
                 error = file.string() +
@@ -111,13 +111,13 @@ bool load_objectives(const fs::path& dir, std::vector<Objective>& out,
 }
 
 bool load_scenarios(const fs::path& file, std::vector<Scenario>& out, std::string& error) {
-    auto tree = moira::read_file(file.string());
+    auto tree = baker::read_file(file.string());
     if (!tree) {
         error = described(tree.error());
         return false;
     }
-    for (const moira::Array& form : (*tree)->subarrays()) {
-        if (form.empty() || !form[0].is(moira::Symbol("scenario"))) continue;
+    for (const baker::Array& form : (*tree)->subarrays()) {
+        if (form.empty() || !form[0].is(baker::Symbol("scenario"))) continue;
         Scenario s;
         s.file = file.string();
         s.tree = *tree;
@@ -126,16 +126,16 @@ bool load_scenarios(const fs::path& file, std::vector<Scenario>& out, std::strin
             return false;
         }
         s.desc = text_of(form, "desc");
-        if (const moira::Array* sec = form.try_find("seconds");
+        if (const baker::Array* sec = form.try_find("seconds");
             !sec || sec->size() < 2 || !number((*sec)[1], s.seconds) || s.seconds <= 0) {
             error = file.string() + ": scenario " + s.name + " needs (seconds N), N above 0";
             return false;
         }
-        for (const moira::Array& part : form.subarrays()) {
+        for (const baker::Array& part : form.subarrays()) {
             if (part.empty()) continue;
-            if (part[0].is(moira::Symbol("start"))) {
+            if (part[0].is(baker::Symbol("start"))) {
                 commands(part, 1, s.start);
-            } else if (part[0].is(moira::Symbol("at"))) {
+            } else if (part[0].is(baker::Symbol("at"))) {
                 Scenario::At at;
                 if (part.size() < 2 || !number(part[1], at.seconds)) {
                     error = file.string() + ": scenario " + s.name + ": (at SECONDS {command}...)";
@@ -143,7 +143,7 @@ bool load_scenarios(const fs::path& file, std::vector<Scenario>& out, std::strin
                 }
                 commands(part, 2, at.commands);
                 s.at.push_back(std::move(at));
-            } else if (part[0].is(moira::Symbol("objectives"))) {
+            } else if (part[0].is(baker::Symbol("objectives"))) {
                 for (size_t i = 1; i < part.size(); ++i)
                     if (auto sym = part[i].as_sym()) s.objectives.emplace_back(sym->str());
             }
@@ -163,16 +163,16 @@ bool RunResult::passed() const noexcept {
     return true;
 }
 
-RunResult simulate(Game& game, moira::Context& ctx, const Scenario& scenario,
+RunResult simulate(Game& game, baker::Context& ctx, const Scenario& scenario,
                    const std::vector<Objective>& objectives, uint64_t seed, double step_hz) {
     RunResult run;
     run.scenario = scenario.name;
     run.seed = seed;
-    ctx.var("seed") = moira::Node(static_cast<int64_t>(seed));
+    ctx.var("seed") = baker::Node(static_cast<int64_t>(seed));
     game.reset(seed);
 
-    auto run_commands = [&](const std::vector<moira::Node>& cmds) {
-        for (const moira::Node& c : cmds)
+    auto run_commands = [&](const std::vector<baker::Node>& cmds) {
+        for (const baker::Node& c : cmds)
             if (auto r = ctx.eval(c); !r) run.errors.push_back(described(r.error()));
     };
     run_commands(scenario.start);
@@ -202,15 +202,15 @@ RunResult simulate(Game& game, moira::Context& ctx, const Scenario& scenario,
         if (!value) {
             r.error = described(value.error());
         } else if (!number(*value, r.value)) {
-            r.error = "measure is not a number: " + moira::to_string(*value);
+            r.error = "measure is not a number: " + baker::to_string(*value);
         } else {
-            ctx.var("value") = moira::Node(r.value);
+            ctx.var("value") = baker::Node(r.value);
             auto pass = ctx.eval(o.pass);
             double p = 0;
             if (!pass)
                 r.error = described(pass.error());
             else if (!number(*pass, p))
-                r.error = "pass is not a number: " + moira::to_string(*pass);
+                r.error = "pass is not a number: " + baker::to_string(*pass);
             else
                 r.pass = p != 0;
         }

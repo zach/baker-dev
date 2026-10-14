@@ -1,6 +1,6 @@
 #include "base/sim.hpp"
 
-#include <moira/parse.hpp>
+#include <baker/parse.hpp>
 
 #include <doctest.h>
 
@@ -12,7 +12,7 @@ namespace {
 struct Counter final : base::Game {
     double total = 0, rate = 1;
     uint64_t seed = 0;
-    void bind(moira::Context& ctx) override {
+    void bind(baker::Context& ctx) override {
         (void)ctx.func("counter.total", [this] { return total; });
         (void)ctx.func("counter.rate", [this](double r) { rate = r; });
     }
@@ -28,7 +28,7 @@ struct Counter final : base::Game {
 struct Fixture {
     test::ScratchDir dir{"sim"};
     std::vector<base::Objective> objectives;
-    std::vector<moira::Ref<moira::Array>> trees;
+    std::vector<baker::Ref<baker::Array>> trees;
     std::vector<base::Scenario> scenarios;
     std::string error;
 
@@ -56,7 +56,7 @@ TEST_CASE("sim: steps a scenario's seconds and judges it") {
     REQUIRE(f.scenarios.size() == 1);
 
     Counter game;
-    moira::Context ctx;
+    baker::Context ctx;
     game.bind(ctx);
     const base::RunResult r = base::simulate(game, ctx, f.scenarios[0], f.objectives, 7, 60);
     CHECK(r.steps == 600);
@@ -75,7 +75,7 @@ TEST_CASE("sim: start and at commands run at their times; a failing objective fa
     )"),
                     f.error);
     Counter game;
-    moira::Context ctx;
+    baker::Context ctx;
     game.bind(ctx);
     const base::RunResult r = base::simulate(game, ctx, f.scenarios[0], f.objectives, 1, 60);
     REQUIRE(r.objectives.size() == 2);  // no (objectives ...): all of them
@@ -89,7 +89,7 @@ TEST_CASE("sim: the same scenario and seed give the same result at any step rate
     Fixture f;
     REQUIRE(f.load(kMetrics, "(scenario ten (seconds 10))"));
     Counter game;
-    moira::Context ctx;
+    baker::Context ctx;
     game.bind(ctx);
     const auto a = base::simulate(game, ctx, f.scenarios[0], f.objectives, 3, 60);
     const auto b = base::simulate(game, ctx, f.scenarios[0], f.objectives, 3, 60);
@@ -100,7 +100,7 @@ TEST_CASE("sim: errors are reported, not crashed on") {
     Fixture f;
     REQUIRE(f.load(kMetrics, "(scenario bad (seconds 1) (start {no.such}) (objectives nope))"));
     Counter game;
-    moira::Context ctx;
+    baker::Context ctx;
     game.bind(ctx);
     const auto r = base::simulate(game, ctx, f.scenarios[0], f.objectives, 1, 60);
     CHECK_FALSE(r.passed());
@@ -119,13 +119,13 @@ TEST_CASE("sim: results are data that reads back") {
     Fixture f;
     REQUIRE(f.load(kMetrics, "(scenario bad (seconds 1) (start {no.such \"a \\q quote\"}))"));
     Counter game;
-    moira::Context ctx;
+    baker::Context ctx;
     game.bind(ctx);
     std::vector<base::RunResult> runs{
         base::simulate(game, ctx, f.scenarios[0], f.objectives, 1, 60),
         base::simulate(game, ctx, f.scenarios[0], f.objectives, 2, 60)};
     REQUIRE(test::write(f.dir.path / "out.dta", base::to_dta(runs[0]) + base::summary_dta(runs)));
-    auto back = moira::read_file((f.dir.path / "out.dta").string());
+    auto back = baker::read_file((f.dir.path / "out.dta").string());
     REQUIRE_MESSAGE(back, base::to_dta(runs[0]));
     CHECK((*back)->get<int64_t>("summary.runs").value_or(0) == 2);
     CHECK((*back)->get<int64_t>("run.seed").value_or(0) == 1);

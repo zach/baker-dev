@@ -1,4 +1,4 @@
-#include <moira/parse.hpp>
+#include <baker/parse.hpp>
 
 #include "arena.hpp"
 #include "common/containers.hpp"
@@ -12,7 +12,7 @@
 #include <cstring>
 #include <utility>
 
-namespace moira {
+namespace baker {
 namespace detail {
 namespace {
 
@@ -1040,4 +1040,4 @@ Expected<Ref<Array>> read_file(std::string_view path) {
     return read_file(path, session);
 }
 
-}  // namespace moira
+}  // namespace baker

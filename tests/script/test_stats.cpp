@@ -1,8 +1,8 @@
 // Call statistics and the trace hook (spec §5, "Debugging"; D53).
 #include <doctest.h>
-#include <moira/object.hpp>
-#include <moira/parse.hpp>
-#include <moira/script.hpp>
+#include <baker/object.hpp>
+#include <baker/parse.hpp>
+#include <baker/script.hpp>
 
 #include "alloc_counter.hpp"
 #include "ok.hpp"
@@ -11,8 +11,8 @@
 #include <string>
 #include <vector>
 
-using namespace moira;
-using moira::test::ok;
+using namespace baker;
+using baker::test::ok;
 
 namespace {
 

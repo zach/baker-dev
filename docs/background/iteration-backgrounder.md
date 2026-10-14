@@ -1,10 +1,10 @@
-# Iteration Time: A Backgrounder for Moira
+# Iteration Time: A Backgrounder for Baker
 
 Postmortems, technical talks, and war stories on reducing iteration time for designers,
 artists, and programmers — from the 2004–2005 systems we've studied through to Unreal,
-Unity, and Frostbite today — and the use cases where Moira is most relevant.
+Unity, and Frostbite today — and the use cases where Baker is most relevant.
 
-Companion to `moira-spec.md`, `halo-tags-vs-dataarray.md`, and `seexpr-vs-moira.md`.
+Companion to `baker-spec.md`, `halo-tags-vs-dataarray.md`, and `seexpr-vs-baker.md`.
 Sources are listed at the end. Where a primary source was unavailable (several Kotaku and
 Bloomberg pieces), the claim is sourced through secondary coverage and marked as such.
 
@@ -83,7 +83,7 @@ later, a codebase whose tooling was a reason to abandon it.
 ### Bitsquid: fast compile and hot reload, not live editing (GDC 2012)
 
 Frykholm's argument is worth knowing in detail because it is the most rigorous public
-treatment of the problem, and because his conclusions line up closely with Moira's.
+treatment of the problem, and because his conclusions line up closely with Baker's.
 
 He considered and rejected *live editing in the running game* as the primary strategy: the
 game is not always the best editor, versioning a living binary image is hard, merging
@@ -112,11 +112,11 @@ words, trust is hard to gain and easy to lose.
 
 Two things to take from this. First, the per-type reload decision — delete, restart, or
 update — is the same contract Butcher described in 2004 (migrate or punt) and the same one
-now in Moira's spec. Three teams converged on it independently, which is a strong sign
+now in Baker's spec. Three teams converged on it independently, which is a strong sign
 it's the right shape. Second, Frykholm's design puts a *command channel* into the running
 game, and the same channel serves reload, debug visualization, and a REPL. Malafeew's
 remote level editing did the same thing over serialized script calls. That pattern is a
-first-class Moira use case (§6).
+first-class Baker use case (§6).
 
 ### Naughty Dog: s-expressions all the way down
 
@@ -142,7 +142,7 @@ The comparison with DataArray is instructive. Both chose s-expressions for data 
 behavior in the same tree. Naughty Dog put the power at **build time** — a full Scheme
 macro system, compiling down to runtime structures — and kept the runtime lean. Harmonix
 put the power at **runtime** — lazy evaluation, live handlers, script-side classes — and
-kept the build trivial. Moira follows Harmonix's choice, which buys hot reload of behavior
+kept the build trivial. Baker follows Harmonix's choice, which buys hot reload of behavior
 for free and costs a heavier runtime. That is the right call for iteration, and Naughty
 Dog's choice is the right call for maximum runtime performance; the trade is worth
 stating in the README so nobody relitigates it.
@@ -161,7 +161,7 @@ representations separate, and make the transform between them fast enough to fee
 
 ### Unreal Engine
 
-Three Unreal systems are directly relevant, and one of them is almost exactly Moira's
+Three Unreal systems are directly relevant, and one of them is almost exactly Baker's
 `Tweak<T>`.
 
 **Console variables.** `TAutoConsoleVariable<T>` is declared as a static in a `.cpp`
@@ -174,21 +174,21 @@ defined priority, and each variable records which layer last set it.
 
 This is strong validation for the `Tweak<T>` design: Epic arrived at static
 self-registration, mandatory help text, and dev-only flags independently. It also shows
-three things Moira should add: **provenance** (which file or layer set the current value),
+three things Baker should add: **provenance** (which file or layer set the current value),
 **shipping-build behavior** (tweaks locked or compiled out), and **ordered layers** rather
 than a single merge. Epic's own docs note that CVar state is main-thread-only and is not
 network-synchronized or serialized, and that the ini startup file is applied in undefined
-order — limits Moira's design already avoids.
+order — limits Baker's design already avoids.
 
 **Live Coding.** Unreal integrated Live++ (by Stefan Reinalter's Molecular Matters) as its
 default C++ iteration path, replacing the older Hot Reload system, which was prone to
 corrupting assets and couldn't handle reflected-type changes. Live Coding patches running
 binaries while the editor or game is running. It's a major improvement — and it changes
-the argument for Moira (§5).
+the argument for Baker (§5).
 
 **Blueprints and config.** Visual scripting for designers, plus `UPROPERTY(config)` for
 ini-backed class defaults, together cover most of what DataArray's data and scripting
-layers did inside a studio, with an editor UI on top. Inside Unreal, Moira's value
+layers did inside a studio, with an editor UI on top. Inside Unreal, Baker's value
 proposition is thin and the docs should say so.
 
 ### Unity
@@ -212,7 +212,7 @@ debuggability, with an emphasis that the more of the game you can change at runt
 more balance you can find. Community implementations of the pattern note it also serves
 live-game economy tuning without a client update.
 
-`FloatVariable` is `Tweak<float>`; the event-channel asset is Moira's message dispatch
+`FloatVariable` is `Tweak<float>`; the event-channel asset is Baker's message dispatch
 with a different binding. Hipple reached DataArray's shape from inside Unity, twelve years
 later.
 
@@ -229,7 +229,7 @@ Bungie problem, at EA scale, as a standing team.
 
 ## 5. What's changed since 2005
 
-Three shifts matter for how Moira should be positioned.
+Three shifts matter for how Baker should be positioned.
 
 **C++ iteration got good.** In 2005, moving logic into script was one of the few ways to
 change behavior without a rebuild-and-restart cycle. Live++ and its descendants now patch
@@ -249,17 +249,17 @@ data at once — one of which deleted every player's game executable — replace
 **micropatches**: targeted overrides that a new game session applies on top of existing
 server data, like sticky notes, initially limited to numeric values.
 
-A micropatch is a `#merge` of a small overlay onto a base config. Moira already has the
+A micropatch is a `#merge` of a small overlay onto a base config. Baker already has the
 semantics; what it lacks is the operational wrapping — named layers, provenance, rollback.
 
 **Engines consolidated.** Studios that once built bespoke engines are moving to Unreal,
 partly for tooling (343's move is the highest-profile example). That shrinks the market for
-a Moira-shaped library inside large studios and grows it in the places Unreal isn't: custom
+a Baker-shaped library inside large studios and grows it in the places Unreal isn't: custom
 and small-team C++ engines, dedicated game servers, tools, and middleware.
 
 ---
 
-## 6. Use cases for Moira, ranked by relevance
+## 6. Use cases for Baker, ranked by relevance
 
 Each entry names the loop being shortened, who's in it, and the prior art.
 
@@ -268,7 +268,7 @@ Each entry names the loop being shortened, who's in it, and the prior art.
 **Loop:** programmer or designer changes a number → sees it in the running game.
 **Prior art:** Unreal CVars, Valve-style convars, Hipple's `FloatVariable`, DataArray's
 config + param editor.
-**Why Moira:** this is the single most universally useful piece, and the piece that every
+**Why Baker:** this is the single most universally useful piece, and the piece that every
 engine reinvents. In a custom C++ engine, `Tweak<T>` is the CVar system you'd otherwise
 write yourself, plus hot reload, plus data-side metadata. The highest-leverage thing in the
 library and the thing the README should lead with.
@@ -278,7 +278,7 @@ library and the thing the README should lead with.
 **Loop:** edit a data file on a PC → the console, phone, or handheld picks it up live.
 **Prior art:** Butcher's Xbox path-mapping file; Frykholm's PC-hosted file server for
 consoles; Remedy's live-edit pipeline.
-**Why Moira:** reload is already in the design; what's needed is a transport-agnostic hook
+**Why Baker:** reload is already in the design; what's needed is a transport-agnostic hook
 so a host can feed a changed file in from a socket rather than a local filesystem. The
 library should not own the network, but it should make wiring one trivial.
 
@@ -288,7 +288,7 @@ library should not own the network, but it should make wiring one trivial.
 or remote — and something happens.
 **Prior art:** Frykholm's TCP JSON channel with Lua REPL; Malafeew's remote level editing
 via serialized script calls; every engine's developer console.
-**Why Moira:** s-expressions are the ideal wire format for this. A command is already a
+**Why Baker:** s-expressions are the ideal wire format for this. A command is already a
 serialized, parseable, evaluable value, so there is no separate protocol. `{bob grow 10}`
 typed at a console, sent over a socket, or recorded in a test script is the same thing.
 Needs a public `eval(string)` entry point and an example remote console.
@@ -298,8 +298,8 @@ Needs a public `eval(string)` entry point and an example remote console.
 **Loop:** a live-ops designer pushes a numeric balance change to running servers without a
 client patch or a full redeploy.
 **Prior art:** Riot micropatches, WoW hotfixes, Overwatch hotfixes, remote-config services.
-**Why Moira:** an overlay `.dta` merged onto base config *is* a micropatch. Add named,
-ordered, revertible layers and provenance, and Moira covers the server-side half of this
+**Why Baker:** an overlay `.dta` merged onto base config *is* a micropatch. Add named,
+ordered, revertible layers and provenance, and Baker covers the server-side half of this
 directly. The operational lessons from Riot and Overwatch — environment boundaries,
 version history, rollback, tests — belong in the cookbook, because config systems become
 dangerous precisely when they make live changes easy.
@@ -309,7 +309,7 @@ dangerous precisely when they make live changes easy.
 **Loop:** a content team (or the community) adds new content without an engineer.
 **Prior art:** Rock Band's `songs.dta` and everything downstream of it — DLC, the Rock
 Band Network, two decades of community content.
-**Why Moira:** this is the use case with the longest documented tail, and the one where
+**Why Baker:** this is the use case with the longest documented tail, and the one where
 self-describing, forgiving, text-first data matters most, because the people writing it
 are furthest from the code. The robustness principle (no data can crash the host) is what
 makes it safe.
@@ -319,8 +319,8 @@ makes it safe.
 **Loop:** a programmer or technical designer attaches small behaviors to data — on collide,
 play this sound and add score — and iterates without touching C++.
 **Prior art:** DataArray handlers; Naughty Dog's state scripts; Hipple's event channels.
-**Why Moira:** still valuable, but the weakest of the six relative to 2005 because of Live
-Coding. Moira's argument here is not "faster than C++" but "editable by someone who isn't
+**Why Baker:** still valuable, but the weakest of the six relative to 2005 because of Live
+Coding. Baker's argument here is not "faster than C++" but "editable by someone who isn't
 writing C++, and reloadable on a device where Live++ doesn't reach."
 
 ### 7. Test and repro scripts
@@ -328,7 +328,7 @@ writing C++, and reloadable on a device where Live++ doesn't reach."
 **Loop:** QA or a programmer reproduces a bug or runs an automated scenario.
 **Prior art:** Butcher's save-game + build + minidump repro pipeline; automated testing
 talks such as Rare's on Sea of Thieves.
-**Why Moira:** the command channel (use case 3) recorded to a file is a repro script.
+**Why Baker:** the command channel (use case 3) recorded to a file is a repro script.
 Cheap to support once 3 exists.
 
 ### Not use cases
@@ -337,13 +337,13 @@ Cheap to support once 3 exists.
   binary, schema-rich formats win there.
 - **Per-pixel or per-vertex computation.** That's SeExpr's domain.
 - **Replacing Blueprints, CVars, or DataAssets inside Unreal.** Unreal already covers the
-  ground. A Moira plugin for Unreal would be a curiosity, not a product.
+  ground. A Baker plugin for Unreal would be a curiosity, not a product.
 
 ---
 
 ## 7. What this changes in the spec
 
-Applied to `moira-spec.md`:
+Applied to `baker-spec.md`:
 
 1. **Provenance.** Every tweak and every config value can report the file, line, and layer
    that produced its current value: `kBoxWidth.source()`. "Why is this number what it is?"
@@ -356,7 +356,7 @@ Applied to `moira-spec.md`:
    normal reload callbacks. This turns `#merge` into Riot-style micropatches with rollback,
    and gives Unreal's set-by hierarchy a cleaner model.
 
-3. **Shipping behavior.** A `MOIRA_SHIPPING` build switch makes reload a no-op, freezes
+3. **Shipping behavior.** A `BAKER_SHIPPING` build switch makes reload a no-op, freezes
    tweak values at their loaded state, and lets individual tweaks be marked `dev_only` so
    they ignore data overrides entirely in shipping builds — the `ECVF_Cheat` equivalent.
 

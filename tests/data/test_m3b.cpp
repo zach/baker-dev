@@ -1,10 +1,10 @@
 // M3b: reload telemetry, layer options and toggles, scratch, layer effect and diff,
 // write_back_to insertion, promote, and snapshots (spec §4, docs/decisions.md D42).
 #include <doctest.h>
-#include <moira/config.hpp>
-#include <moira/parse.hpp>
-#include <moira/std_interop.hpp>
-#include <moira/write.hpp>
+#include <baker/config.hpp>
+#include <baker/parse.hpp>
+#include <baker/std_interop.hpp>
+#include <baker/write.hpp>
 
 #include "alloc_counter.hpp"
 #include "temp_dir.hpp"
@@ -13,10 +13,10 @@
 #include <vector>
 #include "ok.hpp"
 
-using namespace moira;
-using moira::test::diff_lines;
-using moira::test::ok;
-using moira::test::TempDir;
+using namespace baker;
+using baker::test::diff_lines;
+using baker::test::ok;
+using baker::test::TempDir;
 
 namespace {
 
@@ -53,7 +53,7 @@ const char* const kBase =
 
 // --- Change 1: reload telemetry ---
 
-#if !MOIRA_SHIPPING
+#if !BAKER_SHIPPING
 TEST_CASE("a reload's six stages are timed exactly with a fake time source") {
     TempDir dir;
     Config cfg({.tweaks = nullptr});
@@ -162,7 +162,7 @@ TEST_CASE("records count migrations and punts, keep the origin, and reach the ho
     CHECK(seen.size() == 1);
 }
 #else
-TEST_CASE("under MOIRA_SHIPPING telemetry is empty but its API stays") {
+TEST_CASE("under BAKER_SHIPPING telemetry is empty but its API stays") {
     TempDir dir;
     Config cfg({.tweaks = nullptr});
     REQUIRE(cfg.push_layer("d", dir.write("d.dta", "(a 1)\n")));
@@ -179,7 +179,7 @@ TEST_CASE("under MOIRA_SHIPPING telemetry is empty but its API stays") {
 
 // --- Change 2: layers, scratch, effect, diff, write_back_to, promote ---
 
-#if !MOIRA_SHIPPING
+#if !BAKER_SHIPPING
 TEST_CASE("toggling a layer off and on restores every value and source exactly") {
     TempDir dir;
     TweakRegistry reg;

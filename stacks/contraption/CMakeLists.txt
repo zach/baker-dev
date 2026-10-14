@@ -3,7 +3,7 @@
 #   stacks_contraption          the game, and its agent commands (stacks/agent.md)
 add_library(stacks_contraption_puzzle STATIC puzzle.cpp)
 target_include_directories(stacks_contraption_puzzle PUBLIC .)
-target_link_libraries(stacks_contraption_puzzle PUBLIC stacks_physics moira::moira)
+target_link_libraries(stacks_contraption_puzzle PUBLIC stacks_physics baker::baker)
 stacks_target(stacks_contraption_puzzle)
 stacks_deterministic(stacks_contraption_puzzle)
 

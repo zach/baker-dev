@@ -27,8 +27,8 @@
 
 #include <SDL3/SDL.h>
 #include <imgui.h>
-#include <moira/std_interop.hpp>
-#include <moira/std_script.hpp>
+#include <baker/std_interop.hpp>
+#include <baker/std_script.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -38,27 +38,27 @@
 #include <string>
 #include <vector>
 
-static moira::Tweak<float> kRunSpeed{
+static baker::Tweak<float> kRunSpeed{
     "wayfarer.run_speed", 6.0f, {.range = {1, 20}, .desc = "Metres a second on foot"}};
-static moira::Tweak<float> kJumpSpeed{
+static baker::Tweak<float> kJumpSpeed{
     "wayfarer.jump_speed", 6.0f, {.range = {0, 20}, .desc = "Metres a second up, jumping"}};
-static moira::Tweak<float> kClimbMax{
+static baker::Tweak<float> kClimbMax{
     "wayfarer.climb_max", 8.0f, {.range = {0, 50}, .desc = "Metres a climb goes up"}};
-static moira::Tweak<float> kClimbSpeed{
+static baker::Tweak<float> kClimbSpeed{
     "wayfarer.climb_speed", 2.5f, {.range = {0.5f, 10}, .desc = "Metres a second, climbing"}};
-static moira::Tweak<float> kGlideSpeed{
+static baker::Tweak<float> kGlideSpeed{
     "wayfarer.glide_speed", 10.0f, {.range = {1, 40}, .desc = "Metres a second, gliding"}};
-static moira::Tweak<float> kGlideSink{
+static baker::Tweak<float> kGlideSink{
     "wayfarer.glide_sink", 2.0f, {.range = {0.2f, 10}, .desc = "Metres a second down, gliding"}};
-static moira::Tweak<float> kStep{
+static baker::Tweak<float> kStep{
     "wayfarer.step", 0.5f, {.range = {0, 2}, .desc = "A step walked up without climbing"}};
-static moira::Tweak<float> kPoiRadius{
+static baker::Tweak<float> kPoiRadius{
     "wayfarer.poi_radius", 4.0f, {.range = {1, 20}, .desc = "Metres that count as at a point"}};
-static moira::Tweak<float> kDiscoverRadius{
+static baker::Tweak<float> kDiscoverRadius{
     "wayfarer.discover_radius",
     20.0f,
     {.range = {1, 200}, .desc = "Metres at which a point is found"}};
-static moira::Tweak<int> kStreamRadius{
+static baker::Tweak<int> kStreamRadius{
     "wayfarer.stream_radius",
     1,
     {.range = {0, 4}, .desc = "Cells around the player's that are built"}};
@@ -89,47 +89,47 @@ float dist(const base::NavPoint& a, const base::NavPoint& b) {
 
 class WayfarerGame final : public base::Game {
 public:
-    void bind(moira::Context& ctx) override {
+    void bind(baker::Context& ctx) override {
         ctx_ = &ctx;
         auto doc = [](auto f, const char* text) {
             if (f) f->doc(text);
         };
-        auto poi_of = [this](moira::Symbol s) -> moira::Expected<int> {
+        auto poi_of = [this](baker::Symbol s) -> baker::Expected<int> {
             const int p = world_.poi(std::string(s.str()));
             if (p < 0)
-                return moira::Unexpected(
+                return baker::Unexpected(
                     base::not_found("no point of interest " + std::string(s.str())));
             return p;
         };
-        auto mission_of = [this](moira::Symbol s) -> moira::Expected<int> {
+        auto mission_of = [this](baker::Symbol s) -> baker::Expected<int> {
             const int m = world_.mission(std::string(s.str()));
             if (m < 0)
-                return moira::Unexpected(base::not_found("no mission " + std::string(s.str())));
+                return baker::Unexpected(base::not_found("no mission " + std::string(s.str())));
             return m;
         };
         // The natives objectives are written in (§4.4, "L2").
         doc(ctx.func("at_poi",
-                     [this, poi_of](moira::Symbol s) -> moira::Expected<bool> {
+                     [this, poi_of](baker::Symbol s) -> baker::Expected<bool> {
                          auto p = poi_of(s);
-                         if (!p) return moira::Unexpected(p.error());
+                         if (!p) return baker::Unexpected(p.error());
                          return dist(player(), world_.pois[size_t(*p)].at) <=
                                 world_.rules.poi_radius;
                      }),
             "In a goal: whether the player is at a point of interest.");
         doc(ctx.func("flag",
-                     [this](moira::Symbol s) -> moira::Expected<bool> {
+                     [this](baker::Symbol s) -> baker::Expected<bool> {
                          const int f = world_.flag(std::string(s.str()));
                          if (f < 0)
-                             return moira::Unexpected(
+                             return baker::Unexpected(
                                  base::not_found("no flag " + std::string(s.str())));
                          return bool(progress_.flags >> f & 1);
                      }),
             "In a goal: whether a flag is set (a point of interest sets it when visited).");
         doc(ctx.func("has_item",
-                     [this](moira::Symbol s) -> moira::Expected<bool> {
+                     [this](baker::Symbol s) -> baker::Expected<bool> {
                          const int i = world_.item(std::string(s.str()));
                          if (i < 0)
-                             return moira::Unexpected(
+                             return baker::Unexpected(
                                  base::not_found("no item " + std::string(s.str())));
                          return progress_.has(i);
                      }),
@@ -137,30 +137,30 @@ public:
         doc(ctx.func("time_of_day", [this] { return std::fmod(8 + clock_ / 60, 24.0); }),
             "In a goal: the hour, 0 to 24 (play starts at 8, a game minute each second).");
         doc(ctx.func("mission.done",
-                     [this, mission_of](moira::Symbol s) -> moira::Expected<bool> {
+                     [this, mission_of](baker::Symbol s) -> baker::Expected<bool> {
                          auto m = mission_of(s);
-                         if (!m) return moira::Unexpected(m.error());
+                         if (!m) return baker::Unexpected(m.error());
                          return progress_.done(*m);
                      }),
             "Whether a mission's objectives are all done.");
         doc(ctx.func("mission.start",
-                     [this, mission_of](moira::Symbol s) -> moira::Expected<void> {
+                     [this, mission_of](baker::Symbol s) -> baker::Expected<void> {
                          auto m = mission_of(s);
-                         if (!m) return moira::Unexpected(m.error());
+                         if (!m) return baker::Unexpected(m.error());
                          progress_.started |= uint64_t(1) << *m;
                          return {};
                      }),
             "Opens a mission whatever its unlock says.");
         doc(ctx.func("mission.skip_to",
-                     [this, mission_of](moira::Symbol s,
-                                        moira::Symbol objective) -> moira::Expected<void> {
+                     [this, mission_of](baker::Symbol s,
+                                        baker::Symbol objective) -> baker::Expected<void> {
                          auto m = mission_of(s);
-                         if (!m) return moira::Unexpected(m.error());
+                         if (!m) return baker::Unexpected(m.error());
                          const auto& os = world_.missions[size_t(*m)].objectives;
                          size_t o = 0;
                          while (o < os.size() && os[o].name != objective.str()) ++o;
                          if (o == os.size())
-                             return moira::Unexpected(
+                             return baker::Unexpected(
                                  base::not_found("no objective " + std::string(objective.str())));
                          progress_.started |= uint64_t(1) << *m;
                          progress_.objectives[size_t(*m)] = (uint64_t(1) << o) - 1;
@@ -168,10 +168,10 @@ public:
                      }),
             "Opens a mission with the objectives before this one done.");
         doc(ctx.func("mission.state",
-                     [this, mission_of](moira::Symbol s) -> moira::Expected<moira::Symbol> {
+                     [this, mission_of](baker::Symbol s) -> baker::Expected<baker::Symbol> {
                          auto m = mission_of(s);
-                         if (!m) return moira::Unexpected(m.error());
-                         return moira::Symbol(state_of(*m));
+                         if (!m) return baker::Unexpected(m.error());
+                         return baker::Symbol(state_of(*m));
                      }),
             "done, open, blocked (open, but nothing open can be reached now), or locked.");
         doc(ctx.func("world.missions_done",
@@ -183,28 +183,28 @@ public:
                      }),
             "How many missions are done.");
         doc(ctx.func("world.teleport",
-                     [this, poi_of](moira::Symbol s) -> moira::Expected<void> {
+                     [this, poi_of](baker::Symbol s) -> baker::Expected<void> {
                          auto p = poi_of(s);
-                         if (!p) return moira::Unexpected(p.error());
+                         if (!p) return baker::Unexpected(p.error());
                          const base::NavPoint at = world_.pois[size_t(*p)].at;
                          place(at.x, at.y + 0.2f, at.z);
                          return {};
                      }),
             "Moves the player to a point of interest.");
         doc(ctx.func("world.give",
-                     [this](moira::Symbol s) -> moira::Expected<void> {
+                     [this](baker::Symbol s) -> baker::Expected<void> {
                          const int i = world_.item(std::string(s.str()));
                          if (i < 0)
-                             return moira::Unexpected(
+                             return baker::Unexpected(
                                  base::not_found("no item " + std::string(s.str())));
                          progress_.items |= uint64_t(1) << i;
                          return {};
                      }),
             "Gives the player an item.");
         doc(ctx.func("world.autopilot",
-                     [this, poi_of](moira::Symbol s) -> moira::Expected<bool> {
+                     [this, poi_of](baker::Symbol s) -> baker::Expected<bool> {
                          auto p = poi_of(s);
-                         if (!p) return moira::Unexpected(p.error());
+                         if (!p) return baker::Unexpected(p.error());
                          return autopilot(*p);
                      }),
             "Walks the player to a point of interest by the path the analyses use, with the "
@@ -240,10 +240,10 @@ public:
         doc(ctx.func("world.proof_report", [this] { return proof_report(); }),
             "The last proof as a person reads it.");
         doc(ctx.func("world.pacing",
-                     [this](moira::Symbol style, double seconds) -> moira::Expected<double> {
+                     [this](baker::Symbol style, double seconds) -> baker::Expected<double> {
                          wayfarer::Style st;
                          if (!wayfarer::parse_style(std::string(style.str()), st))
-                             return moira::Unexpected(
+                             return baker::Unexpected(
                                  base::not_found("no bot style " + std::string(style.str()) +
                                                  "; direct, curious, or completionist"));
                          prepare();
@@ -274,13 +274,13 @@ public:
             "Milliseconds the last streamed cell's navigation tile took to build.");
     }
 
-    void unbind(moira::Context&) override {
+    void unbind(baker::Context&) override {
         character_ = nullptr;
         physics_.reset();
         ctx_ = nullptr;
     }
 
-    void load(const moira::Config& cfg) override {
+    void load(const baker::Config& cfg) override {
         wayfarer::World next;
         std::string error;
         if (!wayfarer::load(cfg.root(), next, error)) {
@@ -729,8 +729,8 @@ private:
             }
     }
 
-    bool truthy(const moira::Node& command) {
-        if (!ctx_ || command.type() != moira::Type::Command) return false;
+    bool truthy(const baker::Node& command) {
+        if (!ctx_ || command.type() != baker::Type::Command) return false;
         auto r = ctx_->eval(command);
         if (!r) return false;
         return base::truthy(*r);
@@ -886,7 +886,7 @@ private:
         ImGui::Dummy(ImVec2(size, size));
     }
 
-    moira::Context* ctx_ = nullptr;
+    baker::Context* ctx_ = nullptr;
     wayfarer::World world_;
     bool loaded_ = false;
     wayfarer::Progress progress_;

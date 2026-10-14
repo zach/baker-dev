@@ -1,14 +1,14 @@
-// D61: a Context and a Config allocate only through Moira allocators. This binary's main
+// D61: a Context and a Config allocate only through Baker allocators. This binary's main
 // (main.cpp) installs a malloc default allocator before anything else runs, so global
 // operator new can be watched on its own.
 
 #include <doctest.h>
 
-#include <moira/config.hpp>
-#include <moira/object.hpp>
-#include <moira/script.hpp>
-#include <moira/task.hpp>
-#include <moira/tweak.hpp>
+#include <baker/config.hpp>
+#include <baker/object.hpp>
+#include <baker/script.hpp>
+#include <baker/task.hpp>
+#include <baker/tweak.hpp>
 
 #include "alloc_counter.hpp"
 
@@ -25,7 +25,7 @@ struct Counting {
     size_t frees = 0;
     size_t live_bytes = 0;
 
-    [[nodiscard]] moira::Allocator allocator() {
+    [[nodiscard]] baker::Allocator allocator() {
         return {[](void* u, size_t size, size_t) -> void* {
                     auto& c = *static_cast<Counting*>(u);
                     ++c.allocs;
@@ -46,12 +46,12 @@ struct Counting {
 const char* text_of(std::string_view path) {
     if (path == "base.dta")
         return "(window (width 640) (height 480)) (speed 2.5)\n#include extra.dta\n";
-    if (path == "extra.dta") return "(title \"moira\") (list 1 2 3 4 5 6 7 8 9 10)";
+    if (path == "extra.dta") return "(title \"baker\") (list 1 2 3 4 5 6 7 8 9 10)";
     if (path == "over.dta") return "(speed 4.0) (window (width 800))";
     return nullptr;
 }
 
-bool read_text(std::string_view path, moira::TextSink out) {
+bool read_text(std::string_view path, baker::TextSink out) {
     const char* t = text_of(path);
     if (!t) return false;
     out(t);
@@ -62,10 +62,10 @@ bool discard(std::string_view, std::string_view) {
     return true;
 }
 
-struct Mover : moira::Object<Mover> {
+struct Mover : baker::Object<Mover> {
     float x = 0;
     float step(float by) { return x += by; }
-    static void bind(moira::Binder<Mover>& b) {
+    static void bind(baker::Binder<Mover>& b) {
         b.method("step", &Mover::step);
         b.property("x", &Mover::x);
     }
@@ -73,7 +73,7 @@ struct Mover : moira::Object<Mover> {
 
 // A file whose text changes with `g_version`, for reloads.
 int g_version = 0;
-bool read_versioned(std::string_view path, moira::TextSink out) {
+bool read_versioned(std::string_view path, baker::TextSink out) {
     if (path != "live.dta") return false;
     char text[64];
     const int n =
@@ -82,10 +82,10 @@ bool read_versioned(std::string_view path, moira::TextSink out) {
     return true;
 }
 
-moira::Task counter(moira::Scheduler&, int* n) {
+baker::Task counter(baker::Scheduler&, int* n) {
     for (int i = 0; i < 3; ++i) {
         ++*n;
-        co_await moira::delay(1);
+        co_await baker::delay(1);
     }
 }
 
@@ -97,29 +97,29 @@ int add(int a, int b) {
 
 TEST_CASE("a Config allocates through its allocator, and nothing through operator new") {
     Counting mine;
-    const moira::Allocator alloc = mine.allocator();
+    const baker::Allocator alloc = mine.allocator();
     size_t global = 0;
     bool ok = false;
     float speed_read = 0;
     {
-        const moira::test::AllocationScope scope;  // no doctest assertion inside: they allocate
+        const baker::test::AllocationScope scope;  // no doctest assertion inside: they allocate
         {
-            moira::TweakRegistry tweaks;
-            moira::Tweak<float> speed{"speed", 1.0f, {}, tweaks};
-            moira::Config config({.tweaks = &tweaks}, alloc);
+            baker::TweakRegistry tweaks;
+            baker::Tweak<float> speed{"speed", 1.0f, {}, tweaks};
+            baker::Config config({.tweaks = &tweaks}, alloc);
             config.session().set_reader(&read_text);
             config.set_writer(&discard);
             ok = config.push_layer("base", "base.dta").has_value();
             ok = ok && config.push_layer("over", "over.dta").has_value();
-            ok = ok && config.get<int>(moira::Path("window/width")).value_or(0) == 800;
-            if constexpr (!moira::kShipping) {  // live edits are refused in shipping
-                ok = ok && config.set("window/height", moira::Node(int64_t{600})).has_value();
-                const moira::ConfigSnapshot snap = config.snapshot();
+            ok = ok && config.get<int>(baker::Path("window/width")).value_or(0) == 800;
+            if constexpr (!baker::kShipping) {  // live edits are refused in shipping
+                ok = ok && config.set("window/height", baker::Node(int64_t{600})).has_value();
+                const baker::ConfigSnapshot snap = config.snapshot();
                 ok = ok && config.reload().has_value();
                 ok = ok && config.restore(snap).has_value();
                 ok = ok && config.layer_effect("over").has_value();
             }
-            ok = ok && !config.get<int>(moira::Path("missing")).has_value();  // an error record
+            ok = ok && !config.get<int>(baker::Path("missing")).has_value();  // an error record
             ok = ok && config.remove_layer("over").has_value();
             speed_read = speed;
         }
@@ -127,7 +127,7 @@ TEST_CASE("a Config allocates through its allocator, and nothing through operato
     }
     CHECK(ok);
     CHECK(speed_read == 2.5f);
-    if (moira::test::counting_allocations()) CHECK(global == 0);  // not under TSan
+    if (baker::test::counting_allocations()) CHECK(global == 0);  // not under TSan
     CHECK(mine.allocs > 0);
     CHECK(mine.allocs == mine.frees);
     CHECK(mine.live_bytes == 0);
@@ -136,27 +136,27 @@ TEST_CASE("a Config allocates through its allocator, and nothing through operato
 
 TEST_CASE("a Context allocates through its allocator, and nothing through operator new") {
     Counting mine;
-    const moira::Allocator alloc = mine.allocator();
+    const baker::Allocator alloc = mine.allocator();
     size_t global = 0;
     bool ok = false;
     {
-        const moira::test::AllocationScope scope;
+        const baker::test::AllocationScope scope;
         {
-            moira::Context ctx(alloc);
+            baker::Context ctx(alloc);
             ok = ctx.func("add", &add).has_value();
             ctx.add_type<Mover>();
             Mover bob;
             ok = ok && ctx.add(bob, "bob").has_value();
             ok = ok && ctx.eval("{func twice ($a) {add $a $a}} {set $n {twice 21}}").has_value();
             ok = ok && ctx.eval("{class Ball (bounce ($h) {add $h 1})} {new Ball b1}").has_value();
-            ok = ok && ctx.eval("{b1 bounce 3}").value_or(moira::Node()).try_int() == 4;
+            ok = ok && ctx.eval("{b1 bounce 3}").value_or(baker::Node()).try_int() == 4;
             ok = ok && ctx.eval("{bob step 1.5} {new Mover m2 (x 2)} {delete m2}").has_value();
             ok = ok && !ctx.eval("{add 1}").has_value();  // an error record
         }
         global = scope.count();
     }
     CHECK(ok);
-    if (moira::test::counting_allocations()) CHECK(global == 0);  // not under TSan
+    if (baker::test::counting_allocations()) CHECK(global == 0);  // not under TSan
     CHECK(mine.allocs > 0);
     CHECK(mine.allocs == mine.frees);
     CHECK(mine.live_bytes == 0);
@@ -165,10 +165,10 @@ TEST_CASE("a Context allocates through its allocator, and nothing through operat
 
 TEST_CASE("loose parameters are the Context's, and leave with the object (D98)") {
     Counting mine;
-    const moira::Allocator alloc = mine.allocator();
+    const baker::Allocator alloc = mine.allocator();
     {
         Mover late;  // outlives the Context below
-        moira::Context ctx(alloc);
+        baker::Context ctx(alloc);
         Mover warm, bob;
         REQUIRE(ctx.add(warm));  // the free-slot list's first growth, out of the way
         ctx.remove(warm);
@@ -176,8 +176,8 @@ TEST_CASE("loose parameters are the Context's, and leave with the object (D98)")
         const size_t before = mine.live_bytes;
         REQUIRE(ctx.eval("{bob set mood happy} {bob set pos (1 2)}"));
         CHECK(mine.live_bytes > before);  // through the Context's allocator
-        CHECK(ctx.eval("{bob get mood}").value_or(moira::Node()).try_sym() ==
-              moira::Symbol("happy"));
+        CHECK(ctx.eval("{bob get mood}").value_or(baker::Node()).try_sym() ==
+              baker::Symbol("happy"));
         ctx.remove(bob);
         CHECK(mine.live_bytes == before);  // freed as bob left
         REQUIRE(ctx.add(bob, "bob"));
@@ -193,13 +193,13 @@ TEST_CASE("loose parameters are the Context's, and leave with the object (D98)")
 }
 
 TEST_CASE("reloads free the trees they replace") {
-    if constexpr (moira::kShipping) return;  // reload is inert in shipping
+    if constexpr (baker::kShipping) return;  // reload is inert in shipping
     Counting mine;
-    const moira::Allocator alloc = mine.allocator();
+    const baker::Allocator alloc = mine.allocator();
     size_t steady = 0;
     bool ok = true;
     {
-        moira::Config config({.tweaks = nullptr}, alloc);
+        baker::Config config({.tweaks = nullptr}, alloc);
         config.session().set_reader(&read_versioned);
         ok = config.push_layer("live", "live.dta").has_value();
         for (int i = 1; i <= 50; ++i) {
@@ -207,7 +207,7 @@ TEST_CASE("reloads free the trees they replace") {
             ok = ok && config.reload().value_or(false);
             if (i == 2) steady = mine.live_bytes;
         }
-        ok = ok && config.get<int>(moira::Path("speed")).value_or(0) == 50;
+        ok = ok && config.get<int>(baker::Path("speed")).value_or(0) == 50;
         CHECK(mine.live_bytes == steady);  // each reload's arena replaced the last
     }
     CHECK(ok);
@@ -216,15 +216,15 @@ TEST_CASE("reloads free the trees they replace") {
 
 TEST_CASE("tasks allocate through the Context's allocator, and nothing through operator new") {
     Counting mine;
-    const moira::Allocator alloc = mine.allocator();
+    const baker::Allocator alloc = mine.allocator();
     size_t global = 0;
     bool ok = false;
     int n = 0;
     {
-        const moira::test::AllocationScope scope;
+        const baker::test::AllocationScope scope;
         {
-            moira::Context ctx(alloc);
-            moira::Scheduler& s = ctx.scheduler();
+            baker::Context ctx(alloc);
+            baker::Scheduler& s = ctx.scheduler();
             ok = ctx.func("add", &add).has_value();
             for (int i = 0; i < 100; ++i) ok = ok && s.spawn(counter(s, &n), "counter").has_value();
             ok = ok && ctx.eval(
@@ -234,7 +234,7 @@ TEST_CASE("tasks allocate through the Context's allocator, and nothing through o
                            .has_value();
             for (int i = 0; i < 6; ++i) s.tick(1);
             ok = ok && s.stats().live == 0;
-            moira::Scheduler other(ctx, {.frame_bytes = 1024});
+            baker::Scheduler other(ctx, {.frame_bytes = 1024});
             ok = ok && other.spawn(counter(other, &n)).has_value();  // left running: freed with it
             other.tick(1);
         }
@@ -242,7 +242,7 @@ TEST_CASE("tasks allocate through the Context's allocator, and nothing through o
     }
     CHECK(ok);
     CHECK(n == 301);
-    if (moira::test::counting_allocations()) CHECK(global == 0);
+    if (baker::test::counting_allocations()) CHECK(global == 0);
     CHECK(mine.allocs == mine.frees);
     CHECK(mine.live_bytes == 0);
     MESSAGE("Context with tasks: " << mine.allocs << " allocations through its allocator");

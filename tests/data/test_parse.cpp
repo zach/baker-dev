@@ -1,16 +1,16 @@
 // Lexing and parsing: tokens, bounds checks, nesting, and located errors.
 #include <doctest.h>
-#include <moira/parse.hpp>
-#include <moira/std_interop.hpp>
-#include <moira/write.hpp>
+#include <baker/parse.hpp>
+#include <baker/std_interop.hpp>
+#include <baker/write.hpp>
 
 #include "text.hpp"
 
 #include <string>
 #include "ok.hpp"
 
-using namespace moira;
-using moira::test::ok;
+using namespace baker;
+using baker::test::ok;
 
 namespace {
 Ref<Array> parse(std::string_view text) {
@@ -164,7 +164,7 @@ TEST_CASE("errors format with file and line") {
     Error e = parse_error("(a 1)\n(b 0x1FFFFFFFFFFFFFFFF)");
     CHECK(e.file() == Symbol("t.dta"));
     CHECK(e.line() == 2);
-    CHECK(to_string(e) == "moira: integer 0x1FFFFFFFFFFFFFFFF is out of 64-bit range  (t.dta:2)");
+    CHECK(to_string(e) == "baker: integer 0x1FFFFFFFFFFFFFFFF is out of 64-bit range  (t.dta:2)");
 }
 
 TEST_CASE("reading text and files") {

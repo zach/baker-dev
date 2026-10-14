@@ -1,13 +1,13 @@
-add_library(moira_doctest_main STATIC doctest_main.cpp)
-target_include_directories(moira_doctest_main SYSTEM PUBLIC ${PROJECT_SOURCE_DIR}/third_party/doctest)
-target_compile_features(moira_doctest_main PUBLIC cxx_std_20)
+add_library(baker_doctest_main STATIC doctest_main.cpp)
+target_include_directories(baker_doctest_main SYSTEM PUBLIC ${PROJECT_SOURCE_DIR}/third_party/doctest)
+target_compile_features(baker_doctest_main PUBLIC cxx_std_20)
 # doctest 2.4.11 forward-declares std::basic_ostream, which newer MSVC STLs (14.44+)
 # reject; include the real standard headers instead.
-target_compile_definitions(moira_doctest_main PUBLIC DOCTEST_CONFIG_USE_STD_HEADERS)
+target_compile_definitions(baker_doctest_main PUBLIC DOCTEST_CONFIG_USE_STD_HEADERS)
 # Built without exceptions (D54): REQUIRE terminates instead of throwing.
-target_compile_definitions(moira_doctest_main PUBLIC DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS)
+target_compile_definitions(baker_doctest_main PUBLIC DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS)
 
-add_executable(moira_data_tests
+add_executable(baker_data_tests
   data/test_arena.cpp
   data/test_cache.cpp
   data/test_config.cpp
@@ -22,20 +22,20 @@ add_executable(moira_data_tests
   data/test_write.cpp
   readiness_loop.cpp
   support/alloc_counter.cpp)
-target_link_libraries(moira_data_tests PRIVATE moira::data moira_parse_harness moira_doctest_main)
+target_link_libraries(baker_data_tests PRIVATE baker::data baker_parse_harness baker_doctest_main)
 # White-box tests of internal helpers (text.hpp).
-target_include_directories(moira_data_tests PRIVATE ${PROJECT_SOURCE_DIR}/src ${PROJECT_SOURCE_DIR}/src/data support)
-if(MOIRA_USE_EASTL)  # the white-box tests include src/data/text.hpp
-  target_compile_definitions(moira_data_tests PRIVATE MOIRA_USE_EASTL=1)
-  target_link_libraries(moira_data_tests PRIVATE EASTL)
+target_include_directories(baker_data_tests PRIVATE ${PROJECT_SOURCE_DIR}/src ${PROJECT_SOURCE_DIR}/src/data support)
+if(BAKER_USE_EASTL)  # the white-box tests include src/data/text.hpp
+  target_compile_definitions(baker_data_tests PRIVATE BAKER_USE_EASTL=1)
+  target_link_libraries(baker_data_tests PRIVATE EASTL)
 endif()
-target_compile_definitions(moira_data_tests PRIVATE
-  MOIRA_CORPUS_DIR="${PROJECT_SOURCE_DIR}/tests/corpus"
-  MOIRA_FUZZ_REGRESSIONS_DIR="${PROJECT_SOURCE_DIR}/tests/fuzz_regressions")
-add_test(NAME moira_data_tests COMMAND moira_data_tests)
+target_compile_definitions(baker_data_tests PRIVATE
+  BAKER_CORPUS_DIR="${PROJECT_SOURCE_DIR}/tests/corpus"
+  BAKER_FUZZ_REGRESSIONS_DIR="${PROJECT_SOURCE_DIR}/tests/fuzz_regressions")
+add_test(NAME baker_data_tests COMMAND baker_data_tests)
 
-if(MOIRA_BUILD_SCRIPT)
-  add_executable(moira_script_tests
+if(BAKER_BUILD_SCRIPT)
+  add_executable(baker_script_tests
     script/test_binding.cpp
     script/test_check.cpp
     script/test_debug.cpp
@@ -46,44 +46,44 @@ if(MOIRA_BUILD_SCRIPT)
     script/test_stats.cpp
     script/test_tasks.cpp
     support/alloc_counter.cpp)
-  target_link_libraries(moira_script_tests PRIVATE moira::script moira_doctest_main)
-  target_include_directories(moira_script_tests PRIVATE support)
-  target_compile_definitions(moira_script_tests PRIVATE
-    MOIRA_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
-    MOIRA_CORPUS_DIR="${PROJECT_SOURCE_DIR}/tests/corpus")
-  add_test(NAME moira_script_tests COMMAND moira_script_tests)
+  target_link_libraries(baker_script_tests PRIVATE baker::script baker_doctest_main)
+  target_include_directories(baker_script_tests PRIVATE support)
+  target_compile_definitions(baker_script_tests PRIVATE
+    BAKER_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+    BAKER_CORPUS_DIR="${PROJECT_SOURCE_DIR}/tests/corpus")
+  add_test(NAME baker_script_tests COMMAND baker_script_tests)
 endif()
 
-if(MOIRA_BUILD_SHAPE)
-  add_executable(moira_shape_tests shape/test_shape.cpp)
-  target_link_libraries(moira_shape_tests PRIVATE moira::shape moira_doctest_main)
-  target_include_directories(moira_shape_tests PRIVATE support)
-  target_compile_definitions(moira_shape_tests PRIVATE MOIRA_SHAPE_DIR="${PROJECT_SOURCE_DIR}/tests/shape")
-  add_test(NAME moira_shape_tests COMMAND moira_shape_tests)
+if(BAKER_BUILD_SHAPE)
+  add_executable(baker_shape_tests shape/test_shape.cpp)
+  target_link_libraries(baker_shape_tests PRIVATE baker::shape baker_doctest_main)
+  target_include_directories(baker_shape_tests PRIVATE support)
+  target_compile_definitions(baker_shape_tests PRIVATE BAKER_SHAPE_DIR="${PROJECT_SOURCE_DIR}/tests/shape")
+  add_test(NAME baker_shape_tests COMMAND baker_shape_tests)
 endif()
 
-if(MOIRA_BUILD_SCRIPT)
+if(BAKER_BUILD_SCRIPT)
   # D61: its own binary, because main installs the default allocator before anything runs.
-  add_executable(moira_alloc_tests alloc/main.cpp alloc/test_allocators.cpp support/alloc_counter.cpp)
-  target_link_libraries(moira_alloc_tests PRIVATE moira::script)
-  target_include_directories(moira_alloc_tests PRIVATE support)
-  target_include_directories(moira_alloc_tests SYSTEM PRIVATE ${PROJECT_SOURCE_DIR}/third_party/doctest)
-  target_compile_definitions(moira_alloc_tests PRIVATE DOCTEST_CONFIG_USE_STD_HEADERS
+  add_executable(baker_alloc_tests alloc/main.cpp alloc/test_allocators.cpp support/alloc_counter.cpp)
+  target_link_libraries(baker_alloc_tests PRIVATE baker::script)
+  target_include_directories(baker_alloc_tests PRIVATE support)
+  target_include_directories(baker_alloc_tests SYSTEM PRIVATE ${PROJECT_SOURCE_DIR}/third_party/doctest)
+  target_compile_definitions(baker_alloc_tests PRIVATE DOCTEST_CONFIG_USE_STD_HEADERS
                              DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS)
-  add_test(NAME moira_alloc_tests COMMAND moira_alloc_tests)
+  add_test(NAME baker_alloc_tests COMMAND baker_alloc_tests)
 endif()
 
 # Spec §7: a Tweak<float> read is a single load. Checked in the generated assembly with
 # GCC and Clang, unless sanitizers or fuzzing instrument every load.
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT MOIRA_SANITIZE AND NOT MOIRA_BUILD_FUZZERS)
-  separate_arguments(moira_codegen_flags UNIX_COMMAND "${CMAKE_CXX_FLAGS}")
-  add_test(NAME moira_tweak_codegen COMMAND ${CMAKE_COMMAND}
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT BAKER_SANITIZE AND NOT BAKER_BUILD_FUZZERS)
+  separate_arguments(baker_codegen_flags UNIX_COMMAND "${CMAKE_CXX_FLAGS}")
+  add_test(NAME baker_tweak_codegen COMMAND ${CMAKE_COMMAND}
     -DCXX=${CMAKE_CXX_COMPILER}
     -DSTD=${CMAKE_CXX_STANDARD}
     -DSRC=${CMAKE_CURRENT_SOURCE_DIR}/codegen/tweak_read.cpp
     -DINC=${PROJECT_SOURCE_DIR}/include
-    "-DDEFS=-DMOIRA_STD_EXPECTED=${MOIRA_STD_EXPECTED_VALUE};-DMOIRA_ATOMIC_REFCOUNT=$<BOOL:${MOIRA_ATOMIC_REFCOUNT}>"
-    "-DFLAGS=${moira_codegen_flags}"
+    "-DDEFS=-DBAKER_STD_EXPECTED=${BAKER_STD_EXPECTED_VALUE};-DBAKER_ATOMIC_REFCOUNT=$<BOOL:${BAKER_ATOMIC_REFCOUNT}>"
+    "-DFLAGS=${baker_codegen_flags}"
     -DOUT=${CMAKE_CURRENT_BINARY_DIR}/tweak_read.s
     -DARCH=${CMAKE_SYSTEM_PROCESSOR}
     -P ${CMAKE_CURRENT_SOURCE_DIR}/codegen/check_tweak_read.cmake)
@@ -93,20 +93,20 @@ endif()
 # each compiles on its own.
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_FOUND)
-  add_test(NAME moira_header_allowlist
+  add_test(NAME baker_header_allowlist
            COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/check_headers.py)
 endif()
-file(GLOB moira_public_headers CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/include/moira/*.hpp)
-set(moira_header_units)
-foreach(header ${moira_public_headers})
+file(GLOB baker_public_headers CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/include/baker/*.hpp)
+set(baker_header_units)
+foreach(header ${baker_public_headers})
   get_filename_component(name ${header} NAME_WE)
   set(unit ${CMAKE_CURRENT_BINARY_DIR}/header_alone/${name}.cpp)
-  file(WRITE ${unit} "#include <moira/${name}.hpp>\n")
-  list(APPEND moira_header_units ${unit})
+  file(WRITE ${unit} "#include <baker/${name}.hpp>\n")
+  list(APPEND baker_header_units ${unit})
 endforeach()
-add_library(moira_header_alone OBJECT ${moira_header_units})
-if(MOIRA_BUILD_SCRIPT)
-  target_link_libraries(moira_header_alone PRIVATE moira::script)
+add_library(baker_header_alone OBJECT ${baker_header_units})
+if(BAKER_BUILD_SCRIPT)
+  target_link_libraries(baker_header_alone PRIVATE baker::script)
 else()
-  target_link_libraries(moira_header_alone PRIVATE moira::data)
+  target_link_libraries(baker_header_alone PRIVATE baker::data)
 endif()

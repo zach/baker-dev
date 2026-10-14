@@ -1,6 +1,6 @@
 #include "fight.hpp"
 
-#include <moira/parse.hpp>
+#include <baker/parse.hpp>
 
 #include <doctest.h>
 
@@ -24,7 +24,7 @@ const char* kData = R"(
 )";
 
 duel::Roster roster(const char* text = kData) {
-    auto tree = moira::read_string(text);
+    auto tree = baker::read_string(text);
     REQUIRE(tree);
     duel::Roster r;
     std::string error;
@@ -72,7 +72,7 @@ TEST_CASE("duel: the data converts to integers once, at load") {
 
     duel::Roster bad;
     std::string error;
-    auto tree = moira::read_string(
+    auto tree = baker::read_string(
         "(fighters (k (moves (a (button light) (startup 1) (active 1) (recovery 1) "
         "(cancels nope) (hitbox 0 0 1 1)))))");
     REQUIRE(tree);

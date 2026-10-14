@@ -1,15 +1,15 @@
 #pragma once
 
 // ok(expected): the value of a call that must succeed, or a test failure that shows the
-// error with its script stack. Moira never throws (D54), so this is how tests say "this
+// error with its script stack. Baker never throws (D54), so this is how tests say "this
 // cannot fail" without a branch at every call.
 
 #include <doctest.h>
-#include <moira/error.hpp>
+#include <baker/error.hpp>
 
 #include <utility>
 
-namespace moira::test {
+namespace baker::test {
 
 template <class T>
 T ok(Expected<T> e) {
@@ -21,4 +21,4 @@ inline void ok(Expected<void> e) {
     if (!e) FAIL(describe(e.error()));
 }
 
-}  // namespace moira::test
+}  // namespace baker::test

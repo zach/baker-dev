@@ -1,6 +1,6 @@
-# Moira
+# Baker
 
-Moira is a focused, MIT-licensed C++20 library for data and scripting, in the spirit of
+Baker is a focused, MIT-licensed C++20 library for data and scripting, in the spirit of
 Harmonix's DataArray (Eric Malafeew, *Data-Driven Programming Made Easy*, GDC 2005). It
 reads a Lisp-like text format into trees, stacks files into layers that reload while the
 program runs, and evaluates commands written in the same format.
@@ -13,7 +13,7 @@ designer-editable value costs one line.
 const float kBoxWidth = 2.0f;
 
 // After: read from data, reloaded when the file changes, tunable live and saved back.
-static moira::Tweak<float> kBoxWidth{"box.width", 2.0f, {.range = {0, 10}, .desc = "Box width"}};
+static baker::Tweak<float> kBoxWidth{"box.width", 2.0f, {.range = {0, 10}, .desc = "Box width"}};
 
 float w = kBoxWidth;  // one relaxed atomic load
 ```
@@ -22,10 +22,10 @@ float w = kBoxWidth;  // one relaxed atomic load
 
 You need CMake 3.20, Ninja or Make, and a C++20 compiler (GCC 13, Clang 18, or MSVC 2022).
 
-**1. Build Moira.** This builds the library, its tests, and the examples:
+**1. Build Baker.** This builds the library, its tests, and the examples:
 
 ```sh
-git clone https://github.com/zach/moira-dev.git moira && cd moira
+git clone https://github.com/zach/baker-dev.git baker && cd baker
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
@@ -49,26 +49,26 @@ the default stands.
 <!-- file: examples/quickstart/main.cpp -->
 ```cpp
 // The five-minute path: a constant becomes a tweak, read from default.dta and reloaded.
-#include <moira/config.hpp>
+#include <baker/config.hpp>
 
 #include <cstdio>
 #include <iostream>
 #include <string>
 
 // Before: const float kPlayerSpeed = 4.0f;
-static moira::Tweak<float> kPlayerSpeed{"player.speed", 4.0f};
+static baker::Tweak<float> kPlayerSpeed{"player.speed", 4.0f};
 
 int main() {
-    moira::Config cfg;  // binds every Tweak in the program
+    baker::Config cfg;  // binds every Tweak in the program
     if (auto r = cfg.push_layer("default", "default.dta"); !r) {
-        std::printf("%s\n", moira::to_string(r.error()).data());
+        std::printf("%s\n", baker::to_string(r.error()).data());
         return 1;
     }
     std::printf("player speed %g\n", double(kPlayerSpeed));
 
     // Edit default.dta, save, and press Enter. A game calls reload() once a frame instead.
     for (std::string line; std::getline(std::cin, line);) {
-        if (auto r = cfg.reload(); !r) std::printf("%s\n", moira::to_string(r.error()).data());
+        if (auto r = cfg.reload(); !r) std::printf("%s\n", baker::to_string(r.error()).data());
         std::printf("player speed %g\n", double(kPlayerSpeed));
     }
     return 0;
@@ -76,13 +76,13 @@ int main() {
 ```
 
 Every call that can fail returns `Expected<T>`, which holds the value or a located
-`Error`; Moira never throws.
+`Error`; Baker never throws.
 
 **4. Run it, then change the data.**
 
 ```sh
 cd examples/quickstart
-../../build/examples/moira_example_quickstart
+../../build/examples/baker_example_quickstart
 ```
 
 It prints `player speed 4.5`. Change `4.5` to `6` in `default.dta`, save, and press
@@ -94,9 +94,9 @@ restarted.
 
 ```cmake
 include(FetchContent)
-FetchContent_Declare(moira GIT_REPOSITORY https://github.com/zach/moira-dev.git GIT_TAG main)
-FetchContent_MakeAvailable(moira)
-target_link_libraries(game PRIVATE moira::moira)
+FetchContent_Declare(baker GIT_REPOSITORY https://github.com/zach/baker-dev.git GIT_TAG main)
+FetchContent_MakeAvailable(baker)
+target_link_libraries(game PRIVATE baker::baker)
 ```
 
 Call `cfg.reload()` once a frame, or when a file watcher fires. That is the loop: edit,
@@ -106,7 +106,7 @@ save, see it.
 
 - **Lookup.** `find_float("price")`, `get<int>("menu.eggs.price")`, and `Convert<T>` for
   your own types; every failure says what, where, and how it got there:
-  `moira: 'price' is float, not int  (menu.dta:3, at menu/eggs)`.
+  `baker: 'price' is float, not int  (menu.dta:3, at menu/eggs)`.
   [Language guide](docs/language.md#data).
 - **Layers and write-back.** Stack `default`, `platform`, a per-user `local` layer, and
   live-ops overlays; ask any value where it came from (`source()`); tune it live and write
@@ -127,7 +127,7 @@ save, see it.
   script tasks (`delay_task`, `interp_task`, `thread_task`); the host calls `tick(dt)`.
   [`examples/tasks`](examples/tasks).
 - **The binary cache.** A tree written as it lies in memory and loaded in one read; a
-  Config with `cache_dir` keeps one per layer, and `moira_bake` makes them in a build step.
+  Config with `cache_dir` keeps one per layer, and `baker_bake` makes them in a build step.
   [Cookbook](docs/cookbook.md#the-binary-cache-in-a-build-step).
 - **Packs and levels.** `#require` reads a shared file once per session; a pack declares
   its level (`engine`, `game`, `task`), and a harder pack using a softer one's macro or
@@ -145,8 +145,8 @@ save, see it.
   [language guide](docs/language.md#checking-before-running).
 
 Public headers include no standard containers or strings (an engine that bans the STL can
-use them); text comes out through a `TextSink`. `<moira/std_interop.hpp>` and
-`<moira/std_script.hpp>` add `std::string` forms for hosts that want them.
+use them); text comes out through a `TextSink`. `<baker/std_interop.hpp>` and
+`<baker/std_script.hpp>` add `std::string` forms for hosts that want them.
 
 ## Measured
 
@@ -173,24 +173,24 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Targets: `moira::data` (data, lookup, config, tweaks, the cache; usable alone),
-`moira::script` (evaluation, objects, tasks), `moira::shape` (shapes), and `moira::moira`
+Targets: `baker::data` (data, lookup, config, tweaks, the cache; usable alone),
+`baker::script` (evaluation, objects, tasks), `baker::shape` (shapes), and `baker::baker`
 (all of them).
 
 | Option | Default | Effect |
 |--------|---------|--------|
-| `MOIRA_BUILD_SCRIPT` | `ON` | Build `moira::script` |
-| `MOIRA_BUILD_SHAPE` | `ON` | Build `moira::shape` |
-| `MOIRA_BUILD_TESTS` | `ON` when top-level | The test suite |
-| `MOIRA_BUILD_EXAMPLES` | `ON` when top-level | `examples/`, each run by CTest |
-| `MOIRA_BUILD_HARNESS` | `OFF` | `examples/harness-imgui`; fetches Dear ImGui and GLFW |
-| `MOIRA_BUILD_TOOLS` | `ON` when top-level | `moira_parse_corpus`, `moira_bake` |
-| `MOIRA_BUILD_BENCH` | `OFF` | `bench/` |
-| `MOIRA_BUILD_FUZZERS` | `OFF` | libFuzzer targets (Clang) |
-| `MOIRA_ATOMIC_REFCOUNT` | `ON` | `OFF` for single-threaded programs |
-| `MOIRA_SHIPPING` | `OFF` | Reload and live edits inert; `dev_only` tweaks keep defaults |
-| `MOIRA_USE_EASTL` | `OFF` | Internal containers from EASTL (fetched) |
-| `MOIRA_SANITIZE` | empty | e.g. `address,undefined` |
+| `BAKER_BUILD_SCRIPT` | `ON` | Build `baker::script` |
+| `BAKER_BUILD_SHAPE` | `ON` | Build `baker::shape` |
+| `BAKER_BUILD_TESTS` | `ON` when top-level | The test suite |
+| `BAKER_BUILD_EXAMPLES` | `ON` when top-level | `examples/`, each run by CTest |
+| `BAKER_BUILD_HARNESS` | `OFF` | `examples/harness-imgui`; fetches Dear ImGui and GLFW |
+| `BAKER_BUILD_TOOLS` | `ON` when top-level | `baker_parse_corpus`, `baker_bake` |
+| `BAKER_BUILD_BENCH` | `OFF` | `bench/` |
+| `BAKER_BUILD_FUZZERS` | `OFF` | libFuzzer targets (Clang) |
+| `BAKER_ATOMIC_REFCOUNT` | `ON` | `OFF` for single-threaded programs |
+| `BAKER_SHIPPING` | `OFF` | Reload and live edits inert; `dev_only` tweaks keep defaults |
+| `BAKER_USE_EASTL` | `OFF` | Internal containers from EASTL (fetched) |
+| `BAKER_SANITIZE` | empty | e.g. `address,undefined` |
 
 Android: CMake builds get C++20 from the targets; with `ndk-build`, add
 `APP_CPPFLAGS += -std=c++20`.

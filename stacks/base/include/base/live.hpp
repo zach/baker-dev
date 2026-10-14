@@ -1,10 +1,10 @@
-// Live: the edit-to-see loop over Moira, the same in every stack (game-stacks.md §2.2,
+// Live: the edit-to-see loop over Baker, the same in every stack (game-stacks.md §2.2,
 // §2.3). It owns the Config, its layer stack, and a watcher on the data directory:
 //
 //   default   <data>/default.dta   the game
 //   local     <data>/local.dta     one developer's own tuning; not in version control
 //   agent     <data>/agent.dta     an agent's experiments (§3.3)
-//   scratch   (Moira's)            unsaved live edits
+//   scratch   (Baker's)            unsaved live edits
 //
 // After the load, and at the frame after any change to the stack (a reload, a toggle from a
 // panel), it runs the layers' #autorun commands, so a data file can define script
@@ -24,8 +24,8 @@
 
 #include "base/watcher.hpp"
 
-#include <moira/config.hpp>
-#include <moira/script.hpp>
+#include <baker/config.hpp>
+#include <baker/script.hpp>
 
 #include <functional>
 #include <string>
@@ -39,12 +39,12 @@ struct LiveOptions {
     bool local = true;     // false: leave out local.dta, so one developer's tuning cannot
                            // change a simulation's results or a check's findings
     // Called after the load and after each change to the stack, once #autorun has run.
-    std::function<void(const moira::Config&)> changed{};
+    std::function<void(const baker::Config&)> changed{};
 };
 
 class Live {
 public:
-    explicit Live(moira::Context& ctx);
+    explicit Live(baker::Context& ctx);
     Live(const Live&) = delete;
     Live& operator=(const Live&) = delete;
 
@@ -60,8 +60,8 @@ public:
     // Reloads now, whatever the watcher says; true if anything changed.
     bool reload_now();
 
-    [[nodiscard]] moira::Config& config() noexcept { return cfg_; }
-    [[nodiscard]] const moira::Config& config() const noexcept { return cfg_; }
+    [[nodiscard]] baker::Config& config() noexcept { return cfg_; }
+    [[nodiscard]] const baker::Config& config() const noexcept { return cfg_; }
     [[nodiscard]] const std::string& data_dir() const noexcept { return data_dir_; }
 
     // Config::loop_stats() as one line of text: what `{live.loop}` returns.
@@ -78,14 +78,14 @@ private:
     // Then calls changed_.
     void autorun();
 
-    moira::Context& ctx_;
-    moira::Config cfg_;
+    baker::Context& ctx_;
+    baker::Config cfg_;
     Watcher watcher_;
     Changes changes_;
     bool watching_ = false;
     bool stack_changed_ = false;  // set by the Config after any change; autorun runs again
     std::string data_dir_;
-    std::function<void(const moira::Config&)> changed_;
+    std::function<void(const baker::Config&)> changed_;
     std::vector<std::string> log_;
 };
 

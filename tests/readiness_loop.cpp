@@ -1,9 +1,9 @@
 // The data-layer rows of a studio's readiness gate, end to end (spec M3b, Change 4):
-// edit-to-see measured with Moira's share visible, a tuned value saved as a one-line diff,
+// edit-to-see measured with Baker's share visible, a tuned value saved as a one-line diff,
 // an experiment compared A/B without touching shared files, and a return to an exact state.
 #include <doctest.h>
-#include <moira/config.hpp>
-#include <moira/std_interop.hpp>
+#include <baker/config.hpp>
+#include <baker/std_interop.hpp>
 
 #include "alloc_counter.hpp"
 #include "temp_dir.hpp"
@@ -11,9 +11,9 @@
 #include <string>
 #include <vector>
 
-using namespace moira;
+using namespace baker;
 
-#if !MOIRA_SHIPPING
+#if !BAKER_SHIPPING
 namespace {
 
 struct FakeClock {
@@ -77,7 +77,7 @@ TEST_CASE("readiness loop: edit, see, tune, save, experiment, and return") {
     CHECK(rec->scan_ns + rec->read_ns + rec->parse_ns + rec->merge_ns + rec->bind_ns +
               rec->notify_ns ==
           rec->end_ns - rec->start_ns);
-    CHECK(rec->end_ns - rec->origin_ns > 0);  // Moira's share of edit-to-see
+    CHECK(rec->end_ns - rec->origin_ns > 0);  // Baker's share of edit-to-see
     CHECK(rec->files_reloaded == 1);
     CHECK(rec->tweaks_changed == 1);
     CHECK(rec->first_file.str().ends_with("default.dta"));

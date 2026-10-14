@@ -1,14 +1,14 @@
 # The base
 
-What every stack shares (`docs/background/game-stacks.md` §2): Moira's live data loop, a
-window, a renderer, Moira's tuning panels and console, and a fixed-step frame loop that
+What every stack shares (`docs/background/game-stacks.md` §2): Baker's live data loop, a
+window, a renderer, Baker's tuning panels and console, and a fixed-step frame loop that
 drives a game. A game is one class:
 
 ```cpp
 class CubeGame final : public base::Game {
-    void bind(moira::Context& ctx) override;      // script functions, before the data loads
+    void bind(baker::Context& ctx) override;      // script functions, before the data loads
     void reset(uint64_t seed) override;           // the starting state, before play and each run
-    void load(const moira::Config& cfg) override; // structured data, after every change to the stack
+    void load(const baker::Config& cfg) override; // structured data, after every change to the stack
     void step(double dt) override;                // one fixed simulation step; no rendering
     void draw(base::Renderer& r, float alpha) override;  // camera and boxes
 };
@@ -26,11 +26,11 @@ int main(int argc, char** argv) {
 | `stacks_app` | `app`, `render`, `tools` | SDL3 window and input, the bgfx renderer, Dear ImGui, the frame loop, the agent's commands |
 | `stacks_physics` | `physics` | Jolt, cross-platform deterministic: one world, two layers, single-threaded steps, a state hash |
 | `stacks_nav` | `nav` | Recast/Detour: tiled navigation meshes built from boxes, paths, abilities as link flags |
-| `stacks_moira_tools` | Moira's `examples/harness-imgui/panels.cpp` and `examples/remote-console/console.cpp` | Used as they are, not copied |
+| `stacks_baker_tools` | Baker's `examples/harness-imgui/panels.cpp` and `examples/remote-console/console.cpp` | Used as they are, not copied |
 
 - **`Live`** owns the Config and the layer stack of §2.3: `default.dta`, then `local.dta`
   (one developer's, ignored by git) and `agent.dta` (an agent's experiments), both
-  optional, then Moira's scratch. It sets the session's pack levels (`engine`, `game`,
+  optional, then Baker's scratch. It sets the session's pack levels (`engine`, `game`,
   `task`), adds the shape and `check` validators, and uses the file system's clock as the
   Config's, so a reload's origin is its file's save time.
 - **`Game::load`** is called after the load and after every change to the layer stack,
@@ -41,7 +41,7 @@ int main(int argc, char** argv) {
   path, and the watcher watches that directory too.
 - **`Watcher`** asks the operating system which `.dta` files changed
   (`ReadDirectoryChangesW` on Windows, inotify on Linux), so a frame calls
-  `Config::reload` only after a save. Polling instead, as Moira's harness example does,
+  `Config::reload` only after a save. Polling instead, as Baker's harness example does,
   reads and hashes every file four times a second and adds up to 250 ms to every edit.
 - **`FixedStep`** counts integer nanoseconds: the same elapsed time gives the same steps at
   any frame rate. (Its first version summed seconds as doubles, and its own test caught 59
@@ -85,7 +85,7 @@ int main(int argc, char** argv) {
 
 The design's §2.1 also lists miniaudio and Tracy; each comes in with the first stack that
 needs it, once, in the base. Likewise the `spec/low.dta`
-layer, `moira_bake` caches, and a `shipping` preset wait for the first stack to ship a build.
+layer, `baker_bake` caches, and a `shipping` preset wait for the first stack to ship a build.
 
 ## Measured
 

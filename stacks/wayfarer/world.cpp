@@ -1,8 +1,8 @@
 #include "world.hpp"
 
+#include <baker/std_interop.hpp>
 #include <base/rng.hpp>
 #include <base/words.hpp>
-#include <moira/std_interop.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -15,11 +15,11 @@ namespace {
 constexpr size_t kMaxBits = 64;
 constexpr size_t kSoftlocksKept = 8;
 
-float num(const moira::Array& a, size_t i, float fallback = 0) {
+float num(const baker::Array& a, size_t i, float fallback = 0) {
     return i < a.size() ? static_cast<float>(a[i].as_float().value_or(fallback)) : fallback;
 }
-bool point(const moira::Node& n, base::NavPoint& out) {
-    const moira::Array* a = n.try_array();
+bool point(const baker::Node& n, base::NavPoint& out) {
+    const baker::Array* a = n.try_array();
     if (!a || a->size() < 3) return false;
     out = {num(*a, 0), num(*a, 1), num(*a, 2)};
     return true;
@@ -40,10 +40,10 @@ float flat(const base::NavPoint& a, const base::NavPoint& b) {
     return std::sqrt((a.x - b.x) * (a.x - b.x) + (a.z - b.z) * (a.z - b.z));
 }
 
-bool read_goal(const moira::Node& n, const World& w, Goal& g, std::string& error) {
+bool read_goal(const baker::Node& n, const World& w, Goal& g, std::string& error) {
     g.command = n;
     g.fact = Fact::Other;
-    const moira::Array* a = n.type() == moira::Type::Command ? n.array() : nullptr;
+    const baker::Array* a = n.type() == baker::Type::Command ? n.array() : nullptr;
     if (!a || a->size() != 2) return true;
     const auto head = (*a)[0].try_sym();
     const auto arg = (*a)[1].try_sym();
@@ -66,8 +66,8 @@ bool read_goal(const moira::Node& n, const World& w, Goal& g, std::string& error
 }
 
 // Reads `{and a b ...}` as several goals, anything else as one.
-bool read_goals(const moira::Node& n, const World& w, std::vector<Goal>& out, std::string& error) {
-    const moira::Array* a = n.type() == moira::Type::Command ? n.array() : nullptr;
+bool read_goals(const baker::Node& n, const World& w, std::vector<Goal>& out, std::string& error) {
+    const baker::Array* a = n.type() == baker::Type::Command ? n.array() : nullptr;
     if (a && !a->empty() && (*a)[0].try_sym() && (*a)[0].try_sym()->str() == "and") {
         for (size_t i = 1; i < a->size(); ++i)
             if (!read_goals((*a)[i], w, out, error)) return false;
@@ -114,10 +114,10 @@ uint16_t World::abilities_of(uint64_t held) const {
     return f;
 }
 
-bool load(const moira::Ref<moira::Array>& root, World& out, std::string& error) {
+bool load(const baker::Ref<baker::Array>& root, World& out, std::string& error) {
     World w;
     w.tree = root;
-    if (const moira::Array* r = root->try_find(moira::Symbol("wayfarer"))) {
+    if (const baker::Array* r = root->try_find(baker::Symbol("wayfarer"))) {
         Traversal& t = w.rules;
         t.run_speed = base::number(*r, "run_speed", t.run_speed);
         t.climb_max = base::number(*r, "climb_max", t.climb_max);
@@ -128,20 +128,20 @@ bool load(const moira::Ref<moira::Array>& root, World& out, std::string& error) 
         t.poi_radius = base::number(*r, "poi_radius", t.poi_radius);
         t.discover_radius = base::number(*r, "discover_radius", t.discover_radius);
     }
-    if (const moira::Array* a = root->try_find(moira::Symbol("world"))) {
+    if (const baker::Array* a = root->try_find(baker::Symbol("world"))) {
         w.cell_size = std::max(8.0f, base::number(*a, "cell_size", w.cell_size));
-        if (const moira::Array* s = a->try_find(moira::Symbol("spawn")); s && s->size() > 3)
+        if (const baker::Array* s = a->try_find(baker::Symbol("spawn")); s && s->size() > 3)
             w.spawn = {num(*s, 1), num(*s, 2), num(*s, 3)};
     }
-    if (const moira::Array* a = root->try_find(moira::Symbol("items")))
+    if (const baker::Array* a = root->try_find(baker::Symbol("items")))
         for (size_t i = 1; i < a->size(); ++i)
             if (auto s = (*a)[i].try_sym()) w.items.emplace_back(s->str());
     if (w.items.size() > kMaxBits) {
         error = "more than 64 items";
         return false;
     }
-    if (const moira::Array* a = root->try_find(moira::Symbol("abilities")))
-        for (const moira::Array& ab : a->subarrays()) {
+    if (const baker::Array* a = root->try_find(baker::Symbol("abilities")))
+        for (const baker::Array& ab : a->subarrays()) {
             Ability x;
             x.name = base::name(ab);
             x.flag = x.name == "climb"   ? base::nav::kClimb
@@ -152,7 +152,7 @@ bool load(const moira::Ref<moira::Array>& root, World& out, std::string& error) 
                 error = "ability " + x.name + ": the abilities are climb, glide, and swim";
                 return false;
             }
-            if (auto it = ab.find_sym(moira::Symbol("item"), moira::Symbol());
+            if (auto it = ab.find_sym(baker::Symbol("item"), baker::Symbol());
                 it && !it->str().empty()) {
                 x.item = w.item(std::string(it->str()));
                 if (x.item < 0) {
@@ -163,19 +163,19 @@ bool load(const moira::Ref<moira::Array>& root, World& out, std::string& error) 
             }
             w.abilities.push_back(std::move(x));
         }
-    if (const moira::Array* a = root->try_find(moira::Symbol("cells")))
-        for (const moira::Array& ca : a->subarrays()) {
+    if (const baker::Array* a = root->try_find(baker::Symbol("cells")))
+        for (const baker::Array& ca : a->subarrays()) {
             Cell c;
             c.name = base::name(ca);
-            if (const moira::Array* at = ca.try_find(moira::Symbol("grid"))) {
+            if (const baker::Array* at = ca.try_find(baker::Symbol("grid"))) {
                 c.cx = int(num(*at, 1));
                 c.cz = int(num(*at, 2));
             }
             uint64_t h = 0xCBF29CE484222325ull;
             for (const char* tag : {"blocks", "climbable"})
-                if (const moira::Array* bs = ca.try_find(moira::Symbol(tag)))
+                if (const baker::Array* bs = ca.try_find(baker::Symbol(tag)))
                     for (size_t i = 1; i < bs->size(); ++i) {
-                        const moira::Array* b = (*bs)[i].try_array();
+                        const baker::Array* b = (*bs)[i].try_array();
                         if (!b || b->size() < 5) {
                             error = "cell " + c.name + ": a block is (x z width depth height [y])";
                             return false;
@@ -192,9 +192,9 @@ bool load(const moira::Ref<moira::Array>& root, World& out, std::string& error) 
                         c.blocks.push_back(k);
                     }
             for (const char* tag : {"drops", "glides"})
-                if (const moira::Array* ms = ca.try_find(moira::Symbol(tag)))
+                if (const baker::Array* ms = ca.try_find(baker::Symbol(tag)))
                     for (size_t i = 1; i < ms->size(); ++i) {
-                        const moira::Array* m = (*ms)[i].try_array();
+                        const baker::Array* m = (*ms)[i].try_array();
                         Move mv;
                         mv.glide = std::strcmp(tag, "glides") == 0;
                         if (!m || m->size() < 2 || !point((*m)[0], mv.from) ||
@@ -215,13 +215,13 @@ bool load(const moira::Ref<moira::Array>& root, World& out, std::string& error) 
         error = "no (cells ...) in the data";
         return false;
     }
-    if (const moira::Array* a = root->try_find(moira::Symbol("pois")))
-        for (const moira::Array& pa : a->subarrays()) {
+    if (const baker::Array* a = root->try_find(baker::Symbol("pois")))
+        for (const baker::Array& pa : a->subarrays()) {
             Poi p;
             p.name = base::name(pa);
-            if (const moira::Array* at = pa.try_find(moira::Symbol("pos")))
+            if (const baker::Array* at = pa.try_find(baker::Symbol("pos")))
                 p.at = {num(*at, 1), num(*at, 2), num(*at, 3)};
-            for (const moira::Array& f : pa.subarrays()) {
+            for (const baker::Array& f : pa.subarrays()) {
                 const std::string t = base::name(f);
                 if (t == "landmark") p.landmark = true;
                 if (t == "gives" || t == "needs")
@@ -254,14 +254,14 @@ bool load(const moira::Ref<moira::Array>& root, World& out, std::string& error) 
     }
     // Missions come one (missions ...) per region file: read them all, names first, so a
     // mission can unlock on one defined after it.
-    std::vector<std::pair<const moira::Array*, std::string>> defs;
-    for (const moira::Node& n : root->nodes()) {
-        const moira::Array* a = n.try_array();
+    std::vector<std::pair<const baker::Array*, std::string>> defs;
+    for (const baker::Node& n : root->nodes()) {
+        const baker::Array* a = n.try_array();
         if (!a || base::name(*a) != "missions") continue;
-        for (const moira::Array& ma : a->subarrays()) {
+        for (const baker::Array& ma : a->subarrays()) {
             Mission m;
             m.name = base::name(ma);
-            if (auto r = ma.find_sym(moira::Symbol("region"), moira::Symbol()); r)
+            if (auto r = ma.find_sym(baker::Symbol("region"), baker::Symbol()); r)
                 m.region = std::string(r->str());
             m.file = std::string(ma.file().str());
             w.missions.push_back(std::move(m));
@@ -273,20 +273,20 @@ bool load(const moira::Ref<moira::Array>& root, World& out, std::string& error) 
         return false;
     }
     for (size_t mi = 0; mi < defs.size(); ++mi) {
-        const moira::Array& ma = *defs[mi].first;
+        const baker::Array& ma = *defs[mi].first;
         Mission& m = w.missions[mi];
-        if (const moira::Array* u = ma.try_find(moira::Symbol("unlock")))
+        if (const baker::Array* u = ma.try_find(baker::Symbol("unlock")))
             for (size_t i = 1; i < u->size(); ++i)
                 if (!read_goals((*u)[i], w, m.unlock, error)) {
                     error = "mission " + m.name + " unlock: " + error;
                     return false;
                 }
-        if (const moira::Array* os = ma.try_find(moira::Symbol("objectives")))
-            for (const moira::Array& oa : os->subarrays()) {
+        if (const baker::Array* os = ma.try_find(baker::Symbol("objectives")))
+            for (const baker::Array& oa : os->subarrays()) {
                 Objective o;
                 o.name = base::name(oa);
                 o.hint_after = base::number(oa, "hint_after", -1);
-                const moira::Array* g = oa.try_find(moira::Symbol("goal"));
+                const baker::Array* g = oa.try_find(baker::Symbol("goal"));
                 if (!g || g->size() < 2 || !read_goal((*g)[1], w, o.goal, error)) {
                     error = "mission " + m.name + " objective " + o.name + ": " +
                             (error.empty() ? std::string("no (goal ...)") : error);
@@ -300,9 +300,9 @@ bool load(const moira::Ref<moira::Array>& root, World& out, std::string& error) 
         }
         // Requires name objectives of the same mission.
         size_t oi = 0;
-        if (const moira::Array* os = ma.try_find(moira::Symbol("objectives")))
-            for (const moira::Array& oa : os->subarrays()) {
-                if (const moira::Array* rq = oa.try_find(moira::Symbol("requires")))
+        if (const baker::Array* os = ma.try_find(baker::Symbol("objectives")))
+            for (const baker::Array& oa : os->subarrays()) {
+                if (const baker::Array* rq = oa.try_find(baker::Symbol("requires")))
                     for (size_t i = 1; i < rq->size(); ++i) {
                         const auto s = (*rq)[i].try_sym();
                         int found = -1;
@@ -317,9 +317,9 @@ bool load(const moira::Ref<moira::Array>& root, World& out, std::string& error) 
                     }
                 ++oi;
             }
-        if (const moira::Array* rw = ma.try_find(moira::Symbol("reward"))) {
+        if (const baker::Array* rw = ma.try_find(baker::Symbol("reward"))) {
             m.xp = int(base::number(*rw, "xp", 0));
-            for (const moira::Array& r : rw->subarrays())
+            for (const baker::Array& r : rw->subarrays())
                 if (base::name(r) == "item")
                     for (size_t i = 1; i < r.size(); ++i) {
                         const auto s = r[i].try_sym();

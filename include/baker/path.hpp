@@ -17,14 +17,14 @@
 // inline, so building one never allocates; a path deeper than kMaxSegments is invalid
 // (docs/decisions.md D60).
 
-#include <moira/symbol.hpp>
-#include <moira/text.hpp>
+#include <baker/symbol.hpp>
+#include <baker/text.hpp>
 
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
 
-namespace moira {
+namespace baker {
 
 class Path {
 public:
@@ -51,7 +51,7 @@ public:
 
     // Writes the first `count` segments, '/'-separated and quoted where needed, as in
     // errors: menu/'bacon and eggs'. An invalid path writes (the start of) the text it was
-    // parsed from. <moira/std_interop.hpp> has to_string(path).
+    // parsed from. <baker/std_interop.hpp> has to_string(path).
     void write(TextSink out, size_t count = SIZE_MAX, char separator = '/') const;
 
     // Whether `text` parses to this path; never allocates or interns.
@@ -74,4 +74,4 @@ private:
     bool valid_ = true;
 };
 
-}  // namespace moira
+}  // namespace baker

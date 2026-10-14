@@ -1,6 +1,6 @@
 // Parses every .dta file under the given paths and reports which ones fail.
 //
-//   moira_parse_corpus [--roundtrip] [--milo-paths] [-D NAME]... [-I DIR]... PATH...
+//   baker_parse_corpus [--roundtrip] [--milo-paths] [-D NAME]... [-I DIR]... PATH...
 //
 // Use it to check the parser against a local checkout of a real DTA corpus (for example
 // mariteaux/milo-script-library). Nothing from such a corpus is part of this repository;
@@ -14,9 +14,9 @@
 // are not in the dump at all: each is read as empty and counted, so the run measures the
 // parser, not the dump.
 
-#include <moira/parse.hpp>
-#include <moira/std_interop.hpp>
-#include <moira/write.hpp>
+#include <baker/parse.hpp>
+#include <baker/std_interop.hpp>
+#include <baker/write.hpp>
 
 #include <algorithm>
 #include <cstdio>
@@ -56,11 +56,11 @@ std::string normal(const fs::path& p) {
     return p.lexically_normal().generic_string();
 }
 
-bool fits(const moira::Node& n, uint64_t& budget) {
+bool fits(const baker::Node& n, uint64_t& budget) {
     if (budget == 0) return false;
     --budget;
-    if (const moira::Array* a = n.array())
-        for (const moira::Node& c : *a)
+    if (const baker::Array* a = n.array())
+        for (const baker::Node& c : *a)
             if (!fits(c, budget)) return false;
     return true;
 }
@@ -122,12 +122,12 @@ int main(int argc, char** argv) {
         std::vector<std::string> absent;
         const fs::path archive = milo ? archive_root(item.file) : fs::path();
         auto load = [&] {
-            moira::LoadSession session;
+            baker::LoadSession session;
             for (const std::string& d : include_dirs) session.add_include_dir(d);
             session.add_include_dir(item.root.generic_string());
-            for (const std::string& d : defines) session.define(moira::Symbol(d));
+            for (const std::string& d : defines) session.define(baker::Symbol(d));
             if (milo)
-                session.set_reader([&](std::string_view path, moira::TextSink out) {
+                session.set_reader([&](std::string_view path, baker::TextSink out) {
                     std::string p(path);
                     std::replace(p.begin(), p.end(), '\\', '/');
                     p = normal(p);
@@ -142,16 +142,16 @@ int main(int argc, char** argv) {
                     std::fclose(f);
                     return true;
                 });
-            return moira::read_file(item.file.generic_string(), session);
+            return baker::read_file(item.file.generic_string(), session);
         };
         auto root = load();
         for (int retry = 0; milo && !root && retry < 4096; ++retry) {
-            const moira::Error& e = root.error();
+            const baker::Error& e = root.error();
             const std::string_view m = e.message();
             constexpr std::string_view kMissing = "cannot read included file '";
-            if (e.code() != moira::ErrorCode::Io || m.substr(0, kMissing.size()) != kMissing) break;
+            if (e.code() != baker::ErrorCode::Io || m.substr(0, kMissing.size()) != kMissing) break;
             std::string inc(m.substr(kMissing.size(), m.size() - kMissing.size() - 1));
-            std::replace(inc.begin(), inc.end(), '\\', '/');  // Moira reads both separators
+            std::replace(inc.begin(), inc.end(), '\\', '/');  // Baker reads both separators
             std::string p = normal(fs::path(std::string(e.file().str())).parent_path() / inc);
             if (!archive.empty()) p = under_root(archive, p);
             if (std::find(absent.begin(), absent.end(), p) != absent.end()) break;
@@ -165,17 +165,17 @@ int main(int argc, char** argv) {
         if (!root) {
             ++failed;
             std::printf("FAIL %s\n     %s\n", item.file.generic_string().c_str(),
-                        moira::to_string(root.error()).data());
+                        baker::to_string(root.error()).data());
             continue;
         }
         ++ok;
         if (!roundtrip) continue;
         uint64_t budget = 10'000'000;
         bool small = true;
-        for (const moira::Node& n : **root) small = small && fits(n, budget);
+        for (const baker::Node& n : **root) small = small && fits(n, budget);
         if (!small) continue;
-        auto again = moira::read_string(moira::to_dta(**root), "printed.dta");
-        if (!again || !moira::structurally_equal(**root, **again)) {
+        auto again = baker::read_string(baker::to_dta(**root), "printed.dta");
+        if (!again || !baker::structurally_equal(**root, **again)) {
             ++roundtrip_failed;
             std::printf("ROUNDTRIP %s\n", item.file.generic_string().c_str());
         }

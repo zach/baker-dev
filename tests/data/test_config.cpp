@@ -1,9 +1,9 @@
 // Config: merge, layers, provenance, reload, callbacks, tweaks, live edits, write-back.
 #include <doctest.h>
-#include <moira/config.hpp>
-#include <moira/parse.hpp>
-#include <moira/std_interop.hpp>
-#include <moira/write.hpp>
+#include <baker/config.hpp>
+#include <baker/parse.hpp>
+#include <baker/std_interop.hpp>
+#include <baker/write.hpp>
 
 #include "alloc_counter.hpp"
 #include "temp_dir.hpp"
@@ -22,11 +22,11 @@
 #include <vector>
 #include "ok.hpp"
 
-using namespace moira;
-using moira::test::ok;
+using namespace baker;
+using baker::test::ok;
 namespace fs = std::filesystem;
-using moira::test::diff_lines;
-using moira::test::TempDir;
+using baker::test::diff_lines;
+using baker::test::TempDir;
 
 namespace {
 
@@ -233,7 +233,7 @@ TEST_CASE("source names the layer, file, and line") {
     s = *cfg.source("renderer.shadows");  // a container: the topmost layer that has it
     CHECK(s.layer == "app");
 
-#if !MOIRA_SHIPPING
+#if !BAKER_SHIPPING
     REQUIRE(cfg.set("renderer.screen_size", std::array<int, 2>{800, 600}));
     s = *cfg.source("renderer.screen_size");
     CHECK(s.layer == "scratch");
@@ -271,7 +271,7 @@ TEST_CASE("source names a generated file's origin and tool (D91)") {
     CHECK(price->source.tool == Symbol("sheets-export"));
 }
 
-#if !MOIRA_SHIPPING  // reload is inert under MOIRA_SHIPPING (tested below)
+#if !BAKER_SHIPPING  // reload is inert under BAKER_SHIPPING (tested below)
 TEST_CASE("reload sees a file changed on disk") {
     TempDir dir;
     Config cfg({.tweaks = nullptr});
@@ -456,7 +456,7 @@ TEST_CASE("live edits through tweaks, and write-back to the source line") {
     REQUIRE(cfg.push_layer("default", dir.write("default.dta", kDefault)));
     REQUIRE(cfg.push_layer("app", dir.write("app.dta", kApp)));
 
-#if MOIRA_SHIPPING
+#if BAKER_SHIPPING
     CHECK(width.set(2.7f).error().code() == ErrorCode::Refused);
 #else
     REQUIRE(width.set(2.7f));
@@ -491,7 +491,7 @@ TEST_CASE("live edits through tweaks, and write-back to the source line") {
 #endif
 }
 
-#if !MOIRA_SHIPPING
+#if !BAKER_SHIPPING
 TEST_CASE("write-back refuses what it cannot edit exactly") {
     TempDir dir;
     Config cfg({.tweaks = nullptr});
@@ -591,8 +591,8 @@ TEST_CASE("freeze ends the initial load") {
 }
 #endif
 
-#if MOIRA_SHIPPING
-TEST_CASE("under MOIRA_SHIPPING reload is inert and dev_only tweaks keep their defaults") {
+#if BAKER_SHIPPING
+TEST_CASE("under BAKER_SHIPPING reload is inert and dev_only tweaks keep their defaults") {
     TweakRegistry reg;
     Tweak<int> cheat{"debug.god_mode", 0, {.dev_only = true}, reg};
     Tweak<int> speed{"player.speed", 1, {}, reg};
@@ -630,7 +630,7 @@ TEST_CASE("the short forms in one place") {
     }
 }
 
-#if !MOIRA_SHIPPING
+#if !BAKER_SHIPPING
 namespace {
 // Every path in `a` that ends on an array with values: menu/item/price, ...
 void value_paths(const Array& a, const std::string& prefix, std::vector<std::string>& out) {
@@ -653,7 +653,7 @@ void value_paths(const Array& a, const std::string& prefix, std::vector<std::str
 TEST_CASE("every corpus config value writes back as one line, or is refused with a location") {
     TempDir dir;
     for (const char* name : {"config_default.dta", "config_app.dta", "macros.dta"}) {
-        std::ifstream in(fs::path(MOIRA_CORPUS_DIR) / name, std::ios::binary);
+        std::ifstream in(fs::path(BAKER_CORPUS_DIR) / name, std::ios::binary);
         std::stringstream ss;
         ss << in.rdbuf();
         dir.write(name, ss.str());

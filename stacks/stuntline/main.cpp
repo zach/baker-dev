@@ -17,8 +17,8 @@
 
 #include <SDL3/SDL.h>
 #include <imgui.h>
-#include <moira/std_interop.hpp>
-#include <moira/std_script.hpp>
+#include <baker/std_interop.hpp>
+#include <baker/std_script.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -29,11 +29,11 @@
 #include <tuple>
 #include <vector>
 
-static moira::Tweak<float> kChaseDistance{
+static baker::Tweak<float> kChaseDistance{
     "stuntline.chase_distance", 9.0f, {.range = {2, 40}, .desc = "Metres behind the car"}};
-static moira::Tweak<float> kChaseHeight{
+static baker::Tweak<float> kChaseHeight{
     "stuntline.chase_height", 3.5f, {.range = {0, 20}, .desc = "Metres above the car"}};
-static moira::Tweak<float> kPatience{
+static baker::Tweak<float> kPatience{
     "stuntline.patience",
     4.0f,
     {.range = {1, 20}, .desc = "An analysis gives up at par times this"}};
@@ -42,31 +42,31 @@ namespace {
 
 class StuntlineGame final : public base::Game {
 public:
-    void bind(moira::Context& ctx) override {
+    void bind(baker::Context& ctx) override {
         auto doc = [](auto f, const char* text) {
             if (f) f->doc(text);
         };
         doc(ctx.func("track.load",
-                     [this](moira::Symbol name) -> moira::Expected<void> {
+                     [this](baker::Symbol name) -> baker::Expected<void> {
                          const int t = kit_.track(std::string(name.str()));
                          if (t < 0)
-                             return moira::Unexpected(
+                             return baker::Unexpected(
                                  base::not_found("no track " + std::string(name.str())));
                          select(t);
                          return {};
                      }),
             "Opens a track of (tracks ...) and puts the car at its start.");
-        doc(ctx.func("track.name", [this] { return moira::Symbol(track().name); }),
+        doc(ctx.func("track.name", [this] { return baker::Symbol(track().name); }),
             "The open track.");
         doc(ctx.func("track.valid", [this] { return layout_.connected; }),
             "Whether every piece's in matches the out of the piece before it.");
         doc(ctx.func("track.par", [this] { return double(track().par); }),
             "The track's par, in seconds.");
         doc(ctx.func("track.drive",
-                     [this](moira::Symbol who) -> moira::Expected<void> {
+                     [this](baker::Symbol who) -> baker::Expected<void> {
                          const std::string name(who.str());
                          if (name != "human" && kit_.driver(name) < 0)
-                             return moira::Unexpected(base::not_found(
+                             return baker::Unexpected(base::not_found(
                                  "no driver " + name + ": human, or one of (drivers ...)"));
                          driver_ = name == "human" ? -1 : kit_.driver(name);
                          restart();
@@ -80,32 +80,32 @@ public:
         doc(ctx.func("track.crashes", [this] { return int64_t(race_ ? race_->crashes : 0); }),
             "Crashes in the game's race.");
         doc(ctx.func("track.finish_time",
-                     [this](moira::Symbol d) -> moira::Expected<double> {
+                     [this](baker::Symbol d) -> baker::Expected<double> {
                          auto r = analysis(d);
-                         if (!r) return moira::Unexpected(r.error());
+                         if (!r) return baker::Unexpected(r.error());
                          return (*r)->finished ? double((*r)->seconds) : -1.0;
                      }),
             "A driver's time over the open track, headless; -1 if it did not finish in time.");
         doc(ctx.func("track.crash_rate",
-                     [this](moira::Symbol d) -> moira::Expected<double> {
+                     [this](baker::Symbol d) -> baker::Expected<double> {
                          auto r = analysis(d);
-                         if (!r) return moira::Unexpected(r.error());
+                         if (!r) return baker::Unexpected(r.error());
                          return double((*r)->crashes) / double(track().lay.size());
                      }),
             "A driver's crashes per piece of the open track.");
         doc(ctx.func("track.airtime_share",
-                     [this](moira::Symbol d) -> moira::Expected<double> {
+                     [this](baker::Symbol d) -> baker::Expected<double> {
                          auto r = analysis(d);
-                         if (!r) return moira::Unexpected(r.error());
+                         if (!r) return baker::Unexpected(r.error());
                          return (*r)->seconds > 0 ? double((*r)->airtime / (*r)->seconds) : 0.0;
                      }),
             "The share of a driver's race spent with no wheel on the road.");
         doc(ctx.func("track.skill_spread",
-                     [this]() -> moira::Expected<double> {
-                         auto slow = analysis(moira::Symbol("rookie"));
-                         auto fast = analysis(moira::Symbol("ace"));
-                         if (!slow) return moira::Unexpected(slow.error());
-                         if (!fast) return moira::Unexpected(fast.error());
+                     [this]() -> baker::Expected<double> {
+                         auto slow = analysis(baker::Symbol("rookie"));
+                         auto fast = analysis(baker::Symbol("ace"));
+                         if (!slow) return baker::Unexpected(slow.error());
+                         if (!fast) return baker::Unexpected(fast.error());
                          const float limit = track().par * kPatience;
                          const float a = (*slow)->finished ? (*slow)->seconds : limit;
                          const float b = (*fast)->finished ? (*fast)->seconds : limit;
@@ -113,9 +113,9 @@ public:
                      }),
             "The rookie's time over the ace's: how much skill the track rewards.");
         doc(ctx.func("track.jump_commitment",
-                     [this]() -> moira::Expected<int64_t> {
-                         auto pro = analysis(moira::Symbol("pro"));
-                         if (!pro) return moira::Unexpected(pro.error());
+                     [this]() -> baker::Expected<int64_t> {
+                         auto pro = analysis(baker::Symbol("pro"));
+                         if (!pro) return baker::Unexpected(pro.error());
                          const auto& speeds = (*pro)->gap_arrival;
                          std::vector<float> slow(speeds);
                          for (float& v : slow) v *= 0.7f;
@@ -131,7 +131,7 @@ public:
             "Every driver over the open track: time, crashes and where, airtime, jump speeds.");
     }
 
-    void load(const moira::Config& cfg) override {
+    void load(const baker::Config& cfg) override {
         stuntline::Kit next;
         std::string error;
         if (!stuntline::load(*cfg.root(), next, error)) {
@@ -316,10 +316,10 @@ private:
     }
 
     // A driver's headless race over the open track, once per driver and seed.
-    moira::Expected<const stuntline::Result*> analysis(moira::Symbol name) {
+    baker::Expected<const stuntline::Result*> analysis(baker::Symbol name) {
         const int d = kit_.driver(std::string(name.str()));
         if (d < 0)
-            return moira::Unexpected(base::not_found("no driver " + std::string(name.str())));
+            return baker::Unexpected(base::not_found("no driver " + std::string(name.str())));
         auto key = std::make_tuple(track_, d, seed_);
         auto it = results_.find(key);
         if (it == results_.end())
@@ -334,7 +334,7 @@ private:
         std::string s = "driver   time     crashes (pieces)   airtime  top km/h  jump speeds\n";
         char line[256];
         for (const stuntline::Driver& d : kit_.drivers) {
-            auto r = analysis(moira::Symbol(d.name));
+            auto r = analysis(baker::Symbol(d.name));
             if (!r) continue;
             const stuntline::Result& x = **r;
             std::string pieces;

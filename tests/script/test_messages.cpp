@@ -1,8 +1,8 @@
 // Typed messages (spec §5, D53): the C++ path, the script path, and where they meet.
 #include <doctest.h>
-#include <moira/object.hpp>
-#include <moira/script.hpp>
-#include <moira/std_script.hpp>
+#include <baker/object.hpp>
+#include <baker/script.hpp>
+#include <baker/std_script.hpp>
 
 #include "alloc_counter.hpp"
 #include "ok.hpp"
@@ -10,8 +10,8 @@
 #include <string>
 #include <vector>
 
-using namespace moira;
-using moira::test::ok;
+using namespace baker;
+using baker::test::ok;
 
 namespace {
 

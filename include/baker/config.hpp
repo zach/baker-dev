@@ -2,7 +2,7 @@
 
 // Config: layered, hot-reloadable configuration with provenance and write-back.
 //
-//   moira::Config cfg;
+//   baker::Config cfg;
 //   cfg.push_layer("default", "default.dta");
 //   cfg.push_layer("platform", "ps5.dta");
 //   cfg.push_layer("local", "local/" + user + ".dta", {.optional = true});   // per user
@@ -10,7 +10,7 @@
 //   cfg.remove_layer("patch-2026-10-11");              // rollback: leaves no trace
 //
 //   float c = cfg.get<float>("renderer.clear_color.0");
-//   moira::Source s = cfg.source("renderer.clear_color");   // layer, file, line
+//   baker::Source s = cfg.source("renderer.clear_color");   // layer, file, line
 //
 // Layers merge bottom to top. For each tagged array of a layer, the array with the same
 // tag below is merged into recursively; the layer's values (everything that is not a tagged
@@ -39,7 +39,7 @@
 //
 // Telemetry. Each change is timed in six stages (scan, read, parse, merge, bind, notify)
 // with the time source the host gives set_time_source (default: steady_clock), and kept in
-// a fixed ring (set_reload_history, default 256). Under MOIRA_SHIPPING the timing compiles
+// a fixed ring (set_reload_history, default 256). Under BAKER_SHIPPING the timing compiles
 // out: last_reload() is empty and each_reload() visits nothing.
 //
 // Scratch and write-back. set() puts a value tuned in the running program into the
@@ -55,28 +55,28 @@
 // another layer, all or nothing. Write-back refuses, with a located error, a value from a
 // macro, an overlay, an ancestor that came from #include or #merge, a missing indexed
 // element, or a file that changed on disk since it was read; it never guesses. It needs
-// edit mode (ConfigOptions::edit_mode), on by default except under MOIRA_SHIPPING.
+// edit mode (ConfigOptions::edit_mode), on by default except under BAKER_SHIPPING.
 //
 // snapshot() captures the layer stack, each layer's trees (shared, not copied), and
 // scratch; restore() returns to it exactly without reading any file.
 //
 // freeze() ends the initial load: afterwards reload, layer changes, and live edits are
 // refused, unless ConfigOptions::live_layers explicitly allows them (the path a shipped
-// game uses for live-ops overlays). Under MOIRA_SHIPPING, reload(), toggles, set(),
+// game uses for live-ops overlays). Under BAKER_SHIPPING, reload(), toggles, set(),
 // write-back, and promote() are always inert.
 //
 // Not thread-safe: change a Config from one thread. Readers on other threads should take
 // root() (a Ref) and read that.
 
-#include <moira/array.hpp>
-#include <moira/clock.hpp>
-#include <moira/parse.hpp>
-#include <moira/path.hpp>
-#include <moira/source_map.hpp>
-#include <moira/tweak.hpp>
+#include <baker/array.hpp>
+#include <baker/clock.hpp>
+#include <baker/parse.hpp>
+#include <baker/path.hpp>
+#include <baker/source_map.hpp>
+#include <baker/tweak.hpp>
 
-#include <moira/callback.hpp>
-#include <moira/list.hpp>
+#include <baker/callback.hpp>
+#include <baker/list.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -84,7 +84,7 @@
 #include <span>
 #include <string_view>
 
-namespace moira {
+namespace baker {
 
 enum class MergePolicy : uint8_t {
     Overwrite,    // Config layers: the incoming values replace the existing ones
@@ -301,7 +301,7 @@ public:
     [[nodiscard]] Expected<bool> reload(const ReloadRequest& request = {});
     ReloadId on_reload(const Path& group, Callback<void()> rebuild,
                        Callback<Reload()> migrate = {});
-    // Called after every change with its finished record (not under MOIRA_SHIPPING).
+    // Called after every change with its finished record (not under BAKER_SHIPPING).
     ReloadId on_reload_complete(Callback<void(const ReloadRecord&)> callback);
     void remove_on_reload(ReloadId id);
     void set_time_source(TimeSource fn, void* user = nullptr);
@@ -310,11 +310,11 @@ public:
     [[nodiscard]] std::optional<ReloadRecord> last_reload() const noexcept;
     // Called by the host when a frame presents: stamps visible_ns on the reloads completed
     // since the last call, and counts their edit-to-see to now. With nothing to stamp, one
-    // branch. Does nothing under MOIRA_SHIPPING.
+    // branch. Does nothing under BAKER_SHIPPING.
     void mark_visible() noexcept {
         if (visible_pending_) stamp_visible();
     }
-    // Per file and per layer (above); empty under MOIRA_SHIPPING. Allocates its result.
+    // Per file and per layer (above); empty under BAKER_SHIPPING. Allocates its result.
     [[nodiscard]] LoopStats loop_stats() const;
     // Visits the history, oldest to newest.
     template <class F>
@@ -326,7 +326,7 @@ public:
     void set_warning_handler(Callback<void(const Error&)> handler);
     // Called after every merge (a layer pushed, popped, removed, or toggled; a reload; a
     // restore) with the merged root and the warning handler, to report on the data:
-    // moira::shape::validator() checks shapes this way (D84), and moira::check_validator()
+    // baker::shape::validator() checks shapes this way (D84), and baker::check_validator()
     // script calls (D102). Validators run in the order they were added.
     using Validator = Callback<void(const Array& root, const Callback<void(const Error&)>& warn)>;
     using ValidatorId = uint32_t;
@@ -344,7 +344,7 @@ public:
     // disabled layer's too: layers read in order, each over the one below). Refreshed at
     // every merge, before the validators run; its address is stable for the Config's life,
     // so it is the session to give check, check_validator, to_json, and reference:
-    //   cfg.add_validator(moira::check_validator(ctx, {.packs = &cfg.read_session()}));
+    //   cfg.add_validator(baker::check_validator(ctx, {.packs = &cfg.read_session()}));
     [[nodiscard]] const LoadSession& read_session() const noexcept;
     // Replaces file writing for write-back (default: the local filesystem).
     void set_writer(Writer writer);
@@ -363,7 +363,7 @@ public:
     // Paths in scratch: live edits not yet written back.
     [[nodiscard]] List<Symbol> unsaved() const;
     // Visits the edit journal, oldest first: up to the last 256 live changes (D93); empty
-    // under MOIRA_SHIPPING. set_journal_history allocates the ring once; 0 turns it off.
+    // under BAKER_SHIPPING. set_journal_history allocates the ring once; 0 turns it off.
     template <class F>
     void journal(F&& fn) const {
         for (size_t i = 0, n = journal_size(); i < n; ++i) fn(journal_at(i));
@@ -410,4 +410,4 @@ private:
     Impl* impl_;
 };
 
-}  // namespace moira
+}  // namespace baker

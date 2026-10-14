@@ -1,10 +1,10 @@
 // A remote console: a game polls it once a frame, and a developer connects with any line
 // client (`nc 127.0.0.1 7000`) to evaluate commands in the running game.
 //
-//   moira_example_remote_console [--port 7000]   serve until interrupted
-//   moira_example_remote_console --test          connect over loopback, send three
+//   baker_example_remote_console [--port 7000]   serve until interrupted
+//   baker_example_remote_console --test          connect over loopback, send three
 //                                                commands, print the replies, and exit
-#include <moira/script.hpp>
+#include <baker/script.hpp>
 
 #include <atomic>
 #include <chrono>
@@ -51,7 +51,7 @@ int main(int argc, char** argv) {
         argc > 2 && std::strcmp(argv[1], "--port") == 0 ? uint16_t(std::atoi(argv[2])) : 7000;
     if (!sockets_start()) return 1;
 
-    moira::Context ctx;
+    baker::Context ctx;
     ctx.global("speed", 1.0, "The player's speed.");
     if (!ctx.func("boost", [&ctx](double factor) {
             const double speed = ctx.var("speed")->try_float().value_or(0) * factor;

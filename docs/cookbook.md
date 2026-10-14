@@ -1,6 +1,6 @@
-# Moira cookbook
+# Baker cookbook
 
-Patterns for using Moira well. The [language guide](language.md) says what each piece is;
+Patterns for using Baker well. The [language guide](language.md) says what each piece is;
 this says how they fit a studio's day. Each pattern links the example that runs it.
 
 - [Group parameters under the code that owns them](#group-parameters-under-the-code-that-owns-them)
@@ -19,7 +19,7 @@ this says how they fit a studio's day. Each pattern links the example that runs 
 
 Put a subsystem's parameters under one tag (`(renderer ...)`, `(audio ...)`) and have only
 that subsystem read them. Reading another subsystem's parameters is bad form even though a
-global database makes it possible. Moira enforces nothing, but hot reload depends on it:
+global database makes it possible. Baker enforces nothing, but hot reload depends on it:
 `cfg.on_reload("renderer", rebuild)` fires when the `renderer` subtree changes, so a group
 is the unit that gets refreshed and notified together.
 
@@ -28,7 +28,7 @@ is the unit that gets refreshed and notified together.
 A tweak replaces a constant where the constant was:
 
 ```cpp
-static moira::Tweak<float> kJumpHeight{"player.jump.height", 1.2f,
+static baker::Tweak<float> kJumpHeight{"player.jump.height", 1.2f,
                                        {.range = {0.5, 3}, .step = 0.1, .desc = "Peak, in m"}};
 ```
 
@@ -48,7 +48,7 @@ static moira::Tweak<float> kJumpHeight{"player.jump.height", 1.2f,
 - **`on_change`** runs after the value changes, on the thread that changed the Config,
   for the few values whose change must do something (resize a buffer).
 - **`dev_only`** marks a tweak a shipped build must not take from data: under
-  `MOIRA_SHIPPING` it keeps its default, and `set()` is refused. Use it for cheats and
+  `BAKER_SHIPPING` it keeps its default, and `set()` is refused. Use it for cheats and
   debug switches.
 - **Tests** give a tweak its own `TweakRegistry` and Config, so they do not share the
   global one.
@@ -66,9 +66,9 @@ cfg.on_reload("renderer", [&] { renderer.rebuild(); });   // punt
 cfg.on_reload(
     "audio", [&] { audio.restart(); },                     // the punt, if migration declines
     [&] {                                                  // migrate first
-        if (!audio.can_retune(cfg)) return moira::Reload::Punt;
+        if (!audio.can_retune(cfg)) return baker::Reload::Punt;
         audio.retune(cfg);
-        return moira::Reload::Migrated;
+        return baker::Reload::Migrated;
     });
 ```
 
@@ -91,7 +91,7 @@ cfg.on_reload(
 ## Personal layers: `local`
 
 Each developer gets a layer of their own, for tuning without touching shared files or
-blocking anyone. It is a convention, not a mechanism: Moira never looks up user names.
+blocking anyone. It is a convention, not a mechanism: Baker never looks up user names.
 
 ```cpp
 cfg.push_layer("default", "config/default.dta");
@@ -165,7 +165,7 @@ overlays/live/...            pushed to players, after QA
 - A shipped build loads its data, then calls `freeze()`. After that, reloads, layer
   changes, and live edits are refused, unless `ConfigOptions::live_layers` allows layer
   changes: `Config({.live_layers = true})` is the one door overlays come through. Under
-  `MOIRA_SHIPPING`, reload, toggles, `set()`, write-back, and `promote()` are inert
+  `BAKER_SHIPPING`, reload, toggles, `set()`, write-back, and `promote()` are inert
   whatever the options say, and `dev_only` tweaks keep their defaults.
 - An overlay arrives as text from the studio's server; read it with
   `read_string(text, "patch-2026-10-17.dta")`, whose name labels its errors and its
@@ -202,11 +202,11 @@ setting only its own values) so that removing one never needs another removed fi
 - **Shapes.** Declare, in the shipped data, the shapes of everything an overlay may set,
   with ranges: `(event (drop_rate float (range 0 1)))`. Before pushing, merge the overlay
   over the current root and check it: `examples/live-ops` refuses an overlay that sets a
-  15% drop rate as `15`. In a development build, `cfg.add_validator(moira::shape::validator())`
+  15% drop rate as `15`. In a development build, `cfg.add_validator(baker::shape::validator())`
   checks every push.
 - **`check`.** An overlay that carries script (`(on_event {grant_xp 2})`) gets
-  `moira::check` against a Context with the game's functions bound: a wrong call is an
-  error before a player runs it. `cfg.add_validator(moira::check_validator(ctx))` checks
+  `baker::check` against a Context with the game's functions bound: a wrong call is an
+  error before a player runs it. `cfg.add_validator(baker::check_validator(ctx))` checks
   every push in a development build.
 - **In CI**, run both over every file under `overlays/`, stacked on the shipped data, on
   every change. An overlay that fails never reaches the server.
@@ -223,9 +223,9 @@ top only if they enable it.
 Text is for people; a shipped game can load the same trees from binary caches, one read
 and one allocation each: a 6.2 MB tree in 2.3–2.5 ms (D79).
 
-- **A file at a time:** `moira_bake [-D NAME]... [-I DIR]... in.dta out.datb` in the build,
-  and `moira::read_cached(text_path, cache_path, session)` in the game, which uses the
-  cache when it is fresh and the text otherwise. Give `moira_bake` the same defines as the
+- **A file at a time:** `baker_bake [-D NAME]... [-I DIR]... in.dta out.datb` in the build,
+  and `baker::read_cached(text_path, cache_path, session)` in the game, which uses the
+  cache when it is fresh and the text otherwise. Give `baker_bake` the same defines as the
   game, or the cache is stale for it.
 - **A cache is a memory image**, for one byte order and pointer size: bake it with the
   target's layout. Today's consoles and PCs are all little-endian and 64-bit, so a bake
@@ -237,13 +237,13 @@ and one allocation each: a 6.2 MB tree in 2.3–2.5 ms (D79).
   build's Config with the same layer paths and `cache_dir`, then the directory ships.
 
   ```cpp
-  moira::Config bake({.edit_mode = false, .tweaks = nullptr, .cache_dir = "build/datb"});
+  baker::Config bake({.edit_mode = false, .tweaks = nullptr, .cache_dir = "build/datb"});
   bake.session().define("PS5");
   for (auto& [name, path] : layers) bake.push_layer(name, path);   // writes the caches
   ```
 
   The shipped game builds the same Config with the same `cache_dir`, and under
-  `MOIRA_SHIPPING` loads each layer from its cache without checking the text.
+  `BAKER_SHIPPING` loads each layer from its cache without checking the text.
 - A cache holds the expanded tree and replays the defines, macros, and `#autorun` commands
   its load made. It is build output: it detects damage, not tampering, so text from a
   source you do not trust goes through the parser. A `Cipher` (`LoadSession::cipher`)
@@ -251,7 +251,7 @@ and one allocation each: a 6.2 MB tree in 2.3–2.5 ms (D79).
 
 ## Linking a shipped game
 
-Moira's libraries are static, and the tools share them with the runtime (D100). A game
+Baker's libraries are static, and the tools share them with the runtime (D100). A game
 pays only for what it links:
 
 - **Tools in their own files cost nothing.** `check`, its JSON, the reference, and
@@ -264,13 +264,13 @@ pays only for what it links:
   the linker uses `/OPT:REF` unless given `/DEBUG`) already do.
 
   ```cmake
-  target_compile_options(moira_data PRIVATE -ffunction-sections -fdata-sections)
-  target_compile_options(moira_script PRIVATE -ffunction-sections -fdata-sections)
+  target_compile_options(baker_data PRIVATE -ffunction-sections -fdata-sections)
+  target_compile_options(baker_script PRIVATE -ffunction-sections -fdata-sections)
   target_link_options(game PRIVATE -Wl,--gc-sections)
   ```
 
 A minimal game (load, read, a tweak, a function, an object, `eval`) built with
-`MOIRA_SHIPPING` links 580 KB of Moira code, 41.5 KB of it tooling; with sections, 407
+`BAKER_SHIPPING` links 580 KB of Baker code, 41.5 KB of it tooling; with sections, 407
 KB, 4.8 KB of it tooling (the source maps that loading reaches).
 
 ## Harness packs
@@ -298,7 +298,7 @@ fast: a boss-tuning harness, an economy harness. Packs give harnesses a structur
   before pushing layers. A game-level pack that expands a task pack's macro, or calls its
   function, is warned about, located: engine and game harnesses must not depend on one
   task's tools. Run `check` with the session to see calls:
-  `moira::check(*cfg.root(), ctx, report, {.packs = &cfg.read_session()})`.
+  `baker::check(*cfg.root(), ctx, report, {.packs = &cfg.read_session()})`.
 - **Prefix** a pack's names with its subject (`boss.`, `combat.`); the reference and
   tuning panels group by prefix.
 
@@ -323,7 +323,7 @@ A command is already a serialized, parseable, evaluable value, so a sequence of 
 commands is a script that reproduces what was done:
 
 - Log each command a console or tool runs, one per line, to a `.dta` file. Running it with
-  `ctx.run((*moira::read_file("repro.dta"))->nodes())` replays it.
+  `ctx.run((*baker::read_file("repro.dta"))->nodes())` replays it.
 - Begin it with the state: the Config snapshot QA captured, or the overlays that were live
   (`cfg.layers()`). A repro of data that has since changed reproduces nothing.
 - Drive time through the scheduler the script uses (`{wait_for 2}` in a `thread_task`), and

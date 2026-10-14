@@ -13,14 +13,14 @@
 // macro expansion, an array rebuilt by #merge) are marked or absent, so write-back can
 // refuse instead of guessing.
 
-#include <moira/array.hpp>
+#include <baker/array.hpp>
 
 #include <cstdint>
 #include <optional>
 #include <span>
 #include <string_view>
 
-namespace moira {
+namespace baker {
 
 struct SourceSpan {
     Symbol file;         // empty: not written in any file (built in C++, or unknown)
@@ -57,4 +57,4 @@ private:
     Tables* t_;
 };
 
-}  // namespace moira
+}  // namespace baker

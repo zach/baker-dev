@@ -1,5 +1,5 @@
 // The base's application shell (game-stacks.md §2): an SDL3 window, the bgfx renderer,
-// Moira's live data loop, its tuning panels over Dear ImGui (F1), and its remote console on
+// Baker's live data loop, its tuning panels over Dear ImGui (F1), and its remote console on
 // loopback. A game supplies a Game and calls run():
 //
 //   int main(int argc, char** argv) {
@@ -17,7 +17,7 @@
 #include "base/live.hpp"
 #include "base/render.hpp"
 
-#include <moira/script.hpp>
+#include <baker/script.hpp>
 
 #include <cstdint>
 #include <string>
@@ -25,7 +25,7 @@
 namespace base {
 
 struct AppOptions {
-    std::string title = "Moira stack";
+    std::string title = "Baker stack";
     std::string data_dir{};  // the game's data: default.dta, local.dta, agent.dta
     int width = 1280, height = 720;
     RendererKind renderer = RendererKind::Auto;
@@ -47,9 +47,9 @@ struct AppOptions {
 
 class App {
 public:
-    [[nodiscard]] moira::Context& context() noexcept { return ctx_; }
+    [[nodiscard]] baker::Context& context() noexcept { return ctx_; }
     [[nodiscard]] Live& live() noexcept { return live_; }
-    [[nodiscard]] moira::Config& config() noexcept { return live_.config(); }
+    [[nodiscard]] baker::Config& config() noexcept { return live_.config(); }
     [[nodiscard]] Renderer& renderer() noexcept { return renderer_; }
     [[nodiscard]] const AppOptions& options() const noexcept { return options_; }
     [[nodiscard]] uint64_t frame() const noexcept { return frame_; }
@@ -61,7 +61,7 @@ private:
     explicit App(const AppOptions& options) : options_(options), live_(ctx_) {}
 
     AppOptions options_;
-    moira::Context ctx_;
+    baker::Context ctx_;
     Live live_;
     Renderer renderer_;
     FixedStep clock_;

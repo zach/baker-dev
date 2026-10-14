@@ -1,9 +1,9 @@
 // Lookup: paths, sorted mode, and the error messages for failed lookups. The fast paths
 // are inline in array.hpp; everything here except resolve() and find_sorted() runs only
 // when a lookup has already failed.
-#include <moira/array.hpp>
-#include <moira/path.hpp>
-#include <moira/write.hpp>
+#include <baker/array.hpp>
+#include <baker/path.hpp>
+#include <baker/write.hpp>
 
 #include "common/containers.hpp"
 
@@ -16,7 +16,7 @@
 #include <iterator>
 #include <optional>
 
-namespace moira {
+namespace baker {
 namespace {
 
 std::optional<Symbol> tag_of(const Node& n) noexcept {
@@ -95,7 +95,7 @@ Error conversion_error(const Str& label, const Values& v, const detail::ConvertI
     const Str actual(type_name(n.type()));
     if (n.type() == Type::Command || n.type() == Type::Var)
         return make_error(ErrorCode::Type, label + " is a " + actual +
-                                               "; reading it as a value needs moira::script");
+                                               "; reading it as a value needs baker::script");
     switch (info.kind) {
         case ConvertKind::Int:
         case ConvertKind::Float: {
@@ -370,4 +370,4 @@ Error get_error(const Array& root, const Path& path, const ConvertInfo* info,
 }
 
 }  // namespace detail
-}  // namespace moira
+}  // namespace baker

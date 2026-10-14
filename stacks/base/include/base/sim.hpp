@@ -9,8 +9,8 @@
 
 #include "base/game.hpp"
 
-#include <moira/array.hpp>
-#include <moira/script.hpp>
+#include <baker/array.hpp>
+#include <baker/script.hpp>
 
 #include <cstdint>
 #include <filesystem>
@@ -21,27 +21,27 @@ namespace base {
 
 struct Objective {
     std::string name, desc, file;
-    moira::Node measure;  // a command, evaluated after the run; its result is $value
-    moira::Node pass;     // a command; nonzero passes
+    baker::Node measure;  // a command, evaluated after the run; its result is $value
+    baker::Node pass;     // a command; nonzero passes
 };
 
 struct Scenario {
     struct At {
         double seconds = 0;
-        std::vector<moira::Node> commands;
+        std::vector<baker::Node> commands;
     };
     std::string name, desc, file;
     double seconds = 10;
-    std::vector<moira::Node> start;       // before the first step
+    std::vector<baker::Node> start;       // before the first step
     std::vector<At> at;                   // in time order
     std::vector<std::string> objectives;  // empty: every objective
-    moira::Ref<moira::Array> tree;        // keeps the commands alive
+    baker::Ref<baker::Array> tree;        // keeps the commands alive
 };
 
 // Reads every `(objective ...)` in each .dta file of `dir`, in file-name order, and every
 // `(scenario ...)` in `file`. False, with `error` set, on a parse error or a malformed form.
 [[nodiscard]] bool load_objectives(const std::filesystem::path& dir, std::vector<Objective>& out,
-                                   std::vector<moira::Ref<moira::Array>>& trees,
+                                   std::vector<baker::Ref<baker::Array>>& trees,
                                    std::string& error);
 [[nodiscard]] bool load_scenarios(const std::filesystem::path& file, std::vector<Scenario>& out,
                                   std::string& error);
@@ -66,7 +66,7 @@ struct RunResult {
 // Resets the game with `seed` ($seed in script), runs the scenario's start commands, then
 // steps it for its seconds at `step_hz`, ticking the Context's scheduler with each step
 // and running each `at` when its time comes; then judges it by the scenario's objectives.
-[[nodiscard]] RunResult simulate(Game& game, moira::Context& ctx, const Scenario& scenario,
+[[nodiscard]] RunResult simulate(Game& game, baker::Context& ctx, const Scenario& scenario,
                                  const std::vector<Objective>& objectives, uint64_t seed,
                                  double step_hz);
 

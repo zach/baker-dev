@@ -1,6 +1,6 @@
 #pragma once
 
-// Callback<R(A...)>: an owning, copyable callable, for the few places Moira stores host
+// Callback<R(A...)>: an owning, copyable callable, for the few places Baker stores host
 // code to call later (a file reader, reload and change callbacks). It is what
 // std::function would be here, but D55 keeps <functional> out of public headers.
 //
@@ -8,14 +8,14 @@
 // function, or a lambda with no captures, can instead be stored by pointer with no
 // allocation.
 
-#include <moira/allocator.hpp>
+#include <baker/allocator.hpp>
 
 #include <cstddef>
 #include <new>
 #include <type_traits>
 #include <utility>
 
-namespace moira {
+namespace baker {
 
 template <class Sig>
 class Callback;
@@ -84,4 +84,4 @@ private:
     void* obj_ = nullptr;
 };
 
-}  // namespace moira
+}  // namespace baker

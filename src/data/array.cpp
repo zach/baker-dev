@@ -1,4 +1,4 @@
-#include <moira/array.hpp>
+#include <baker/array.hpp>
 
 #include "arena.hpp"
 
@@ -6,7 +6,7 @@
 #include <new>
 #include <type_traits>
 
-namespace moira {
+namespace baker {
 
 static_assert(std::is_standard_layout_v<Array>);
 static_assert(sizeof(Array) % alignof(Node) == 0, "nodes must follow the header aligned");
@@ -109,4 +109,4 @@ bool structurally_equal(const Array& a, const Array& b) noexcept {
     return true;
 }
 
-}  // namespace moira
+}  // namespace baker

@@ -3,7 +3,7 @@
 // frame, on the thread that owns the Context, so commands run between frames like any other script.
 #pragma once
 
-#include <moira/script.hpp>
+#include <baker/script.hpp>
 
 #include <cstdint>
 #include <string>
@@ -13,7 +13,7 @@
 
 class Console {
 public:
-    explicit Console(moira::Context& ctx) : ctx_(ctx) {}
+    explicit Console(baker::Context& ctx) : ctx_(ctx) {}
     ~Console();
     // Listens on 127.0.0.1 only: a console runs any command it is sent. Port 0 picks a
     // free port; port() says which.
@@ -30,7 +30,7 @@ private:
     bool serve(Client& c);  // false once the client has gone
     std::string answer(const std::string& line);
 
-    moira::Context& ctx_;
+    baker::Context& ctx_;
     socket_t listener_ = kNoSocket;
     uint16_t port_ = 0;
     std::vector<Client> clients_;

@@ -8,9 +8,9 @@
 // in a shuffled order, each with a random key; loaded from text and from a binary cache,
 // whose layouts differ (the parse allocates children before their parent; the cache lays
 // arrays out breadth first).
-#include <moira/array.hpp>
-#include <moira/cache.hpp>
-#include <moira/parse.hpp>
+#include <baker/array.hpp>
+#include <baker/cache.hpp>
+#include <baker/parse.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -61,21 +61,21 @@ int main() {
     for (int i = 0; i < 20; ++i)
         text += "  (key" + std::to_string(i) + " " + std::to_string(i) + ".5)\n";
     text += ")\n(cfg (renderer (clear_color 0.1 0.2 0.3) (shadows (resolution 2048))))\n";
-    auto root = moira::read_string(text, "bench.dta");
+    auto root = baker::read_string(text, "bench.dta");
     if (!root) return 1;
-    const moira::Array& obj = *(*root)->try_find("obj");
+    const baker::Array& obj = *(*root)->try_find("obj");
 
-    std::vector<moira::Symbol> keys;
+    std::vector<baker::Symbol> keys;
     for (int i = 0; i < 20; ++i) keys.emplace_back("key" + std::to_string(i));
-    const moira::Symbol last = keys.back();
-    const moira::Symbol absent("absent");
+    const baker::Symbol last = keys.back();
+    const baker::Symbol absent("absent");
 
-    auto sorted_ref = moira::Array::make_copy(obj.nodes());
+    auto sorted_ref = baker::Array::make_copy(obj.nodes());
     sorted_ref->sort_for_lookup();
-    const moira::Array& sorted = *sorted_ref;
+    const baker::Array& sorted = *sorted_ref;
 
-    const moira::Path path("cfg.renderer.shadows.resolution");
-    const moira::Path path2("cfg.renderer.clear_color.1");
+    const baker::Path path("cfg.renderer.shadows.resolution");
+    const baker::Path path2("cfg.renderer.clear_color.1");
 
     std::printf("lookup on a 20-child array (best of 7, 2M calls each)\n");
     row("try_find (array), avg", ns_per_call([&](int i) {
@@ -107,14 +107,14 @@ int main() {
     // Where sorted mode starts to pay: a linear scan grows with the array, binary search
     // barely does.
     for (const int n : {50, 200, 1000}) {
-        std::vector<moira::Node> big;
-        std::vector<moira::Symbol> big_keys;
+        std::vector<baker::Node> big;
+        std::vector<baker::Symbol> big_keys;
         for (int i = 0; i < n; ++i) {
             big_keys.emplace_back("big" + std::to_string(i));
-            big.emplace_back(moira::array(big_keys.back(), i));
+            big.emplace_back(baker::array(big_keys.back(), i));
         }
-        auto linear = moira::Array::make_from(big);
-        auto sorted_big = moira::Array::make_copy(linear->nodes());
+        auto linear = baker::Array::make_from(big);
+        auto sorted_big = baker::Array::make_copy(linear->nodes());
         sorted_big->sort_for_lookup();
         const auto un = static_cast<unsigned>(n);
         const double l = ns_per_call([&](int i) {
@@ -137,16 +137,16 @@ int main() {
             many += " (key" + std::to_string(i) + " " + std::to_string(i) + ".5)";
         many += ")\n";
     }
-    auto text_tree = moira::read_string(many, "cold.dta");
+    auto text_tree = baker::read_string(many, "cold.dta");
     if (!text_tree) return 1;
     std::string bytes;
-    if (!moira::write_cache(**text_tree, moira::TextSink{[](void* u, std::string_view t) {
+    if (!baker::write_cache(**text_tree, baker::TextSink{[](void* u, std::string_view t) {
                                                              static_cast<std::string*>(u)->append(
                                                                  t);
                                                          },
                                                          &bytes}))
         return 1;
-    auto cache_tree = moira::read_cache_bytes(bytes);
+    auto cache_tree = baker::read_cache_bytes(bytes);
     if (!cache_tree) return 1;
     std::mt19937 rng(42);
     std::vector<uint32_t> order(kObjects);
@@ -157,11 +157,11 @@ int main() {
     std::printf("cold: %d objects of 20 keys, %.1f MB of tree, shuffled\n", kObjects,
                 static_cast<double>(bytes.size()) / 1e6);
     for (const auto* tree : {&*text_tree, &*cache_tree}) {
-        std::vector<const moira::Array*> objs;
-        for (const moira::Node& n : **tree) objs.push_back(n.array());
+        std::vector<const baker::Array*> objs;
+        for (const baker::Node& n : **tree) objs.push_back(n.array());
         const double ns = ns_per_call([&](int i) {
             const auto u = static_cast<unsigned>(i);
-            const moira::Array& o = *objs[order[u % kObjects]];
+            const baker::Array& o = *objs[order[u % kObjects]];
             return *o.find_float(keys[which[u & 0xFFFF]]);
         });
         row(tree == &*text_tree ? "find_float, cold, text-loaded"

@@ -22,7 +22,7 @@ next villager; N spawns the next household. In the console: `{hearth.why ada}`,
 
 | Path | What | Who writes it (§9) |
 |---|---|---|
-| `household.hpp`, `household.cpp` | L2: needs, things, villagers as Moira objects, scoring, the soak on worker threads, its measures | Engineers |
+| `household.hpp`, `household.cpp` | L2: needs, things, villagers as Baker objects, scoring, the soak on worker threads, its measures | Engineers |
 | `main.cpp` | L2: the workbench window, script words (`hearth.`), drawing | Engineers |
 | `packs/game/hearth_core.dta` | L2: the shapes of a need, an object, a household (all `(keyed)`) | By pull request |
 | `data/default.dta` | L4: needs, objects, households, and the actions (`{class villager ...}`) | By pull request |
@@ -32,7 +32,7 @@ next villager; N spawns the next household. In the console: `{hearth.why ada}`,
 
 ## Design
 
-- **Villagers and things are Moira objects** (`Villager`, `Thing`), so `{class villager
+- **Villagers and things are Baker objects** (`Villager`, `Thing`), so `{class villager
   ...}` changes a type's reaction in script. A need falling below critical sends the typed
   message `NeedCritical`: a script handler `(on_need_critical ($need) ...)` first, then
   the native default (interrupt unless the current action helps that need).

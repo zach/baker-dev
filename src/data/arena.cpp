@@ -1,6 +1,6 @@
-#include <moira/allocator.hpp>
-#include <moira/array.hpp>
-#include <moira/node.hpp>
+#include <baker/allocator.hpp>
+#include <baker/array.hpp>
+#include <baker/node.hpp>
 
 #include "arena.hpp"
 
@@ -9,7 +9,7 @@
 #include <new>
 #include <type_traits>
 
-namespace moira::detail {
+namespace baker::detail {
 
 static_assert(sizeof(SoloBlock) == 16 && alignof(SoloBlock) <= alignof(Node));
 
@@ -127,7 +127,7 @@ Ref<String> Arena::make_string(std::string_view text) {
 }
 
 void Arena::own_retain() noexcept {
-#if MOIRA_ATOMIC_REFCOUNT_ENABLED
+#if BAKER_ATOMIC_REFCOUNT_ENABLED
     head_.owner.refs.store(head_.owner.refs.load(std::memory_order_relaxed) + 1,
                            std::memory_order_relaxed);
 #else
@@ -136,7 +136,7 @@ void Arena::own_retain() noexcept {
 }
 
 void Arena::own_release() noexcept {
-#if MOIRA_ATOMIC_REFCOUNT_ENABLED
+#if BAKER_ATOMIC_REFCOUNT_ENABLED
     head_.owner.refs.store(head_.owner.refs.load(std::memory_order_relaxed) - 1,
                            std::memory_order_relaxed);
 #else
@@ -202,4 +202,4 @@ void free_owner(Owner& owner) noexcept {
     }
 }
 
-}  // namespace moira::detail
+}  // namespace baker::detail

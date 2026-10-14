@@ -5,7 +5,7 @@
 //   // Before:
 //   const float kBoxWidth = 2.0f;
 //   // After:
-//   static moira::Tweak<float> kBoxWidth{"box.width", 2.0f,
+//   static baker::Tweak<float> kBoxWidth{"box.width", 2.0f,
 //                                        {.range = {0, 10}, .step = 1, .desc = "Box width"}};
 //
 //   float w = kBoxWidth;   // one relaxed atomic load
@@ -29,13 +29,13 @@
 // `kind` is a presentation hint for tools (color, angle, percent, path, ...); when absent,
 // a 3- or 4-element value ranged 0..1 is reported as "color".
 //
-// Under MOIRA_SHIPPING a tweak marked dev_only ignores the data and keeps its default, and
+// Under BAKER_SHIPPING a tweak marked dev_only ignores the data and keeps its default, and
 // set() is refused: values are frozen at what was loaded.
 
-#include <moira/array.hpp>
-#include <moira/path.hpp>
+#include <baker/array.hpp>
+#include <baker/path.hpp>
 
-#include <moira/callback.hpp>
+#include <baker/callback.hpp>
 
 #include <atomic>
 #include <span>
@@ -43,7 +43,7 @@
 #include <type_traits>
 #include <utility>
 
-namespace moira {
+namespace baker {
 
 class Config;
 class TweakRegistry;
@@ -63,7 +63,7 @@ struct TweakMeta {
     std::string_view desc{};
     std::string_view kind{};
     std::string_view group{};  // default: the path without its last segment
-    bool dev_only = false;     // under MOIRA_SHIPPING, ignore the data and keep the default
+    bool dev_only = false;     // under BAKER_SHIPPING, ignore the data and keep the default
 };
 
 class TweakBase {
@@ -210,7 +210,7 @@ public:
 
     // A live edit: through the Config, so it shows in source() as layer "live" and can be
     // written back; without a Config, the value changes directly. Refused under
-    // MOIRA_SHIPPING. Needs Convert<T>::to.
+    // BAKER_SHIPPING. Needs Convert<T>::to.
     [[nodiscard]] Expected<void> set(const T& v) {
         ValueList list;
         Convert<T>::to(v, list);
@@ -246,4 +246,4 @@ private:
     std::conditional_t<kAtomic, std::atomic<T>, T> value_;
 };
 
-}  // namespace moira
+}  // namespace baker

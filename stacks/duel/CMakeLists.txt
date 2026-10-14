@@ -3,7 +3,7 @@
 #   stacks_duel         the game, and its agent commands (stacks/agent.md)
 add_library(stacks_duel_fight STATIC fight.cpp)
 target_include_directories(stacks_duel_fight PUBLIC .)
-target_link_libraries(stacks_duel_fight PUBLIC stacks_words moira::moira)
+target_link_libraries(stacks_duel_fight PUBLIC stacks_words baker::baker)
 stacks_target(stacks_duel_fight)
 
 add_executable(stacks_duel main.cpp)

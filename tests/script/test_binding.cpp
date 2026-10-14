@@ -1,15 +1,15 @@
 // Native function binding: signature deduction, conversions, overloads (spec §5).
 #include <doctest.h>
-#include <moira/parse.hpp>
-#include <moira/script.hpp>
-#include <moira/std_script.hpp>
+#include <baker/parse.hpp>
+#include <baker/script.hpp>
+#include <baker/std_script.hpp>
 
 #include <string>
 #include <vector>
 #include "ok.hpp"
 
-using namespace moira;
-using moira::test::ok;
+using namespace baker;
+using baker::test::ok;
 
 namespace {
 
@@ -20,7 +20,7 @@ struct Vec2 {
 }  // namespace
 
 template <>
-struct moira::Convert<Vec2> {
+struct baker::Convert<Vec2> {
     static constexpr std::string_view name = "vec2";
     static bool from(const Values& v, Vec2& out) {
         return v.size() == 2 && v.read(0, out.x) && v.read(1, out.y);

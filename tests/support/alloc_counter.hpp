@@ -5,7 +5,7 @@
 
 #include <cstddef>
 
-namespace moira::test {
+namespace baker::test {
 
 // False when operator new cannot be replaced: ThreadSanitizer's runtime defines it.
 [[nodiscard]] bool counting_allocations() noexcept;
@@ -23,4 +23,4 @@ private:
     size_t start_;
 };
 
-}  // namespace moira::test
+}  // namespace baker::test

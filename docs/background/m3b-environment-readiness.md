@@ -1,19 +1,19 @@
-# Moira spec addendum: M3b — environment readiness
+# Baker spec addendum: M3b — environment readiness
 
-Moira is the data substrate (L0). It cannot build a studio's development environment, but four changes let it make the data loop the fastest in the studio and the easiest to measure. This addendum is self-contained; it assumes `moira-spec.md` and nothing else.
+Baker is the data substrate (L0). It cannot build a studio's development environment, but four changes let it make the data loop the fastest in the studio and the easiest to measure. This addendum is self-contained; it assumes `baker-spec.md` and nothing else.
 
 ## Brief for the implementer
 
-**Why.** A studio adopting Moira will not start its vertical slice until a readiness gate passes. Four of that gate's tests touch the data layer:
+**Why.** A studio adopting Baker will not start its vertical slice until a readiness gate passes. Four of that gate's tests touch the data layer:
 
-- edit-to-see time is measured for every role, and Moira's share of it must be visible;
+- edit-to-see time is measured for every role, and Baker's share of it must be visible;
 - values tuned during play are saved to source as minimal, reviewable diffs;
 - people experiment without blocking each other, and compare variants A/B;
 - polish and QA can return to an exact configuration state.
 
-Moira already holds what each test needs: reload stages, the layer stack, provenance, and edit-mode trivia. These changes expose that information. None adds a subsystem.
+Baker already holds what each test needs: reload stages, the layer stack, provenance, and edit-mode trivia. These changes expose that information. None adds a subsystem.
 
-**Where.** All four changes live in `moira::data`, header `<moira/config.hpp>`, plus one test and one example. Nothing touches `moira::script`.
+**Where.** All four changes live in `baker::data`, header `<baker/config.hpp>`, plus one test and one example. Nothing touches `baker::script`.
 
 **Terms.**
 
@@ -29,9 +29,9 @@ Moira already holds what each test needs: reload stages, the layer stack, proven
 **Constraints carried from the spec.**
 
 - The library owns no threads, sockets, or clock. Timing uses an injectable time source (Change 1).
-- No `iostream`. Errors are structured `moira::Error` values, and every throwing call has a non-throwing `try_` twin.
+- No `iostream`. Errors are structured `baker::Error` values, and every throwing call has a non-throwing `try_` twin.
 - Tooling calls may allocate. Reload hot paths and tweak reads must not gain allocations; verify with the test allocation counter (spec §7).
-- Under `MOIRA_SHIPPING`, layer mutation and write-back are inert. Telemetry compiles out, but its API stays and returns empty results, so hosts need no `#ifdef`s.
+- Under `BAKER_SHIPPING`, layer mutation and write-back are inert. Telemetry compiles out, but its API stays and returns empty results, so hosts need no `#ifdef`s.
 - Record each deviation from the spec in `docs/decisions.md` (spec §11). Five are listed under "Decisions to record" below.
 - Report line counts against the 4,000-line core budget when the work lands, and flag an overrun rather than absorbing it (spec §0).
 
@@ -39,12 +39,12 @@ Moira already holds what each test needs: reload stages, the layer stack, proven
 
 ## Change 1: Reload telemetry
 
-**Purpose.** Report how long each reload took and where the time went, so a studio's loop dashboard can show Moira's share of edit-to-see time and catch regressions.
+**Purpose.** Report how long each reload took and where the time went, so a studio's loop dashboard can show Baker's share of edit-to-see time and catch regressions.
 
 **API.**
 
 ```cpp
-namespace moira {
+namespace baker {
 
 // Monotonic nanoseconds from an arbitrary origin.
 // Default reads std::chrono::steady_clock; tests inject a fake.
@@ -78,7 +78,7 @@ public:
     void on_reload_complete(/* same callable form as on_reload */);
 };
 
-}  // namespace moira
+}  // namespace baker
 ```
 
 **Semantics.**
@@ -90,7 +90,7 @@ public:
 - History is a fixed-capacity ring allocated once. When it is full, the oldest record is dropped.
 - `on_reload_complete` fires after notify with the finished record, so a host can forward it to telemetry without polling.
 
-**Shipping.** Under `MOIRA_SHIPPING` the timing code compiles out; `last_reload()` returns empty and `each_reload` visits nothing.
+**Shipping.** Under `BAKER_SHIPPING` the timing code compiles out; `last_reload()` returns empty and `each_reload` visits nothing.
 
 **Acceptance.**
 
@@ -108,7 +108,7 @@ public:
 **API.**
 
 ```cpp
-namespace moira {
+namespace baker {
 
 struct LayerOptions {
     bool optional = false;  // a missing file is not an error; the layer exists, empty
@@ -153,17 +153,17 @@ public:
     WriteReport promote(std::string_view from_layer, std::string_view to_layer);
 };
 
-}  // namespace moira
+}  // namespace baker
 ```
 
 **Semantics.**
 
 - **Enable and toggle.** Changing a layer's state re-merges, advances the epoch, fires reload callbacks, and records telemetry, exactly as push and remove do (spec §4). Provenance never names a disabled layer.
-- **Personal layers.** A convention, not a mechanism. The host pushes a layer named `local` with `{.optional = true}` at a per-user path such as `local/<user>.dta`, above the shared layers and below live patches. The project keeps that directory out of version control. Moira never looks up user names.
+- **Personal layers.** A convention, not a mechanism. The host pushes a layer named `local` with `{.optional = true}` at a per-user path such as `local/<user>.dta`, above the shared layers and below live patches. The project keeps that directory out of version control. Baker never looks up user names.
 - **Scratch.** Every `Config` has a reserved, in-memory layer named `scratch`, always topmost and created empty. Edits from tools, including UI edits made through the tweak registry, go there. Provenance stays honest, and "my tuning versus the files" becomes a toggle. `pop_layer` skips scratch, and scratch is never written to disk directly.
 - **`set` is a fast path.** Because scratch is topmost, `set` need not re-merge. It updates scratch, rebinds only the tweaks bound to that path, and fires only their `on_change`. Lookups consult scratch before the merged tree. Setting an existing scalar path allocates nothing. Toggling scratch itself is a full re-merge like any other layer.
 - **Effect and diff.** Both work on leaf entries as merge defines them (spec §4). `layer_effect` answers "what does this layer actually change?" `diff` compares two layers' own contents, for variant A against variant B. Both are tooling calls computed on demand; they may allocate and need not be fast.
-- **Write-back of a scratch value.** Today write-back refuses values sourced from an overlay layer. Refine that rule: when the current value comes from scratch, the target is the highest enabled non-scratch layer that supplies the path. On success, Moira removes the path from scratch and reloads the patched file with trigger `write_back`, so provenance then names the file and line.
+- **Write-back of a scratch value.** Today write-back refuses values sourced from an overlay layer. Refine that rule: when the current value comes from scratch, the target is the highest enabled non-scratch layer that supplies the path. On success, Baker removes the path from scratch and reloads the patched file with trigger `write_back`, so provenance then names the file and line.
 - **Writing into another layer.** `write_back_to` is the "explicit, separate call" that spec §1 mentions without defining. If the target layer's file has a literal token for the path, replace it. Otherwise insert: find the deepest ancestor array literally present in that file, and add the missing entries as its last child, indented like the previous sibling, in the pretty-printer's form. Never modify any other byte. If the target layer is optional and its file is absent, create the file.
 - **Refusals, always located.** Refuse when a positional path segment such as `phase.2` does not exist in the target. Refuse when the ancestor array came from a macro, `#include`, or `#merge` rather than the file itself. Refuse when the file on disk changed since it was loaded, comparing a content hash recorded at load. Never guess.
 - **Promote.** Plan every entry of `layer_effect(from)` into the target layer's file and validate all of them first. Write only if every entry succeeds; on any refusal, write nothing and return all refusals. The source layer stays in the stack, and the caller removes it.
@@ -188,7 +188,7 @@ public:
 **API.**
 
 ```cpp
-namespace moira {
+namespace baker {
 
 class ConfigSnapshot;  // copyable; shares loaded arrays by Ref, so capture is cheap
 
@@ -198,7 +198,7 @@ public:
     void restore(const ConfigSnapshot& snapshot);
 };
 
-}  // namespace moira
+}  // namespace baker
 ```
 
 **Semantics.**
@@ -206,7 +206,7 @@ public:
 - A snapshot holds the ordered layer list (names, options, enabled state), a `Ref` to each layer's loaded tree, each file's load-time content hash, and a copy of scratch. Loaded arrays are immutable and refcounted, so nothing is deep-copied.
 - `restore` replaces the stack, re-merges, rebinds tweaks, and fires reload callbacks with migrate-or-punt as usual. It advances to a new epoch rather than reusing the old one, so any cached derived data invalidates.
 - `restore` never reads disk. If a file changed after the snapshot, values still come from the snapshot, and write-back of them refuses under Change 2's hash rule.
-- Not captured: script variables, objects, tasks, and host state. Those belong to `moira::script` and the host.
+- Not captured: script variables, objects, tasks, and host state. Those belong to `baker::script` and the host.
 
 **Acceptance.**
 
@@ -253,4 +253,4 @@ Spec §11 asks for design doubts to be raised before implementing around them. T
 
 ## Out of scope
 
-File watching and transport (the host detects changes and calls `reload`), dashboards, input recording, and anything in `moira::script`.
+File watching and transport (the host detects changes and calls `reload`), dashboards, input recording, and anything in `baker::script`.

@@ -4,7 +4,7 @@
 #   stacks_hearth       the game, and its agent commands (stacks/agent.md)
 add_library(stacks_hearth_sim STATIC household.cpp)
 target_include_directories(stacks_hearth_sim PUBLIC .)
-target_link_libraries(stacks_hearth_sim PUBLIC stacks_nav moira::moira)
+target_link_libraries(stacks_hearth_sim PUBLIC stacks_nav baker::baker)
 stacks_target(stacks_hearth_sim)
 
 add_executable(stacks_hearth main.cpp)

@@ -1,14 +1,14 @@
 #include "parse_harness.hpp"
 
-#include <moira/array.hpp>
-#include <moira/parse.hpp>
-#include <moira/path.hpp>
-#include <moira/std_interop.hpp>
+#include <baker/array.hpp>
+#include <baker/parse.hpp>
+#include <baker/path.hpp>
+#include <baker/std_interop.hpp>
 
 #include <cstdint>
 #include <vector>
 
-namespace moira::fuzz {
+namespace baker::fuzz {
 namespace {
 
 LoadSession make_session() {
@@ -101,4 +101,4 @@ bool check_lookup(std::string_view data) {
     return check_arrays(r, first, budget);
 }
 
-}  // namespace moira::fuzz
+}  // namespace baker::fuzz

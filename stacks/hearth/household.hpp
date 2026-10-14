@@ -1,7 +1,7 @@
 // Hearth's households (game-stacks.md §4.3): characters with needs that decay, smart objects
 // that advertise what they satisfy, and actions as script. No window here.
 //
-// A villager and a thing are Moira objects (Villager, Thing), so a designer changes one
+// A villager and a thing are Baker objects (Villager, Thing), so a designer changes one
 // type's reaction in script, `{class villager (on_need_critical ($need) ...)}`, without
 // touching C++. An action is a script handler on villager that starts a task on the clock,
 // a Scheduler in game minutes:
@@ -22,9 +22,9 @@
 #include <base/nav.hpp>
 #include <base/rng.hpp>
 
-#include <moira/config.hpp>
-#include <moira/object.hpp>
-#include <moira/task.hpp>
+#include <baker/config.hpp>
+#include <baker/object.hpp>
+#include <baker/task.hpp>
 
 #include <array>
 #include <cstdint>
@@ -50,7 +50,7 @@ struct Kind {
     float size[3] = {1, 1, 1};  // metres: width, height, depth
     float color[3] = {0.7f, 0.7f, 0.7f};
     std::vector<std::pair<int, float>> advertise;  // need, points over one use
-    moira::Symbol action;                          // the villager handler it starts
+    baker::Symbol action;                          // the villager handler it starts
     float minutes = 30;                            // one use
     int users = 1;                                 // at once
     float hours[2] = {-1, -1};                     // when it is for, from and to; -1: any time
@@ -94,8 +94,8 @@ struct Kit {
     std::vector<Kind> kinds;
     std::vector<House> houses;
     Rules rules;
-    std::vector<moira::Node> setup;  // the data's #autorun commands, for a worker's Context
-    moira::Ref<moira::Array> tree;   // keeps `setup` alive
+    std::vector<baker::Node> setup;  // the data's #autorun commands, for a worker's Context
+    baker::Ref<baker::Array> tree;   // keeps `setup` alive
 
     [[nodiscard]] int need(const std::string& name) const;
     [[nodiscard]] int kind(const std::string& name) const;
@@ -105,12 +105,12 @@ struct Kit {
 // Reads (hearth ...), (needs ...), (objects ...), and (households ...). False, with the
 // reason, on a name that is not defined. The caller adds the setup commands (a Config's
 // autorun()).
-[[nodiscard]] bool load(const moira::Ref<moira::Array>& root, Kit& out, std::string& error);
+[[nodiscard]] bool load(const baker::Ref<baker::Array>& root, Kit& out, std::string& error);
 
 class Household;
 
 // A smart object in a household.
-struct Thing : moira::Object<Thing> {
+struct Thing : baker::Object<Thing> {
     Household* home = nullptr;
     int index = 0, kind = 0;
     float x = 0, z = 0, yaw = 0;
@@ -118,7 +118,7 @@ struct Thing : moira::Object<Thing> {
     bool reachable = true;
     int users = 0;  // now
     int uses = 0;   // ever
-    static void bind(moira::Binder<Thing>& b);
+    static void bind(baker::Binder<Thing>& b);
 };
 
 // What a villager's last decision weighed.
@@ -137,10 +137,10 @@ struct Decision {
 // the native default (interrupt unless the current action helps that need).
 struct NeedCritical {
     static constexpr auto name = "on_need_critical";
-    moira::Symbol need;
+    baker::Symbol need;
 };
 
-struct Villager : moira::Object<Villager> {
+struct Villager : baker::Object<Villager> {
     enum class State : uint8_t { Idle, Deciding, Walking, Waiting, Using };
 
     Household* home = nullptr;
@@ -153,7 +153,7 @@ struct Villager : moira::Object<Villager> {
     std::vector<bool> below;          // per need: under critical already (one message each)
     State state = State::Idle;
     int thing = -1;        // what the current action is with; -1 idle
-    moira::Symbol action;  // the current action's handler
+    baker::Symbol action;  // the current action's handler
     int64_t task = 0;      // its task on the clock; 0 none
     std::vector<base::NavPoint> path;
     size_t path_at = 0;
@@ -161,23 +161,23 @@ struct Villager : moira::Object<Villager> {
     float use_left = 0;   // minutes of using left
     double last_progress = 0;
     double idle_until = 0;
-    std::vector<moira::Symbol> interrupted;  // kinds of thing cut short since one finished
+    std::vector<baker::Symbol> interrupted;  // kinds of thing cut short since one finished
     Decision last;
     std::vector<std::string> log;  // recent events, newest last
 
     // Script's view (bind): walk_to, arrived, use, used, done, interrupt, helps, need, say.
-    bool walk_to(const moira::Node& obj);
+    bool walk_to(const baker::Node& obj);
     [[nodiscard]] bool arrived() const { return walked; }
-    bool use(const moira::Node& obj);
+    bool use(const baker::Node& obj);
     [[nodiscard]] bool used() const { return state == State::Using && use_left <= 0; }
     void done();
-    void interrupt(moira::Symbol need);
-    [[nodiscard]] bool helps(moira::Symbol need) const;
-    [[nodiscard]] double need(moira::Symbol need) const;
+    void interrupt(baker::Symbol need);
+    [[nodiscard]] bool helps(baker::Symbol need) const;
+    [[nodiscard]] double need(baker::Symbol need) const;
     void say(const std::string& text);
     void on_need_critical(const NeedCritical& m);
 
-    static void bind(moira::Binder<Villager>& b);
+    static void bind(baker::Binder<Villager>& b);
 };
 
 // The failures and the texture a run of a household measures (§4.3, "Metrics").
@@ -199,7 +199,7 @@ public:
     // Builds house `house` of `kit` in `ctx`, whose objects named "clock" (a Scheduler in
     // game minutes) the actions use. The villagers' and things' names are unique to the
     // household (`prefix`). Seeded.
-    Household(const Kit& kit, int house, moira::Context& ctx, moira::Scheduler& clock,
+    Household(const Kit& kit, int house, baker::Context& ctx, baker::Scheduler& clock,
               uint64_t seed, const std::string& prefix = {});
     ~Household();
     Household(const Household&) = delete;
@@ -217,7 +217,7 @@ public:
     }
     [[nodiscard]] std::vector<std::unique_ptr<Thing>>& things() noexcept { return things_; }
     [[nodiscard]] const base::NavMesh& nav() const noexcept { return nav_; }
-    [[nodiscard]] moira::Context& context() noexcept { return ctx_; }
+    [[nodiscard]] baker::Context& context() noexcept { return ctx_; }
     // The measures so far, with the routine entropy of the days run.
     [[nodiscard]] Tally tally() const;
     // A villager's last decision, as a person reads it.
@@ -225,7 +225,7 @@ public:
     [[nodiscard]] Villager* villager(const std::string& name);
 
     // For Villager and Thing.
-    Thing* thing_of(const moira::Node& obj) const;
+    Thing* thing_of(const baker::Node& obj) const;
     void note(Villager& v, std::string text);
     void end_action(Villager& v, bool finished);
     void decide(Villager& v, const std::string& why);
@@ -240,9 +240,9 @@ private:
 
     const Kit& kit_;
     int house_;
-    moira::Context& ctx_;
-    moira::Scheduler& clock_;
-    moira::Node clock_node_;
+    baker::Context& ctx_;
+    baker::Scheduler& clock_;
+    baker::Node clock_node_;
     base::Rng rng_;
     double minute_ = 0;
     int last_hour_ = -1;
@@ -250,14 +250,14 @@ private:
     std::vector<std::unique_ptr<Thing>> things_;
     std::vector<std::unique_ptr<Villager>> villagers_;
     Tally tally_;
-    std::vector<moira::Symbol> kind_symbols_;
+    std::vector<baker::Symbol> kind_symbols_;
     // Per villager, per hour of the day: how often it was about each kind of thing (or idle).
-    std::vector<std::array<std::vector<std::pair<moira::Symbol, int>>, 24>> hours_;
+    std::vector<std::array<std::vector<std::pair<baker::Symbol, int>>, 24>> hours_;
 };
 
 // Makes a Context ready for households: the villager and thing types, and the clock. Then
 // runs the kit's setup commands; their errors go to `errors`.
-void prepare(moira::Context& ctx, moira::Scheduler& clock, const Kit& kit,
+void prepare(baker::Context& ctx, baker::Scheduler& clock, const Kit& kit,
              std::vector<std::string>* errors = nullptr);
 
 struct SoakOptions {

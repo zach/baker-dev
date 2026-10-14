@@ -1,6 +1,6 @@
 // Parse throughput on generated config-style text. Target (spec §7): >= 40 MB/s. Also the
 // allocations a parse makes and the time to free its tree (D64).
-#include <moira/parse.hpp>
+#include <baker/parse.hpp>
 
 #include "alloc_counter.hpp"
 
@@ -26,14 +26,14 @@ int main() {
     double best = 1e9, best_free = 1e9;
     size_t allocations = 0;
     for (int rep = 0; rep < 10; ++rep) {
-        const moira::test::AllocationScope scope;
+        const baker::test::AllocationScope scope;
         const auto t0 = std::chrono::steady_clock::now();
-        auto r = moira::read_string(text, "bench.dta");
+        auto r = baker::read_string(text, "bench.dta");
         const auto t1 = std::chrono::steady_clock::now();
         allocations = scope.count();
         if (!r) return 1;
         best = std::min(best, std::chrono::duration<double>(t1 - t0).count());
-        r = moira::Expected<moira::Ref<moira::Array>>();
+        r = baker::Expected<baker::Ref<baker::Array>>();
         const auto t2 = std::chrono::steady_clock::now();
         best_free = std::min(best_free, std::chrono::duration<double>(t2 - t1).count());
     }

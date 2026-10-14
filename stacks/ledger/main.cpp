@@ -15,8 +15,8 @@
 #include <base/words.hpp>
 
 #include <imgui.h>
-#include <moira/std_interop.hpp>
-#include <moira/std_script.hpp>
+#include <baker/std_interop.hpp>
+#include <baker/std_script.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -24,17 +24,17 @@
 #include <string>
 #include <vector>
 
-static moira::Tweak<float> kDaySeconds{
+static baker::Tweak<float> kDaySeconds{
     "econ.day_seconds", 5.0f, {.range = {0.05f, 600}, .desc = "Real seconds per in-game day"}};
-static moira::Tweak<int> kStartMoney{
+static baker::Tweak<int> kStartMoney{
     "econ.start_money", 1000, {.range = {0, 1000000}, .desc = "Coins a company starts with"}};
-static moira::Tweak<float> kRecovery{
+static baker::Tweak<float> kRecovery{
     "econ.recovery",
     0.25f,
     {.range = {0.01f, 1}, .desc = "Share of a market's glut cleared daily"}};
-static moira::Tweak<float> kResale{
+static baker::Tweak<float> kResale{
     "econ.resale", 0.5f, {.range = {0, 1}, .desc = "A building's worth, as a share of its cost"}};
-static moira::Tweak<int> kBankruptDays{
+static baker::Tweak<int> kBankruptDays{
     "econ.bankrupt_days", 30, {.range = {1, 3650}, .desc = "Days in debt before bankruptcy"}};
 
 namespace {
@@ -50,7 +50,7 @@ ledger::Rules current_rules() {
 
 class LedgerGame final : public base::Game {
 public:
-    void bind(moira::Context& ctx) override {
+    void bind(baker::Context& ctx) override {
         ctx_ = &ctx;
         auto doc = [](auto f, const char* text) {
             if (f) f->doc(text);
@@ -78,71 +78,71 @@ public:
         doc(ctx.func("econ.total_earned", [this] { return company().earned; }),
             "Coins the current company has made from sales, ever.");
         doc(ctx.func("econ.count",
-                     [this](moira::Symbol b) -> moira::Expected<int64_t> {
+                     [this](baker::Symbol b) -> baker::Expected<int64_t> {
                          const int i = econ_.building(std::string(b.str()));
                          if (i < 0)
-                             return moira::Unexpected(
+                             return baker::Unexpected(
                                  base::not_found("no building " + std::string(b.str())));
                          return company().owned[size_t(i)];
                      }),
             "How many of a building the current company owns.");
         doc(ctx.func("econ.made",
-                     [this](moira::Symbol g) -> moira::Expected<int64_t> {
+                     [this](baker::Symbol g) -> baker::Expected<int64_t> {
                          const int i = econ_.good(std::string(g.str()));
                          if (i < 0)
-                             return moira::Unexpected(
+                             return baker::Unexpected(
                                  base::not_found("no good " + std::string(g.str())));
                          return company().made[size_t(i)];
                      }),
             "Units of a good the current company has made, ever.");
         doc(ctx.func("econ.price",
-                     [this](moira::Symbol g) -> moira::Expected<double> {
+                     [this](baker::Symbol g) -> baker::Expected<double> {
                          const int i = econ_.good(std::string(g.str()));
                          if (i < 0)
-                             return moira::Unexpected(
+                             return baker::Unexpected(
                                  base::not_found("no good " + std::string(g.str())));
                          return company().price(econ_, i);
                      }),
             "A good's price today in the current company's market.");
         doc(ctx.func("econ.build",
-                     [this](moira::Symbol b) -> moira::Expected<bool> {
+                     [this](baker::Symbol b) -> baker::Expected<bool> {
                          const int i = econ_.building(std::string(b.str()));
                          if (i < 0)
-                             return moira::Unexpected(
+                             return baker::Unexpected(
                                  base::not_found("no building " + std::string(b.str())));
                          return ledger::build(company(), econ_, i);
                      }),
             "Buys a building for the current company; 0 if locked or unaffordable.");
         doc(ctx.func("econ.demolish",
-                     [this](moira::Symbol b) -> moira::Expected<bool> {
+                     [this](baker::Symbol b) -> baker::Expected<bool> {
                          const int i = econ_.building(std::string(b.str()));
                          if (i < 0)
-                             return moira::Unexpected(
+                             return baker::Unexpected(
                                  base::not_found("no building " + std::string(b.str())));
                          return ledger::demolish(company(), econ_, current_rules(), i);
                      }),
             "Sells one of the current company's buildings back at its resale value.");
         doc(ctx.func("econ.worth",
-                     [this](moira::Symbol who) -> moira::Expected<int64_t> {
+                     [this](baker::Symbol who) -> baker::Expected<int64_t> {
                          auto c = find(who);
-                         if (!c) return moira::Unexpected(c.error());
+                         if (!c) return baker::Unexpected(c.error());
                          return (*c)->worth(econ_, current_rules());
                      }),
             "A company's net worth: coins, buildings at resale, stock at base price.");
         doc(ctx.func("econ.milestone_day",
-                     [this](moira::Symbol who, moira::Symbol m) -> moira::Expected<int64_t> {
+                     [this](baker::Symbol who, baker::Symbol m) -> baker::Expected<int64_t> {
                          auto c = find(who);
-                         if (!c) return moira::Unexpected(c.error());
+                         if (!c) return baker::Unexpected(c.error());
                          for (size_t i = 0; i < econ_.milestones.size(); ++i)
                              if (econ_.milestones[i].name == m.str()) return (*c)->milestone_day[i];
-                         return moira::Unexpected(
+                         return baker::Unexpected(
                              base::not_found("no milestone " + std::string(m.str())));
                      }),
             "The day a company reached a milestone of (milestones ...); -1 if it has not.");
         doc(ctx.func("econ.milestones_late",
-                     [this](moira::Symbol who) -> moira::Expected<int64_t> {
+                     [this](baker::Symbol who) -> baker::Expected<int64_t> {
                          auto c = find(who);
-                         if (!c) return moira::Unexpected(c.error());
+                         if (!c) return baker::Unexpected(c.error());
                          int64_t late = 0;
                          for (size_t i = 0; i < econ_.milestones.size(); ++i) {
                              const int d = (*c)->milestone_day[i];
@@ -151,7 +151,7 @@ public:
                          return late;
                      }),
             "Milestones a company reached after their target day, or not at all.");
-        doc(ctx.func("econ.leader", [this] { return moira::Symbol(ranked(0)->name); }),
+        doc(ctx.func("econ.leader", [this] { return baker::Symbol(ranked(0)->name); }),
             "The company with the highest net worth.");
         doc(ctx.func("econ.lead_ratio",
                      [this] {
@@ -188,9 +188,9 @@ public:
         doc(ctx.func("econ.report", [this] { return report(); }),
             "Every company: coins, worth, buildings owned, milestones reached, as a table.");
         doc(ctx.func("econ.growth",
-                     [this](moira::Symbol who, int64_t days) -> moira::Expected<double> {
+                     [this](baker::Symbol who, int64_t days) -> baker::Expected<double> {
                          auto c = find(who);
-                         if (!c) return moira::Unexpected(c.error());
+                         if (!c) return baker::Unexpected(c.error());
                          const auto& w = (*c)->worth_by_day;
                          if (days <= 0 || int64_t(w.size()) <= days) return 0.0;
                          const double before =
@@ -200,7 +200,7 @@ public:
             "A company's net worth now over its worth `days` ago: above 1 grows.");
     }
 
-    void load(const moira::Config& cfg) override {
+    void load(const baker::Config& cfg) override {
         ledger::Economy next;
         std::string error;
         if (!ledger::load(cfg.root(), next, error)) {
@@ -353,7 +353,7 @@ public:
                 if (!c.unlocked[b]) {
                     ImGui::TextDisabled("locked");
                     if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("%s", moira::to_string(bd.unlock).c_str());
+                        ImGui::SetTooltip("%s", baker::to_string(bd.unlock).c_str());
                 } else {
                     ImGui::BeginDisabled(c.money < bd.cost || c.strategy >= 0);
                     if (ImGui::Button("Build")) ledger::build(c, econ_, int(b));
@@ -424,10 +424,10 @@ private:
 
     ledger::Company& company() { return companies_[current_]; }
 
-    moira::Expected<ledger::Company*> find(moira::Symbol who) {
+    baker::Expected<ledger::Company*> find(baker::Symbol who) {
         for (ledger::Company& c : companies_)
             if (c.name == who.str()) return &c;
-        return moira::Unexpected(
+        return baker::Unexpected(
             base::not_found("no company " + std::string(who.str()) +
                             " (econ.compete makes one per strategy; econ.play makes player)"));
     }
@@ -456,7 +456,7 @@ private:
         current_ = i;
         ledger::Company& c = companies_[i];
         for (size_t b = 0; b < econ_.buildings.size(); ++b)
-            if (!c.unlocked[b] && econ_.buildings[b].unlock.type() == moira::Type::Command)
+            if (!c.unlocked[b] && econ_.buildings[b].unlock.type() == baker::Type::Command)
                 if (auto r = ctx_->eval(econ_.buildings[b].unlock); r && base::truthy(*r))
                     c.unlocked[b] = true;
         for (size_t m = 0; m < econ_.milestones.size(); ++m)
@@ -466,7 +466,7 @@ private:
         current_ = saved;
     }
 
-    moira::Context* ctx_ = nullptr;
+    baker::Context* ctx_ = nullptr;
     ledger::Economy econ_;
     bool loaded_ = false, competing_ = false, paused_ = false;
     std::vector<ledger::Company> companies_;
