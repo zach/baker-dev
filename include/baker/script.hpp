@@ -517,7 +517,10 @@ Expected<Node> invoke(const void* callable, [[maybe_unused]] Args& args,
     bool ok = true;
     if constexpr (sizeof...(P) > 0) {
         using Index = ArgIndex<P...>;
-        ok = (Param<P>::read(args, Index::of(I), slot<I>(held), result) && ...);
+        // Each index a constant, so a debug build runs no loop for it (gap 16).
+        ok = (Param<P>::read(args, std::integral_constant<size_t, Index::of(I)>::value,
+                             slot<I>(held), result) &&
+              ...);
     }
     if (ok) {
         const F& f = *static_cast<const F*>(callable);

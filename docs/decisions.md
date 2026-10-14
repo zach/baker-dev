@@ -3607,3 +3607,57 @@ measuring before it is fixed (the skill's step 5). The ones on a hot path come f
 
 Gap 18 is a load-path deviation from D61 (layer records on the default allocator).
 Gap 26 needs the owner's decision: whether `('' 1)` is tagged.
+
+## D124. Gaps 13–18: the hot-path batch
+
+*The owner asked for the next batch of D123's gaps (2026-10-14). Each was measured before it
+was changed. `bench_call` gained three rows: `handle()` to a script handler, `{bob grow
+0}` with a `{class}` for another type loaded, and `{len (1 2 3)}`. The numbers below are
+three alternating runs against `fd99ac7`, pinned to one CPU, with the same bench file.*
+
+- **Gap 13, a C++-to-script call allocated twice.** `Context::call` built a `Vec` and
+  then an array, for every call from C++ and for every `handle()` that falls through to a
+  script handler or method. The Context now keeps one command array for each size below
+  8. A call reuses it when the cache holds its only count (a nested call, or a `{func}`
+  that kept its own command, holds another), sets it, and evaluates it. Afterwards it empties
+  the slots so the array keeps nothing alive. It does so only if the script kept nothing:
+  an array the script kept is dropped from the cache, never reused. Tests:
+  - a warm C++ call into a script handler or a native method allocates nothing;
+  - a `{func}` built through `Context::call` keeps its body through later calls of the
+    same size. With the reuse check removed, this test fails.
+
+  `handle()` to a script handler went from 131.3–132.1 ns and 2 allocations to 113.3–113.5
+  ns and none. `ctx.call(bob, "grow", 1.5f)` went from 183.4–190.6 ns to 153.1–157.2 ns.
+- **Gap 14, the method walk.** `send()` now tests the `handled_names` bit before it
+  walks a type and its bases for script classes, as `detail::scripted` already did; both
+  share `Impl::handled`. With an unrelated `{class}` loaded, `{bob grow 0}` went from
+  83.7–84.6 ns to 81.5–83.0, the same as with no class (79.6–81.2). The C++ `handle()` path
+  runs the same instructions as before (31,077,378 and 31,077,434 for 200,000 calls).
+- **Gap 15, `Args::array`.** A literal array argument, or one an overload set already
+  evaluated, is held by the command or `kept` for the whole call. It is now returned as is,
+  without a copy, two refcount updates, and a push. `{len (1 2 3)}` went from 28.5–29.7 ns
+  to 19.7–20.1. The binding test also covers a variable, a command's result, and two
+  non-array arguments.
+- **Gap 16, debug builds.** Each argument's index is a compile-time constant
+  (`std::integral_constant`). Before, a debug build looped over the parameters per argument
+  per call. At `-O0` a three-argument call runs 117 fewer instructions (402.1M against
+  390.4M for 100,000 calls); release builds folded it already.
+- **Gap 17, `Slot`.** Pointers first: 32 bytes instead of 40, pinned by a `static_assert`.
+  The cold rows that reach many objects moved: one of 2,000 objects 90.4–93.8 ns before,
+  86.5–87.9 after. 64 types with one method went from 138.0–143.2 to 126.2–129.0, and with
+  32 methods from 207.0–209.8 to 196.3–199.6.
+- **Gap 18, the Config's records.** Measured first: in `baker_alloc_tests`' Config
+  scenario, 222 allocations went to the default allocator and 21 to the Config's.
+  Stacks of each showed the layer records were about ten. The rest is what D61 assigns to
+  the default allocator:
+  - merged trees (solo blocks, D64);
+  - merge's and the parser's temporaries;
+  - sessions and source maps.
+
+  The records the Config makes now take its allocator: each `LayerState`'s strings and
+  deps, and the deps a read builds. The scenario now reads 215 and 28; the test prints
+  both. Whether a Config's merged trees should leave the default allocator is an
+  ownership question, recorded as gap 31.
+- **Unchanged:** every other `bench_call` row is within noise. `{add1 1}` read 80.7–81.8 ns
+  before and 82.2–85.2 after, at the same instructions (220,503,011 and 220,503,076 for
+  200,000 calls): code layout.

@@ -1,7 +1,7 @@
 # Baker under the data-oriented lens: known gaps
 
-**Status, 2026-10-14, after D122: the twelve audited gaps are closed; gaps 13–30 below
-are open.** A fresh review of the core (2026-10-14) fixed what it found that was a bug or a
+**Status, 2026-10-14, after D124: gaps 1–18 are closed; gaps 19–31 below are open.**
+D124 closed the hot-path batch, 13–18. A fresh review of the core (2026-10-14) fixed what it found that was a bug or a
 measured cost (D116–D122) and recorded the rest here, for later. D117's deferral costs one
 predictable branch per host `eval`, none per call. Before that, **2026-10-13, after D100:
 no open gaps.** First audited 2026-10-11 at M6 step 1 (`23f4142`); the audit's reasoning
@@ -30,14 +30,14 @@ Found by the review's four readers and not yet acted on. **Evidence**: *reproduc
 driver or test showed it; *read* means the code says so, but nothing measured it. Measure
 before fixing (SKILL.md, step 5), and do not fix one without a cost that justifies its code.
 
-| Gap | Path | Finding | Evidence |
+| Gap | Path | Finding | Evidence, or status |
 |---|---|---|---|
-| 13, a C++-to-script call allocates | hot | `Context::call(object, method, args)` builds a `Vec` and then `Array::make_from`: two allocations per call, also for every `ObjectBase::handle` that falls through to a script handler. One `Array::make(n + 2)` would do. | read |
-| 14, messages skip the handler bit | hot | `send()` walks the type and its bases for a script class on every method call once any `{class}` exists; the one-load `handled_names` test is only in `detail::scripted`. Moving it into `handler_for` saves the walk. Add a `bench_call` row with an unrelated class loaded. | read |
-| 15, `Args::array` copies | hot | A `const Array&` parameter copies the node and pushes it on `kept` (two refcount atomics) even when the argument is a literal array the command already holds. | read |
-| 16, debug-build argument indexing | hot (debug) | `ArgIndex::of(I)` is not forced to compile time, so MSVC's debug build, a stated target (D62), runs a loop per argument per call. | read |
-| 17, `Slot` padding | hot | `Context::Impl::Slot` is 40 bytes; reordered it is 32, two to a cache line. | read |
-| 18, layer records ignore the Config's allocator | load | D61 says a Config's tables take its allocator; `LayerState`'s strings and `deps`, `read()`'s deps, `copy_scratch`, `reread`'s `fresh` and `promote`'s `virt` use the default one. `baker_alloc_tests` passes because nothing reaches `operator new`. | read |
+| 13, a C++-to-script call allocates | hot | `Context::call(object, method, args)` builds a `Vec` and then `Array::make_from`: two allocations per call, also for every `ObjectBase::handle` that falls through to a script handler. One `Array::make(n + 2)` would do. | **closed**, D124: a cached command per size, 0 allocations |
+| 14, messages skip the handler bit | hot | `send()` walks the type and its bases for a script class on every method call once any `{class}` exists; the one-load `handled_names` test is only in `detail::scripted`. Moving it into `handler_for` saves the walk. Add a `bench_call` row with an unrelated class loaded. | **closed**, D124: the bit before the walk |
+| 15, `Args::array` copies | hot | A `const Array&` parameter copies the node and pushes it on `kept` (two refcount atomics) even when the argument is a literal array the command already holds. | **closed**, D124: literal arrays returned as held |
+| 16, debug-build argument indexing | hot (debug) | `ArgIndex::of(I)` is not forced to compile time, so MSVC's debug build, a stated target (D62), runs a loop per argument per call. | **closed**, D124: compile-time indexes |
+| 17, `Slot` padding | hot | `Context::Impl::Slot` is 40 bytes; reordered it is 32, two to a cache line. | **closed**, D124: 32 bytes, asserted |
+| 18, layer records ignore the Config's allocator | load | D61 says a Config's tables take its allocator; `LayerState`'s strings and `deps`, `read()`'s deps, `copy_scratch`, `reread`'s `fresh` and `promote`'s `virt` use the default one. `baker_alloc_tests` passes because nothing reaches `operator new`. | **closed**, D124: the Config's own records; the rest is D61's (gap 31) |
 | 19, the lexer scans strings a byte at a time | load | `lex_string` runs an escape-aware loop where the closing quote is always the first `"`; the newline count is a second loop, written twice; a `;` comment is skipped a byte at a time. `memchr`-style scans and `std::count` would do. | read |
 | 20, the shape checker searches and allocates | load | `walk()` finds a tag's shape by a linear scan of every shape, for each tagged array; `instance()` allocates a `seen` vector per governed array and searches it per field. | read |
 | 21, freshness re-serializes macros | load (development) | `cache.cpp`'s `fresh()` prints every session define's body to text to hash it, on every check of every layer. | read |
@@ -50,6 +50,7 @@ before fixing (SKILL.md, step 5), and do not fix one without a cost that justifi
 | 28, duplicated code | code | `Path::parse` and `Path::matches` tokenize alike; `LoadSession`'s four special members copy the same five fields; origin and pack registration is written in both the Parser and `SessionAccess`; `format_double` and its fallback normalize the decimal point twice; the arity message is built five times in baker::script; `cache.cpp`'s `nodes_at` re-derives `Array::run_bytes`. | read |
 | 29, methods' status | tool | A method's `Status` and replacement are stored, but the reference prints only functions' status, and checks use only `Stub`. Print it, or drop the replacement. | read |
 | 30, build time | build | doctest's implementation is compiled twice (`doctest_main.cpp`, `tests/alloc/main.cpp`, about 6.5 s each at `-O3`), `alloc_counter.cpp` seven times, and `bench_call.cpp` takes 35 s (128 bound types). An OBJECT library for each, and a runtime method count in the bench, would cut them. | reproduced (timed) |
+| 31, a Config's merged trees | load | Each merge builds the Config's tree as solo arrays from the default allocator (D61, D64): about 50 blocks in `baker_alloc_tests`' Config scenario, of 215 default allocations. A Config arena for its merged root would put them on the Config's own heap and free them in one go. That changes D64's ownership, so it needs the owner's decision. | measured (D124) |
 
 ## Already aligned (keep it that way)
 

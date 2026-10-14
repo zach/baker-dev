@@ -12,10 +12,13 @@
 
 #include "alloc_counter.hpp"
 
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string_view>
+
+extern std::atomic<size_t> g_default_allocations;  // main.cpp
 
 namespace {
 
@@ -98,11 +101,12 @@ int add(int a, int b) {
 TEST_CASE("a Config allocates through its allocator, and nothing through operator new") {
     Counting mine;
     const baker::Allocator alloc = mine.allocator();
-    size_t global = 0;
+    size_t global = 0, unowned = 0;
     bool ok = false;
     float speed_read = 0;
     {
         const baker::test::AllocationScope scope;  // no doctest assertion inside: they allocate
+        const size_t unowned_before = g_default_allocations.load();
         {
             baker::TweakRegistry tweaks;
             baker::Tweak<float> speed{"speed", 1.0f, {}, tweaks};
@@ -123,10 +127,12 @@ TEST_CASE("a Config allocates through its allocator, and nothing through operato
             ok = ok && config.remove_layer("over").has_value();
             speed_read = speed;
         }
+        unowned = g_default_allocations.load() - unowned_before;
         global = scope.count();
     }
     CHECK(ok);
     CHECK(speed_read == 2.5f);
+    MESSAGE("Config: " << unowned << " allocations through the default allocator");
     if (baker::test::counting_allocations()) CHECK(global == 0);  // not under TSan
     CHECK(mine.allocs > 0);
     CHECK(mine.allocs == mine.frees);

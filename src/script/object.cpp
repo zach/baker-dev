@@ -163,9 +163,7 @@ bool has_method(const TypeRecord& r, Symbol name) noexcept {
 
 bool scripted(const ObjectBase& o, Symbol name) noexcept {
     Context::Impl& impl = o.ctx_->impl();
-    const uint32_t i = name.index();
-    if (i / 64 >= impl.handled_names.size() || !(impl.handled_names[i / 64] >> (i % 64) & 1))
-        return false;
+    if (!impl.handled(name)) return false;  // before the slot: the C++ path's one test
     const Context::Impl::Slot* s = impl.slot(o.handle_);
     return s && impl.handler_for(*s, name);
 }
@@ -250,7 +248,7 @@ void Context::Impl::remove(ObjectHandle h) noexcept {
     if (!s) return;
     if (!s->name.empty() && s->name.index() < by_name.size()) by_name[s->name.index()] = {};
     forget(*s->object);
-    *s = Slot{nullptr, s->salt + 1 == 0 ? 1 : s->salt + 1, {}, nullptr, false};
+    *s = Slot{nullptr, nullptr, {}, s->salt + 1 == 0 ? 1 : s->salt + 1, false};
     free_slots.push_back(h.index());
 }
 
@@ -258,7 +256,7 @@ void Context::Impl::remove(ObjectHandle h) noexcept {
 // ancestor's, most derived first.
 const ScriptClass::Handler* Context::Impl::handler_for(const Slot& s, Symbol method) const {
     if (s.script) return s.script->handler(method);
-    if (classes.empty()) return nullptr;
+    if (!handled(method)) return nullptr;  // the usual answer, for one load (gap 14)
     const detail::TypeRecord& type = s.object->type();
     for (size_t i = 0; i <= type.bases.size(); ++i) {
         const detail::TypeRecord& t = i == 0 ? type : *type.bases[i - 1];
@@ -474,13 +472,27 @@ void Context::add_type(const detail::TypeRecord& type) {
 }
 
 Expected<Node> Context::call(const Node& object, Symbol method, std::span<const Node> args) {
-    Vec<Node> nodes;
-    nodes.reserve(args.size() + 2);
-    nodes.push_back(object);
-    nodes.emplace_back(method);
-    nodes.insert(nodes.end(), args.data(), args.data() + args.size());
-    const Ref<Array> command = Array::make_from(nodes);
-    return eval(Node(command, Type::Command));
+    const size_t size = args.size() + 2;
+    Ref<Array>* cached = size < Impl::kCallSizes ? &impl_->call_arrays[size] : nullptr;
+    // The cached command is free when the cache's is its only count (a nested call, or a
+    // {func} that kept its command, holds another).
+    Ref<Array> command = cached && *cached && (*cached)->ref_count() == 1
+                             ? *cached
+                             : Array::make(static_cast<uint32_t>(size));
+    command->set(0, object);
+    command->set(1, Node(method));
+    for (size_t i = 0; i < args.size(); ++i) command->set(i + 2, args[i]);
+    Expected<Node> r = eval(Node(command, Type::Command));
+    if (cached) {
+        if (command->ref_count() == (*cached == command ? 2u : 1u)) {
+            // Nothing kept it: empty it, so it holds nothing alive, and keep it for next time.
+            for (size_t i = 0; i < size; ++i) command->set(i, Node());
+            *cached = std::move(command);
+        } else if (*cached == command) {
+            *cached = nullptr;  // kept by the script: let it go
+        }
+    }
+    return r;
 }
 
 Error Context::resolve_error(const Node& object, std::string_view type) const {

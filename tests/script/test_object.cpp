@@ -286,6 +286,33 @@ TEST_CASE("calling a native method allocates nothing") {
     CHECK(scope.count() == 0);
 }
 
+TEST_CASE("a call from C++ into script allocates nothing once warm (gap 13)") {
+    if (!test::counting_allocations()) return;
+    Context ctx;
+    Person bob;
+    ok(ctx.add(bob, "bob"));
+    REQUIRE(ctx.eval("{class Person (wave ($n) $n)}"));
+    for (int i = 0; i < 3; ++i) REQUIRE(ctx.call(bob, "wave", 1));
+    test::AllocationScope scope;
+    for (int i = 0; i < 100; ++i) {
+        REQUIRE(ctx.call(bob, "wave", i));     // a script handler
+        REQUIRE(ctx.call(bob, "grow", 0.0f));  // a native method, the same size
+    }
+    CHECK(scope.count() == 0);
+}
+
+TEST_CASE("a command C++ built and the script kept is never reused (gap 13)") {
+    Context ctx;
+    Person bob;
+    ok(ctx.add(bob, "bob"));
+    // {func f () 7}, built by Context::call: the definition keeps the command array.
+    const Node args[] = {Node(Array::make(0)), Node(7)};
+    REQUIRE(ctx.call(Node(Symbol("func")), "f", args));
+    CHECK(ok(ctx.call(bob, "grow", 1.0f)).try_float() == doctest::Approx(7.0));
+    CHECK(ok(ctx.call(bob, "set", Symbol("height"), 2.0f)).try_float() == doctest::Approx(2.0));
+    CHECK(ok(ctx.eval("{f}")).try_int() == 7);
+}
+
 TEST_CASE("check knows the methods of named objects and of objects the tree creates") {
     Context ctx;
     Person bob;
