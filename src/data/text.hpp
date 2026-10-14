@@ -20,6 +20,8 @@ namespace baker::detail {
 // At most about `max_chars` of the compact form of `node`, ending in "..." if cut. Safe on
 // huge or heavily shared trees; for error messages (write.cpp).
 [[nodiscard]] Str preview(const Node& node, size_t max_chars = 40);
+// 'name', as messages name a symbol.
+[[nodiscard]] Str quoted(Symbol s);
 
 // The text forms std_interop.hpp gives a host, for messages and edits inside Baker.
 [[nodiscard]] Str text_of(const Path& path, size_t count = SIZE_MAX, char separator = '/');
@@ -69,5 +71,18 @@ void append_path_name(Str& out, std::string_view name);
 // Everything before the last separator: "a/b/c.dta" -> "a/b"; "c.dta" -> "".
 [[nodiscard]] std::string_view parent_path(std::string_view p) noexcept;
 [[nodiscard]] Str join_path(std::string_view dir, std::string_view p);
+
+// `path`, terminated for fopen: on the stack unless it is long, so opening a file need not
+// allocate.
+class CPath {
+public:
+    explicit CPath(std::string_view path);
+    [[nodiscard]] const char* c_str() const noexcept { return p_; }
+
+private:
+    char buf_[512];
+    Str long_;
+    const char* p_ = buf_;
+};
 
 }  // namespace baker::detail

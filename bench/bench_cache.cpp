@@ -161,6 +161,18 @@ int run(const char* self, size_t text_bytes) {
         else
             layer_hit = std::min(layer_hit, ms_since(t0));
     }
+    // A host polling for edits: a reload that finds the large file unchanged reads and hashes
+    // all of it.
+    double poll_large = 1e9;
+    {
+        baker::Config cfg({.edit_mode = true, .tweaks = nullptr});
+        if (!cfg.push_layer("bench", text_path)) return 1;
+        for (int rep = 0; rep < 5; ++rep) {
+            const auto t0 = Clock::now();
+            if (!cfg.reload()) return 1;
+            poll_large = std::min(poll_large, ms_since(t0));
+        }
+    }
     std::filesystem::remove_all(cache_dir);
     std::filesystem::remove(text_path);
     std::printf("  read_cached, no cache (parse, write): %7.2f ms\n", miss);
@@ -169,6 +181,7 @@ int run(const char* self, size_t text_bytes) {
     std::printf("  Config layer, text:                   %7.2f ms\n", layer_text);
     std::printf("  Config layer, cache_dir, no cache:    %7.2f ms\n", layer_miss);
     std::printf("  Config layer, cache_dir, fresh cache: %7.2f ms\n", layer_hit);
+    std::printf("  Config reload, unchanged large file:  %7.2f ms\n", poll_large);
     // What a host pays each frame: a reload that finds nothing changed (a small file), and
     // mark_visible with nothing waiting (D92). Best of 5 runs, per call.
     {

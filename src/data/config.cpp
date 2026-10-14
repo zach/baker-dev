@@ -26,12 +26,6 @@ const Symbol& scratch_name() {
     return s;
 }
 
-// Reads `path` through `reader` into `text`, replacing what it held.
-bool read_into(const LoadSession::Reader& reader, std::string_view path, Str& text) {
-    text.clear();
-    return reader(path, detail::str_out(text));
-}
-
 // A file a layer was built from (or looked for), as it was when the layer was read.
 struct Dep {
     Str path;
@@ -69,10 +63,6 @@ struct Leaf {
     const Array* holder;
     Vec<Node> values;
 };
-
-uint64_t hash_text(std::string_view s) noexcept {
-    return detail::hash_symbol_text(s);
-}
 
 Symbol trigger_name(const char* name) {
     return Symbol(name);
@@ -342,7 +332,8 @@ struct Config::Impl {
 
     const Allocator alloc;  // first: the containers below take it
     ConfigOptions options;
-    Str cache_dir{alloc};  // options.cache_dir views this
+    Str cache_dir{alloc};     // options.cache_dir views this
+    mutable Str scan{alloc};  // changed()'s buffer, kept so that a poll allocates nothing
     LoadSession base;
     LoadSession as_read;  // read_session(): the last file layer's session, as of the last merge
     Writer writer = write_disk_file;
@@ -569,9 +560,10 @@ struct Config::Impl {
         session->set_reader([&](std::string_view p, TextSink out) {
             const uint64_t t0 = read_ns ? now() : 0;
             Str text;
-            const bool ok = read_into(reader, p, text);
+            const bool ok = detail::read_with(reader, p, text);
             if (read_ns) *read_ns += now() - t0;
-            if (p != cache.view()) deps.push_back({Str(p), ok, ok ? hash_text(text) : 0});
+            if (p != cache.view())
+                deps.push_back({Str(p), ok, ok ? detail::content_hash(text) : 0});
             if (ok) out(text);
             return ok;
         });
@@ -603,9 +595,8 @@ struct Config::Impl {
 
     bool changed(const LayerState& layer, Symbol& first) const {
         for (const Dep& d : layer.deps) {
-            Str text;
-            const bool ok = read_into(base.reader(), d.path, text);
-            if (ok != d.present || (ok && hash_text(text) != d.hash)) {
+            const bool ok = detail::read_with(base.reader(), d.path, scan);
+            if (ok != d.present || (ok && detail::content_hash(scan) != d.hash)) {
                 first = Symbol(d.path);
                 return true;
             }
@@ -884,7 +875,7 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
     auto unchanged = [&](Symbol file) -> std::optional<Error> {
         const auto orig = map.text(file);
         Str disk;
-        if (!orig || !read_into(read_file, file.str(), disk) || disk != *orig)
+        if (!orig || !detail::read_with(read_file, file.str(), disk) || disk != *orig)
             return refused("'" + Str(file.str()) +
                                "' has changed since it was read; reload before writing back",
                            file);
@@ -903,7 +894,7 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
         if (!insert) return Unexpected(detail::get_error(*layer.root, path, nullptr));
         if (auto e = no_index(0, main, 0)) return Unexpected(*e);
         Str disk;
-        if (read_into(read_file, layer.file, disk))
+        if (detail::read_with(read_file, layer.file, disk))
             return Unexpected(refused(
                 "'" + layer.file + "' has appeared since it was read; reload before writing back",
                 main));

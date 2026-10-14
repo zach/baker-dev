@@ -12,29 +12,8 @@ using detail::ObjectParams;
 
 namespace {
 
-Str quoted(Symbol s) {
-    return "'" + Str(s.str()) + "'";
-}
-
-#if defined(_MSC_VER)
-#define BAKER_COLD __declspec(noinline)
-#else
-#define BAKER_COLD [[gnu::noinline, gnu::cold]]
-#endif
-
-BAKER_COLD Expected<Node> fail(const Array& at, ErrorCode code, std::string_view message) {
-    Error e = make_error(code, message, at.file(), at.line());
-    record_stack(e);
-    return Unexpected(std::move(e));
-}
-
 // An instance of a script-only class.
 struct ScriptObject final : Object<ScriptObject> {};
-
-const Symbol& sym_this() {
-    static const Symbol s("this");
-    return s;
-}
 
 // A bound property, else a loose parameter. Null if neither exists.
 std::optional<Node> get_property(ObjectBase& o, Symbol name, ObjectParams* params) {
@@ -342,7 +321,7 @@ Expected<Node> Context::Impl::send(ObjectHandle target, const Array& command, Co
         return invoke_set(method, m->overloads, command, 2, object);
 
     // The methods every object has. Evaluating an argument can move `s` ({new} grows the
-    // slots), though not remove the object: removals wait for the outermost call.
+    // slots), though not remove the object: removals wait for the host's eval (D117).
     static const Symbol kGet("get"), kSet("set"), kType("type"), kName("name");
     Args args(self, command, command.begin() + 2, n, 0, false, 2, object);
     if (method == kType || method == kName) {
@@ -582,9 +561,6 @@ void register_object_builtins(Context& ctx) {
         Context::Impl& impl = a.context().impl();
         auto cls = Own<ScriptClass>::make(impl.alloc);
         cls->name = name;
-        cls->native = impl.type_named(name);
-        cls->file = a.command().file();
-        cls->line = a.command().line();
         if (auto r = read_handlers(a, impl, cls->handlers); !r) return Unexpected(r.error());
         if (name.index() >= impl.class_by_name.size()) impl.class_by_name.resize(name.index() + 1);
         if (ScriptClass* old = impl.class_by_name[name.index()]) {
@@ -614,9 +590,6 @@ void register_object_builtins(Context& ctx) {
                     ErrorCode::NotFound));
             auto made = Own<ScriptClass>::make(impl.alloc);
             made->name = name;
-            made->native = native;
-            made->file = a.command().file();
-            made->line = a.command().line();
             if (name.index() >= impl.class_by_name.size())
                 impl.class_by_name.resize(name.index() + 1);
             impl.class_by_name[name.index()] = made.get();

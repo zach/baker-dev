@@ -281,7 +281,8 @@ private:
         for (uint32_t i = 0; i < (a.size() ? a.size() : 1); ++i) {
             const Node& n = nodes[i];
             char* p = slots + size_t{i} * sizeof(Node);
-            // The payload and type bytes, into the file; aux stays 0. Nothing becomes a Node.
+            // The payload and type bytes, into the file; the padding stays 0. Nothing becomes a
+            // Node.
             // NOLINTNEXTLINE(bugprone-undefined-memory-manipulation)
             std::memcpy(p, &n, L::kType + 1);
             uint64_t v;
@@ -613,18 +614,8 @@ Expected<Ref<Array>> open(std::string_view path, const LoadSession& session, con
         if (!session.reader()(file, str_out(bytes))) return cannot();
         return from_bytes(bytes, file, session, meta);
     }
-    // fopen needs a terminated path: on the stack, so the tree is the only allocation.
-    char name[512];
-    Str long_name;
-    const char* c_path = name;
-    if (path.size() < sizeof name) {
-        std::memcpy(name, path.data(), path.size());
-        name[path.size()] = '\0';
-    } else {
-        long_name = path;
-        c_path = long_name.c_str();
-    }
-    std::FILE* f = std::fopen(c_path, "rb");
+    const CPath c_path(path);  // on the stack, so the tree is the only allocation
+    std::FILE* f = std::fopen(c_path.c_str(), "rb");
     if (!f) return cannot();
     std::setvbuf(f, nullptr, _IONBF, 0);  // read straight into the arena
     long size = -1;

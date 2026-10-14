@@ -105,6 +105,16 @@ TEST_CASE("telemetry adds no allocation per reload once the history exists") {
     CHECK(history(cfg).size() == 2);
 }
 
+TEST_CASE("a reload that finds nothing changed allocates nothing") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer("default", dir.write("default.dta", kBase)));
+    REQUIRE(cfg.reload());  // warm: the scan buffer
+    test::AllocationScope scope;
+    for (int i = 0; i < 10; ++i) CHECK(cfg.reload() == false);
+    if (test::counting_allocations()) CHECK(scope.count() == 0);
+}
+
 TEST_CASE("the history ring wraps, keeping the newest records in order") {
     Config cfg({.tweaks = nullptr});
     cfg.set_reload_history(3);

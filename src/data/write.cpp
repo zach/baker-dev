@@ -89,13 +89,6 @@ bool put_flat(Str& out, const Node& n, size_t limit) {
     return out.size() <= limit;
 }
 
-// Length of the compact form, or anything > budget if it is longer.
-size_t flat_length(const Node& n, size_t budget) {
-    Str tmp;
-    put_flat(tmp, n, budget);
-    return tmp.size();
-}
-
 void put_pretty(Str& out, const Node& n, size_t indent, const WriteOptions& o) {
     if (!n.is_array_like()) {
         put_atom(out, n);
@@ -103,10 +96,10 @@ void put_pretty(Str& out, const Node& n, size_t indent, const WriteOptions& o) {
     }
     const size_t width = o.width > 0 ? static_cast<size_t>(o.width) : 0;
     const size_t budget = width > indent ? width - indent : 0;
-    if (flat_length(n, budget) <= budget) {
-        put_flat(out, n, SIZE_MAX);
-        return;
-    }
+    // The compact form if it fits, written once; else taken back.
+    const size_t mark = out.size();
+    if (put_flat(out, n, mark + budget)) return;
+    out.resize(mark);
     const size_t step = o.indent > 0 ? static_cast<size_t>(o.indent) : 0;
     const Array& a = *n.array();
     out += open_of(n.type());

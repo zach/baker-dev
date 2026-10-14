@@ -16,25 +16,6 @@ namespace {
 
 thread_local Context* t_current = nullptr;
 
-// A cell that has never been set holds this: a Func node with no record, which nothing
-// else can produce.
-const Node kUnset = Node::func(nullptr);
-
-bool is_unset(const Node& n) noexcept {
-    return n.type() == Type::Func && !n.func_record();
-}
-
-Str quoted(Symbol s) {
-    return "'" + Str(s.str()) + "'";
-}
-
-// Errors are built out of line, so the evaluator's frames, which nest once per script call,
-// hold no message temporaries.
-#if defined(_MSC_VER)
-#define BAKER_COLD __declspec(noinline)
-#else
-#define BAKER_COLD [[gnu::noinline, gnu::cold]]
-#endif
 // Context::Impl::call's body, inlined where it is plain and where it is instrumented.
 #if defined(_MSC_VER)
 #define BAKER_INLINE __forceinline
@@ -53,6 +34,12 @@ BAKER_COLD void record_stack(Error& e) {
         e.push_stack(t_current->stack_entry(*c));
 }
 
+BAKER_COLD Expected<Node> fail(const Array& at, ErrorCode code, std::string_view message) {
+    Error e = make_error(code, message, at.file(), at.line());
+    record_stack(e);
+    return Unexpected(std::move(e));
+}
+
 namespace {
 
 BAKER_COLD void locate(Error& e, const Array& at) {
@@ -60,12 +47,6 @@ BAKER_COLD void locate(Error& e, const Array& at) {
         e.set_location(at.file(), at.line());
     }
     record_stack(e);
-}
-
-BAKER_COLD Expected<Node> fail(const Array& at, ErrorCode code, std::string_view message) {
-    Error e = make_error(code, message, at.file(), at.line());
-    record_stack(e);
-    return Unexpected(std::move(e));
 }
 
 BAKER_COLD Expected<Node> bad_head(const Array& command) {

@@ -1,6 +1,9 @@
 # Baker under the data-oriented lens: known gaps
 
-**Status, 2026-10-13, after D100: no open gaps.** First audited 2026-10-11 at M6 step 1
+**Status, 2026-10-14, after D120: no open gaps.** A fresh review (D116–D120) found no new
+gap: its costs were a tool path (`write_cache`, D116) and a development one (polling,
+D120), fixed and measured; D117's deferral costs one predictable branch per host `eval`,
+none per call. Before that, **2026-10-13, after D100: no open gaps.** First audited 2026-10-11 at M6 step 1
 (`23f4142`); the audit's reasoning for each closed gap is in its D-entries. Sizes are GCC
 13 on x86-64. Each gap names its path class (SKILL.md, review step 1). When one is fixed,
 or accepted as a deviation, record it in `docs/decisions.md` and update this file.

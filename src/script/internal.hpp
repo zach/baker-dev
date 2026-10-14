@@ -7,6 +7,7 @@
 #include <baker/task.hpp>
 
 #include "common/containers.hpp"
+#include "data/text.hpp"
 
 #include <algorithm>
 #include <utility>
@@ -116,7 +117,7 @@ struct ScriptBody {
     size_t body = 0;  // index of the first body node in `definition`
 };
 
-// A {class}: script handlers for a native type (`native` set) or a script-only class.
+// A {class}: script handlers for a native type or a script-only class.
 struct ScriptClass {
     struct Handler {
         Symbol name;
@@ -124,10 +125,7 @@ struct ScriptClass {
         mutable Counters counters;
     };
     Symbol name;
-    const detail::TypeRecord* native = nullptr;
     Vec<Handler> handlers;
-    Symbol file;
-    int32_t line = 0;
 
     [[nodiscard]] const Handler* handler(Symbol method) const noexcept {
         for (const Handler& h : handlers)
@@ -145,8 +143,31 @@ struct Global {
 [[nodiscard]] Str signature_text(const detail::Overload& o);
 // "2 arguments", "1 to 2 arguments", "at least 1 argument".
 [[nodiscard]] Str arity_text(uint32_t min, uint32_t max);
+using detail::quoted;
+
+// Errors are built out of line, so the evaluator's frames, which nest once per script call,
+// hold no message temporaries.
+#if defined(_MSC_VER)
+#define BAKER_COLD __declspec(noinline)
+#else
+#define BAKER_COLD [[gnu::noinline, gnu::cold]]
+#endif
+
 // Records the current Context's live call frames in `e`, unless it already has a stack.
 void record_stack(Error& e);
+// An error located at `at`, with the call stack.
+BAKER_COLD Expected<Node> fail(const Array& at, ErrorCode code, std::string_view message);
+
+// A variable cell never set holds a Func node with no record, which nothing else makes.
+inline const Node kUnset = Node::func(nullptr);
+[[nodiscard]] inline bool is_unset(const Node& n) noexcept {
+    return n.type() == Type::Func && !n.func_record();
+}
+// $this, bound in handlers and the tasks they make.
+[[nodiscard]] inline const Symbol& sym_this() {
+    static const Symbol s("this");
+    return s;
+}
 // Registers the functions every Context starts with (builtins.cpp, object.cpp).
 void register_builtins(Context& ctx);
 void register_object_builtins(Context& ctx);

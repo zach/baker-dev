@@ -500,10 +500,6 @@ public:
 
     [[nodiscard]] Symbol file() const noexcept { return file_; }
     [[nodiscard]] int32_t line() const noexcept { return line_; }
-    void set_source(Symbol file, int32_t line) noexcept {
-        file_ = file;
-        line_ = line;
-    }
 
     // 1 + the height of the tallest child array; 1 for an array with no array children.
     // Bounds every recursive walk over a parsed tree. Saturates at 65535.
@@ -728,7 +724,7 @@ Expected<T> Array::get(const Path& path, T fallback) const {
         r.values, [&](const Values& v) { return detail::get_error(*this, path, &kInfo, &v); });
 }
 
-// Deep comparison of type and value, ignoring source locations and Node::aux().
+// Deep comparison of type and value, ignoring source locations.
 // Floats compare by bit pattern. Strings compare by content; arrays recursively.
 [[nodiscard]] bool structurally_equal(const Node& a, const Node& b) noexcept;
 [[nodiscard]] bool structurally_equal(const Array& a, const Array& b) noexcept;

@@ -13,17 +13,27 @@ namespace {
 
 constinit TweakRegistry g_registry;
 
+// The metadata keys, interned once: a panel reads them for every tweak every frame.
+struct Keys {
+    Symbol range{"range"}, step{"step"}, desc{"desc"}, note{"note"}, kind{"kind"}, group{"group"};
+};
+const Keys& keys() {
+    static const Keys k;
+    return k;
+}
+
 // A tweak's value without the metadata written after it: (color 1 0.5 0 (range 0 1)) is
 // three numbers (D88). Only trailing arrays tagged with the keys a tweak reads are left out,
 // so a value whose own elements are tagged arrays reads as before.
 Values without_metadata(const Values& v) {
+    const Keys& k = keys();
     size_t n = v.size();
     for (; n > 0; --n) {
         const Array* a = v[n - 1].try_array();
         if (!a || a->empty()) break;
         const Node& tag = (*a)[0];
-        if (!(tag.is("range") || tag.is("step") || tag.is("desc") || tag.is("note") ||
-              tag.is("kind") || tag.is("group")))
+        if (!(tag.is(k.range) || tag.is(k.step) || tag.is(k.desc) || tag.is(k.note) ||
+              tag.is(k.kind) || tag.is(k.group)))
             break;
     }
     return Values(v.nodes().first(n), v.source());
@@ -178,7 +188,7 @@ const Array* TweakBase::meta_array(Symbol key) const {
 }
 
 TweakRange TweakBase::range() const {
-    if (const Array* a = meta_array("range"); a && a->size() >= 3) {
+    if (const Array* a = meta_array(keys().range); a && a->size() >= 3) {
         const auto lo = (*a)[1].try_float(), hi = (*a)[2].try_float();
         if (lo && hi) return {*lo, *hi};
     }
@@ -186,7 +196,7 @@ TweakRange TweakBase::range() const {
 }
 
 double TweakBase::step() const {
-    if (const Array* a = meta_array("step"); a && a->size() >= 2)
+    if (const Array* a = meta_array(keys().step); a && a->size() >= 2)
         if (auto v = (*a)[1].try_float()) return *v;
     return meta_.step;
 }
@@ -202,16 +212,16 @@ std::string_view text_value(const Array* a) {
 }  // namespace
 
 std::string_view TweakBase::desc() const {
-    const auto d = text_value(meta_array("desc"));
+    const auto d = text_value(meta_array(keys().desc));
     return d.empty() ? meta_.desc : d;
 }
 
 std::string_view TweakBase::note() const {
-    return text_value(meta_array("note"));
+    return text_value(meta_array(keys().note));
 }
 
 std::string_view TweakBase::kind() const {
-    if (const auto k = text_value(meta_array("kind")); !k.empty()) return k;
+    if (const auto k = text_value(meta_array(keys().kind)); !k.empty()) return k;
     if (!meta_.kind.empty()) return meta_.kind;
     // A 3- or 4-number value ranged 0..1 is presented as a color (after SeExpr's editor).
     if (bound_ && (count_ == 3 || count_ == 4)) {
@@ -225,7 +235,7 @@ std::string_view TweakBase::kind() const {
 }
 
 std::string_view TweakBase::group() const {
-    if (const auto g = text_value(meta_array("group")); !g.empty()) return g;
+    if (const auto g = text_value(meta_array(keys().group)); !g.empty()) return g;
     if (!meta_.group.empty()) return meta_.group;
     const std::string_view p = path_;
     const size_t cut = p.find_last_of("./");

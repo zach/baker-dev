@@ -3485,3 +3485,55 @@ set while scratch is disabled waits rather than being refused.*
   `(boss (attacks (attack (dmg 50))))` reported the range error twice through every Config
   load. The checker now remembers the arrays it checked as a field's value and does not
   check them again by tag (a loose `(attack ...)` still is). Test in `test_shape.cpp`.
+
+## D120. A polling reload allocates nothing and hashes at memory speed; cleanups
+
+*From the same review (2026-10-14).*
+
+- **Polling.** A host that polls `reload()` each frame reads and hashes every file a layer
+  was built from. Each read allocated a `Str` for the text and another for the path
+  (`read_disk_file` copied it to terminate it for `fopen`), and the hash was FNV-1a, a
+  byte at a time. The text now goes into a buffer the Config keeps, from its allocator; the
+  path is terminated on the stack (`detail::CPath`, which the cache loader already did by
+  hand); and the hash is the cache's four-lane `content_hash`. A test checks an unchanged
+  poll allocates nothing. `bench_cache` has a new row, a reload finding the large file
+  unchanged; three alternating runs against `adc20b3`, pinned to one CPU:
+
+| | 1.2 MB text | 4.2 MB text |
+|---|---:|---:|
+| Config reload, unchanged large file, before | 1.88–2.36 ms | 7.63–8.85 ms |
+| Config reload, unchanged large file, after | 0.19–0.21 ms | 1.00–1.25 ms |
+
+  The one-line file's row is the same (3.88–4.81 µs before, 3.86–4.31 after): it is the
+  system calls.
+- **Tweak metadata** (`range()`, `step()`, `desc()`, `note()`, `kind()`, `group()`, and
+  the trailing-metadata test every bind and reload makes) interned its keys on each call,
+  which hashes the text and locks the global symbol table; a tuning panel calls them for
+  every tweak every frame. The keys are interned once.
+- **Number classification** rejects an atom that cannot be a number on its first
+  character, so a symbol is not scanned twice. A parse runs 2.7% fewer instructions
+  (callgrind, 1.2 MB, 377.0M to 366.8M); the time is within noise (`bench_parse`, pinned,
+  83.3–88.8 MB/s before, 84.1–87.0 after).
+- **`write_dta`'s pretty printer** formatted each array twice, the first time into a
+  temporary string, to learn whether it fit on a line. It now writes the compact form in
+  place and takes it back if it does not fit.
+- **Dead code.** `Node::aux()` and `set_aux()`, reserved for D5's in-node cache, which D44
+  decided not to build; `Array::set_source`, which nothing called; `ScriptClass`'s
+  `native`, `file` and `line`, and `TaskSlot::name` (spawn's name is still used in its
+  error), written and never read.
+- **Duplicates.** `quoted(Symbol)` was written six times (data, shape, and four script
+  files): now once, in `data/text.hpp`. The script files share `BAKER_COLD`, `fail()`,
+  `kUnset`, `is_unset()` and `sym_this()` through `internal.hpp`, where each had two or
+  three copies. Config's `read_into` was parse.cpp's `read_with`, and `Hash<Str>` was
+  FNV-1a written again, with a digit missing from its offset basis.
+- **Tools.** `local_matrix.sh` configured a build directory only when it did not exist,
+  so a changed flag or a failed first configure (the harness, before its X11 headers were
+  installed) was never retried; it now configures every time and counts CMake errors.
+  The header-alone units are written with `file(CONFIGURE)`, so a reconfigure no longer
+  recompiles all 27. `count_lines.py` counts `std_script.hpp` with baker::script.
+- **Benchmarks** of the rest, against `adc20b3`, pinned: `find<float>` 15.3–15.4 ns before
+  and 12.1–12.7 after; `get<int>(Path)` 27.6–28.4 and 29.6–33.3, which callgrind counts at
+  the same instructions (58,598,051 before, 58,597,781 after, in a small driver): code
+  layout. `{add 1 2}` 37.8–39.7 and 38.5–40.6.
+- **Size:** the core is 11,128 lines (11,073 before D116; the fixes of D116–D119 added
+  more than this removed).

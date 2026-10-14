@@ -238,7 +238,7 @@ private:
 };
 
 bool read_disk_file(std::string_view path, TextSink out) {
-    std::FILE* f = std::fopen(Str(path).c_str(), "rb");
+    std::FILE* f = std::fopen(CPath(path).c_str(), "rb");
     if (!f) return false;
     char buf[65536];
     size_t got = 0;
@@ -250,7 +250,6 @@ bool read_disk_file(std::string_view path, TextSink out) {
 
 }  // namespace
 
-// Reads `path` through `reader` into `text`, replacing what it held.
 bool read_with(const LoadSession::Reader& reader, std::string_view path, Str& text) {
     text.clear();
     return reader(path, detail::str_out(text));

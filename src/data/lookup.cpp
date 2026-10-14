@@ -37,9 +37,7 @@ void append_name(Str& out, Symbol s) {
     detail::append_path_name(out, s.str());
 }
 
-Str quoted(Symbol s) {
-    return "'" + Str(s.str()) + "'";
-}
+using detail::quoted;
 
 Str label_of(const Path::Segment& seg) {
     return seg.is_index ? "element " + detail::decimal(seg.index) : quoted(seg.name);

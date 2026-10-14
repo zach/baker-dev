@@ -21,9 +21,7 @@ const Names& names() {
     return n;
 }
 
-Str quoted(baker::Symbol s) {
-    return "'" + Str(s.str()) + "'";
-}
+using baker::detail::quoted;
 
 // The built-in type a symbol names, or Shape: another shape's name.
 Type type_named(baker::Symbol s) {

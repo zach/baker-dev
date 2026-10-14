@@ -26,7 +26,6 @@ struct TaskSlot {
     uint32_t salt = 1;
     Wait wait = Wait::Free;
     bool cancelled = false;
-    Symbol name;
     uint64_t seq = 0;  // spawn order, for a deterministic order within a tick
     bool (*poll)(void*) = nullptr;
     void* waiter = nullptr;
@@ -233,7 +232,6 @@ Expected<TaskHandle> Scheduler::spawn(Task task, Symbol name) {
     TaskSlot& slot = s.slots[i];
     slot.h = std::exchange(task.h_, {});
     slot.wait = Wait::Pending;
-    slot.name = name;
     slot.seq = s.next_seq++;
     slot.h.promise().slot = i;
     s.pending.push_back(i);
