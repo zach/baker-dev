@@ -712,7 +712,8 @@ Stuntline); navigation (Hearth, Wayfarer); bot drivers and the runner's statisti
 
 At each step, run the audit from `reading-a-studio.md` §7 on the stacks in use: the
 register comes from `reference`, loop times from `loop_stats()`, demand and repetition
-from `check`. Record results the way Moira's own steps are recorded: with numbers.
+from `check`. Record results the way Moira's own steps are recorded: with numbers. *Run
+after step 4 (D114, `stacks/audit.md`): loop times read through `{live.loop}`.*
 
 ---
 

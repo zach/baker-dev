@@ -64,6 +64,9 @@ public:
     [[nodiscard]] const moira::Config& config() const noexcept { return cfg_; }
     [[nodiscard]] const std::string& data_dir() const noexcept { return data_dir_; }
 
+    // Config::loop_stats() as one line of text: what `{live.loop}` returns.
+    [[nodiscard]] std::string loop_report() const;
+
     // Moves the warnings, validator findings, and reload errors logged since the last call
     // to the end of `out`, oldest first; false if there were none.
     bool take_log(std::vector<std::string>& out);

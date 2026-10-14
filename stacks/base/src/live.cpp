@@ -3,6 +3,7 @@
 #include <moira/shape.hpp>
 #include <moira/std_interop.hpp>
 
+#include <cstdio>
 #include <filesystem>
 #include <utility>
 
@@ -40,6 +41,11 @@ bool Live::open(const LiveOptions& options) {
             return false;
         }
     }
+    // The loop's own numbers, for the console and the agent (reading-a-studio.md §7, step 2).
+    if (auto f = ctx_.func("live.loop", [this] { return loop_report(); }))
+        f->doc(
+            "Edit-to-see and reload times per file and layer (Config::loop_stats), as text: "
+            "the edits a person saved and the frame that showed each.");
     autorun();
     if (options.watch) {
         watching_ = watcher_.watch(data_dir_);
@@ -76,6 +82,25 @@ bool Live::reload_now() {
     }
     autorun();
     return *r;
+}
+
+std::string Live::loop_report() const {
+    const moira::LoopStats s = cfg_.loop_stats();
+    auto ms = [](uint64_t ns) { return double(ns) / 1e6; };
+    char buf[256];
+    std::snprintf(buf, sizeof buf, "%u reloads, %u unchanged, %u failed", s.reloads, s.unchanged,
+                  s.failures);
+    std::string out = buf;
+    for (const auto* rows : {&s.files, &s.layers})
+        for (const moira::LoopRow& r : *rows) {
+            std::snprintf(buf, sizeof buf,
+                          "; %s: %u edits, edit-to-see median %.1f ms worst %.1f ms, reload "
+                          "median %.2f ms worst %.2f ms",
+                          std::string(r.name.str()).c_str(), r.edits, ms(r.edit_median_ns),
+                          ms(r.edit_worst_ns), ms(r.reload_median_ns), ms(r.reload_worst_ns));
+            out += buf;
+        }
+    return out;
 }
 
 bool Live::take_log(std::vector<std::string>& out) {
