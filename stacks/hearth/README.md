@@ -59,9 +59,9 @@ next villager; N spawns the next household. In the console: `{hearth.why ada}`,
 
 ## Not yet
 
-Villagers talking to each other (social comes from things); several floors; an L3 task pack
-that adds an action (a second `{class villager ...}` replaces the first: see D112);
-animation beyond standing and lying down.
+Villagers talking to each other (social comes from things); several floors; an example L3
+task pack in the repository (one adds an action with `{extend villager ...}`, D113, never a
+second `{class}`); animation beyond standing and lying down.
 
 ## Measured
 

@@ -516,6 +516,35 @@ Node Raw<Var>::load() const {
 
 // --- Built-ins ---
 
+namespace {
+
+// The handlers of {class Name handler...} or {extend Name handler...}, from argument 1 on.
+Expected<void> read_handlers(Args& a, Context::Impl& impl, Vec<ScriptClass::Handler>& out) {
+    for (size_t i = 1; i < a.size(); ++i) {
+        const Array* h = a.raw(i).try_array();
+        if (!h || h->empty() || (*h)[0].type() != Type::Symbol)
+            return Unexpected(
+                a.error("a handler is (method ($params...) body...)", ErrorCode::Syntax));
+        ScriptClass::Handler handler{*(*h)[0].try_sym(), {}, {}};
+        handler.body.definition = Ref<Array>(const_cast<Array*>(h));
+        handler.body.body = 1;
+        if (const Array* params = h->size() > 1 ? (*h)[1].try_array() : nullptr) {
+            if (!parse_params(*params, handler.body))
+                return Unexpected(
+                    a.error("parameters of " + quoted(handler.name) + " must be $variables",
+                            ErrorCode::Syntax));
+            handler.body.body = 2;
+        }
+        const uint32_t bit = handler.name.index();
+        if (bit / 64 >= impl.handled_names.size()) impl.handled_names.resize(bit / 64 + 1);
+        impl.handled_names[bit / 64] |= uint64_t{1} << (bit % 64);
+        out.push_back(std::move(handler));
+    }
+    return {};
+}
+
+}  // namespace
+
 void register_object_builtins(Context& ctx) {
     // {class Name (method ($params...) body...) (method body...) ...}
     auto define_class = [](Args a) -> Expected<Node> {
@@ -529,26 +558,7 @@ void register_object_builtins(Context& ctx) {
         cls->native = impl.type_named(name);
         cls->file = a.command().file();
         cls->line = a.command().line();
-        for (size_t i = 1; i < a.size(); ++i) {
-            const Array* h = a.raw(i).try_array();
-            if (!h || h->empty() || (*h)[0].type() != Type::Symbol)
-                return Unexpected(
-                    a.error("a handler is (method ($params...) body...)", ErrorCode::Syntax));
-            ScriptClass::Handler handler{*(*h)[0].try_sym(), {}, {}};
-            handler.body.definition = Ref<Array>(const_cast<Array*>(h));
-            handler.body.body = 1;
-            if (const Array* params = h->size() > 1 ? (*h)[1].try_array() : nullptr) {
-                if (!parse_params(*params, handler.body))
-                    return Unexpected(
-                        a.error("parameters of " + quoted(handler.name) + " must be $variables",
-                                ErrorCode::Syntax));
-                handler.body.body = 2;
-            }
-            const uint32_t bit = handler.name.index();
-            if (bit / 64 >= impl.handled_names.size()) impl.handled_names.resize(bit / 64 + 1);
-            impl.handled_names[bit / 64] |= uint64_t{1} << (bit % 64);
-            cls->handlers.push_back(std::move(handler));
-        }
+        if (auto r = read_handlers(a, impl, cls->handlers); !r) return Unexpected(r.error());
         if (name.index() >= impl.class_by_name.size()) impl.class_by_name.resize(name.index() + 1);
         if (ScriptClass* old = impl.class_by_name[name.index()]) {
             *old = std::move(*cls);  // a redefinition replaces the handlers (a reloaded script)
@@ -558,12 +568,58 @@ void register_object_builtins(Context& ctx) {
         }
         return Node(name);
     };
+    // {extend Name (method ($params...) body...) ...}: adds handlers to a class, or replaces
+    // the ones of the same name, from another file (D113). A bound type with no class yet
+    // gets one.
+    auto extend_class = [](Args a) -> Expected<Node> {
+        if (a.size() < 1 || a.raw(0).type() != Type::Symbol)
+            return Unexpected(a.error("write {extend Name (method ($params...) body...) ...}",
+                                      ErrorCode::Syntax));
+        const Symbol name = *a.raw(0).try_sym();
+        Context::Impl& impl = a.context().impl();
+        ScriptClass* cls = impl.script_class(name);
+        if (!cls) {
+            const detail::TypeRecord* native = impl.type_named(name);
+            if (!native)
+                return Unexpected(a.error(
+                    quoted(name) + " is not a class: {class " + Str(name.str()) + " ...} it first",
+                    ErrorCode::NotFound));
+            auto made = Own<ScriptClass>::make(impl.alloc);
+            made->name = name;
+            made->native = native;
+            made->file = a.command().file();
+            made->line = a.command().line();
+            if (name.index() >= impl.class_by_name.size())
+                impl.class_by_name.resize(name.index() + 1);
+            impl.class_by_name[name.index()] = made.get();
+            cls = made.get();
+            impl.classes.push_back(std::move(made));
+        }
+        Vec<ScriptClass::Handler> added(impl.alloc);
+        if (auto r = read_handlers(a, impl, added); !r) return Unexpected(r.error());
+        for (ScriptClass::Handler& h : added) {
+            ScriptClass::Handler* same = nullptr;
+            for (ScriptClass::Handler& old : cls->handlers)
+                if (old.name == h.name) same = &old;
+            if (same)
+                *same = std::move(h);
+            else
+                cls->handlers.push_back(std::move(h));
+        }
+        return Node(name);
+    };
     if (auto r = ctx.func("class", define_class))
         r->doc(
             "`{class Name (method ($params...) body...) ...}`: script handlers. If `Name` is a "
             "bound C++ type, they apply to its objects and are tried before its C++ methods; "
             "otherwise `Name` is a script class for `new`. In a handler, `$this` is the "
             "object and `[name]` its property or parameter.");
+    if (auto r = ctx.func("extend", extend_class))
+        r->doc(
+            "`{extend Name (method ($params...) body...) ...}`: adds script handlers to a class, "
+            "replacing only those of the same name, so another file (a task pack) can add one. "
+            "`Name` is a `{class}` or a bound C++ type. Run it after the `{class}`: a "
+            "redefinition replaces every handler.");
 
     // {new Class [name] (param value)...}
     auto make = [](Args a) -> Expected<Node> {

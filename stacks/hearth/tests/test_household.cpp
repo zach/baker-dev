@@ -26,7 +26,8 @@ const char* kData = R"(
       (residents (ada) (bo))))
 )";
 
-// The actions, as one {class} form: a second {class villager ...} replaces the first.
+// The actions. Another file adds one with {extend villager ...}: a second {class} would
+// replace them all.
 const char* kUse = R"(
    (use_object ($obj)
       {clock thread_task {$this walk_to $obj} {wait {$this arrived}}
@@ -96,9 +97,11 @@ TEST_CASE("hearth: an action whose task never ends is reported stuck") {
     // The fridge's action waits for something that never happens.
     const hearth::Kit k = kit(replace(kData, "(advertise (hunger 35)) (minutes 15)",
                                       "(advertise (hunger 35)) (minutes 15) (action stare)"),
-                              actions(R"(
+                              // From another file, as a task pack would: {extend}.
+                              actions() + R"(
+{extend villager
    (stare ($obj)
-      {clock thread_task {$this walk_to $obj} {wait {$this arrived}} {wait {== 1 2}}}))"));
+      {clock thread_task {$this walk_to $obj} {wait {$this arrived}} {wait {== 1 2}}})})");
     const hearth::Tally t = soak(k, 1, 2);
     CHECK(t.stuck > 0);
     CHECK(t.notes.size() > 0);

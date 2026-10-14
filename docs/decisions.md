@@ -3273,10 +3273,10 @@ D108.*
 - **Runner and game agree.** Two played scenarios walk the proof's paths with the game's own
   character on Jolt: a climb to the lighthouse and a glide to the island. Both pass on every
   seed.
-- **A gap in Moira, recorded.** A second `{class villager ...}` replaces the first (a
-  reloaded script redefines its class), so an L3 task pack cannot add one action to the
+- **A gap in Moira, found.** A second `{class villager ...}` replaces the first (a
+  reloaded script redefines its class), so an L3 task pack could not add one action to the
   villager: the agent's authoring loop of §4.3 needs a way to extend a class from another
-  file. Not fixed here; it is the owner's call.
+  file. Fixed in D113 with `{extend}`, the owner's choice.
 - **Results** (Release, seeds 1–30). Hearth: 60 of 60 runs pass (1,500 soaks of 50
   households for 30 game days, and 30 played days of the cottage). Wayfarer: 180 of 180
   (the proof, three bots, and the two played routes, per seed). Longest stretch without a
@@ -3293,3 +3293,26 @@ D108.*
 - **The base** also gained `Game::unbind` (a game drops what it keeps in a Context before
   the Context goes) and `Physics::temp()` (Jolt's scratch allocator, for characters).
 - **CI** packages Hearth and Wayfarer for Windows beside the others.
+
+## D113. `{extend}`: handlers added to a class from another file
+
+*Spec §5, "Objects". The gap D112 found; the owner chose a new word over making `{class}`
+merge.*
+
+- **The gap.** `{class T ...}` again replaces every handler of `T`. That is right for a
+  reloaded script (a handler deleted from the file must go), and wrong for a second file
+  that means to add one: an L3 task pack writing one new villager action (game-stacks.md
+  §4.3, "Authoring") wiped the others.
+- **`{extend T (name ($params) body...) ...}`** adds each handler to `T`'s class, replacing
+  only one of the same name. `T` is a class already defined or a bound C++ type (which gets
+  a class then); anything else is an error that says to define the class first. `{class}`
+  keeps its meaning, so a reload still replaces everything, extensions included; the
+  layers' `#autorun` commands run bottom to top, so a task pack's extension runs again
+  after the class it extends. Making `{class}` merge instead would have kept handlers a
+  reloaded file had deleted.
+- **`check`** reads `{extend}` as it reads `{class}`: the handlers an extension adds are
+  not demand. The reference lists the word.
+- **Cost.** Definition time only: dispatch is unchanged. The core is 11,068 lines of 15,000
+  (`moira::script` 3,896). Hearth's test of a stuck action now adds that action with
+  `{extend villager ...}`, as a task pack would.
+

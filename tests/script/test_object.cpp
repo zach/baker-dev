@@ -220,6 +220,47 @@ TEST_CASE("script classes: new, parameters, and delete") {
     CHECK(ok(ctx.eval("{tall grow 1}")).as_float() == 10.0);
 }  // the Context deletes `tall`, which it created
 
+TEST_CASE("extend adds handlers to a class from elsewhere, replacing only those it names") {
+    Context ctx;
+    ok(
+        ctx.eval("{class Goblin (hit ($n) {set [hp] {- [hp] $n}}) (alive {> [hp] 0})}"
+                 "{new Goblin g1 (hp 5)}"));
+    // A second file adds one handler and replaces one; the others stay.
+    ok(ctx.eval("{extend Goblin (taunt \"come here\") (alive {> [hp] 1})}"));
+    CHECK(ok(ctx.eval("{g1 taunt}")).as_str() == "come here");
+    CHECK(ok(ctx.eval("{g1 hit 4}")).as_int() == 1);
+    CHECK(ok(ctx.eval("{g1 alive}")).as_int() == 0);  // the replaced handler
+    // {class} again (a reloaded script) replaces every handler, extensions included: an
+    // extension runs after its class.
+    ok(ctx.eval("{class Goblin (hit ($n) 0)}"));
+    CHECK(error_of(ctx, "{g1 taunt}").message() == "Goblin has no method 'taunt'");
+    // A bound type with no class yet gets one; a name that is neither is an error.
+    ctx.add_type<Person>();
+    Person bob;
+    ok(ctx.add(bob, "bob"));
+    ok(ctx.eval("{extend Person (greet \"hello\")}"));
+    CHECK(ok(ctx.eval("{bob greet}")).as_str() == "hello");
+    CHECK(ok(ctx.eval("{bob grow 1}")).as_float() == 7.0);  // native methods still answer
+    CHECK(error_of(ctx, "{extend Orc (x 1)}").message() ==
+          "'Orc' is not a class: {class Orc ...} it first");
+    CHECK(error_of(ctx, "{extend Goblin oops}").message() ==
+          "a handler is (method ($params...) body...)");
+}
+
+TEST_CASE("check knows the handlers an extension adds") {
+    Context ctx;
+    const auto tree =
+        ok(read_string("{class Goblin (hit ($n) 0)}\n"
+                       "{extend Goblin (taunt 0)}\n"
+                       "{new Goblin g1}\n"
+                       "{g1 taunt}\n"
+                       "{g1 dance}\n",
+                       "level.dta"));
+    const CheckReport report = check(*tree, ctx);
+    REQUIRE(report.demand.size() == 1);
+    CHECK(to_string(report).find("'dance' on Goblin") != std::string::npos);
+}
+
 TEST_CASE("a Context destroyed before its objects leaves them unregistered") {
     Person bob;
     {

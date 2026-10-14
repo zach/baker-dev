@@ -408,8 +408,8 @@ same event three times.
 
 *Built (D112): `stacks/hearth/`, with keyed data and `(keyed)` shapes. Actions are
 `{class villager ...}` handlers that start `thread_task`s on a clock in game minutes;
-`on_need_critical` is a typed message. A second `{class villager}` replaces the first, so
-an L3 pack cannot yet add one action (D112).*
+`on_need_critical` is a typed message. An L3 pack adds an action with `{extend villager
+...}` (D113): a second `{class villager}` replaces the first.*
 
 **The question.** Do the characters read as people, with routines, preferences, and
 reactions, without getting stuck, oscillating, or starving?
