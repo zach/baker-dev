@@ -1,0 +1,29 @@
+; Ledger's data. The goods and buildings come from economy.xlsx (economy.dta, generated:
+; never edit it); the rules, the strategies the simulation plays, and the designer's pacing
+; targets are here. Edit and save while it runs. Tuning of your own goes in local.dta.
+#require "../packs/game/ledger_core.dta"
+#include "economy.dta"
+
+(econ
+   (day_seconds 5 (range 0.05 600) (desc "Real seconds per in-game day: 720 days an hour"))
+   (start_money 1000 (range 0 1000000))
+   (recovery 0.25 (range 0.01 1) (desc "Share of a market's glut cleared each day"))
+   (resale 0.5 (range 0 1) (desc "A building's worth, as a share of its cost"))
+   (bankrupt_days 30 (range 1 3650) (desc "Days in debt before a company is bankrupt")))
+
+; The bot players. Each runs a company of its own, from the same start, in a market of its
+; own with the same days (econ.compete).
+(strategies
+   (greedy     (horizon 60))
+   (hoarder    (reserve 1) (sell_above 0.8) (horizon 90))
+   (specialist (chain coats) (horizon 90))
+   (random     (build_chance 0.1)))
+
+; The designer's pace: when a competent player (the greedy bot) should get there. The
+; game shows these targets; metrics/ledger.dta holds the windows a reviewer signed off on.
+(milestones
+   (first_mill   (desc "A mill") (when {>= {econ.count mill} 1}) (target_day 60))
+   (first_weaver (desc "A weaver") (when {>= {econ.count weaver} 1}) (target_day 90))
+   (first_bakery (desc "A bakery") (when {>= {econ.count bakery} 1}) (target_day 120))
+   (first_tailor (desc "A tailor") (when {>= {econ.count tailor} 1}) (target_day 240))
+   (fortune      (desc "100,000 coins in hand") (when {>= {econ.money} 100000}) (target_day 480)))

@@ -329,6 +329,9 @@ functions; a designer asking for them in data appears in the demand report.
 
 ### 4.2 Ledger: a tycoon game economy
 
+*Built (D109): `stacks/ledger/`. Data stays keyed, `(goods (flour ...))`, with `(keyed)`
+shapes (D108), so a layer can retune one good; the shape below predates them.*
+
 **The question.** Does the economy produce interesting decisions from the first minute to
 the fortieth hour, with no dominant strategy, no dead ends, and a pace the designer
 intends?
@@ -582,6 +585,10 @@ between the runner and the game, as in 4.1.
 
 ### 4.6 Duel: player-versus-computer fighting
 
+*Built (D109): `stacks/duel/`. The shape below governs nothing as written: it needs
+`(keyed)` (D108). CPU difficulties became keyed data rather than layers
+(`stacks/duel/README.md`).*
+
 **The question.** Does the fight feel good: readable, responsive, with risk and reward on
 every move, and a computer opponent that is beatable, fair, and teaches the player?
 
@@ -676,7 +683,8 @@ Stuntline); navigation (Hearth, Wayfarer); bot drivers and the runner's statisti
 2. **Duel and Ledger first.** Both are small, need no streaming, and have the clearest
    headless metrics; Duel proves the deterministic core and Ledger proves the spreadsheet
    path and bot Monte Carlo. They exercise the two ends of the agent loop: tight numeric
-   search and long statistical soak.
+   search and long statistical soak. *Done (D109): `stacks/duel/` and `stacks/ledger/`, each
+   playable, with scenarios and objectives that pass; keyed shapes (D108) came out of it.*
 3. **Contraption and Stuntline** next: both reuse Duel's deterministic core and add Jolt.
 4. **Hearth and Wayfarer** last: the largest worlds, the most native code, the most
    content.

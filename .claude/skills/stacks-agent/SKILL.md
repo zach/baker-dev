@@ -28,6 +28,7 @@ Then, with `G=build-stacks/bin/stacks_<game>`:
 | `$G reference` | Every script function, global, shape, and pack: the words you may use. Read it first. |
 | `$G check` | Errors and calls to undefined functions in data, scenarios, and metrics, as JSON. Exit 1 means fix before anything else. |
 | `$G sim [--scenario NAME] [--seeds 1-20] [--out DIR]` | Runs scenarios headless and judges them by the objectives. Exit 0: all passed; 1: an objective failed; 2: something could not run. |
+| `$G eval "{cmd}"...` | Commands on the data and the reset game, headless: a frame table, a search, a report. |
 | `$G diff` | Exactly what `agent.dta` changes: path, old value, new value. |
 | `$G promote` | What promotion would write into `default.dta`. **Never pass `--write`**: promotion is a person's decision. |
 | `python3 -I stacks/tools/console.py "{cmd}"` | A command in a game a person is running (127.0.0.1:4555). Use it only when asked to. |
@@ -49,6 +50,19 @@ and seed give the same result, so a failing seed is a reproduction.
    how to see it: start the game and toggle the `agent` layer in the Layers panel (F1).
 7. **Stop.** The person plays it, tunes it live, and decides whether to promote. Their own
    edits show in the game's Journal panel; read what they changed before your next round.
+
+## The stacks
+
+- **Duel** (`stacks/duel/`): frame data under `(fighters (NAME (moves (MOVE ...))))`, the
+  CPU's difficulties under `(cpu ...)`, the bots under `(bots ...)`. Read
+  `$G eval "{duel.frame_table}" "{duel.combo_route}"` before and after a frame-data change,
+  and quote both in your report. Win rates are per run over an hour of rounds; one seed
+  outside a band is noise, a shifted median is a finding.
+- **Ledger** (`stacks/ledger/`): goods and buildings come from `economy.xlsx` through
+  `data/economy.dta`, which is generated: never edit it. Tune in `agent.dta`, and report each
+  value as the sheet cell to change (each line of `economy.dta` ends with its sheet and
+  row). `$G eval "{econ.compete}" "{econ.advance_days 720}" "{econ.report}"` shows every
+  strategy's company after an hour.
 
 ## Rules
 
