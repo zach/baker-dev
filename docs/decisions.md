@@ -3815,3 +3815,27 @@ choice.*
   123, and the Config's from 62 to 74.
 - **Test** (`test_m3b.cpp`): a merge allocates the same with 100 macros as with 5. Against
   the previous code it read 107 and 12.
+
+## D130. A Context's callables and handlers are its own
+
+*From `docs/allocation-review.md`, the owner's choice. Closes the review's D61
+inconsistency in baker::script.*
+
+- **The inconsistency.** D61 says function records and classes are the owner's. But a
+  function's callable is a `detail::Shared`, classed in D61 as a header type, and so came
+  from the default allocator. That covered every native's callable and every `{func}`'s
+  `ScriptBody` with its parameter lists. `ScriptClass` took no allocator, so neither did
+  its handlers and their bodies.
+- **Now.**
+  - `Shared::make_in(alloc, ...)` records its allocator, and `Shared::make` is
+    `make_in(default_allocator())`.
+  - `make_overload` takes an allocator; `Context::func` passes the Context's, through the
+    new `Context::allocator()`.
+  - `{func}` bodies, `ScriptBody`'s vectors, `ScriptClass`'s handler vector and each
+    handler's body take the Context's allocator.
+  - Type records stay process-wide, on the default allocator, as D61 says.
+- **Measured** (`baker_alloc_tests`' Context scenario, which now prints both): the
+  default allocator's count went from 121 to 80, and the Context's from 132 to 173. What
+  remains on the default allocator is what D61 assigns there: `eval(text)`'s parse
+  temporaries, error records, type records and the symbol table. Nothing on a call
+  changed: `Shared::get()` is the same load.
