@@ -1,5 +1,6 @@
 #include "puzzle.hpp"
 
+#include <Jolt/Math/Trigonometry.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
@@ -206,8 +207,9 @@ Run::Pose Run::pose(size_t i) const {
     JPH::BodyInterface& bi = const_cast<base::Physics&>(world_).bodies();
     const JPH::RVec3 p = bi.GetPosition(bodies_[i]);
     const JPH::Quat q = bi.GetRotation(bodies_[i]);
-    // Locked to the plane, the rotation is about z alone.
-    const float angle = 2.0f * std::atan2(q.GetZ(), q.GetW());
+    // Locked to the plane, the rotation is about z alone. Jolt's trigonometry, not the C
+    // library's, so a goal judged from it is the same on every platform.
+    const float angle = 2.0f * JPH::ATan2(q.GetZ(), q.GetW());
     return {float(p.GetX()), float(p.GetY()), angle, {q.GetX(), q.GetY(), q.GetZ(), q.GetW()}};
 }
 
@@ -223,7 +225,7 @@ bool Run::inside(int a, int b) const {
     const Pose pa = pose(size_t(a)), pb = pose(size_t(b));
     // a's center in b's frame.
     const float dx = pa.x - pb.x, dy = pa.y - pb.y;
-    const float c = std::cos(-pb.angle_rad), s = std::sin(-pb.angle_rad);
+    const float c = JPH::Cos(-pb.angle_rad), s = JPH::Sin(-pb.angle_rad);
     const float lx = c * dx - s * dy, ly = s * dx + c * dy;
     return std::fabs(lx) < cup.w / 2 - 0.1f && ly > -cup.h / 2 + 0.1f && ly < cup.h / 2;
 }

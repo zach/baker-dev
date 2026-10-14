@@ -3212,9 +3212,16 @@ D108.*
 - **The base**: `Renderer` draws spheres and quaternion orientations; and its ImGui font
   texture was created with data, which bgfx makes immutable, so glyphs ImGui added later never
   appeared ("so ething heav" for "something heavy"): it is created empty, then filled.
-- **Results** (Release, seeds 1–30). Contraption: 120 of 120 runs pass. Stuntline: 87 of
-  90; the three left are rookie crashes at the canyon landing (`skill_spread` up to 3.2), at
-  the band's edge.
+- **Results** (Release, seeds 1–30). Contraption: 120 of 120 runs pass. Stuntline: 88 of
+  90; the two left are rookie crashes at the canyon landing (`skill_spread`), at the band's
+  edge.
+- **What the MSVC job caught.** Stuntline's pinned race hash differed on Windows while the
+  toppling stack's and Contraption's matched: Jolt was deterministic, our race code was not.
+  It fed the C library's `sin`, `cos`, `atan2`, `tan`, and `hypot` into the simulation (the
+  track's geometry, the steering, corner speeds), and glibc and the MSVC runtime do not
+  return the same bits. Every function of a float that feeds a simulation now uses Jolt's
+  (`JPH::Sin`, `Cos`, `Tan`, `ATan2`), and `sqrt`, which IEEE rounds the same everywhere;
+  Contraption's goal check does too. A rule for every stack that replays.
 - **Measured** (Release, the development container, a 4-core Xeon at 2.8 GHz). Contraption's
   120 runs (90 level judgements, each 30 robustness tries and up to 201 cheese tries, and 30
   played replays) in 11.0–11.3 s; an attempt about 3 ms. Stuntline's 90 runs (each track
