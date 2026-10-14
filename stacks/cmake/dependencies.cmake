@@ -60,3 +60,40 @@ add_library(stacks_imgui STATIC
 target_include_directories(stacks_imgui SYSTEM PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
 target_link_libraries(stacks_imgui PUBLIC SDL3::SDL3-static)
 target_compile_options(stacks_imgui PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/w,-w>)
+
+# Jolt Physics (MIT): rigid bodies, constraints, vehicles, for the stacks that need physics
+# (game-stacks.md §2.1). Built cross-platform deterministic, so a run replays bit for bit on
+# any compiler and CPU the stacks build with (§3.1, §7); single precision; no exceptions and
+# no RTTI-dependent features beyond its own.
+set(CROSS_PLATFORM_DETERMINISTIC ON CACHE BOOL "" FORCE)
+set(DOUBLE_PRECISION OFF CACHE BOOL "" FORCE)
+set(GENERATE_DEBUG_SYMBOLS OFF CACHE BOOL "" FORCE)
+set(OVERRIDE_CXX_FLAGS OFF CACHE BOOL "" FORCE)  # keep the project's flags and runtime
+set(INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "" FORCE)
+set(ENABLE_ALL_WARNINGS OFF CACHE BOOL "" FORCE)
+set(DEBUG_RENDERER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)
+set(PROFILER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)
+set(USE_STATIC_MSVC_RUNTIME_LIBRARY OFF CACHE BOOL "" FORCE)  # CMAKE_MSVC_RUNTIME_LIBRARY decides
+set(CPP_EXCEPTIONS_ENABLED OFF CACHE BOOL "" FORCE)
+set(CPP_RTTI_ENABLED OFF CACHE BOOL "" FORCE)
+set(OBJECT_LAYER_BITS 16 CACHE STRING "" FORCE)
+FetchContent_Declare(jolt
+  GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics.git
+  GIT_TAG        v5.5.0
+  GIT_SHALLOW    TRUE
+  SOURCE_SUBDIR  Build
+  SYSTEM)
+FetchContent_MakeAvailable(jolt)
+set_target_properties(Jolt PROPERTIES COMPILE_WARNING_AS_ERROR OFF)
+target_compile_options(Jolt PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/w,-w>)
+# Floating point that replays: no fused multiply-add contractions, no fast math, for Jolt and
+# for every target whose arithmetic feeds a simulation (stacks_deterministic). Jolt's own
+# CMake sets these only when it overrides the project's flags, which we do not let it do.
+function(stacks_deterministic target)
+  if(MSVC)
+    target_compile_options(${target} PRIVATE /fp:precise)
+  else()
+    target_compile_options(${target} PRIVATE -ffp-contract=off -fno-fast-math)
+  endif()
+endfunction()
+stacks_deterministic(Jolt)

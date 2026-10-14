@@ -24,6 +24,7 @@ int main(int argc, char** argv) {
 |---|---|---|
 | `stacks_core` | `live`, `watcher`, `fixed_step`, `game`, `sim` | No window, no renderer: the headless simulation (`../agent.md`) and the tests |
 | `stacks_app` | `app`, `render`, `tools` | SDL3 window and input, the bgfx renderer, Dear ImGui, the frame loop, the agent's commands |
+| `stacks_physics` | `physics` | Jolt, cross-platform deterministic: one world, two layers, single-threaded steps, a state hash |
 | `stacks_moira_tools` | Moira's `examples/harness-imgui/panels.cpp` and `examples/remote-console/console.cpp` | Used as they are, not copied |
 
 - **`Live`** owns the Config and the layer stack of §2.3: `default.dta`, then `local.dta`
@@ -52,11 +53,19 @@ int main(int argc, char** argv) {
   remote console; fixed steps; ImGui panels (F1); draw; present; `Live::end_frame`, which
   calls `Config::mark_visible`, so `loop_stats()` measures save to presented frame.
 
+- **`Physics`** wraps what every Jolt game repeats: the one-time setup, static and moving
+  layers, single-threaded stepping, and `hash()`, every body's state as bits. Jolt is built
+  with `JPH_CROSS_PLATFORM_DETERMINISTIC`, and `stacks_deterministic` turns off
+  floating-point contraction for it and for each game's simulation code, so a run replays
+  bit for bit across compilers; tests pin replay hashes computed on Linux, which the MSVC
+  job checks on Windows. Jolt also turns on AVX2, which the minimum-spec CPU has.
+- **`Renderer::box`** draws boxes and spheres (`Box::sphere`), oriented by Euler angles or
+  a physics body's quaternion (`Box::quat`).
+
 ## Not in the base yet
 
-The design's §2.1 also lists Jolt, Recast/Detour, miniaudio, and Tracy. None of the first
-two stacks needs them (Duel collides boxes; Ledger has no physics or navigation), so each
-comes in with the first stack that does, once, in the base. Likewise the `spec/low.dta`
+The design's §2.1 also lists Recast/Detour, miniaudio, and Tracy; each comes in with the
+first stack that needs it, once, in the base. Likewise the `spec/low.dta`
 layer, `moira_bake` caches, and a `shipping` preset wait for the first stack to ship a build.
 
 ## Measured

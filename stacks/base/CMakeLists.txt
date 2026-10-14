@@ -9,6 +9,13 @@ target_include_directories(stacks_core PUBLIC include)
 target_link_libraries(stacks_core PUBLIC moira::moira)
 stacks_target(stacks_core)
 
+# Jolt, deterministic (game-stacks.md §2.1): for the stacks with rigid bodies or vehicles.
+add_library(stacks_physics STATIC src/physics.cpp)
+target_include_directories(stacks_physics PUBLIC include)
+target_link_libraries(stacks_physics PUBLIC Jolt)
+stacks_target(stacks_physics)
+stacks_deterministic(stacks_physics)
+
 # Moira's reference panels and its remote console, from its examples, as they are.
 add_library(stacks_moira_tools STATIC
   ${MOIRA_ROOT}/examples/harness-imgui/panels.cpp
@@ -30,8 +37,8 @@ stacks_target(stacks_app)
 
 if(STACKS_BUILD_TESTS)
   add_executable(stacks_base_tests tests/test_fixed_step.cpp tests/test_watcher.cpp
-                 tests/test_live.cpp tests/test_sim.cpp)
-  target_link_libraries(stacks_base_tests PRIVATE stacks_core stacks_doctest_main)
+                 tests/test_live.cpp tests/test_sim.cpp tests/test_physics.cpp)
+  target_link_libraries(stacks_base_tests PRIVATE stacks_core stacks_physics stacks_doctest_main)
   stacks_target(stacks_base_tests)
   add_test(NAME stacks_base_tests COMMAND stacks_base_tests)
 endif()

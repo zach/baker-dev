@@ -7,6 +7,7 @@
 #include <bx/math.h>
 #include <imgui.h>
 
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -39,6 +40,42 @@ const float kCubeVertices[8][3] = {
     {-0.5f, -0.5f, 0.5f},  {0.5f, -0.5f, 0.5f},  {-0.5f, 0.5f, 0.5f},  {0.5f, 0.5f, 0.5f}};
 const uint16_t kCubeIndices[36] = {0, 2, 1, 1, 2, 3, 4, 5, 6, 5, 7, 6, 0, 4, 2, 4, 6, 2,
                                    1, 3, 5, 5, 3, 7, 0, 1, 4, 4, 1, 5, 2, 6, 3, 6, 7, 3};
+
+// A unit sphere (radius 0.5), as latitude rings; built once.
+constexpr int kRings = 10, kSegments = 16;
+struct SphereMesh {
+    float vertices[(kRings + 1) * (kSegments + 1)][3];
+    uint16_t indices[kRings * kSegments * 6];
+    SphereMesh() {
+        int v = 0, i = 0;
+        for (int r = 0; r <= kRings; ++r) {
+            const float lat = 3.14159265f * (float(r) / kRings - 0.5f);
+            for (int s = 0; s <= kSegments; ++s) {
+                const float lon = 6.28318531f * float(s) / kSegments;
+                vertices[v][0] = 0.5f * std::cos(lat) * std::cos(lon);
+                vertices[v][1] = 0.5f * std::sin(lat);
+                vertices[v][2] = 0.5f * std::cos(lat) * std::sin(lon);
+                ++v;
+            }
+        }
+        for (int r = 0; r < kRings; ++r)
+            for (int s = 0; s < kSegments; ++s) {
+                const auto a = static_cast<uint16_t>(r * (kSegments + 1) + s);
+                const auto b = static_cast<uint16_t>(a + kSegments + 1);
+                const uint16_t quad[6] = {a,
+                                          b,
+                                          static_cast<uint16_t>(a + 1),
+                                          static_cast<uint16_t>(a + 1),
+                                          b,
+                                          static_cast<uint16_t>(b + 1)};
+                for (uint16_t q : quad) indices[i++] = q;
+            }
+    }
+};
+const SphereMesh& sphere_mesh() {
+    static const SphereMesh m;
+    return m;
+}
 
 bgfx::VertexLayout box_layout() {
     bgfx::VertexLayout l;
@@ -169,6 +206,12 @@ bool Renderer::init(void* window, void* display, int width, int height, Renderer
         bgfx::createVertexBuffer(bgfx::makeRef(kCubeVertices, sizeof kCubeVertices), box_layout())
             .idx;
     box_indices_ = bgfx::createIndexBuffer(bgfx::makeRef(kCubeIndices, sizeof kCubeIndices)).idx;
+    const SphereMesh& sphere = sphere_mesh();
+    sphere_vertices_ = bgfx::createVertexBuffer(
+                           bgfx::makeRef(sphere.vertices, sizeof sphere.vertices), box_layout())
+                           .idx;
+    sphere_indices_ =
+        bgfx::createIndexBuffer(bgfx::makeRef(sphere.indices, sizeof sphere.indices)).idx;
     params_ = bgfx::createUniform("u_params", bgfx::UniformType::Vec4, 4).idx;
     imgui_program_ =
         bgfx::createProgram(bgfx::createEmbeddedShader(kShaders, type, "vs_ocornut_imgui"),
@@ -195,6 +238,8 @@ void Renderer::shutdown() {
     bgfx::destroy(bgfx::ProgramHandle{box_program_});
     bgfx::destroy(bgfx::VertexBufferHandle{box_vertices_});
     bgfx::destroy(bgfx::IndexBufferHandle{box_indices_});
+    bgfx::destroy(bgfx::VertexBufferHandle{sphere_vertices_});
+    bgfx::destroy(bgfx::IndexBufferHandle{sphere_indices_});
     bgfx::destroy(bgfx::UniformHandle{params_});
     bgfx::destroy(bgfx::ProgramHandle{imgui_program_});
     bgfx::destroy(bgfx::UniformHandle{imgui_sampler_});
@@ -239,8 +284,24 @@ void Renderer::camera(const Camera& camera) {
 
 void Renderer::box(const Box& b) {
     float model[16];
-    bx::mtxSRT(model, b.size[0], b.size[1], b.size[2], b.rotation[0], b.rotation[1], b.rotation[2],
-               b.center[0], b.center[1], b.center[2]);
+    if (b.quat[3] != 0) {
+        // Rows are the rotated axes, scaled (bx's row-vector convention), then translation.
+        const float x = b.quat[0], y = b.quat[1], z = b.quat[2], w = b.quat[3];
+        const float r[3][3] = {{1 - 2 * (y * y + z * z), 2 * (x * y + w * z), 2 * (x * z - w * y)},
+                               {2 * (x * y - w * z), 1 - 2 * (x * x + z * z), 2 * (y * z + w * x)},
+                               {2 * (x * z + w * y), 2 * (y * z - w * x), 1 - 2 * (x * x + y * y)}};
+        for (int row = 0; row < 3; ++row) {
+            for (int col = 0; col < 3; ++col) model[row * 4 + col] = r[row][col] * b.size[row];
+            model[row * 4 + 3] = 0;
+        }
+        model[12] = b.center[0];
+        model[13] = b.center[1];
+        model[14] = b.center[2];
+        model[15] = 1;
+    } else {
+        bx::mtxSRT(model, b.size[0], b.size[1], b.size[2], b.rotation[0], b.rotation[1],
+                   b.rotation[2], b.center[0], b.center[1], b.center[2]);
+    }
     // The lit fill shader's parameters: light direction and shininess, sky color, ground
     // color, material color.
     const float params[16] = {0.4f,       0.8f,       -0.45f,     1.0f,      1.0f,  1.0f,
@@ -248,8 +309,8 @@ void Renderer::box(const Box& b) {
                               b.color[0], b.color[1], b.color[2], b.color[3]};
     bgfx::setTransform(model);
     bgfx::setUniform(bgfx::UniformHandle{params_}, params, 4);
-    bgfx::setVertexBuffer(0, bgfx::VertexBufferHandle{box_vertices_});
-    bgfx::setIndexBuffer(bgfx::IndexBufferHandle{box_indices_});
+    bgfx::setVertexBuffer(0, bgfx::VertexBufferHandle{b.sphere ? sphere_vertices_ : box_vertices_});
+    bgfx::setIndexBuffer(bgfx::IndexBufferHandle{b.sphere ? sphere_indices_ : box_indices_});
     bgfx::setState(BGFX_STATE_DEFAULT);
     bgfx::submit(kSceneView, bgfx::ProgramHandle{box_program_});
 }
@@ -267,9 +328,14 @@ void Renderer::imgui_textures(ImDrawData* data) {
     for (ImTextureData* tex : *data->Textures) {
         switch (tex->Status) {
             case ImTextureStatus_WantCreate: {
-                const bgfx::TextureHandle h = bgfx::createTexture2D(
-                    static_cast<uint16_t>(tex->Width), static_cast<uint16_t>(tex->Height), false, 1,
-                    bgfx::TextureFormat::RGBA8, 0,
+                // Created empty, then filled: bgfx makes a texture given data at creation
+                // immutable, and the glyphs ImGui adds later would never reach it.
+                const auto w = static_cast<uint16_t>(tex->Width),
+                           h16 = static_cast<uint16_t>(tex->Height);
+                const bgfx::TextureHandle h =
+                    bgfx::createTexture2D(w, h16, false, 1, bgfx::TextureFormat::RGBA8, 0, nullptr);
+                bgfx::updateTexture2D(
+                    h, 0, 0, 0, 0, w, h16,
                     bgfx::copy(tex->GetPixels(), static_cast<uint32_t>(tex->GetSizeInBytes())));
                 tex->SetTexID(to_id(h));
                 tex->SetStatus(ImTextureStatus_OK);
