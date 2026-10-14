@@ -3721,3 +3721,44 @@ callgrind and pinned timings in small drivers, against the previous build.*
 - **Unchanged:** `bench_lookup`'s rows. `find<float>` read 15.2–16.7 ns before and
   17.0–17.4 after, at the same instructions (37,251,771 and 37,251,931 for 200,000
   finds): code layout.
+
+## D127. Gap 31: fix merge, keep merged trees solo
+
+*The owner's decision (2026-10-14) on `docs/allocation-review.md`: option A, as
+recommended. D64 stands: arrays built after a load are solo blocks.*
+
+- **Why not an arena.** The review measured where a merge's cost lay. About 7 of every 9
+  arrays it rebuilt were copies of a layer's own array, and 77% of its allocations were
+  temporaries. An arena per merge would have kept both kinds of waste. It would also have
+  brought new retention: one held 80 B leaf would pin about 1.1 MB of merged and layer
+  arenas. And `Array::set` through `root()` would have kept every replaced node.
+- **What changed.**
+  - When a rebuilt array's nodes come out identical to the incoming array's, node for
+    node, the merge shares that array instead of building a copy. The shared array keeps
+    its own location, the layer's.
+  - The merge's temporaries live in a `detail::MergeScratch`: per depth of the
+    recursion, a buffer for the array being rebuilt and an open-addressed index of a wide
+    array's tags. The index is sized by the keys being merged, not by the symbol table. It
+    replaces D75's `unordered_map`, one node per key. Levels are owned one by one, so a
+    deeper level never moves a buffer an outer one uses.
+  - The Overwrite branch reorders `dst` in place rather than swapping it with a buffer
+    that may not share its allocator.
+  - The Config keeps one scratch on its allocator for every merge it makes: its stack,
+    scratch overlays, and `layer_effect`. `baker::merge` makes its own, and `#merge` in a
+    load makes one.
+  - `merge` reserves its result once rather than growing it.
+- **Measured** (a driver of three file layers of about 36 KB each, one full merge,
+  release, pinned; before is `6298f1a`):
+
+| | before | after |
+|---|---:|---:|
+| default-allocator allocations | 9,067 | 8 |
+| the merged tree's own bytes | 176,744 | 12,184 |
+| time | 365–374 µs | 152–154 µs |
+
+  A Config whose top layer overrides whole sections now allocates 6 times a merge
+  whatever its size: 20 sections or 800.
+- **Tests** (`test_config.cpp`):
+  - a layer that sets a whole section shares it;
+  - a merge allocates the same for 200 sections as for 20;
+  - wide arrays at two depths at once merge as one key at a time does.

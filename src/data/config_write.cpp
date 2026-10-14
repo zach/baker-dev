@@ -471,9 +471,11 @@ Expected<List<LayerEffectEntry>> Config::layer_effect(std::string_view layer) co
     Ref<Array> without = Array::make(0);
     for (size_t i = 0; i < impl_->layers.size(); ++i)
         if (impl_->layers[i].options.enabled && (!li || i != *li))
-            without = baker::merge(*without, *impl_->layers[i].root);
+            without = detail::merge(*without, *impl_->layers[i].root, MergePolicy::Overwrite,
+                                    impl_->merge_scratch);
     const Ref<Array> scratch = impl_->scratch_enabled ? impl_->scratch_root() : nullptr;
-    if (!is_scratch && scratch) without = baker::merge(*without, *scratch);
+    if (!is_scratch && scratch)
+        without = detail::merge(*without, *scratch, MergePolicy::Overwrite, impl_->merge_scratch);
 
     const Source in_scratch{scratch_name()};
     Vec<Node> below;

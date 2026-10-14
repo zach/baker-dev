@@ -674,8 +674,9 @@ private:
             if (!load(path, d == "include_opt", t.line, root, d == "require")) return false;
             if (!root) return true;  // optional and missing, or already required
             if (d == "merge") {
+                MergeScratch merge_scratch;  // #merge is rare: its own
                 merge_into(scratch_, map_ ? &spans_ : nullptr, frames_.back().start, *root, 0,
-                           MergePolicy::FillMissing, map_, &arena_);
+                           MergePolicy::FillMissing, map_, merge_scratch, &arena_);
                 return true;
             }
             for (size_t i = 0; i < root->size(); ++i) {

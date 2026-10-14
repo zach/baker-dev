@@ -222,7 +222,8 @@ Ref<Array> Config::Impl::scratch_root() const {
     for (const ScratchEntry& e : scratch) {
         Ref<Array> nest = Array::make_copy(e.values->nodes());
         for (size_t i = e.path.size() - 1; i-- > 0;) nest = array(e.path[i].name, Node(nest));
-        overlay = baker::merge(*overlay, *array(Node(nest)));
+        overlay =
+            detail::merge(*overlay, *array(Node(nest)), MergePolicy::Overwrite, merge_scratch);
     }
     return overlay;
 }
@@ -317,9 +318,11 @@ void Config::Impl::put(Config& c, const Path& target, std::span<const Node> valu
 Ref<Array> Config::Impl::merged() const {
     Ref<Array> r = Array::make(0);
     for (const LayerState& l : layers)
-        if (l.options.enabled) r = baker::merge(*r, *l.root);
+        if (l.options.enabled)
+            r = detail::merge(*r, *l.root, MergePolicy::Overwrite, merge_scratch);
     if (scratch_enabled)
-        if (Ref<Array> s = scratch_root()) r = baker::merge(*r, *s);
+        if (Ref<Array> s = scratch_root())
+            r = detail::merge(*r, *s, MergePolicy::Overwrite, merge_scratch);
     return r;
 }
 
