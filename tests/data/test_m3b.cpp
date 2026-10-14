@@ -267,6 +267,36 @@ TEST_CASE("set on a scalar already in scratch allocates nothing and touches only
     CHECK(cfg.unsaved().empty());
 }
 
+TEST_CASE("a shorter scratch value hides the layers' longer one") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer("default", dir.write("default.dta", "(size 1 2 3)")));
+    const Node five(5);
+    REQUIRE(cfg.set(Path("size"), std::span<const Node>(&five, 1)));
+    CHECK(cfg.get<int>("size.0") == 5);
+    auto past = cfg.get<int>("size.2");
+    REQUIRE_FALSE(past);
+    CHECK(past.error().code() == ErrorCode::NotFound);
+    CHECK(cfg.get<int>("size.2", 9) == 9);
+}
+
+TEST_CASE("set while scratch is disabled waits for it to be enabled") {
+    TempDir dir;
+    TweakRegistry reg;
+    Tweak<int> w{"w", 0, {}, reg};
+    Config cfg({.tweaks = &reg});
+    REQUIRE(cfg.push_layer("default", dir.write("default.dta", "(w 7)")));
+    REQUIRE(cfg.set_layer_enabled("scratch", false));
+    REQUIRE(cfg.set("w", Node(99)));
+    CHECK(int(w) == 7);
+    CHECK(cfg.get<int>("w") == 7);
+    REQUIRE(cfg.set("w", Node(98)));  // the fast path, now the entry exists
+    CHECK(int(w) == 7);
+    REQUIRE(cfg.set_layer_enabled("scratch", true));
+    CHECK(int(w) == 98);
+    CHECK(cfg.get<int>("w") == 98);
+}
+
 TEST_CASE("set then write_back: one line, comments and note kept, scratch emptied") {
     TempDir dir;
     Config cfg({.tweaks = nullptr});

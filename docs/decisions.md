@@ -3446,3 +3446,21 @@ chose the deferral, as recommended, over re-checking the receiver after each arg
   `bench_call` pinned to one CPU, six alternating runs against `adc20b3`: `{add 1 2}`
   37.8–40.7 ns before, 38.0–39.0 after. `bench_tasks`: tick with 10,000 asleep 10.3–10.5 ns
   before and 9.7–10.5 after; resume 16.4–16.7 and 16.2–17.0.
+
+## D118. Two scratch-layer fixes
+
+*Found in a fresh review of the core (2026-10-14). The owner chose, as recommended, that a
+set while scratch is disabled waits rather than being refused.*
+
+- **A shorter scratch value hid nothing.** With `(size 1 2 3)` in a layer and
+  `set(Path("size"), {5})`, `get<int>("size.2")` returned the layers' 3: the scratch lookup
+  answered "no entry" for an element past the end of a scratch value, and `get` fell back
+  to the tree of the last merge. `Impl::current`, which write-back and the journal use,
+  already said "past the end" in its own copy of the lookup. The lookup now answers none,
+  found, or past the end (`Config::ScratchHit`); `get` reports the third as NotFound, or
+  returns its fallback, and `current` uses the same lookup.
+- **A set with scratch disabled reached the tweaks.** `retune`, run by both `set` paths,
+  pushed the value into bound tweaks although `get` did not see it, and the next full
+  merge silently put the tweaks back. It now waits while scratch is disabled; the merge
+  that enables scratch retunes them.
+- **Tests** (`test_m3b.cpp`): both fail against the previous code.

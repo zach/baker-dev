@@ -664,26 +664,20 @@ struct Config::Impl {
 
     // The current value at `path`: scratch first, then the merged tree.
     bool current(const Config& c, const Path& path, Vec<Node>& out) const {
-        if (const ScratchEntry* e = scratch_entry(path)) {
-            const Values v = e->values->values();
-            out.clear();
-            if (e->path == path) {
-                out.assign(v.begin(), v.end());
-                return true;
-            }
-            const uint32_t i = path[path.size() - 1].index;
-            if (i >= v.size()) return false;
-            out.push_back(v[i]);
-            return true;
+        Values v;
+        switch (c.scratch_values(path, v)) {
+            case ScratchHit::Found: out.assign(v.begin(), v.end()); return true;
+            case ScratchHit::PastEnd: out.clear(); return false;
+            case ScratchHit::None: break;
         }
         return value_nodes(*c.root_, path, out);
     }
 
     // Updates the tweaks bound to `e`'s path (or to one of its elements) from scratch,
     // without a merge, and fires only their on_change. Allocates nothing for up to 16
-    // affected tweaks.
+    // affected tweaks. A disabled scratch layer waits: the merge that enables it retunes.
     void retune(const ScratchEntry& e) const {
-        if (!options.tweaks) return;
+        if (!options.tweaks || !scratch_enabled) return;
         TweakBase* few[16];
         size_t n = 0;
         // Lazily: even an empty vector allocates in MSVC's debug library.
@@ -1269,22 +1263,25 @@ bool Config::layer_enabled(std::string_view name) const {
 
 // --- Reading ---
 
-bool Config::scratch_values(const Path& path, Values& out) const noexcept {
+Config::ScratchHit Config::scratch_values(const Path& path, Values& out) const noexcept {
     const ScratchEntry* e = impl_->scratch_entry(path);
-    if (!e) return false;
+    if (!e) return ScratchHit::None;
     const Values all = e->values->values();
     if (e->path == path) {
         out = all;
-        return true;
+        return ScratchHit::Found;
     }
     const uint32_t i = path[path.size() - 1].index;
-    if (i >= all.size()) return false;
+    if (i >= all.size()) return ScratchHit::PastEnd;
     out = Values(all.nodes().subspan(i, 1), e->values.get());
-    return true;
+    return ScratchHit::Found;
 }
 
-Error Config::scratch_type_error(const Path& path, const detail::ConvertInfo& info) {
-    return make_error(ErrorCode::Type, quoted(path) + " in scratch is not " + Str(info.name));
+Error Config::scratch_error(const Path& path, const detail::ConvertInfo* info) {
+    if (!info)
+        return make_error(ErrorCode::NotFound,
+                          quoted(path) + " is past the end of its value in scratch");
+    return make_error(ErrorCode::Type, quoted(path) + " in scratch is not " + Str(info->name));
 }
 
 Expected<Source> Config::source(const Path& path) const {
