@@ -24,7 +24,7 @@ bool Live::open(const LiveOptions& options) {
     session.set_pack_levels({"engine", "game", "task"});
     session.add_include_dir(data_dir_);
     cfg_.add_validator(moira::shape::validator());
-    cfg_.add_validator(moira::check_validator(ctx_, {.packs = &session}));
+    cfg_.add_validator(moira::check_validator(ctx_, {.packs = &cfg_.read_session()}));
 
     struct Layer {
         const char* name;

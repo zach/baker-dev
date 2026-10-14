@@ -324,3 +324,49 @@ TEST_CASE("the reference lists the session's packs and origins: the harness regi
     CHECK(with.find("| sheets-export | economy.xlsx | prices.dta |") != std::string::npos);
     CHECK(reference(ctx).find("## Packs") == std::string::npos);  // without the session
 }
+
+TEST_CASE("a Config's read_session has every layer's packs and origins (D110)") {
+    std::map<std::string, std::string> files{
+        {"default.dta",
+         "(pack game_rules (level game) (owners \"a\"))\n#require task.dta\n"
+         "{func game.tick () {boss.restart}}\n(x 1)"},
+        {"task.dta",
+         "(pack boss_task (level task) (owners \"a\" \"b\"))\n{func boss.restart () 1}"},
+        {"agent.dta", "(origin \"sheet.xlsx\" (tool export))\n(x 2)"},
+    };
+    Config cfg({.tweaks = nullptr});
+    cfg.session().set_reader([&](std::string_view path, TextSink out) {
+        auto it = files.find(std::string(path));
+        if (it == files.end()) return false;
+        out(it->second);
+        return true;
+    });
+    cfg.session().set_pack_levels({"engine", "game", "task"});
+    Context ctx;
+    std::vector<std::string> warned;
+    cfg.set_warning_handler([&](const Error& e) { warned.emplace_back(to_string(e)); });
+    cfg.add_validator(check_validator(ctx, {.packs = &cfg.read_session()}));
+    REQUIRE(cfg.push_layer("default", "default.dta"));
+    REQUIRE(cfg.push_layer("agent", "agent.dta"));
+
+    // The base session has none of it: each layer read a copy.
+    CHECK(cfg.session().packs().empty());
+    const LoadSession& read = cfg.read_session();
+    REQUIRE(read.packs().size() == 2);
+    REQUIRE(read.origin_of(Symbol("agent.dta")));
+    CHECK(read.origin_of(Symbol("agent.dta"))->source == Symbol("sheet.xlsx"));
+
+    // The validator, given it, applies the one-way rule through the Config.
+    CHECK(std::any_of(warned.begin(), warned.end(), [](const std::string& w) {
+        return w.find("calls 'boss.restart' from the softer pack 'boss_task'") != std::string::npos;
+    }));
+    // And check finds the single-owner pack from it.
+    const CheckReport report = check(*cfg.root(), ctx, {.packs = &read});
+    REQUIRE(report.findings.size() == 1);
+    CHECK(to_string(report.findings[0]).find("'game_rules' has one owner") != std::string::npos);
+
+    // Removing the layer that declared the origin drops it at the next merge.
+    REQUIRE(cfg.remove_layer("agent"));
+    CHECK_FALSE(cfg.read_session().origin_of(Symbol("agent.dta")));
+    CHECK(cfg.read_session().packs().size() == 2);
+}
