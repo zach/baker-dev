@@ -212,8 +212,7 @@ CPath::CPath(std::string_view path) {  // NOLINT(cppcoreguidelines-pro-type-memb
         std::memcpy(buf_, path.data(), path.size());
         buf_[path.size()] = '\0';
     } else {
-        long_ = path;
-        p_ = long_.c_str();
+        p_ = long_.emplace(path).c_str();
     }
 }
 

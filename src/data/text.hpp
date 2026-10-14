@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string_view>
 
 namespace baker {
@@ -73,7 +74,7 @@ void append_path_name(Str& out, std::string_view name);
 [[nodiscard]] Str join_path(std::string_view dir, std::string_view p);
 
 // `path`, terminated for fopen: on the stack unless it is long, so opening a file need not
-// allocate.
+// allocate (not even MSVC's debug proxy for an empty string).
 class CPath {
 public:
     explicit CPath(std::string_view path);
@@ -81,7 +82,7 @@ public:
 
 private:
     char buf_[512];
-    Str long_;
+    std::optional<Str> long_;
     const char* p_ = buf_;
 };
 
