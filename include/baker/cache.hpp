@@ -4,29 +4,29 @@
 // and loaded with one read into one allocation and one pass that turns offsets into
 // pointers.
 //
-//   auto root = moira::read_file("level1.dta", session);
-//   moira::write_cache(**root, "level1.datb");
-//   auto same = moira::read_cache("level1.datb", session);    // Expected<Ref<Array>>
+//   auto root = baker::read_file("level1.dta", session);
+//   baker::write_cache(**root, "level1.datb");
+//   auto same = baker::read_cache("level1.datb", session);    // Expected<Ref<Array>>
 //
 // A cache holds the expanded tree: macros and #ifdef are resolved before it is written.
 // Written from a recorded load, it also replays that load's defines, macros, and #autorun
 // commands on the session that reads it. Functions and objects, which
-// moira::script makes and a parse never does, cannot be written. A cache is read only by
+// baker::script makes and a parse never does, cannot be written. A cache is read only by
 // a build of the same format version, endianness, and pointer size.
 //
 // The header's hash finds a damaged file, not a forged one: a cache is build output, so
 // read text, which the parser checks, from a source you do not trust.
 
-#include <moira/array.hpp>
-#include <moira/error.hpp>
-#include <moira/parse.hpp>
-#include <moira/text.hpp>
+#include <baker/array.hpp>
+#include <baker/error.hpp>
+#include <baker/parse.hpp>
+#include <baker/text.hpp>
 
 #include <cstddef>
 #include <span>
 #include <string_view>
 
-namespace moira {
+namespace baker {
 
 // Enciphers a cache in place, and deciphers it (spec §9): set LoadSession::cipher. The
 // cipher must keep the length. No implementation ships. The original enciphered its caches
@@ -65,8 +65,8 @@ struct Cipher {
 // Re-reads every file: for development and build steps, not every launch of a shipped game.
 [[nodiscard]] bool cache_fresh(std::string_view cache_path, LoadSession& session);
 // The cache if it is fresh; otherwise the text, and a new cache written from it. Under
-// MOIRA_SHIPPING, the cache if it loads, and no cache is written.
+// BAKER_SHIPPING, the cache if it loads, and no cache is written.
 [[nodiscard]] Expected<Ref<Array>> read_cached(std::string_view text_path,
                                                std::string_view cache_path, LoadSession& session);
 
-}  // namespace moira
+}  // namespace baker

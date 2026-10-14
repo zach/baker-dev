@@ -1,8 +1,8 @@
 // Evaluation, variables, and the built-in vocabulary (spec §5, M4).
 #include <doctest.h>
-#include <moira/parse.hpp>
-#include <moira/script.hpp>
-#include <moira/std_script.hpp>
+#include <baker/parse.hpp>
+#include <baker/script.hpp>
+#include <baker/std_script.hpp>
 
 #include "alloc_counter.hpp"
 
@@ -11,8 +11,8 @@
 #include <string>
 #include "ok.hpp"
 
-using namespace moira;
-using moira::test::ok;
+using namespace baker;
+using baker::test::ok;
 
 namespace {
 
@@ -89,7 +89,7 @@ TEST_CASE("if and set are ordinary functions, and the evaluator knows no functio
     CHECK(ctx.has_func("if"));
     CHECK(ctx.has_func("set"));
     // The evaluator (context.cpp) names no function: everything goes through the table.
-    const std::string src = slurp(MOIRA_SOURCE_DIR "/src/script/context.cpp");
+    const std::string src = slurp(BAKER_SOURCE_DIR "/src/script/context.cpp");
     REQUIRE_FALSE(src.empty());
     for (const char* name : {"\"if\"", "\"set\"", "\"do\"", "\"and\"", "\"or\"", "\"func\""})
         CHECK_MESSAGE(src.find(name) == std::string::npos, name);
@@ -214,7 +214,7 @@ TEST_CASE("a script func cannot silently replace a native one; override can, and
     CHECK(notices[0] == "script {override} replaces native 'greet'");
 }
 
-TEST_CASE("typed lookups in moira::data evaluate commands and variables") {
+TEST_CASE("typed lookups in baker::data evaluate commands and variables") {
     Context ctx;
     ctx.var("difficulty") = 3;
     auto tree = ok(
@@ -262,7 +262,7 @@ TEST_CASE("a lookup with no current Context is a clean error") {
     REQUIRE(Context::current() == nullptr);
     const auto r = tree->find<int>("x");
     REQUIRE_FALSE(r);
-    CHECK(r.error().message() == "a var value needs a current moira::Context on this thread");
+    CHECK(r.error().message() == "a var value needs a current baker::Context on this thread");
 }
 
 TEST_CASE("an error returned by a function comes back from eval") {

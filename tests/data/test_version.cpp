@@ -1,12 +1,12 @@
 #include <doctest.h>
-#include <moira/std_interop.hpp>
-#include <moira/version.hpp>
+#include <baker/std_interop.hpp>
+#include <baker/version.hpp>
 
 #include <string>
 
 TEST_CASE("version string matches version constants") {
-    const std::string expected = std::to_string(moira::kVersionMajor) + "." +
-                                 std::to_string(moira::kVersionMinor) + "." +
-                                 std::to_string(moira::kVersionPatch);
-    CHECK(moira::version() == expected);
+    const std::string expected = std::to_string(baker::kVersionMajor) + "." +
+                                 std::to_string(baker::kVersionMinor) + "." +
+                                 std::to_string(baker::kVersionPatch);
+    CHECK(baker::version() == expected);
 }

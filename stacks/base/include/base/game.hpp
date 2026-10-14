@@ -3,8 +3,8 @@
 // Game, and the simulation, its tests, and the tool commands link without a window.
 #pragma once
 
-#include <moira/config.hpp>
-#include <moira/script.hpp>
+#include <baker/config.hpp>
+#include <baker/script.hpp>
 
 #include <cstdint>
 
@@ -20,16 +20,16 @@ public:
     virtual ~Game() = default;
     // Binds the game's script functions and objects, before the data loads, so check
     // knows them.
-    virtual void bind(moira::Context& ctx) { (void)ctx; }
+    virtual void bind(baker::Context& ctx) { (void)ctx; }
     // Drops what the game keeps in the Context (objects, schedulers, tasks), before the
     // Context goes: after play ends and after each agent command. The game may be bound to
     // another Context afterwards.
-    virtual void unbind(moira::Context& ctx) { (void)ctx; }
+    virtual void unbind(baker::Context& ctx) { (void)ctx; }
     // Reads what the game keeps from the data: after the load and after every change to the
     // layer stack (a reload, a toggle), once the layers' #autorun commands have run. Tweaks
     // are bound already; this is for structured data (a roster, an economy) the game copies
     // into its own arrays. A value tuned in a panel changes a tweak, not this.
-    virtual void load(const moira::Config& cfg) { (void)cfg; }
+    virtual void load(const baker::Config& cfg) { (void)cfg; }
     // Puts the game in its starting state, before play and before each simulated run. The
     // seed is the run's: a game that draws random numbers seeds them from it.
     virtual void reset(uint64_t seed) { (void)seed; }

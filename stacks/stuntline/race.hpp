@@ -10,7 +10,7 @@
 #include <base/physics.hpp>
 #include <base/rng.hpp>
 
-#include <moira/array.hpp>
+#include <baker/array.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -74,7 +74,7 @@ struct Kit {
 
 // Reads (car ...), (pieces ...), (tracks ...), and (drivers ...). False, with the reason, on
 // a track naming a piece the kit does not have.
-[[nodiscard]] bool load(const moira::Array& root, Kit& out, std::string& error);
+[[nodiscard]] bool load(const baker::Array& root, Kit& out, std::string& error);
 
 // A box of road: center, half extents (width, thickness, length), and orientation.
 struct Segment {

@@ -1,9 +1,9 @@
-// moira::check and the generated reference (spec §5, M4).
+// baker::check and the generated reference (spec §5, M4).
 #include <doctest.h>
-#include <moira/config.hpp>
-#include <moira/parse.hpp>
-#include <moira/script.hpp>
-#include <moira/std_script.hpp>
+#include <baker/config.hpp>
+#include <baker/parse.hpp>
+#include <baker/script.hpp>
+#include <baker/std_script.hpp>
 
 #include <algorithm>
 #include <cstdlib>
@@ -14,8 +14,8 @@
 #include <vector>
 #include "ok.hpp"
 
-using namespace moira;
-using moira::test::ok;
+using namespace baker;
+using baker::test::ok;
 
 namespace {
 
@@ -41,9 +41,9 @@ TEST_CASE("check catches a wrong-arity call at load, without evaluating anything
     CHECK(runs == 0);
     REQUIRE(report.errors.size() == 2);
     CHECK(to_string(report.errors[0]) ==
-          "moira: 'spawn' takes 2 arguments, given 1  (level.dta:3)");
+          "baker: 'spawn' takes 2 arguments, given 1  (level.dta:3)");
     CHECK(to_string(report.errors[1]) ==
-          "moira: 'spawn' is given (symbol symbol); it takes (symbol int)  (level.dta:4)");
+          "baker: 'spawn' is given (symbol symbol); it takes (symbol int)  (level.dta:4)");
     CHECK_FALSE(report.ok());
 }
 
@@ -64,7 +64,7 @@ TEST_CASE("check_validator checks script at every merge, beside other validators
     seen.clear();
     REQUIRE(cfg.push_layer("event", parse("(level\n  (on_exit {spawn grunt}))", "event.dta")));
     CHECK(seen == std::vector<std::string>{
-                      "first", "moira: 'spawn' takes 2 arguments, given 1  (event.dta:2)"});
+                      "first", "baker: 'spawn' takes 2 arguments, given 1  (event.dta:2)"});
 
     // Removing a validator stops it; the check runs at every merge.
     cfg.remove_validator(first);
@@ -74,7 +74,7 @@ TEST_CASE("check_validator checks script at every merge, beside other validators
     if constexpr (!kShipping) {
         REQUIRE(cfg.set_layer_enabled("fix", false));
         CHECK(seen ==
-              std::vector<std::string>{"moira: 'spawn' takes 2 arguments, given 1  (event.dta:2)"});
+              std::vector<std::string>{"baker: 'spawn' takes 2 arguments, given 1  (event.dta:2)"});
     }
 }
 
@@ -120,7 +120,7 @@ TEST_CASE("the demand report lists unresolved heads and stubs with every call si
     check(*a, ctx, report);
     check(*b, ctx, report);
     REQUIRE(report.errors.size() == 1);
-    CHECK(to_string(report.errors[0]) == "moira: 'helper' takes 1 argument, given 2  (boss.dta:7)");
+    CHECK(to_string(report.errors[0]) == "baker: 'helper' takes 1 argument, given 2  (boss.dta:7)");
     REQUIRE(report.demand.size() == 2);
     CHECK(report.demand[0].name == Symbol("boss.find_cover"));
     CHECK_FALSE(report.demand[0].stub);
@@ -132,14 +132,14 @@ TEST_CASE("the demand report lists unresolved heads and stubs with every call si
     CHECK(report.demand[1].stub);
     CHECK(
         to_string(report) ==
-        "moira: 'helper' takes 1 argument, given 2  (boss.dta:7)\n"
+        "baker: 'helper' takes 1 argument, given 2  (boss.dta:7)\n"
         "demand: 'boss.find_cover' is not defined, called at boss.dta:3, boss.dta:5, arena.dta:1\n"
         "demand: 'boss.taunt' is a stub, called at boss.dta:3\n");
 }
 
 TEST_CASE("check over the corpus's scripts, with their functions registered by arity") {
     Context ctx;
-    auto tree = read_file(MOIRA_CORPUS_DIR "/scripts.dta");
+    auto tree = read_file(BAKER_CORPUS_DIR "/scripts.dta");
     REQUIRE(tree);
     CheckReport report = check(**tree, ctx);
     // Everything the fixture calls is reported as demand; nothing is an error yet.
@@ -157,8 +157,8 @@ TEST_CASE("check over the corpus's scripts, with their functions registered by a
 TEST_CASE("docs/script-reference.md matches the code") {
     Context ctx;
     const std::string generated = reference(ctx);
-    const std::string path = MOIRA_SOURCE_DIR "/docs/script-reference.md";
-    if (std::getenv("MOIRA_UPDATE_REFERENCE")) REQUIRE(write_reference(ctx, path));
+    const std::string path = BAKER_SOURCE_DIR "/docs/script-reference.md";
+    if (std::getenv("BAKER_UPDATE_REFERENCE")) REQUIRE(write_reference(ctx, path));
     std::ifstream in(path, std::ios::binary);
     std::stringstream s;
     s << in.rdbuf();
@@ -166,7 +166,7 @@ TEST_CASE("docs/script-reference.md matches the code") {
     on_disk.erase(std::remove(on_disk.begin(), on_disk.end(), '\r'), on_disk.end());
     CHECK_MESSAGE(on_disk == generated,
                   "docs/script-reference.md is out of date: run the script tests with "
-                  "MOIRA_UPDATE_REFERENCE=1 to regenerate it");
+                  "BAKER_UPDATE_REFERENCE=1 to regenerate it");
 }
 
 TEST_CASE("check applies the one-way rule to calls across packs (D80)") {
@@ -201,7 +201,7 @@ TEST_CASE("check applies the one-way rule to calls across packs (D80)") {
               .find("pack 'game_rules' (level game) calls 'boss.restart_phase' from the softer "
                     "pack 'boss_task' (level task)") != std::string::npos);
     CHECK(report.errors.empty());
-    CHECK(to_string(report).find("warning: moira: pack 'game_rules'") != std::string::npos);
+    CHECK(to_string(report).find("warning: baker: pack 'game_rules'") != std::string::npos);
 
     // Without the session, or from a file that declares no pack, nothing is warned.
     CHECK(check(*game, ctx).warnings.empty());
@@ -231,7 +231,7 @@ TEST_CASE("check reports a pack with one owner, and repetition across its trees 
     check(*solo, ctx, report, {.packs = &session});
     REQUIRE(report.findings.size() == 1);
     CHECK(to_string(report.findings[0]) ==
-          "moira: pack 'boss' has one owner, td-a: no one else keeps it  (boss.dta)");
+          "baker: pack 'boss' has one owner, td-a: no one else keeps it  (boss.dta)");
     CHECK(report.ok());                              // a finding is never an error
     check(*pair, ctx, report, {.packs = &session});  // accumulates, without repeating it
     CHECK(report.findings.size() == 1);
@@ -288,8 +288,8 @@ TEST_CASE("check's JSON is versioned, sorted, and the same bytes on every run (D
     const std::string first = run();
     CHECK(run() == first);
 
-    const std::string path = MOIRA_SOURCE_DIR "/tests/script/check_expected.json";
-    if (std::getenv("MOIRA_UPDATE_REFERENCE")) {
+    const std::string path = BAKER_SOURCE_DIR "/tests/script/check_expected.json";
+    if (std::getenv("BAKER_UPDATE_REFERENCE")) {
         std::ofstream(path, std::ios::binary) << first;
     }
     std::ifstream in(path, std::ios::binary);
@@ -299,11 +299,11 @@ TEST_CASE("check's JSON is versioned, sorted, and the same bytes on every run (D
     expected.erase(std::remove(expected.begin(), expected.end(), '\r'), expected.end());
     CHECK_MESSAGE(expected == first,
                   "tests/script/check_expected.json differs: run the script tests with "
-                  "MOIRA_UPDATE_REFERENCE=1 to regenerate it, and review the diff");
+                  "BAKER_UPDATE_REFERENCE=1 to regenerate it, and review the diff");
 
     // Without the session, the packs list is empty; an empty report is still a whole one.
     CHECK(to_json(CheckReport{}) ==
-          "{\n  \"schema\": \"moira.check/1\",\n  \"errors\": [],\n  \"warnings\": [],\n"
+          "{\n  \"schema\": \"baker.check/1\",\n  \"errors\": [],\n  \"warnings\": [],\n"
           "  \"demand\": [],\n  \"repeats\": [],\n  \"findings\": [],\n  \"packs\": []\n}\n");
 }
 

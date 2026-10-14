@@ -1,17 +1,17 @@
 #pragma once
 
-// List<T>: an owning, fixed-size array, for results Moira hands back (a report's entries,
+// List<T>: an owning, fixed-size array, for results Baker hands back (a report's entries,
 // a list of layers). Built once from a span and never resized; copying copies the items.
-// Not a container to build with: Moira returns these, it does not ask for them.
+// Not a container to build with: Baker returns these, it does not ask for them.
 
-#include <moira/allocator.hpp>
+#include <baker/allocator.hpp>
 
 #include <cstddef>
 #include <new>
 #include <span>
 #include <utility>
 
-namespace moira {
+namespace baker {
 
 template <class T>
 class List {
@@ -51,4 +51,4 @@ private:
     size_t size_ = 0;
 };
 
-}  // namespace moira
+}  // namespace baker

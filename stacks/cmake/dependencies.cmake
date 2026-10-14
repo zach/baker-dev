@@ -46,7 +46,7 @@ endforeach()
 # the base uses the lit fill shader of its debug draw and the ImGui shader.
 set(BGFX_SHADERS_DIR ${bgfx_SOURCE_DIR}/bgfx/examples/common)
 
-# Dear ImGui (MIT), at the release Moira's reference harness uses.
+# Dear ImGui (MIT), at the release Baker's reference harness uses.
 FetchContent_Declare(imgui
   GIT_REPOSITORY https://github.com/ocornut/imgui.git
   GIT_TAG        f1cc2ae15e53a861a874c3034aae6798fde194ab)  # v1.92.9b

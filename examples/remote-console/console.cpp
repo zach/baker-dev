@@ -1,6 +1,6 @@
 #include "console.hpp"
 
-#include <moira/std_script.hpp>
+#include <baker/std_script.hpp>
 
 Console::~Console() {
     for (Client& c : clients_) close_socket(c.socket);
@@ -65,8 +65,8 @@ bool Console::serve(Client& c) {
 
 std::string Console::answer(const std::string& line) {
     auto r = ctx_.eval(line, "<console>");
-    if (r) return "=> " + moira::to_string(*r);
-    std::string error(moira::describe(r.error()));
+    if (r) return "=> " + baker::to_string(*r);
+    std::string error(baker::describe(r.error()));
     if (!error.empty() && error.back() == '\n') error.pop_back();
     return error;
 }

@@ -9,10 +9,10 @@
 // shuffled order, so the commands, function records, and objects are not in cache. Gaps 2m
 // and 6 (D99): 2,048 objects of 64 types, with 32 methods or one, called by script and sent a
 // message from C++, so the method tables and the types' vtables are not in cache either.
-#include <moira/object.hpp>
-#include <moira/parse.hpp>
-#include <moira/script.hpp>
-#include <moira/std_interop.hpp>
+#include <baker/object.hpp>
+#include <baker/parse.hpp>
+#include <baker/script.hpp>
+#include <baker/std_interop.hpp>
 
 #include "alloc_counter.hpp"
 
@@ -58,12 +58,12 @@ struct HitMsg {
     int points;
 };
 
-struct Person : moira::Object<Person> {
+struct Person : baker::Object<Person> {
     float height = 6.0f;
     int hp = 1'000'000;
     float on_grow(float amount) { return height += amount; }
     int on_hit(const HitMsg& m) { return hp -= m.points; }
-    static void bind(moira::Binder<Person>& b) {
+    static void bind(baker::Binder<Person>& b) {
         b.method("grow", &Person::on_grow);
         b.on<HitMsg>(&Person::on_hit);
     }
@@ -71,14 +71,14 @@ struct Person : moira::Object<Person> {
 
 // One of 64 types with M methods, m0 to m(M-1), each a float argument, and a HitMsg handler.
 template <int N, int M>
-struct Wide : moira::Object<Wide<N, M>> {
+struct Wide : baker::Object<Wide<N, M>> {
     float v = 0;
     int hp = 1'000'000;
     int on_hit(const HitMsg& m) { return hp -= m.points; }
-    static void bind(moira::Binder<Wide>& b) {
+    static void bind(baker::Binder<Wide>& b) {
         b.name((M == 1 ? "Narrow" : "Wide") + std::to_string(N));
         for (int k = 0; k < M; ++k)
-            b.method(moira::Symbol("m" + std::to_string(k)),
+            b.method(baker::Symbol("m" + std::to_string(k)),
                      [](Wide& w, float a) { return w.v += a; });
         b.template on<HitMsg>(&Wide::on_hit);
     }
@@ -87,24 +87,24 @@ struct Wide : moira::Object<Wide<N, M>> {
 constexpr int kTypes = 64, kPerType = 32;
 
 template <int M, int... N>
-void make_objects(std::vector<std::unique_ptr<moira::ObjectBase>>& out,
+void make_objects(std::vector<std::unique_ptr<baker::ObjectBase>>& out,
                   std::integer_sequence<int, N...>) {
     for (int i = 0; i < kPerType; ++i) (out.push_back(std::make_unique<Wide<N, M>>()), ...);
 }
 
 int main() {
-    moira::Context ctx;
+    baker::Context ctx;
     Person bob;
     if (!ctx.add(bob, "bob")) return 1;
     if (!ctx.func("add", [](int64_t a, int64_t b) { return a + b; })) return 1;
     ctx.var("x") = 4;
     // Array-valued variables: reading one copies the node, which counts the array's owner.
-    auto loaded = moira::read_string("(1 2 3)", "list.dta");
+    auto loaded = baker::read_string("(1 2 3)", "list.dta");
     if (!loaded) return 1;
     ctx.var("loaded") = (**loaded)[0];
-    ctx.var("solo") = moira::Node(moira::Array::make(3));
+    ctx.var("solo") = baker::Node(baker::Array::make(3));
     if (!ctx.eval("{func add1 ($a) {+ $a 1}}")) return 1;
-    auto tree = moira::read_string(
+    auto tree = baker::read_string(
         "{add 1 2} {+ 1 2} {+ 1.5 2} {add $x 1} $x {if 1 2 3} {add1 1} {add {add 1 2} 3} "
         "{bob grow 0} $loaded $solo",
         "bench.dta");
@@ -125,13 +125,13 @@ int main() {
 
     std::printf("evaluating a command node (best of 7, 2M calls each)\n");
     for (size_t k = 0; k < (*tree)->size(); ++k) {
-        const moira::Node& node = (**tree)[k];
+        const baker::Node& node = (**tree)[k];
         auto call = [&](int) {
             auto r = ctx.eval(opaque(node));
             return r ? static_cast<double>(r->try_float().value_or(0)) : -1.0;
         };
         for (int i = 0; i < 100; ++i) call(i);
-        moira::test::AllocationScope scope;
+        baker::test::AllocationScope scope;
         for (int i = 0; i < 1000; ++i) call(i);
         const size_t allocs = scope.count();
         const double ns = ns_per_call(call);
@@ -146,7 +146,7 @@ int main() {
     // timing and tracing are switched on here.
     std::printf("\n{add 1 2} with the development aids switched on\n");
     {
-        const moira::Node& add = (**tree)[0];
+        const baker::Node& add = (**tree)[0];
         auto call = [&](int) {
             auto r = ctx.eval(opaque(add));
             return r ? static_cast<double>(r->try_float().value_or(0)) : -1.0;
@@ -154,7 +154,7 @@ int main() {
         ctx.set_profiling(true);
         std::printf("%-38s %7.2f ns\n", "profiling (two steady_clock reads)", ns_per_call(call));
         ctx.set_profiling(false);
-        ctx.set_trace_sink([](void*, const moira::TraceEvent&) {}, nullptr);
+        ctx.set_trace_sink([](void*, const baker::TraceEvent&) {}, nullptr);
         ctx.trace(true);
         std::printf("%-38s %7.2f ns\n", "tracing to an empty sink", ns_per_call(call));
         ctx.trace(false);
@@ -165,7 +165,7 @@ int main() {
     {
         auto row = [](const char* name, auto&& call, const char* target) {
             for (int i = 0; i < 100; ++i) call(i);
-            moira::test::AllocationScope scope;
+            baker::test::AllocationScope scope;
             for (int i = 0; i < 1000; ++i) call(i);
             const size_t allocs = scope.count();
             const double ns = ns_per_call(call);
@@ -190,13 +190,13 @@ int main() {
             },
             "");
         std::vector<Person> crowd(64);
-        std::vector<moira::ObjectBase*> ptrs;
+        std::vector<baker::ObjectBase*> ptrs;
         for (Person& p : crowd) ptrs.push_back(&p);
         row(
             "handle_all, one call for 64 objects",
             [&](int i) {
                 auto r =
-                    moira::handle_all(std::span<moira::ObjectBase* const>(ptrs), HitMsg{i & 1});
+                    baker::handle_all(std::span<baker::ObjectBase* const>(ptrs), HitMsg{i & 1});
                 return r ? static_cast<double>(*r) : -1.0;
             },
             "   (the time is for 64)");
@@ -216,17 +216,17 @@ int main() {
         std::string text;
         for (int i = 0; i < kFunctions; ++i) {
             const std::string name = "f" + std::to_string(i);
-            if (!ctx.func(moira::Symbol(name), [](int64_t a, int64_t b) { return a + b; }))
+            if (!ctx.func(baker::Symbol(name), [](int64_t a, int64_t b) { return a + b; }))
                 return 1;
             text += "{" + name + " 1 2} ";
         }
         std::vector<Person> people(kObjects);
         for (int i = 0; i < kObjects; ++i) {
-            if (!ctx.add(people[static_cast<size_t>(i)], moira::Symbol("p" + std::to_string(i))))
+            if (!ctx.add(people[static_cast<size_t>(i)], baker::Symbol("p" + std::to_string(i))))
                 return 1;
             text += "{p" + std::to_string(i) + " grow 0} ";
         }
-        auto cold = moira::read_string(text, "cold.dta");
+        auto cold = baker::read_string(text, "cold.dta");
         if (!cold) return 1;
         std::mt19937 rng(42);
         std::vector<uint32_t> order(kFunctions), objects(kObjects);
@@ -247,18 +247,18 @@ int main() {
     }
     {
         // Objects interleaved by type, named w0... (32 methods) and n0... (one method).
-        std::vector<std::unique_ptr<moira::ObjectBase>> wide, narrow;
+        std::vector<std::unique_ptr<baker::ObjectBase>> wide, narrow;
         make_objects<32>(wide, std::make_integer_sequence<int, kTypes>());
         make_objects<1>(narrow, std::make_integer_sequence<int, kTypes>());
         std::mt19937 rng(7);
         std::string text;
         for (size_t i = 0; i < wide.size(); ++i) {
-            if (!ctx.add(*wide[i], moira::Symbol("w" + std::to_string(i)))) return 1;
-            if (!ctx.add(*narrow[i], moira::Symbol("n" + std::to_string(i)))) return 1;
+            if (!ctx.add(*wide[i], baker::Symbol("w" + std::to_string(i)))) return 1;
+            if (!ctx.add(*narrow[i], baker::Symbol("n" + std::to_string(i)))) return 1;
             text += "{w" + std::to_string(i) + " m" + std::to_string(rng() % 32) + " 0} ";
             text += "{n" + std::to_string(i) + " m0 0} ";
         }
-        auto cold = moira::read_string(text, "types.dta");
+        auto cold = baker::read_string(text, "types.dta");
         if (!cold) return 1;
         std::vector<uint32_t> w_order(wide.size()), n_order(wide.size());
         for (uint32_t i = 0; i < wide.size(); ++i) w_order[i] = 2 * i, n_order[i] = 2 * i + 1;
@@ -272,7 +272,7 @@ int main() {
         };
         std::printf("%-38s %7.2f ns\n", "{nN m0 0}: 64 types, one method", run(n_order));
         std::printf("%-38s %7.2f ns\n", "{wN mK 0}: 64 types, 32 methods", run(w_order));
-        std::vector<moira::ObjectBase*> shuffled;
+        std::vector<baker::ObjectBase*> shuffled;
         for (auto& o : narrow) shuffled.push_back(o.get());
         std::shuffle(shuffled.begin(), shuffled.end(), rng);
         std::printf(
@@ -284,8 +284,8 @@ int main() {
     }
 
     // Resolving a name: the Context's table, indexed by Symbol::index(), against a hash map.
-    std::vector<moira::Symbol> keys;
-    std::unordered_map<moira::Symbol, int> map;
+    std::vector<baker::Symbol> keys;
+    std::unordered_map<baker::Symbol, int> map;
     std::vector<int> table;
     for (int i = 0; i < 200; ++i) {
         keys.emplace_back("fn" + std::to_string(i));

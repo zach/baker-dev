@@ -1,9 +1,9 @@
-// moira::shape (spec §6, D84): declarations, checking, enumeration, and the Config hook.
+// baker::shape (spec §6, D84): declarations, checking, enumeration, and the Config hook.
 #include <doctest.h>
-#include <moira/config.hpp>
-#include <moira/parse.hpp>
-#include <moira/shape.hpp>
-#include <moira/std_interop.hpp>
+#include <baker/config.hpp>
+#include <baker/parse.hpp>
+#include <baker/shape.hpp>
+#include <baker/std_interop.hpp>
 
 #include "ok.hpp"
 
@@ -11,12 +11,12 @@
 #include <string>
 #include <vector>
 
-using namespace moira;
-using moira::test::ok;
+using namespace baker;
+using baker::test::ok;
 
 namespace {
 
-const std::string kDir = MOIRA_SHAPE_DIR;
+const std::string kDir = BAKER_SHAPE_DIR;
 
 std::vector<std::string> texts(const List<Error>& list) {
     std::vector<std::string> out;

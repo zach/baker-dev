@@ -9,7 +9,7 @@
 
 #include <base/physics.hpp>
 
-#include <moira/array.hpp>
+#include <baker/array.hpp>
 
 #include <cstdint>
 #include <functional>
@@ -44,14 +44,14 @@ struct Level {
     std::vector<Piece> pieces;
     std::vector<std::pair<int, int>> tray;  // kind, count
     std::vector<Piece> intended;            // the designer's solution, from the tray
-    moira::Node goal;                       // a command; true when solved
+    baker::Node goal;                       // a command; true when solved
     float bounds[4] = {-8, 0, 8, 8};        // x0 y0 x1 y1: where the tray may be placed
 };
 
 struct Catalog {
     std::vector<Kind> kinds;
     std::vector<Level> levels;
-    moira::Ref<moira::Array> tree;  // keeps the goal commands alive
+    baker::Ref<baker::Array> tree;  // keeps the goal commands alive
 
     [[nodiscard]] int kind(const std::string& name) const;
     [[nodiscard]] int level(const std::string& name) const;
@@ -66,7 +66,7 @@ struct Rules {
 };
 
 // Reads (kinds ...) and (levels ...). False, with the reason, on an unknown kind.
-[[nodiscard]] bool load(const moira::Ref<moira::Array>& root, Catalog& out, std::string& error);
+[[nodiscard]] bool load(const baker::Ref<baker::Array>& root, Catalog& out, std::string& error);
 
 // A level with its placements, in a Jolt world: bodies created in a fixed order.
 class Run {

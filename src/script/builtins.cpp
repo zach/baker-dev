@@ -8,7 +8,7 @@
 #include <cstdint>
 #include <limits>
 
-namespace moira {
+namespace baker {
 namespace {
 
 Str quoted(Symbol s) {
@@ -258,4 +258,4 @@ void register_builtins(Context& ctx) {
     add(ctx, "not", [](bool v) { return !v; }, "Negation.");
 }
 
-}  // namespace moira
+}  // namespace baker

@@ -1,6 +1,6 @@
 #include "race.hpp"
 
-#include <moira/parse.hpp>
+#include <baker/parse.hpp>
 
 #include <doctest.h>
 
@@ -25,7 +25,7 @@ const char* kData = R"(
 )";
 
 stuntline::Kit kit() {
-    auto tree = moira::read_string(kData);
+    auto tree = baker::read_string(kData);
     REQUIRE(tree);
     stuntline::Kit k;
     std::string error;

@@ -1,14 +1,14 @@
 # Two Data Systems, 2004–2005
 
 A comparison of Bungie's **tag** system (Chris Butcher, Game Tech 2004) and Harmonix's
-**DataArray** (Eric Malafeew, GDC 2005), and what the comparison implies for Moira.
+**DataArray** (Eric Malafeew, GDC 2005), and what the comparison implies for Baker.
 
 Sources: Butcher's speaker notes and slides, Malafeew's slides and session audio. Butcher
 ran out of time and skipped the entire runtime-data half of his talk; the notes contain it
 in full, so parts of this reference material were never actually spoken aloud.
 
 **We are not implementing the Halo system.** This document exists to sharpen the
-Moira design by contrast, and it ends with four specific changes to the spec.
+Baker design by contrast, and it ends with four specific changes to the spec.
 
 ---
 
@@ -28,7 +28,7 @@ Moira design by contrast, and it ends with four specific changes to the spec.
 Halo's system is a **serialization and asset-management architecture**. Harmonix's is a
 **configuration and behavior language**. Both are correctly described as "data-driven," and
 if you tried to swap them you would get a disaster in either direction. The lesson to take
-into Moira is that the right answer is determined by scale and by who is editing, not by
+into Baker is that the right answer is determined by scale and by who is editing, not by
 taste.
 
 ---
@@ -84,7 +84,7 @@ free**, forever, with no migration step — absence is just a default. Over a fi
 multi-title codebase, that is the difference between a system that accretes cruft and one
 that doesn't.
 
-**For Moira:** we are firmly on the self-describing side, and the Halo experience is the
+**For Baker:** we are firmly on the self-describing side, and the Halo experience is the
 argument for why. But we should steal the one thing Halo's schema gave that we're missing,
 in the form we can afford — see §6.
 
@@ -97,7 +97,7 @@ using," and stayed binary for a hard reason: a development build loads ~8,000 in
 tag files, and it already takes 1–4 minutes. A text format at that volume would not load in
 interactive time at all.
 
-DataArray is text-first with an optional binary cache, which is the arrangement Moira
+DataArray is text-first with an optional binary cache, which is the arrangement Baker
 inherits. That is only affordable because the data is small. Config and script are
 kilobytes; Halo's bitmaps and sounds are gigabytes.
 
@@ -111,7 +111,7 @@ pointer-rebased, load-in-one-read** binary artifact:
   the sole violation and says they'd like to eliminate it.)
 - DataArray serializes the expanded tree into a cache to skip text parsing.
 
-Moira's §9 binary format sits between these. Worth considering: Halo's *fixed virtual
+Baker's §9 binary format sits between these. Worth considering: Halo's *fixed virtual
 base address* trick is why their load needs zero fixups, and we specified a fixup pass. A
 fixup pass is the right call for a library that can't dictate the host's address space —
 but note in the source comment that this is a deliberate concession, not an oversight.
@@ -154,7 +154,7 @@ the code that owns them, which makes the notification unit meaningful.
 **The difference is derived state.** Halo's tags produce expensive postprocessed
 derivatives, so a reload invalidates a dependency graph and the handle discipline is what
 makes the invalidation safe. A config value has no derivatives, so refcounting suffices.
-Moira is correct to take the cheap approach — but if we ever cache derived data from
+Baker is correct to take the cheap approach — but if we ever cache derived data from
 config (a parsed curve, a compiled lookup table), we inherit Halo's problem and will need
 Halo's answer.
 
@@ -173,7 +173,7 @@ from everyone.
 
 ## 5. Runtime state: the half Butcher didn't get to
 
-Entirely outside Moira's scope, but one idea from it is directly applicable, so:
+Entirely outside Baker's scope, but one idea from it is directly applicable, so:
 
 Halo's **datum array** is a fixed-size pool of elements, each with a two-byte header. An
 element is referenced not by pointer but by a 32-bit **datum index**: 16 bits of absolute
@@ -197,7 +197,7 @@ a debugger.
 
 ## 6. What this changes in the spec
 
-Four concrete items, applied to `moira-spec.md`:
+Four concrete items, applied to `baker-spec.md`:
 
 1. **Salted handles for object references.** Our `Node` holds a raw non-owning `Object*`,
    which has exactly the stale-reference hazard Halo's salt solves. Objects should be
@@ -241,7 +241,7 @@ formats alone, and it is the trade being made: structure and tooling let more pe
 the data safely; flexibility and terseness let fewer people move faster. Neither is a
 mistake. Both teams shipped generation-defining games on the choice they made.
 
-For Moira, the audience is programmers, the data is config and behavior, and the scale is
+For Baker, the audience is programmers, the data is config and behavior, and the scale is
 small. DataArray's side of the trade is the right one. We're taking Halo's safety
 discipline where it's cheap, and leaving its schema machinery where it belongs — in a
 codebase with 39,000 assets and five test engineers to keep the farms running.

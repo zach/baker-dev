@@ -1,8 +1,8 @@
 // The corpus in tests/corpus: every file parses, round-trips, and survives truncation.
 #include <doctest.h>
-#include <moira/parse.hpp>
-#include <moira/std_interop.hpp>
-#include <moira/write.hpp>
+#include <baker/parse.hpp>
+#include <baker/std_interop.hpp>
+#include <baker/write.hpp>
 
 #include "parse_harness.hpp"
 
@@ -12,13 +12,13 @@
 #include <string>
 #include <vector>
 
-using namespace moira;
+using namespace baker;
 namespace fs = std::filesystem;
 
 namespace {
 std::vector<fs::path> corpus_files() {
     std::vector<fs::path> files;
-    for (const auto& e : fs::directory_iterator(MOIRA_CORPUS_DIR))
+    for (const auto& e : fs::directory_iterator(BAKER_CORPUS_DIR))
         if (e.path().extension() == ".dta") files.push_back(e.path());
     std::sort(files.begin(), files.end());
     return files;
@@ -51,7 +51,7 @@ TEST_CASE("every corpus file parses and round-trips") {
 }
 
 TEST_CASE("corpus spot checks") {
-    const std::string dir = MOIRA_CORPUS_DIR;
+    const std::string dir = BAKER_CORPUS_DIR;
     LoadSession s;
     auto app = read_file(dir + "/config_app.dta", s);
     REQUIRE(app.has_value());
@@ -78,7 +78,7 @@ TEST_CASE("corpus spot checks") {
 TEST_CASE("fuzzer regressions stay fixed") {
     // Inputs the fuzzer once failed on, kept as files so they are never re-broken.
     size_t count = 0;
-    for (const auto& e : fs::directory_iterator(MOIRA_FUZZ_REGRESSIONS_DIR)) {
+    for (const auto& e : fs::directory_iterator(BAKER_FUZZ_REGRESSIONS_DIR)) {
         if (e.path().extension() != ".bin") continue;
         CAPTURE(e.path().string());
         CHECK(fuzz::check_parse(slurp(e.path())));

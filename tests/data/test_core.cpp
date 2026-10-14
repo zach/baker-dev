@@ -1,16 +1,16 @@
 // Node, Symbol, Ref, String, Array: layout, ownership, and checked access.
 #include <doctest.h>
-#include <moira/array.hpp>
-#include <moira/callback.hpp>
-#include <moira/std_interop.hpp>
-#include <moira/write.hpp>
+#include <baker/array.hpp>
+#include <baker/callback.hpp>
+#include <baker/std_interop.hpp>
+#include <baker/write.hpp>
 
 #include <string>
 #include <thread>
 #include <type_traits>
 #include <vector>
 
-using namespace moira;
+using namespace baker;
 
 TEST_CASE("layout targets hold") {
     static_assert(sizeof(Node) == 16);
@@ -120,7 +120,7 @@ TEST_CASE("checked accessors return located type errors") {
     CHECK(e.code() == ErrorCode::Type);
     CHECK(e.message() == "12.75 is float, not int");
     auto a = Array::make(1, "where.dta", 12);
-    CHECK(to_string(Node(a).as_int().error()) == "moira: (0) is array, not int  (where.dta:12)");
+    CHECK(to_string(Node(a).as_int().error()) == "baker: (0) is array, not int  (where.dta:12)");
     CHECK(a->try_at(1) == nullptr);
     CHECK(a->try_at(0)->as_int() == 0);
 }
@@ -188,7 +188,7 @@ TEST_CASE("structural equality ignores locations and aux bits") {
     CHECK_FALSE(structurally_equal(Node(str("s")), Node(Symbol("s"))));
 }
 
-#if MOIRA_ATOMIC_REFCOUNT_ENABLED
+#if BAKER_ATOMIC_REFCOUNT_ENABLED
 TEST_CASE("atomic refcounts survive concurrent copies") {
     Ref<Array> shared = array("shared", 1, 2, 3);
     auto work = [&] {
@@ -207,11 +207,11 @@ TEST_CASE("atomic refcounts survive concurrent copies") {
 TEST_CASE("Expected is std::expected when the library has it") {
     // The choice comes from the library's configure step, and these tests are built
     // at the library's own standard, so it must match what this translation unit sees.
-    static_assert(MOIRA_STD_EXPECTED == MOIRA_LIB_HAS_STD_EXPECTED);
-#if MOIRA_HAS_STD_EXPECTED
+    static_assert(BAKER_STD_EXPECTED == BAKER_LIB_HAS_STD_EXPECTED);
+#if BAKER_HAS_STD_EXPECTED
     static_assert(std::is_same_v<Expected<int>, std::expected<int, Error>>);
 #endif
-    MESSAGE("std::expected in use: " << MOIRA_HAS_STD_EXPECTED);
+    MESSAGE("std::expected in use: " << BAKER_HAS_STD_EXPECTED);
     Expected<int> ok = 3;
     Expected<int> bad = Unexpected(make_error(ErrorCode::NotFound, "nope"));
     CHECK(ok.has_value());

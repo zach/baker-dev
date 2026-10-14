@@ -22,14 +22,14 @@ fact each is the owner and the agent today.
 
 | Harness | Layer | Built by | Used by | Notation | Edit-to-feel (median / worst) | Extensible without rebuild by | Bus factor | Voluntary use? | Stage |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Data files (`data/*.dta`) in an editor, reloaded live | L4 | Engineers (shapes), designers (values) | Designers, the agent | Moira data | 5–17 ms / 24 ms; Wayfarer 174 ms / 215 ms (§2) | Anyone: it is data | 1 (the owner) | Not asked | Product (Moira) |
-| Moira's panels (F1: tweaks, console, loop, layers, journal, shapes, snapshots) | L1 | Moira (`examples/harness-imgui`) | Everyone at the game | Panels over tweaks and layers | One frame (a tweak is in memory) | Nobody: C++ | 1 | Not asked | Product |
+| Data files (`data/*.dta`) in an editor, reloaded live | L4 | Engineers (shapes), designers (values) | Designers, the agent | Baker data | 5–17 ms / 24 ms; Wayfarer 174 ms / 215 ms (§2) | Anyone: it is data | 1 (the owner) | Not asked | Product (Baker) |
+| Baker's panels (F1: tweaks, console, loop, layers, journal, shapes, snapshots) | L1 | Baker (`examples/harness-imgui`) | Everyone at the game | Panels over tweaks and layers | One frame (a tweak is in memory) | Nobody: C++ | 1 | Not asked | Product |
 | Each game's own window (tray, timeline and "why", map and gating, ...) | L3 | Gameplay engineers | Designers | ImGui | One frame | Nobody: C++ | 1 | Not asked | Custom-built |
-| Script words in data (`#autorun {func}`, `{class}`, `{extend}`) | L2–L3 | Technical designers | Designers, the agent | Moira script | As the data files | Anyone who writes script | 1 | Not asked | Custom-built |
-| Shapes and packs (`packs/game/*_core.dta`) | L2 | Engineers | Everyone, through `check` | Moira shapes | As the data files | Anyone, by pull request | 2 roles named per pack; 1 person | Mandated | Product |
-| The agent's commands (`sim`, `check`, `reference`, `diff`, `promote`, `eval`) | L1 | The base | The agent, engineers | Command line, Moira data out | `check` 0.01–0.09 s; `sim` one seed 0.01–1.05 s | Nobody: C++ (a new measure is a script word) | 1 | The agent's only way in | Custom-built |
-| Scenarios and objectives (`sim/*.dta`, `metrics/*.dta`) | L3 | The agent (scenarios), people (objectives) | The agent | Moira data | One `sim` run | The agent (scenarios); people, by pull request (objectives) | 1 | Not asked | Custom-built |
-| The remote console (`tools/console.py`, the console panel) | L1 | Moira (`examples/remote-console`) | The agent, engineers | One command per line | One frame | Anyone who writes script | 1 | Not asked | Product |
+| Script words in data (`#autorun {func}`, `{class}`, `{extend}`) | L2–L3 | Technical designers | Designers, the agent | Baker script | As the data files | Anyone who writes script | 1 | Not asked | Custom-built |
+| Shapes and packs (`packs/game/*_core.dta`) | L2 | Engineers | Everyone, through `check` | Baker shapes | As the data files | Anyone, by pull request | 2 roles named per pack; 1 person | Mandated | Product |
+| The agent's commands (`sim`, `check`, `reference`, `diff`, `promote`, `eval`) | L1 | The base | The agent, engineers | Command line, Baker data out | `check` 0.01–0.09 s; `sim` one seed 0.01–1.05 s | Nobody: C++ (a new measure is a script word) | 1 | The agent's only way in | Custom-built |
+| Scenarios and objectives (`sim/*.dta`, `metrics/*.dta`) | L3 | The agent (scenarios), people (objectives) | The agent | Baker data | One `sim` run | The agent (scenarios); people, by pull request (objectives) | 1 | Not asked | Custom-built |
+| The remote console (`tools/console.py`, the console panel) | L1 | Baker (`examples/remote-console`) | The agent, engineers | One command per line | One frame | Anyone who writes script | 1 | Not asked | Product |
 | Ledger's economy sheet (`economy.xlsx` → `export_economy.py` → `economy.dta`) | L3 (adopted fled harness) | A systems designer | Systems designers | Spreadsheet → export | Export 0.07 s, then the data file's reload | Its owner | 1 | Yes, by design (D109) | Custom-built |
 | Game C++ (`stacks/*/`, the natives) | L2 | Gameplay engineers | Engineers | C++ | Rebuild 2–6 s, then a restart that loses the session's state | Engineers only | 1 | Mandated | Custom-built |
 
@@ -43,7 +43,7 @@ sheet) is adopted, with `origin` carrying it into the reference.
 Step 2, measured by `{live.loop}` (the new console word over `Config::loop_stats()`):
 ten saves of a tweak in each game's `local.dta`, 0.7 s apart, while the game ran. Edit-to-see
 runs from the file's save time to the frame that presented the change; the reload is
-Moira's part of it.
+Baker's part of it.
 
 | Game | Edit-to-see median / worst | Reload median / worst | What the rest is |
 | --- | --- | --- | --- |
@@ -56,7 +56,7 @@ Moira's part of it.
 | **Wayfarer** | **174.1 / 215.1 ms** | 0.23 / 0.47 ms | The gating view rebuilds all nine navigation tiles of the analyses (about 16 ms each) after every reload, even for a run speed |
 
 Every stack is inside the one-second target of game-stacks.md §2.2 by a wide margin, and
-Moira's share is under a quarter of a millisecond. Wayfarer is ten times the others, and
+Baker's share is under a quarter of a millisecond. Wayfarer is ten times the others, and
 all of it is the game's own: the finding of the audit (§6).
 
 The other loops: a C++ change is a 2–6 s rebuild and a restart that loses the running
@@ -94,15 +94,15 @@ objectives reports no errors, warnings, unresolved words, stubs, repetitions, or
 in all seven. The stacks were each built with their vocabulary in hand, so the data has had
 no time to ask for more.
 
-**Demand in the code: the base and Moira are missing words every stack wrote again.**
+**Demand in the code: the base and Baker are missing words every stack wrote again.**
 `check` reads data, not C++; a grep of the stacks does:
 
 | Helper, written again | In | What it says |
 | --- | --- | --- |
-| `tag_of(array)`: an array's first symbol | 6 of 6 games with structured data | Moira has `find(tag)` but no accessor for an array's own tag: demand at L0 |
+| `tag_of(array)`: an array's first symbol | 6 of 6 games with structured data | Baker has `find(tag)` but no accessor for an array's own tag: demand at L0 |
 | `get(array, tag, fallback)` and `nth(array, tag, i)`: a float, or the i-th value of `(tag a b c)` | 4 and 2 | `find_float(tag, fallback)` returns `Expected`, so every caller repeats the fallback in `value_or`. A value by position has a reader already, a path (`get<double>("pos.1", 0)`), which no stack found |
 | A seeded xorshift (`next`, `uniform`) | 6 (Duel's inline) | The base has no RNG for simulations |
-| `not_found(what)`: a NotFound error for a script word | 5 | A one-line convenience the base or Moira could own |
+| `not_found(what)`: a NotFound error for a script word | 5 | A one-line convenience the base or Baker could own |
 | `box(renderer, ...)`: a box from loose floats | 5 | `base::Box` has no constructor for the common case |
 | `truthy(node)`: a command's result as a goal | 3 | Every stack with goals as commands (puzzle, milestones, missions) decides truth itself |
 
@@ -127,9 +127,9 @@ commodity).
 | Words | Layer | Stage | Note |
 | --- | --- | --- | --- |
 | SDL3, bgfx, Dear ImGui, Jolt, Recast/Detour | L0–L1 | Commodity, adopted | Nothing in-house where the industry has converged |
-| Moira (data, layers, shapes, script, `check`, `loop_stats`) | L0 | Product | The library under every harness |
+| Baker (data, layers, shapes, script, `check`, `loop_stats`) | L0 | Product | The library under every harness |
 | `Live`, `Watcher`, `FixedStep`, `Physics`, `NavMesh`, `sim` | L1 | Custom-built → product | Thin wrappers; `Watcher` is the OS's notifications, not a commodity rebuilt |
-| `tag_of`, RNG, `box`, `not_found`, `truthy` | L2, five or six copies | Custom-built, ready for product | §5: push up to the base and Moira |
+| `tag_of`, RNG, `box`, `not_found`, `truthy` | L2, five or six copies | Custom-built, ready for product | §5: push up to the base and Baker |
 | `puzzle.*`, `track.*`, `duel.*`, `econ.*` | L2 | Custom-built | Each stack's vocabulary |
 | `hearth.*`, `world.*`, `mission.*`, `at_poi`, `flag`, `has_item` | L2 | Custom-built | Newest; the objective natives match §4.4 exactly |
 | The analyses: the cheese search, the proof, pacing bots, the soak | L2 (C++) | Genesis, hardened into code | Worth watching: each is one algorithm fixed in C++; a second stack wanting one is the signal to make it a base module (game-stacks.md §5 already names "bot drivers and the runner's statistics" as shared) |
@@ -146,7 +146,7 @@ Step 8: three, by the leverage of reading-a-studio.md §8, to re-measure at the 
    geometry it depends on changes (the cells, `climb_max`, `step`, the glide ratio), so a
    tweak reloads in a frame like the others. Re-measure: Wayfarer's edit-to-see.
 2. **Push the repeated helpers up** (rank 9, prune and commoditize; and pushing-up.md).
-   `Array::tag()` and a positional reader in Moira; a seeded RNG, `Box` constructors,
+   `Array::tag()` and a positional reader in Baker; a seeded RNG, `Box` constructors,
    `not_found`, and command truth in the base; delete the copies. Re-measure: the copies
    (31 across the stacks) go to zero.
 3. **A second gardener** (rank 3), when there is a second person: hand one stack's L2 to
@@ -164,7 +164,7 @@ Applied the same day (D115), with the owner's go-ahead, and measured again.
   edit-to-see **15.9 ms median, 19.9 ms worst** (174.1 / 215.1 before), reload 0.16 ms.
   Wayfarer is now with the others. The key also fixes what the old flag missed: a
   `climb_max` tuned in a panel used to leave the analyses on the old mesh until a reload.
-- **The copies.** Moira gained `Array::tag()`; the base gained `base::Rng` (`rng.hpp`),
+- **The copies.** Baker gained `Array::tag()`; the base gained `base::Rng` (`rng.hpp`),
   `base::name`, `base::number`, `base::not_found`, `base::truthy` (`words.hpp`), and
   `Renderer::box(x, y, z, w, h, d, r, g, b, yaw)`. Copies left: **1 of 31**, Contraption's box
   helper, which turns about z, takes a quaternion, and draws spheres and buckets: a

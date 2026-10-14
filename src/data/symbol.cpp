@@ -1,10 +1,10 @@
-#include <moira/allocator.hpp>
-#include <moira/symbol.hpp>
+#include <baker/allocator.hpp>
+#include <baker/symbol.hpp>
 
 #include <cstring>
 #include <mutex>
 
-namespace moira {
+namespace baker {
 namespace {
 
 // Append-only arena + open-addressed hash table of entry pointers, from the default
@@ -108,4 +108,4 @@ size_t Symbol::table_size() noexcept {
     return table().size();
 }
 
-}  // namespace moira
+}  // namespace baker

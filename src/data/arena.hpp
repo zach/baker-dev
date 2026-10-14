@@ -2,10 +2,10 @@
 
 // Owners of arrays and strings (docs/decisions.md D64): solo blocks, and load arenas.
 
-#include <moira/allocator.hpp>
-#include <moira/array.hpp>
-#include <moira/node.hpp>
-#include <moira/ref.hpp>
+#include <baker/allocator.hpp>
+#include <baker/array.hpp>
+#include <baker/node.hpp>
+#include <baker/ref.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -13,7 +13,7 @@
 #include <string_view>
 #include <type_traits>
 
-namespace moira::detail {
+namespace baker::detail {
 
 // A block holding one array or string: the owner pointer every block starts with, the
 // owner itself, then the payload.
@@ -111,4 +111,4 @@ inline Arena& Arena::of(Owner& owner) noexcept {
     return *reinterpret_cast<Head&>(owner).arena;
 }
 
-}  // namespace moira::detail
+}  // namespace baker::detail

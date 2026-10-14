@@ -2,7 +2,7 @@
 
 // Reading DTA text into trees.
 //
-//   moira::Ref<moira::Array> menu = moira::read_file("menu.dta");
+//   baker::Ref<baker::Array> menu = baker::read_file("menu.dta");
 //
 // The parser is also the preprocessor. Directives are handled while reading and never
 // appear in the tree:
@@ -44,20 +44,20 @@
 // Nothing in a file can crash the reader: malformed input yields a located Error, and
 // ParseLimits bounds nesting, includes, and total size.
 
-#include <moira/array.hpp>
-#include <moira/error.hpp>
-#include <moira/source_map.hpp>
+#include <baker/array.hpp>
+#include <baker/error.hpp>
+#include <baker/source_map.hpp>
 
-#include <moira/callback.hpp>
-#include <moira/list.hpp>
-#include <moira/text.hpp>
+#include <baker/callback.hpp>
+#include <baker/list.hpp>
+#include <baker/text.hpp>
 
 #include <cstdint>
 #include <initializer_list>
 #include <span>
 #include <string_view>
 
-namespace moira {
+namespace baker {
 
 struct Cipher;  // cache.hpp
 namespace detail {
@@ -172,4 +172,4 @@ private:
 [[nodiscard]] Expected<Ref<Array>> read_string(std::string_view text,
                                                std::string_view name = "<string>");
 
-}  // namespace moira
+}  // namespace baker

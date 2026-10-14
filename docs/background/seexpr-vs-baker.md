@@ -1,6 +1,6 @@
-# SeExpr and Moira
+# SeExpr and Baker
 
-A comparison of Walt Disney Animation Studios' **SeExpr** expression language with Moira
+A comparison of Walt Disney Animation Studios' **SeExpr** expression language with Baker
 (our reimplementation of Harmonix's DataArray), and what it implies for the spec.
 
 Sources: the WDAS technology page for SeExpr, the project site and user documentation at
@@ -8,13 +8,13 @@ Sources: the WDAS technology page for SeExpr, the project site and user document
 programmer tutorial, and Krita's adapted reference manual.
 
 Companion to `halo-tags-vs-dataarray.md`. As there, we are not implementing SeExpr; this
-document sharpens Moira by contrast and ends with specific changes to the spec.
+document sharpens Baker by contrast and ends with specific changes to the spec.
 
 ---
 
 ## 1. Three systems from the same moment
 
-| | **Halo tags** | **DataArray / Moira** | **SeExpr** |
+| | **Halo tags** | **DataArray / Baker** | **SeExpr** |
 |---|---|---|---|
 | First described | Game Tech 2004 | GDC 2005 | Began on *Chicken Little* (2005); open-sourced 2011 |
 | Studio | Bungie | Harmonix | Walt Disney Animation Studios |
@@ -57,14 +57,14 @@ That single fact drives SeExpr's entire architecture:
   point on it. Some functions can demand constant or uniform arguments, which lets them
   ban expensive operations like string formatting from the per-point loop.
 
-Moira's hot path is the opposite shape. A config value is read many times but *computed*
-once per load. A command executes when an event fires, not across a domain. So Moira
+Baker's hot path is the opposite shape. A config value is read many times but *computed*
+once per load. A command executes when an event fires, not across a domain. So Baker
 spends its budget on making lookup and dispatch cheap — a 16-byte node, inline arrays,
 pointer-comparison symbols, an allocation-free call path — and has no use for a compile
 step, because there is nothing to amortize it over.
 
 Both systems are optimizing correctly for their workload. The lesson is to be precise
-about which workload you have: if anyone ever proposes JIT-compiling Moira scripts, the
+about which workload you have: if anyone ever proposes JIT-compiling Baker scripts, the
 first question is how many times each script runs per load, and the answer will almost
 always be "not enough."
 
@@ -78,14 +78,14 @@ hoisting legal, and per-thread evaluation (via SeExpr2's *variable blocks*, one 
 thread) trivially safe. Purity is why SeExpr can run in a renderer's inner loop on many
 cores.
 
-Moira is effectful by design. Commands play sounds, add score, send messages, spawn tasks,
+Baker is effectful by design. Commands play sounds, add score, send messages, spawn tasks,
 mutate variables. That is the whole reason DataArray grew scripting — the data alone was
 "too fragile or limited," in Malafeew's words. And its lazy-evaluation trick, where `if` is
 just a function, *depends on* evaluation being observable: the reason not to evaluate the
 untaken branch is that evaluating it would do something.
 
 These are not competing answers to one question. SeExpr answers *"what value goes here?"*
-Moira answers *"what happens when this occurs?"* A system can be very good at both only by
+Baker answers *"what happens when this occurs?"* A system can be very good at both only by
 keeping them separate — which is roughly what Disney did by keeping SeExpr pure and letting
 each host application own its own effects.
 
@@ -110,8 +110,8 @@ that is a *language* in the full sense. Halo put artists in front of a generated
 kept them away from syntax entirely. SeExpr put artists in front of syntax — but syntax
 they already knew, from math class and from RenderMan.
 
-Moira should not chase SeExpr's audience. Its syntax is right for its users. But the
-contrast is a useful check on any future proposal to "make Moira friendlier": the friendly
+Baker should not chase SeExpr's audience. Its syntax is right for its users. But the
+contrast is a useful check on any future proposal to "make Baker friendlier": the friendly
 version of this idea already exists, and it is a different tool for a different job.
 
 ---
@@ -135,14 +135,14 @@ Put that beside the other two:
 Two of three teams, independently and within a year or so, decided tuning metadata belongs
 beside the value in the file the person tuning it is editing. The one team that put it in
 code reported the limitation unprompted. That is about as strong a design signal as
-historical comparison can produce, and Moira's choice — data-side metadata, overriding
+historical comparison can produce, and Baker's choice — data-side metadata, overriding
 code-side — is now triply supported.
 
 The two data-side approaches differ instructively. SeExpr's comment convention costs the
 language nothing — the parser ignores comments, so metadata has zero semantic weight — but
 it is an invisible, unvalidated micro-format living inside free text. DataArray's
 structured children are real data: parseable, validatable, queryable by tooling, and
-round-trippable by a pretty-printer. Moira has the better structure. SeExpr has a nicer
+round-trippable by a pretty-printer. Baker has the better structure. SeExpr has a nicer
 idea we lack: **inferring presentation from shape**. A three-float value ranged 0–1 *is*
 probably a color, and a tool can say so without anyone declaring it.
 
@@ -156,19 +156,19 @@ objects, set the variables, call `evaluate`, repeat. Custom functions are classe
 separate prep (type-check) and evaluate phases, and can be loaded from shared-library
 plugins at runtime.
 
-That is more ceremony than Moira's binder, where `ctx.func("+", [](int a, int b){...})`
+That is more ceremony than Baker's binder, where `ctx.func("+", [](int a, int b){...})`
 deduces everything from the signature. But it buys two things worth noting:
 
 - **Per-expression variable resolution.** Each SeExpr expression is its own context. The
   same expression text can mean different things in different hosts, and a single host can
-  run thousands of independent expressions without them sharing state. Moira's variables
+  run thousands of independent expressions without them sharing state. Baker's variables
   are global to a `Context`, with dynamic scoping — deliberately so, and correct for a game
-  — but it means Moira expressions are not hermetic in the way SeExpr's are.
+  — but it means Baker expressions are not hermetic in the way SeExpr's are.
 - **A prep phase for functions.** Every SeExpr function gets to inspect its argument types
   before any evaluation happens. That is where SeExpr catches a wrong-arity or wrong-type
   call up front.
 
-Moira cannot adopt per-function prep without giving up laziness — prep implies knowing
+Baker cannot adopt per-function prep without giving up laziness — prep implies knowing
 argument types, and lazy arguments don't have types until accessed. But the binder already
 knows every registered function's signature, which means a large class of errors (wrong
 arity, a literal string where an int is required) *can* be caught at load time without
@@ -190,7 +190,7 @@ DataArray's value lived in its *object and messaging system* — `DataObject::Ha
 handler tables, script-side classes, the task scheduler — which are engine architecture, not
 a library. You cannot adopt them without adopting a way of building your program.
 
-For Moira this is a direct, practical lesson. Moira has both shapes inside it:
+For Baker this is a direct, practical lesson. Baker has both shapes inside it:
 
 - A **data layer** — nodes, arrays, parser, lookups, merge, config, tweaks, binary cache.
   This is SeExpr-shaped: portable, host-agnostic, adoptable by anyone who has a config file.
@@ -198,25 +198,25 @@ For Moira this is a direct, practical lesson. Moira has both shapes inside it:
   engine-shaped and only valuable to someone willing to build around it.
 
 If those two layers are cleanly separable, the data layer can be useful to a far larger
-audience than the full system. If they are entangled, Moira's audience is limited to people
+audience than the full system. If they are entangled, Baker's audience is limited to people
 who want all of it. Section 8 makes the separation a hard requirement.
 
 ---
 
 ## 8. What this changes in the spec
 
-Applied to `moira-spec.md`:
+Applied to `baker-spec.md`:
 
-1. **Two libraries, strictly layered.** `moira::data` (nodes, symbols, arrays, parser,
+1. **Two libraries, strictly layered.** `baker::data` (nodes, symbols, arrays, parser,
    writer, lookup, merge, config, tweaks, binary cache) builds and is fully usable with no
-   dependency on `moira::script` (evaluation, functions, objects, messages, tasks). A
+   dependency on `baker::script` (evaluation, functions, objects, messages, tasks). A
    program that only wants hot-reloadable config pays for nothing else. In the data layer,
    `Command` and `Var` nodes still parse and round-trip but are inert: typed access to one
    is a clean error saying the script layer isn't linked. This is SeExpr's portability
-   lesson, and it is what makes Moira adoptable by people who would never want an object
+   lesson, and it is what makes Baker adoptable by people who would never want an object
    system.
 
-2. **A load-time check pass.** `moira::check(array, ctx)` walks a loaded tree *without
+2. **A load-time check pass.** `baker::check(array, ctx)` walks a loaded tree *without
    evaluating anything* and validates every command whose head resolves to a registered
    function: arity against the binder's known signature, and literal argument types where
    the argument is a literal. Report all errors, located, in one pass. This is SeExpr's
@@ -233,13 +233,13 @@ Applied to `moira-spec.md`:
 **Considered and deliberately not adopted:**
 
 - *Static typing and a compile step.* SeExpr's justification is millions of evaluations per
-  expression. Moira's scripts don't run that way, and laziness forbids it anyway.
+  expression. Baker's scripts don't run that way, and laziness forbids it anyway.
 - *Lifetime qualifiers / epoch-cached pure commands.* The interesting translation is that a
   command whose inputs are all tweaks is "constant until reload," and could be memoized on
   the reload epoch if its functions were marked pure. It's a real idea, but it adds a purity
-  annotation to the binder and a cache to evaluation for a workload Moira doesn't have.
+  annotation to the binder and a cache to evaluation for a workload Baker doesn't have.
   Record it in `docs/decisions.md` as a known extension point rather than building it.
 - *Native vector types.* SeExpr's scalar-to-vector promotion is elegant for shading math.
-  Moira values like `(clear_color 1 1 0)` are just arrays, and `Convert<Vec3>` is the right
+  Baker values like `(clear_color 1 1 0)` are just arrays, and `Convert<Vec3>` is the right
   way to read them. A vector node type would cost node-size headroom for no lookup benefit.
 - *Comment-embedded metadata.* Our structured form is better. Keep it.

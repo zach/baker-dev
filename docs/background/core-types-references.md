@@ -1,6 +1,6 @@
 # Core value types: references from mainstream engines
 
-Evidence gathered in October 2026 to check Moira's core-type decisions (Node layout,
+Evidence gathered in October 2026 to check Baker's core-type decisions (Node layout,
 numeric width, symbols, strings, arrays, refcounting, object handles, error handling,
 toolchains) against commercial PC, console and mobile C++ practice. It led to decisions
 D18–D23 in `docs/decisions.md`.
@@ -81,13 +81,13 @@ switching to C++20; UE5 Large World Coordinates moving to double; `TValueOrError
   ±2^24, and Godot's docs give about 32–65 km as the single-precision limit for world
   positions (`tutorials/physics/large_world_coordinates`).
 - **Symbols.** Godot's `StringName` interns strings, compares them by pointer, and
-  precomputes a 32-bit hash (`core/string/string_name.h`). Moira matches this, with a
+  precomputes a 32-bit hash (`core/string/string_name.h`). Baker matches this, with a
   64-bit hash.
 - **Handles.** EnTT's default 32-bit entity id splits 20 bits of index and 12 of version,
   with a 32/32 64-bit option (`src/entt/entity/entity.hpp`). flecs ids are 64-bit: 32
   bits of index and a 16-bit generation (`include/flecs/private/api_defines.h`).
 - **Arrays.** Lua 5.5 stores array values and tags separately to avoid padding (the
-  `ltable.h` comment, the 2023-05-15 commit). That does not suit Moira, which hands out
+  `ltable.h` comment, the 2023-05-15 commit). That does not suit Baker, which hands out
   `std::span<const Node>`.
 - **Toolchains.** The Android NDK ships only libc++ (`developer.android.com/ndk/guides/
   cpp-support`). libc++ added double `from_chars` in LLVM 20 (llvm-project PR #91651,
@@ -104,16 +104,16 @@ switching to C++20; UE5 Large World Coordinates moving to double; `TValueOrError
 
 #### 1. Executive Summary Table
 
-| Decision | Mainstream Practice Found | Evidence Tier | Impact on Moira's Choice |
+| Decision | Mainstream Practice Found | Evidence Tier | Impact on Baker's Choice |
 |---|---|---|---|
-| 1. Tagged Value | Lua/Luau use 16B tagged unions (TValue). Godot 4 uses 24B/40B (Variant). UE uses dynamic properties (FProperty) or 32B FVariant / 24B FInstancedStruct. Squirrel uses 16B SQObject on 64-bit systems. | Primary | Supports. Moira's 16-byte, 8-byte aligned Node is optimal for cache efficiency and aligned with lightweight dynamic scripting paradigms. |
-| 2. Numeric Width | Modern engines use double and int64_t for config, data, LWC, and economy. UE5 LWC converted core math (FVector, TTransform) and Blueprint Float to 64-bit double. | Primary | Supports Widen. Moira's planned move to 64-bit scalars (int64 / double) matches current engine and data format standards. |
-| 3. Interned Symbols | Case-insensitive string interning with preserved display case is standard (UE FName). AAA engines use compile-time hashed string IDs (Naughty Dog SID, Bitsquid IdString32/64). Entries are immortal. | Primary | Contradicts (Partial). Moira should adopt case-insensitive matching for designer identifiers while preserving case for display, matching UE FName. |
+| 1. Tagged Value | Lua/Luau use 16B tagged unions (TValue). Godot 4 uses 24B/40B (Variant). UE uses dynamic properties (FProperty) or 32B FVariant / 24B FInstancedStruct. Squirrel uses 16B SQObject on 64-bit systems. | Primary | Supports. Baker's 16-byte, 8-byte aligned Node is optimal for cache efficiency and aligned with lightweight dynamic scripting paradigms. |
+| 2. Numeric Width | Modern engines use double and int64_t for config, data, LWC, and economy. UE5 LWC converted core math (FVector, TTransform) and Blueprint Float to 64-bit double. | Primary | Supports Widen. Baker's planned move to 64-bit scalars (int64 / double) matches current engine and data format standards. |
+| 3. Interned Symbols | Case-insensitive string interning with preserved display case is standard (UE FName). AAA engines use compile-time hashed string IDs (Naughty Dog SID, Bitsquid IdString32/64). Entries are immortal. | Primary | Contradicts (Partial). Baker should adopt case-insensitive matching for designer identifiers while preserving case for display, matching UE FName. |
 | 4. Strings | Dynamic value types favor owned SSO strings or interning handles (FName). Localized text uses refcounted immutable strings (UE FText). EASTL defaults to basic_string (SSO) or fixed_string. | Primary | Neutral. Separate refcounted immutable strings are well-suited for scripting/config values, mirroring UE FText string buffers. |
-| 5. Arrays | Fixed-size slice sharing and COW buffers are common in data/script runtimes (Godot Array/PackedByteArray). Engine C++ runtimes prefer inline TArray<T> or contiguous value spans. | Primary | Supports. Moira's inline layout after a 24-byte header provides overhead-free macro expansion and slice sharing. |
+| 5. Arrays | Fixed-size slice sharing and COW buffers are common in data/script runtimes (Godot Array/PackedByteArray). Engine C++ runtimes prefer inline TArray<T> or contiguous value spans. | Primary | Supports. Baker's inline layout after a 24-byte header provides overhead-free macro expansion and slice sharing. |
 | 6. Refcounting & Threading | UE TSharedPtr defaults to ESPMode::ThreadSafe (atomic). High-performance job engines (Naughty Dog, Frostbite) avoid atomics in hot loops entirely, using arenas, handles, and immutable snapshots. | Primary | Supports. Single-threaded mutation with multi-threaded read after freeze eliminates atomic overhead in job systems while maintaining memory safety. |
-| 7. Object Handles | 64-bit generational handles are standard in AAA. UE FWeakObjectPtr is 64-bit (32-bit Index + 32-bit SerialNumber). UE5 FObjectHandle / TObjectPtr uses 64-bit integer bit-packing. | Primary | Supports Widen. Widening Moira's handle from 32-bit (16+16) to 64-bit (32+32) is mandatory for modern AAA live-object counts (>65k objects). |
-| 8. Error Handling | C++ exceptions are strictly disabled in shipping builds across all console SDKs, Unreal Engine, and EASTL. Non-throwing result types (UE TValueOrError) are standard. | Primary | Supports. Moira's exception-free build path with std::expected / non-throwing twins is required for shipping on console and mobile toolchains. |
+| 7. Object Handles | 64-bit generational handles are standard in AAA. UE FWeakObjectPtr is 64-bit (32-bit Index + 32-bit SerialNumber). UE5 FObjectHandle / TObjectPtr uses 64-bit integer bit-packing. | Primary | Supports Widen. Widening Baker's handle from 32-bit (16+16) to 64-bit (32+32) is mandatory for modern AAA live-object counts (>65k objects). |
+| 8. Error Handling | C++ exceptions are strictly disabled in shipping builds across all console SDKs, Unreal Engine, and EASTL. Non-throwing result types (UE TValueOrError) are standard. | Primary | Supports. Baker's exception-free build path with std::expected / non-throwing twins is required for shipping on console and mobile toolchains. |
 | 9. Toolchains & C++20 | UE 5.3 switched default to C++20. Android NDK r26–r29 ship LLVM 17–20. Mobile deployment targets gate floating-point std::from_chars/to_chars. std::function and std::filesystem are avoided. | Primary | Supports (with Caveats). C++20 is fully viable on consoles and mobile, but std::filesystem and float from_chars require fallback polyfills on older mobile targets. |
 
 #### 2. Evidence and Analysis by Decision
@@ -143,7 +143,7 @@ into high-performance C++ property reflection or tagged unions for scripting run
   model primarily concerned with functionality and performance." — Jason Gregory (Lead
   Programmer, Naughty Dog), Game Engine Architecture (3rd Ed., 2018)
 
-Verdict for Moira: Moira's 16-byte layout matches Lua 5.4, Luau, and Squirrel, staying
+Verdict for Baker: Baker's 16-byte layout matches Lua 5.4, Luau, and Squirrel, staying
 significantly more cache-friendly than Godot's Variant (24/40 bytes) or UE's FVariant (32
 bytes).
 
@@ -171,7 +171,7 @@ across mainstream engines have shifted to 64-bit representations.
   (uint32_t or uint64_t) to prevent unwanted sign-extension into negative values during
   script evaluation.
 
-Verdict for Moira: Widening Moira's numeric scalars from int32/float to int64/double is
+Verdict for Baker: Widening Baker's numeric scalars from int32/float to int64/double is
 strongly supported by industry standards across spatial math (UE5 LWC) and persistent data
 formats.
 
@@ -204,8 +204,8 @@ global, immortal pools with fast comparison indices and case-insensitivity.
   prevent user errors where Health vs health causes broken bindings, while preserving
   original casing for UI rendering.
 
-Verdict for Moira: Moira's choice of pointer equality and 64-bit hashing is correct, but
-Moira should adopt case-insensitive comparisons with case-preserving display to better
+Verdict for Baker: Baker's choice of pointer equality and 64-bit hashing is correct, but
+Baker should adopt case-insensitive comparisons with case-preserving display to better
 align with designer workflows.
 
 **Decision 4: Strings.** Engine data layers distinguish sharply between dynamic mutable
@@ -223,7 +223,7 @@ strings and localized dynamic text buffers.
   character array directly on the stack/container without dynamic heap allocation. —
   Electronic Arts EASTL Documentation (EASTL/string.h)
 
-Verdict for Moira: Moira's refcounted, single-allocation immutable string model aligns
+Verdict for Baker: Baker's refcounted, single-allocation immutable string model aligns
 well with dynamic script values and mirrors the string buffer model used in UE FText.
 
 **Decision 5: Arrays.** Commercial engines organize heterogeneous scripting arrays
@@ -237,7 +237,7 @@ around reference-counted slice handles or flattened property buffers.
   contiguous memory buffers. Macro expansions and property merges construct new arrays
   in-place rather than performing shared slice tracking.
 
-Verdict for Moira: Moira's refcounted fixed-size array layout with inline children
+Verdict for Baker: Baker's refcounted fixed-size array layout with inline children
 sitting after a 24-byte header provides ideal copy-on-write semantics for macro expansions
 and data merging.
 
@@ -265,7 +265,7 @@ overhead.
   Measured overhead shows atomic counter operations cost ~15–50 CPU cycles compared to ~1
   cycle for non-atomic modifications under core contention.
 
-Verdict for Moira: Moira's approach—single-threaded mutation with multi-threaded read
+Verdict for Baker: Baker's approach—single-threaded mutation with multi-threaded read
 access after freezing—is superior for multi-threaded job systems compared to default
 atomic reference counting.
 
@@ -290,7 +290,7 @@ prevent stale handle dereferencing across high live-object counts.
   validation. 32-bit index + 32-bit generation (64-bit total) is required for modern
   console/PC scale.
 
-Verdict for Moira: Moira must widen its handle design from 32-bit (16+16) to 64-bit
+Verdict for Baker: Baker must widen its handle design from 32-bit (16+16) to 64-bit
 (32-bit index + 32-bit salt) to avoid index exhaustion on modern titles.
 
 **Decision 8: Error Handling.** C++ exceptions are disabled across all mainstream game
@@ -309,7 +309,7 @@ engines and console platform toolchains.
 - Engine Monadic Result Types: Unreal Engine uses TValueOrError<ValueType, ErrorType>
   defined in Templates/ValueOrError.h as an exception-free expected monad.
 
-Verdict for Moira: Disabling exceptions and using std::expected (or a C++20 standard
+Verdict for Baker: Disabling exceptions and using std::expected (or a C++20 standard
 fallback) matches standard practice across console and mobile game development.
 
 **Decision 9: Toolchains and C++20.** C++20 adoption is established on desktop and
@@ -342,8 +342,8 @@ constraints.
   engine Virtual File Systems (VFS), package archives (.pak), and compressed asset
   bundles.
 
-Verdict for Moira: Moira's requirement for C++20 is fully supported across PC, console,
-and mobile. However, Moira must replace std::filesystem with a custom VFS abstraction and
+Verdict for Baker: Baker's requirement for C++20 is fully supported across PC, console,
+and mobile. However, Baker must replace std::filesystem with a custom VFS abstraction and
 provide a fallback for floating-point from_chars on older iOS targets.
 
 #### 3. Open or NDA-Blocked Questions & Public Proxies

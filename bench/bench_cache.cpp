@@ -4,9 +4,9 @@
 // Rows: the text parse beside it, writing the cache, and the load from a file and from
 // memory, with the symbols already interned (warm) and in a fresh process (cold); and
 // development's read_cached, which re-hashes the text to know the cache is fresh.
-#include <moira/cache.hpp>
-#include <moira/config.hpp>
-#include <moira/parse.hpp>
+#include <baker/cache.hpp>
+#include <baker/config.hpp>
+#include <baker/parse.hpp>
 
 #include "alloc_counter.hpp"
 
@@ -46,9 +46,9 @@ std::string make_text(size_t bytes) {
 
 // One load in this process, before anything else interns a symbol.
 int cold(const char* path) {
-    moira::LoadSession session;
+    baker::LoadSession session;
     const auto t0 = Clock::now();
-    auto r = moira::read_cache(path, session);
+    auto r = baker::read_cache(path, session);
     const double ms = ms_since(t0);
     if (!r) return 1;
     std::printf("  cold symbols (fresh process): %.2f ms\n", ms);
@@ -58,10 +58,10 @@ int cold(const char* path) {
 int run(const char* self, size_t text_bytes) {
     const std::string text = make_text(text_bytes);
     double parse = 1e9;
-    moira::Ref<moira::Array> tree;
+    baker::Ref<baker::Array> tree;
     for (int rep = 0; rep < 5; ++rep) {
         const auto t0 = Clock::now();
-        auto r = moira::read_string(text, "bench.dta");
+        auto r = baker::read_string(text, "bench.dta");
         parse = std::min(parse, ms_since(t0));
         if (!r) return 1;
         tree = std::move(*r);
@@ -72,7 +72,7 @@ int run(const char* self, size_t text_bytes) {
     for (int rep = 0; rep < 5; ++rep) {
         bytes.clear();
         const auto t0 = Clock::now();
-        if (!moira::write_cache(*tree, moira::TextSink{[](void* u, std::string_view t) {
+        if (!baker::write_cache(*tree, baker::TextSink{[](void* u, std::string_view t) {
                                                            static_cast<std::string*>(u)->append(t);
                                                        },
                                                        &bytes}))
@@ -80,26 +80,26 @@ int run(const char* self, size_t text_bytes) {
         write = std::min(write, ms_since(t0));
     }
     const std::string path =
-        (std::filesystem::temp_directory_path() / "moira_bench_cache.datb").string();
-    if (!moira::write_cache(*tree, path)) return 1;
+        (std::filesystem::temp_directory_path() / "baker_bench_cache.datb").string();
+    if (!baker::write_cache(*tree, path)) return 1;
 
-    moira::LoadSession session;
+    baker::LoadSession session;
     double from_file = 1e9, from_memory = 1e9, free_ms = 1e9;
     size_t file_allocations = 0, memory_allocations = 0;
     for (int rep = 0; rep < 10; ++rep) {
-        moira::test::AllocationScope scope;
+        baker::test::AllocationScope scope;
         auto t0 = Clock::now();
-        auto r = moira::read_cache(path, session);
+        auto r = baker::read_cache(path, session);
         from_file = std::min(from_file, ms_since(t0));
         file_allocations = scope.count();
-        if (!r || !moira::structurally_equal(*tree, **r)) return 1;
+        if (!r || !baker::structurally_equal(*tree, **r)) return 1;
         t0 = Clock::now();
-        r = moira::Expected<moira::Ref<moira::Array>>();
+        r = baker::Expected<baker::Ref<baker::Array>>();
         free_ms = std::min(free_ms, ms_since(t0));
 
-        moira::test::AllocationScope memory;
+        baker::test::AllocationScope memory;
         t0 = Clock::now();
-        auto m = moira::read_cache_bytes(bytes, "bench.datb", session);
+        auto m = baker::read_cache_bytes(bytes, "bench.datb", session);
         from_memory = std::min(from_memory, ms_since(t0));
         memory_allocations = memory.count();
         if (!m) return 1;
@@ -118,7 +118,7 @@ int run(const char* self, size_t text_bytes) {
 
     // Development's path: the text on disk, read through read_cached.
     const std::string text_path =
-        (std::filesystem::temp_directory_path() / "moira_bench_cache.dta").string();
+        (std::filesystem::temp_directory_path() / "baker_bench_cache.dta").string();
     if (std::FILE* f = std::fopen(text_path.c_str(), "wb")) {
         std::fwrite(text.data(), 1, text.size(), f);
         std::fclose(f);
@@ -126,34 +126,34 @@ int run(const char* self, size_t text_bytes) {
     std::filesystem::remove(path);
     double miss = 0, hit = 1e9, check = 1e9;
     {
-        moira::LoadSession s;
+        baker::LoadSession s;
         const auto t0 = Clock::now();
-        if (!moira::read_cached(text_path, path, s)) return 1;
+        if (!baker::read_cached(text_path, path, s)) return 1;
         miss = ms_since(t0);
     }
     for (int rep = 0; rep < 5; ++rep) {
-        moira::LoadSession s;
+        baker::LoadSession s;
         auto t0 = Clock::now();
-        if (!moira::cache_fresh(path, s)) return 1;
+        if (!baker::cache_fresh(path, s)) return 1;
         check = std::min(check, ms_since(t0));
         t0 = Clock::now();
-        if (!moira::read_cached(text_path, path, s)) return 1;
+        if (!baker::read_cached(text_path, path, s)) return 1;
         hit = std::min(hit, ms_since(t0));
     }
     // A Config's file layer, with ConfigOptions::cache_dir (D74).
-    const auto cache_dir = std::filesystem::temp_directory_path() / "moira_bench_cache_dir";
+    const auto cache_dir = std::filesystem::temp_directory_path() / "baker_bench_cache_dir";
     std::filesystem::remove_all(cache_dir);
     std::filesystem::create_directories(cache_dir);
     const std::string dir_name = cache_dir.string();
     double layer_text = 1e9, layer_miss = 0, layer_hit = 1e9;
     for (int rep = 0; rep < 5; ++rep) {
-        moira::Config cfg({.edit_mode = false, .tweaks = nullptr});
+        baker::Config cfg({.edit_mode = false, .tweaks = nullptr});
         const auto t0 = Clock::now();
         if (!cfg.push_layer("bench", text_path)) return 1;
         layer_text = std::min(layer_text, ms_since(t0));
     }
     for (int rep = 0; rep < 6; ++rep) {
-        moira::Config cfg({.edit_mode = false, .tweaks = nullptr, .cache_dir = dir_name});
+        baker::Config cfg({.edit_mode = false, .tweaks = nullptr, .cache_dir = dir_name});
         const auto t0 = Clock::now();
         if (!cfg.push_layer("bench", text_path)) return 1;
         if (rep == 0)
@@ -173,12 +173,12 @@ int run(const char* self, size_t text_bytes) {
     // mark_visible with nothing waiting (D92). Best of 5 runs, per call.
     {
         const std::string small =
-            (std::filesystem::temp_directory_path() / "moira_bench_small.dta").string();
+            (std::filesystem::temp_directory_path() / "baker_bench_small.dta").string();
         if (std::FILE* f = std::fopen(small.c_str(), "wb")) {
             std::fputs("(speed 1)\n", f);
             std::fclose(f);
         }
-        moira::Config cfg({.tweaks = nullptr});
+        baker::Config cfg({.tweaks = nullptr});
         if (!cfg.push_layer("small", small)) return 1;
         double poll = 1e9, visible = 1e9;
         for (int rep = 0; rep < 5; ++rep) {
@@ -195,11 +195,11 @@ int run(const char* self, size_t text_bytes) {
         // A live edit on set's fast path (a scalar already in scratch), as a slider drag
         // makes every frame; the journal records each (D93).
         double edit = 1e9;
-        if (!cfg.set("speed", moira::Node(2))) return 1;
+        if (!cfg.set("speed", baker::Node(2))) return 1;
         for (int rep = 0; rep < 5; ++rep) {
             const auto t0 = Clock::now();
             for (int i = 0; i < 1000000; ++i)
-                if (!cfg.set("speed", moira::Node(i))) return 1;
+                if (!cfg.set("speed", baker::Node(i))) return 1;
             edit = std::min(edit, ms_since(t0) * 1e6 / 1000000);
         }
         std::filesystem::remove(small);

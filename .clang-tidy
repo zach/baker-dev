@@ -27,4 +27,4 @@ Checks: >
 #   (a cache's breadth-first layout, callbacks that unsubscribe).
 # performance-enum-size: some enums are sized to pin a struct's layout.
 WarningsAsErrors: '*'
-HeaderFilterRegex: '.*/(include/moira|src)/.*'
+HeaderFilterRegex: '.*/(include/baker|src)/.*'

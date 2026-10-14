@@ -1,10 +1,10 @@
 // Layers, provenance, reload callbacks, and write-back.
 //
-//   moira_example_config path/to/examples/config/data
+//   baker_example_config path/to/examples/config/data
 //
 // Works on a copy of the data in ./work, so write-back never touches the sources.
-#include <moira/config.hpp>
-#include <moira/std_interop.hpp>
+#include <baker/config.hpp>
+#include <baker/std_interop.hpp>
 
 #include <cstdio>
 #include <filesystem>
@@ -14,14 +14,14 @@
 
 namespace fs = std::filesystem;
 
-static moira::Tweak<float> kVolume{"audio.volume", 1.0f};
-static moira::Tweak<int> kShadows{"renderer.shadows", 1};
+static baker::Tweak<float> kVolume{"audio.volume", 1.0f};
+static baker::Tweak<int> kShadows{"renderer.shadows", 1};
 
 namespace {
 
-void where(moira::Config& cfg, const char* path) {
+void where(baker::Config& cfg, const char* path) {
     auto s = cfg.source(path);
-    if (!s) return (void)std::printf("%-17s %s\n", path, moira::to_string(s.error()).data());
+    if (!s) return (void)std::printf("%-17s %s\n", path, baker::to_string(s.error()).data());
     auto file = fs::path(s->file.str()).filename().string();
     if (file.empty())
         std::printf("%-17s layer %-8s (unsaved)\n", path, s->layer.c_str());
@@ -40,8 +40,8 @@ void write(const fs::path& p, const std::string& text) {
     std::ofstream(p, std::ios::binary | std::ios::trunc) << text;
 }
 
-bool ok(const moira::Expected<void>& r) {
-    if (!r) std::printf("%s\n", moira::to_string(r.error()).data());
+bool ok(const baker::Expected<void>& r) {
+    if (!r) std::printf("%s\n", baker::to_string(r.error()).data());
     return bool(r);
 }
 
@@ -56,13 +56,13 @@ int main(int argc, char** argv) {
 
     // Layers merge bottom to top. The local layer is each developer's own: optional, so a
     // missing file is an empty layer, and kept out of version control.
-    moira::Config cfg;
+    baker::Config cfg;
     if (!ok(cfg.push_layer("default", "work/default.dta")) ||
         !ok(cfg.push_layer("handheld", "work/handheld.dta")) ||
         !ok(cfg.push_layer("local", "work/local/sam.dta", {.optional = true})))
         return 1;
     std::printf("layers:");
-    for (const std::string& name : moira::strings(cfg.layers())) std::printf(" %s", name.c_str());
+    for (const std::string& name : baker::strings(cfg.layers())) std::printf(" %s", name.c_str());
     std::printf("\nshadows %d, volume %g\n", int(kShadows), double(kVolume));
     where(cfg, "renderer.shadows");
     where(cfg, "audio.volume");
@@ -94,7 +94,7 @@ int main(int argc, char** argv) {
     // Kept for one developer: written into the local layer, which creates the file.
     if (!ok(cfg.set("audio.channels", 8))) return 1;
     if (auto r = cfg.write_back_to("audio.channels", "local"); !r) {
-        std::printf("%s\n", moira::to_string(r.error()).data());
+        std::printf("%s\n", baker::to_string(r.error()).data());
         return 1;
     }
     where(cfg, "audio.channels");

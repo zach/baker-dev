@@ -6,7 +6,7 @@
 
 #include <functional>
 
-namespace moira {
+namespace baker {
 
 using detail::ObjectParams;
 
@@ -17,12 +17,12 @@ Str quoted(Symbol s) {
 }
 
 #if defined(_MSC_VER)
-#define MOIRA_COLD __declspec(noinline)
+#define BAKER_COLD __declspec(noinline)
 #else
-#define MOIRA_COLD [[gnu::noinline, gnu::cold]]
+#define BAKER_COLD [[gnu::noinline, gnu::cold]]
 #endif
 
-MOIRA_COLD Expected<Node> fail(const Array& at, ErrorCode code, std::string_view message) {
+BAKER_COLD Expected<Node> fail(const Array& at, ErrorCode code, std::string_view message) {
     Error e = make_error(code, message, at.file(), at.line());
     record_stack(e);
     return Unexpected(std::move(e));
@@ -378,7 +378,7 @@ Expected<void> Context::Impl::set_property(ObjectBase& o, Symbol name, const Nod
         return Unexpected(make_error(ErrorCode::Type,
                                      "property " + quoted(name) + " of " + o.type().name + " is " +
                                          Str(p->type) + ", not " +
-                                         Str(moira::type_name(value.type())),
+                                         Str(baker::type_name(value.type())),
                                      at.file(), at.line()));
     }
     if (!o.params_) o.params_ = detail::create<ObjectParams>(alloc, alloc);
@@ -480,7 +480,7 @@ Expected<Node> Context::call(const Node& object, Symbol method, std::span<const 
 Error Context::resolve_error(const Node& object, std::string_view type) const {
     if (object.type() != Type::Object)
         return make_error(ErrorCode::Type, "expected a " + Str(type) + " object, not " +
-                                               Str(moira::type_name(object.type())));
+                                               Str(baker::type_name(object.type())));
     if (!try_resolve(object))
         return make_error(ErrorCode::NotFound, "the " + Str(type) + " object was removed");
     return make_error(ErrorCode::Type, "the object is a " + try_resolve(object)->type().name +
@@ -697,4 +697,4 @@ void register_object_builtins(Context& ctx) {
             "created is destroyed. Its handles go stale.");
 }
 
-}  // namespace moira
+}  // namespace baker

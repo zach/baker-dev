@@ -14,7 +14,7 @@ python3 -I stacks/ledger/tools/export_economy.py          # economy.xlsx -> data
 **Playing.** The Ledger window: buy buildings, sell them back at half their cost, choose
 which goods you sell, and run the clock at 1x, 4x, or 16x (a day is five seconds at 1x).
 Farms and ranches are open from the start; each later building unlocks by what you have
-earned. Hover a building for its recipe, a locked one for its unlock. F1 shows Moira's
+earned. Hover a building for its recipe, a locked one for its unlock. F1 shows Baker's
 panels.
 
 ## Layout

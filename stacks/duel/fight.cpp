@@ -1,8 +1,8 @@
 #include "fight.hpp"
 
+#include <baker/std_interop.hpp>
 #include <base/rng.hpp>
 #include <base/words.hpp>
-#include <moira/std_interop.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -19,25 +19,25 @@ int per_mille(double fraction) {
     return static_cast<int>(std::lround(std::clamp(fraction, 0.0, 1.0) * 1000.0));
 }
 
-int get_int(const moira::Array& a, const char* tag, int fallback) {
-    return static_cast<int>(a.find_int(moira::Symbol(tag), fallback).value_or(fallback));
+int get_int(const baker::Array& a, const char* tag, int fallback) {
+    return static_cast<int>(a.find_int(baker::Symbol(tag), fallback).value_or(fallback));
 }
-double get_float(const moira::Array& a, const char* tag, double fallback) {
-    return a.find_float(moira::Symbol(tag), fallback).value_or(fallback);
+double get_float(const baker::Array& a, const char* tag, double fallback) {
+    return a.find_float(baker::Symbol(tag), fallback).value_or(fallback);
 }
-std::string get_sym(const moira::Array& a, const char* tag, const char* fallback) {
-    auto s = a.find_sym(moira::Symbol(tag), moira::Symbol(fallback));
+std::string get_sym(const baker::Array& a, const char* tag, const char* fallback) {
+    auto s = a.find_sym(baker::Symbol(tag), baker::Symbol(fallback));
     return s ? std::string(s->str()) : std::string(fallback);
 }
 
 // The keyed children of (tag ...) at the root: (fighters (kestrel ...) (wren ...)).
-const moira::Array* section(const moira::Array& root, const char* tag) {
-    return root.try_find(moira::Symbol(tag));
+const baker::Array* section(const baker::Array& root, const char* tag) {
+    return root.try_find(baker::Symbol(tag));
 }
 
-bool read_brains(const moira::Array* list, std::vector<Brain>& out) {
+bool read_brains(const baker::Array* list, std::vector<Brain>& out) {
     if (!list) return true;
-    for (const moira::Array& b : list->subarrays()) {
+    for (const baker::Array& b : list->subarrays()) {
         Brain brain;
         brain.name = base::name(b);
         brain.reaction = std::clamp(get_int(b, "reaction", brain.reaction), 0, 63);
@@ -84,14 +84,14 @@ const Brain* Roster::find_brain(const std::string& name) const {
     return nullptr;
 }
 
-bool load(const moira::Array& root, Roster& out, std::string& error) {
+bool load(const baker::Array& root, Roster& out, std::string& error) {
     Roster r;
-    const moira::Array* fighters = section(root, "fighters");
+    const baker::Array* fighters = section(root, "fighters");
     if (!fighters) {
         error = "no (fighters ...) in the data";
         return false;
     }
-    for (const moira::Array& fa : fighters->subarrays()) {
+    for (const baker::Array& fa : fighters->subarrays()) {
         FighterData d;
         d.name = base::name(fa);
         d.health = get_int(fa, "health", d.health);
@@ -100,10 +100,10 @@ bool load(const moira::Array& root, Roster& out, std::string& error) {
         d.crouch_height = mm(get_float(fa, "crouch_height", 1.1));
         d.walk_forward = mm(get_float(fa, "walk_forward", 2.4) / 60.0);
         d.walk_back = mm(get_float(fa, "walk_back", 1.8) / 60.0);
-        const moira::Array* moves = fa.try_find(moira::Symbol("moves"));
+        const baker::Array* moves = fa.try_find(baker::Symbol("moves"));
         std::vector<std::vector<std::string>> cancels;
         if (moves)
-            for (const moira::Array& ma : moves->subarrays()) {
+            for (const baker::Array& ma : moves->subarrays()) {
                 Move m;
                 m.name = base::name(ma);
                 m.button = button_named(get_sym(ma, "button", "light"));
@@ -119,14 +119,14 @@ bool load(const moira::Array& root, Roster& out, std::string& error) {
                 m.guard = guard == "low"        ? Guard::Low
                           : guard == "overhead" ? Guard::Overhead
                                                 : Guard::Mid;
-                if (const moira::Array* hb = ma.try_find(moira::Symbol("hitbox"));
+                if (const baker::Array* hb = ma.try_find(baker::Symbol("hitbox"));
                     hb && hb->size() >= 5) {
                     double v[4];
                     for (int i = 0; i < 4; ++i) v[i] = (*hb)[size_t(i) + 1].as_float().value_or(0);
                     m.hitbox = {mm(v[0]), mm(v[1]), mm(v[2]), mm(v[3])};
                 }
                 std::vector<std::string> names;
-                if (const moira::Array* c = ma.try_find(moira::Symbol("cancels")))
+                if (const baker::Array* c = ma.try_find(baker::Symbol("cancels")))
                     for (size_t i = 1; i < c->size(); ++i)
                         if (auto s = (*c)[i].as_sym()) names.emplace_back(s->str());
                 cancels.push_back(std::move(names));

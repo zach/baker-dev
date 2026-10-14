@@ -2,12 +2,12 @@
 
 // The container alias layer (docs/decisions.md D55, D61). Code in src/ uses Vec, Str, and
 // HashMap, never std::vector, std::string, or std::unordered_map. They are the STL's by
-// default, or EASTL's with MOIRA_USE_EASTL=ON, and always allocate through a Moira
+// default, or EASTL's with BAKER_USE_EASTL=ON, and always allocate through a Baker
 // Allocator: the default allocator unless the owner passes its own.
 
-#include <moira/allocator.hpp>
-#include <moira/symbol.hpp>
-#include <moira/text.hpp>
+#include <baker/allocator.hpp>
+#include <baker/symbol.hpp>
+#include <baker/text.hpp>
 
 #include <atomic>
 #include <cstddef>
@@ -17,7 +17,7 @@
 #include <type_traits>
 #include <utility>
 
-#if MOIRA_USE_EASTL
+#if BAKER_USE_EASTL
 #include <EASTL/hash_map.h>
 #include <EASTL/string.h>
 #include <EASTL/vector.h>
@@ -27,7 +27,7 @@
 #include <vector>
 #endif
 
-namespace moira::detail {
+namespace baker::detail {
 
 // Hashes for HashMap keys, the same under either backend.
 template <class K>
@@ -48,7 +48,7 @@ struct Hash<T*> {
     }
 };
 
-#if MOIRA_USE_EASTL
+#if BAKER_USE_EASTL
 
 class EastlAllocator {
 public:
@@ -63,7 +63,7 @@ public:
         return detail::allocate(*a_, n, align);
     }
     void deallocate(void* p, size_t n) noexcept { detail::deallocate(*a_, p, n); }
-    [[nodiscard]] const char* get_name() const noexcept { return "moira"; }
+    [[nodiscard]] const char* get_name() const noexcept { return "baker"; }
     void set_name(const char*) noexcept {}
 
     friend bool operator==(const EastlAllocator& x, const EastlAllocator& y) noexcept {
@@ -85,7 +85,7 @@ using BasicStr = eastl::basic_string<char, EastlAllocator>;
 
 #else
 
-// A std allocator over a Moira Allocator. Copies keep their source's allocator, and
+// A std allocator over a Baker Allocator. Copies keep their source's allocator, and
 // assignment never moves one: a table keeps its owner's allocator whatever is assigned in.
 template <class T>
 class StdAllocator {
@@ -127,7 +127,7 @@ using BasicStr = std::basic_string<char, std::char_traits<char>, StdAllocator<ch
 
 #endif
 
-// A string: the backend's, behind the few operations Moira uses, so that both backends
+// A string: the backend's, behind the few operations Baker uses, so that both backends
 // read and convert to std::string_view the same way.
 class Str {
 public:
@@ -274,7 +274,7 @@ private:
     const Allocator* a_ = nullptr;
 };
 
-// A shared T, from an allocator: what std::shared_ptr<T> would be. Moira shares only what
+// A shared T, from an allocator: what std::shared_ptr<T> would be. Baker shares only what
 // is finished being built, and reads it.
 template <class T>
 class Rc {
@@ -314,12 +314,12 @@ private:
     Block* b_ = nullptr;
 };
 
-}  // namespace moira::detail
+}  // namespace baker::detail
 
-namespace moira {
+namespace baker {
 using detail::HashMap;
 using detail::Own;
 using detail::Rc;
 using detail::Str;
 using detail::Vec;
-}  // namespace moira
+}  // namespace baker

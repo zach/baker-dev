@@ -5,7 +5,7 @@ description: Work on a game stack's data as its agent (stacks/, docs/background/
 
 # Working on a stack's data
 
-A stack's game (`stacks/<game>/`) is also its own tool. Its data is Moira (`docs/language.md`).
+A stack's game (`stacks/<game>/`) is also its own tool. Its data is Baker (`docs/language.md`).
 You work where a technical designer works: in data, never in the game's C++.
 
 ```

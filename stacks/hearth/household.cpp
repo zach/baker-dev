@@ -1,8 +1,8 @@
 #include "household.hpp"
 
+#include <baker/std_interop.hpp>
 #include <base/rng.hpp>
 #include <base/words.hpp>
-#include <moira/std_interop.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -37,8 +37,8 @@ std::string clock_text(double minute) {
     return buf;
 }
 
-const moira::Symbol& idle_symbol() {
-    static const moira::Symbol s("idle");
+const baker::Symbol& idle_symbol() {
+    static const baker::Symbol s("idle");
     return s;
 }
 
@@ -60,10 +60,10 @@ int Kit::house(const std::string& name) const {
     return -1;
 }
 
-bool load(const moira::Ref<moira::Array>& root, Kit& out, std::string& error) {
+bool load(const baker::Ref<baker::Array>& root, Kit& out, std::string& error) {
     Kit k;
     k.tree = root;
-    if (const moira::Array* r = root->try_find(moira::Symbol("hearth"))) {
+    if (const baker::Array* r = root->try_find(baker::Symbol("hearth"))) {
         Rules& u = k.rules;
         u.walk_speed = base::number(*r, "walk_speed", u.walk_speed);
         u.choice_top = int(base::number(*r, "choice_top", float(u.choice_top)));
@@ -76,13 +76,13 @@ bool load(const moira::Ref<moira::Array>& root, Kit& out, std::string& error) {
             int(base::number(*r, "oscillation_switches", float(u.oscillation_switches)));
         u.idle_minutes = base::number(*r, "idle_minutes", u.idle_minutes);
     }
-    if (const moira::Array* needs = root->try_find(moira::Symbol("needs")))
-        for (const moira::Array& a : needs->subarrays()) {
+    if (const baker::Array* needs = root->try_find(baker::Symbol("needs")))
+        for (const baker::Array& a : needs->subarrays()) {
             Need n;
             n.name = base::name(a);
             n.decay_per_hour = std::max(0.0f, base::number(a, "decay_per_hour", n.decay_per_hour));
             n.critical = base::number(a, "critical", n.critical);
-            const auto c = a.find_sym(moira::Symbol("curve"), moira::Symbol("linear"));
+            const auto c = a.find_sym(baker::Symbol("curve"), baker::Symbol("linear"));
             const std::string cs = c ? std::string(c->str()) : "linear";
             n.curve = cs == "quadratic"  ? Curve::Quadratic
                       : cs == "logistic" ? Curve::Logistic
@@ -93,16 +93,16 @@ bool load(const moira::Ref<moira::Array>& root, Kit& out, std::string& error) {
         error = "no (needs ...) in the data";
         return false;
     }
-    if (const moira::Array* kinds = root->try_find(moira::Symbol("objects")))
-        for (const moira::Array& a : kinds->subarrays()) {
+    if (const baker::Array* kinds = root->try_find(baker::Symbol("objects")))
+        for (const baker::Array& a : kinds->subarrays()) {
             Kind kd;
             kd.name = base::name(a);
             for (int i = 0; i < 3; ++i) {
                 kd.size[i] = std::max(0.1f, base::number(a, "size", size_t(i), kd.size[i]));
                 kd.color[i] = base::number(a, "color", size_t(i), kd.color[i]);
             }
-            if (const moira::Array* ad = a.try_find(moira::Symbol("advertise")))
-                for (const moira::Array& n : ad->subarrays()) {
+            if (const baker::Array* ad = a.try_find(baker::Symbol("advertise")))
+                for (const baker::Array& n : ad->subarrays()) {
                     const int need = k.need(base::name(n));
                     if (need < 0) {
                         error = "object " + kd.name + " advertises " + base::name(n) +
@@ -112,30 +112,30 @@ bool load(const moira::Ref<moira::Array>& root, Kit& out, std::string& error) {
                     kd.advertise.emplace_back(
                         need, float(n.size() > 1 ? n[1].as_float().value_or(0) : 0));
                 }
-            const auto act = a.find_sym(moira::Symbol("action"), moira::Symbol("use_object"));
-            kd.action = act ? *act : moira::Symbol("use_object");
+            const auto act = a.find_sym(baker::Symbol("action"), baker::Symbol("use_object"));
+            kd.action = act ? *act : baker::Symbol("use_object");
             kd.minutes = std::max(1.0f, base::number(a, "minutes", kd.minutes));
             kd.users = std::max(1, int(base::number(a, "users", 1)));
             kd.hours[0] = base::number(a, "hours", 0, -1);
             kd.hours[1] = base::number(a, "hours", 1, -1);
             k.kinds.push_back(std::move(kd));
         }
-    if (const moira::Array* houses = root->try_find(moira::Symbol("households")))
-        for (const moira::Array& a : houses->subarrays()) {
+    if (const baker::Array* houses = root->try_find(baker::Symbol("households")))
+        for (const baker::Array& a : houses->subarrays()) {
             House h;
             h.name = base::name(a);
-            if (auto d = a.find_str(moira::Symbol("desc"), "")) h.desc = std::string(*d);
+            if (auto d = a.find_str(baker::Symbol("desc"), "")) h.desc = std::string(*d);
             h.size[0] = std::max(2.0f, base::number(a, "size", 0, h.size[0]));
             h.size[1] = std::max(2.0f, base::number(a, "size", 1, h.size[1]));
-            if (const moira::Array* walls = a.try_find(moira::Symbol("walls")))
-                for (const moira::Array& w : walls->subarrays()) {
+            if (const baker::Array* walls = a.try_find(baker::Symbol("walls")))
+                for (const baker::Array& w : walls->subarrays()) {
                     std::array<float, 4> box{};
                     for (size_t i = 0; i < 4; ++i)
                         box[i] = float(w.size() > i ? w[i].as_float().value_or(0) : 0);
                     h.walls.push_back(box);
                 }
-            if (const moira::Array* things = a.try_find(moira::Symbol("things")))
-                for (const moira::Array& t : things->subarrays()) {
+            if (const baker::Array* things = a.try_find(baker::Symbol("things")))
+                for (const baker::Array& t : things->subarrays()) {
                     Placed p;
                     p.kind = k.kind(base::name(t));
                     if (p.kind < 0) {
@@ -148,13 +148,13 @@ bool load(const moira::Ref<moira::Array>& root, Kit& out, std::string& error) {
                     p.yaw = float(t.size() > 3 ? t[3].as_float().value_or(0) : 0);
                     h.things.push_back(p);
                 }
-            if (const moira::Array* rs = a.try_find(moira::Symbol("residents")))
-                for (const moira::Array& r : rs->subarrays()) {
+            if (const baker::Array* rs = a.try_find(baker::Symbol("residents")))
+                for (const baker::Array& r : rs->subarrays()) {
                     Resident res;
                     res.name = base::name(r);
                     res.weights.assign(k.needs.size(), 1.0f);
-                    if (const moira::Array* w = r.try_find(moira::Symbol("weights")))
-                        for (const moira::Array& n : w->subarrays()) {
+                    if (const baker::Array* w = r.try_find(baker::Symbol("weights")))
+                        for (const baker::Array& n : w->subarrays()) {
                             const int need = k.need(base::name(n));
                             if (need < 0) {
                                 error = "resident " + res.name + " weighs " + base::name(n) +
@@ -180,10 +180,10 @@ bool load(const moira::Ref<moira::Array>& root, Kit& out, std::string& error) {
 
 // --- Thing ---
 
-void Thing::bind(moira::Binder<Thing>& b) {
+void Thing::bind(baker::Binder<Thing>& b) {
     b.name("thing");
     b.method("kind", [](Thing& t) {
-         return moira::Symbol(t.home->kit().kinds[size_t(t.kind)].name);
+         return baker::Symbol(t.home->kit().kinds[size_t(t.kind)].name);
      }).doc("The thing's kind, from (objects ...).");
     b.method("users", [](Thing& t) {
          return int64_t(t.users);
@@ -193,7 +193,7 @@ void Thing::bind(moira::Binder<Thing>& b) {
 
 // --- Villager ---
 
-void Villager::bind(moira::Binder<Villager>& b) {
+void Villager::bind(baker::Binder<Villager>& b) {
     b.name("villager");
     b.method("walk_to", &Villager::walk_to)
         .doc("Starts walking to a thing. False, and the action ends, if it cannot be reached.");
@@ -214,7 +214,7 @@ void Villager::bind(moira::Binder<Villager>& b) {
             "action helps it.");
 }
 
-bool Villager::walk_to(const moira::Node& obj) {
+bool Villager::walk_to(const baker::Node& obj) {
     Thing* t = home->thing_of(obj);
     walked = false;
     if (!t || !t->reachable) {
@@ -237,7 +237,7 @@ bool Villager::walk_to(const moira::Node& obj) {
     return true;
 }
 
-bool Villager::use(const moira::Node& obj) {
+bool Villager::use(const baker::Node& obj) {
     Thing* t = home->thing_of(obj);
     if (!t) return false;
     state = State::Using;
@@ -251,13 +251,13 @@ void Villager::done() {
     home->end_action(*this, true);
 }
 
-void Villager::interrupt(moira::Symbol n) {
+void Villager::interrupt(baker::Symbol n) {
     if (thing < 0) return;
     home->note(*this, std::string("interrupted for ") + std::string(n.str()));
     home->end_action(*this, false);
 }
 
-bool Villager::helps(moira::Symbol n) const {
+bool Villager::helps(baker::Symbol n) const {
     if (thing < 0) return false;
     const int need_index = home->kit().need(std::string(n.str()));
     const Thing& t = *home->things()[size_t(thing)];
@@ -266,7 +266,7 @@ bool Villager::helps(moira::Symbol n) const {
     return false;
 }
 
-double Villager::need(moira::Symbol n) const {
+double Villager::need(baker::Symbol n) const {
     const int i = home->kit().need(std::string(n.str()));
     return i < 0 ? -1.0 : double(needs[size_t(i)]);
 }
@@ -309,14 +309,14 @@ double share_in_band(const Tally& t, double low, double high) {
 
 // --- Household ---
 
-Household::Household(const Kit& kit, int house, moira::Context& ctx, moira::Scheduler& clock,
+Household::Household(const Kit& kit, int house, baker::Context& ctx, baker::Scheduler& clock,
                      uint64_t seed, const std::string& prefix)
     : kit_(kit),
       house_(house),
       ctx_(ctx),
       clock_(clock),
       rng_(seed + uint64_t(house) * 0x632BE59BD9B4E019ull, 0x5851F42D4C957F2Dull) {
-    clock_node_ = ctx_.object(moira::Symbol("clock"));
+    clock_node_ = ctx_.object(baker::Symbol("clock"));
     const House& h = this->house();
     build_nav();
     std::vector<int> per_kind(kit_.kinds.size(), 0);
@@ -344,7 +344,7 @@ Household::Household(const Kit& kit, int house, moira::Context& ctx, moira::Sche
             name = prefix + k.name;
             if (per_kind[size_t(p.kind)]++ > 0) name += std::to_string(per_kind[size_t(p.kind)]);
         }
-        (void)ctx_.add(*t, name.empty() ? moira::Symbol() : moira::Symbol(name));
+        (void)ctx_.add(*t, name.empty() ? baker::Symbol() : baker::Symbol(name));
         things_.push_back(std::move(t));
     }
     for (size_t i = 0; i < h.residents.size(); ++i) {
@@ -363,7 +363,7 @@ Household::Household(const Kit& kit, int house, moira::Context& ctx, moira::Sche
         v->zero_minutes.assign(kit_.needs.size(), 0);
         v->below.assign(kit_.needs.size(), false);
         v->action = idle_symbol();
-        (void)ctx_.add(*v, prefix.empty() ? moira::Symbol() : moira::Symbol(prefix + v->name));
+        (void)ctx_.add(*v, prefix.empty() ? baker::Symbol() : baker::Symbol(prefix + v->name));
         villagers_.push_back(std::move(v));
     }
     hours_.resize(villagers_.size());
@@ -375,7 +375,7 @@ Household::Household(const Kit& kit, int house, moira::Context& ctx, moira::Sche
 
 Household::~Household() {
     for (auto& v : villagers_)
-        if (v->task) clock_.cancel(moira::TaskHandle{uint64_t(v->task)});
+        if (v->task) clock_.cancel(baker::TaskHandle{uint64_t(v->task)});
 }
 
 void Household::build_nav() {
@@ -402,7 +402,7 @@ void Household::build_nav() {
     if (nav_.init(s)) (void)nav_.add_tile(0, 0, g);
 }
 
-Thing* Household::thing_of(const moira::Node& obj) const {
+Thing* Household::thing_of(const baker::Node& obj) const {
     Thing* t = ctx_.try_get<Thing>(obj);
     return t && t->home == this ? t : nullptr;
 }
@@ -414,7 +414,7 @@ void Household::note(Villager& v, std::string text) {
 
 void Household::end_action(Villager& v, bool finished) {
     if (v.task) {
-        clock_.cancel(moira::TaskHandle{uint64_t(v.task)});
+        clock_.cancel(baker::TaskHandle{uint64_t(v.task)});
         v.task = 0;
     }
     if (v.thing >= 0) {
@@ -430,7 +430,7 @@ void Household::end_action(Villager& v, bool finished) {
         const size_t n = size_t(std::max(2, kit_.rules.oscillation_switches));
         if (v.interrupted.size() >= n) {
             const auto& h = v.interrupted;
-            const moira::Symbol a = h[h.size() - 1], b = h[h.size() - 2];
+            const baker::Symbol a = h[h.size() - 1], b = h[h.size() - 2];
             bool alternates = a != b;
             for (size_t i = h.size() - n; alternates && i < h.size(); ++i)
                 alternates = h[i] == ((h.size() - 1 - i) % 2 == 0 ? a : b);
@@ -532,14 +532,14 @@ void Household::decide(Villager& v, const std::string& why) {
     v.walked = false;
     v.last_progress = minute_;
     note(v, why + ": " + kit_.kinds[size_t(t.kind)].name);
-    const moira::Node arg = t.node();
-    auto started = ctx_.call(v.node(), v.action, std::span<const moira::Node>(&arg, 1));
+    const baker::Node arg = t.node();
+    auto started = ctx_.call(v.node(), v.action, std::span<const baker::Node>(&arg, 1));
     if (!started) {
         ++tally_.script_errors;
         if (tally_.notes.size() < kNotes)
             tally_.notes.push_back(house().name + " " + v.name + ": " +
-                                   std::string(moira::describe(started.error())));
-        note(v, "the action failed: " + std::string(moira::describe(started.error())));
+                                   std::string(baker::describe(started.error())));
+        note(v, "the action failed: " + std::string(baker::describe(started.error())));
         v.interrupted.clear();
         end_action(v, true);
         v.idle_until = minute_ + r.idle_minutes;
@@ -576,7 +576,7 @@ void Household::record_hour(Villager& v) {
     const int hour = int(std::fmod(minute_ / 60, 24.0));
     // What the villager is about: the kind of thing it is with, not the handler (many kinds
     // share use_object).
-    const moira::Symbol doing =
+    const baker::Symbol doing =
         v.thing >= 0 ? kind_symbols_[size_t(things_[size_t(v.thing)]->kind)] : idle_symbol();
     auto& counts = hours_[size_t(v.index)][size_t(hour)];
     for (auto& [what, n] : counts)
@@ -627,10 +627,10 @@ void Household::step(double seconds, bool tick) {
             if (!v.below[n] && v.needs[n] < need.critical) {
                 v.below[n] = true;
                 if (v.thing >= 0) {
-                    if (auto h = v.handle(NeedCritical{moira::Symbol(need.name)}); !h) {
+                    if (auto h = v.handle(NeedCritical{baker::Symbol(need.name)}); !h) {
                         ++tally_.script_errors;
                         note(v,
-                             "on_need_critical failed: " + std::string(moira::describe(h.error())));
+                             "on_need_critical failed: " + std::string(baker::describe(h.error())));
                     }
                 }
             } else if (v.below[n] && v.needs[n] >= need.critical + 5) {
@@ -712,15 +712,15 @@ Villager* Household::villager(const std::string& name) {
     return nullptr;
 }
 
-void prepare(moira::Context& ctx, moira::Scheduler& clock, const Kit& kit,
+void prepare(baker::Context& ctx, baker::Scheduler& clock, const Kit& kit,
              std::vector<std::string>* errors) {
     ctx.add_type<Villager>();
     ctx.add_type<Thing>();
-    if (ctx.object(moira::Symbol("clock")).type() != moira::Type::Object)
-        (void)ctx.add(clock, moira::Symbol("clock"));
-    for (const moira::Node& n : kit.setup)
+    if (ctx.object(baker::Symbol("clock")).type() != baker::Type::Object)
+        (void)ctx.add(clock, baker::Symbol("clock"));
+    for (const baker::Node& n : kit.setup)
         if (auto r = ctx.eval(n); !r && errors)
-            errors->push_back(std::string(moira::describe(r.error())));
+            errors->push_back(std::string(baker::describe(r.error())));
 }
 
 SoakResult soak(const Kit& kit, const SoakOptions& o) {
@@ -735,8 +735,8 @@ SoakResult soak(const Kit& kit, const SoakOptions& o) {
     std::vector<std::vector<std::string>> errors(static_cast<size_t>(threads));
     const auto start = std::chrono::steady_clock::now();
     auto work = [&](int w) {
-        moira::Context ctx;
-        moira::Scheduler clock(ctx);
+        baker::Context ctx;
+        baker::Scheduler clock(ctx);
         prepare(ctx, clock, kit, &errors[size_t(w)]);
         const long steps = long(o.days * 86400 / o.step_seconds);
         for (int i = w; i < result.households; i += threads) {
@@ -760,8 +760,8 @@ SoakResult soak(const Kit& kit, const SoakOptions& o) {
 }
 
 double bench(const Kit& kit, int characters, double speed) {
-    moira::Context ctx;
-    moira::Scheduler clock(ctx);
+    baker::Context ctx;
+    baker::Scheduler clock(ctx);
     prepare(ctx, clock, kit);
     std::vector<std::unique_ptr<Household>> homes;
     int have = 0;

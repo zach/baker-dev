@@ -2,10 +2,10 @@
 
 // Objects: C++ types that scripts can call (spec §5, "Objects").
 //
-//   struct Person : moira::Object<Person> {
+//   struct Person : baker::Object<Person> {
 //       float height = 6.0f;
 //       float on_grow(float amount) { height += amount; return height; }
-//       static void bind(moira::Binder<Person>& b) {
+//       static void bind(baker::Binder<Person>& b) {
 //           b.method("grow", &Person::on_grow).doc("Grows by `amount`.");
 //           b.property("height", &Person::height);
 //           b.method("shrink", [](Person& self, float a) { self.height -= a; });
@@ -22,7 +22,7 @@
 // is not in any Context.
 //
 // To derive from another bound type, name it as the second argument, so there is one
-// ObjectBase: `struct Boss : moira::Object<Boss, Person>`. Boss gets Person's methods and
+// ObjectBase: `struct Boss : baker::Object<Boss, Person>`. Boss gets Person's methods and
 // properties (copied when Boss's table is built, so dispatch never walks a chain), and a
 // method Boss binds replaces Person's of the same name.
 //
@@ -41,7 +41,7 @@
 // {bob hit 20} reaches the same handler, and handle() reaches a script handler (hit ($points)
 // ...) first, as a command would (docs/decisions.md D53).
 
-#include <moira/script.hpp>
+#include <baker/script.hpp>
 
 #include <cstddef>
 #include <span>
@@ -49,14 +49,14 @@
 #include <type_traits>
 #include <utility>
 
-namespace moira {
+namespace baker {
 
 class ObjectBase;
 
 namespace detail {
 
 // What a Context knows about a bound type: built once per type from T::bind. Its layout
-// is private to moira::script (internal.hpp); a binding reaches it through the functions
+// is private to baker::script (internal.hpp); a binding reaches it through the functions
 // below, called once per type.
 struct TypeRecord;
 struct MethodEntry;
@@ -515,4 +515,4 @@ Expected<size_t> handle_all(std::span<ObjectBase* const> objects, const M& messa
     return handled;
 }
 
-}  // namespace moira
+}  // namespace baker

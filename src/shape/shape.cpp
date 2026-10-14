@@ -1,18 +1,18 @@
-// moira::shape (spec §6, D84): shape declarations, checking, and enumeration.
+// baker::shape (spec §6, D84): shape declarations, checking, and enumeration.
 
-#include <moira/shape.hpp>
+#include <baker/shape.hpp>
 
 #include "common/containers.hpp"
 #include "data/text.hpp"
 
 #include <algorithm>
 
-namespace moira::shape {
+namespace baker::shape {
 
 namespace {
 
 struct Names {
-    moira::Symbol shapes{"shapes"}, at{"at"}, range{"range"}, step{"step"}, kind{"kind"},
+    baker::Symbol shapes{"shapes"}, at{"at"}, range{"range"}, step{"step"}, kind{"kind"},
         desc{"desc"}, note{"note"}, optional{"optional"}, list{"list"}, any_tag{"*"},
         keyed{"keyed"};
 };
@@ -21,13 +21,13 @@ const Names& names() {
     return n;
 }
 
-Str quoted(moira::Symbol s) {
+Str quoted(baker::Symbol s) {
     return "'" + Str(s.str()) + "'";
 }
 
 // The built-in type a symbol names, or Shape: another shape's name.
-Type type_named(moira::Symbol s) {
-    static const std::pair<moira::Symbol, Type> builtins[] = {
+Type type_named(baker::Symbol s) {
+    static const std::pair<baker::Symbol, Type> builtins[] = {
         {"int", Type::Int},       {"float", Type::Float},   {"bool", Type::Bool},
         {"symbol", Type::Symbol}, {"string", Type::String}, {"any", Type::Any}};
     for (const auto& [name, t] : builtins)
@@ -51,7 +51,7 @@ std::string_view type_text(Type t) {
 
 }  // namespace
 
-const Field* Shape::field(moira::Symbol field_name) const noexcept {
+const Field* Shape::field(baker::Symbol field_name) const noexcept {
     for (const Field& f : fields)
         if (f.name == field_name) return &f;
     return nullptr;
@@ -84,7 +84,7 @@ std::span<const Shape> Set::shapes() const noexcept {
     return {st_->shapes.data(), st_->shapes.size()};
 }
 
-const Shape* Set::find(moira::Symbol name) const noexcept {
+const Shape* Set::find(baker::Symbol name) const noexcept {
     for (const Shape& s : st_->shapes)
         if (s.name == name) return &s;
     return nullptr;
@@ -99,7 +99,7 @@ bool read_field(const Array& a, Field& f, Vec<Error>& errors) {
         errors.push_back(make_error(ErrorCode::Syntax, why, a.file(), a.line()));
         return false;
     };
-    f.name = a[0].try_sym().value_or(moira::Symbol());
+    f.name = a[0].try_sym().value_or(baker::Symbol());
     f.file = a.file();
     f.line = a.line();
     if (a.size() < 2) return bad("field " + quoted(f.name) + " needs a type");
@@ -133,7 +133,7 @@ bool read_field(const Array& a, Field& f, Vec<Error>& errors) {
         } else if (*tag == n.step) {
             f.step = v.size() == 1 ? v[0].try_float().value_or(0) : 0;
         } else if (*tag == n.kind) {
-            f.kind = v.size() == 1 ? v[0].try_sym().value_or(moira::Symbol()) : moira::Symbol();
+            f.kind = v.size() == 1 ? v[0].try_sym().value_or(baker::Symbol()) : baker::Symbol();
         } else if (*tag == n.desc) {
             f.desc = v.size() == 1 ? v[0].try_str().value_or("") : "";
         } else if (*tag == n.note) {
@@ -189,7 +189,7 @@ void Set::add(const Array& tree, Report& report) {
                     continue;
                 }
                 if (*tag == n.at) {
-                    Vec<moira::Symbol> path;
+                    Vec<baker::Symbol> path;
                     for (const Node& p : f->values()) {
                         const auto seg = p.try_sym();
                         if (!seg) continue;
@@ -201,7 +201,7 @@ void Set::add(const Array& tree, Report& report) {
                         }
                         path.emplace_back(text);
                     }
-                    s.at = List<moira::Symbol>({path.data(), path.size()});
+                    s.at = List<baker::Symbol>({path.data(), path.size()});
                     continue;
                 }
                 // Declared again, a field takes the new type and whatever metadata the new
@@ -236,12 +236,12 @@ struct Checker {
     const Set& set;
     Vec<Error>& errors;
     Vec<Error>& warnings;
-    Vec<moira::Symbol> chain;  // the tags of the arrays from the root to here
+    Vec<baker::Symbol> chain;  // the tags of the arrays from the root to here
     Vec<const Shape*> keyed;   // the (keyed) shapes, which match by place, not by tag
 
     [[nodiscard]] Str path() const {
         Str p;
-        for (const moira::Symbol s : chain) p += (p.empty() ? "" : "/") + Str(s.str());
+        for (const baker::Symbol s : chain) p += (p.empty() ? "" : "/") + Str(s.str());
         return p;
     }
     void report(Vec<Error>& to, ErrorCode code, std::string_view message, const Array& at) const {
@@ -260,7 +260,7 @@ struct Checker {
 
     // `a`'s fields, from `first`, against `s`.
     void instance(const Array& a, const Shape& s, uint32_t first) {
-        Vec<moira::Symbol> seen;
+        Vec<baker::Symbol> seen;
         for (uint32_t i = first; i < a.size(); ++i) {
             const Array* f = a[i].try_array();
             const auto tag = f && !f->empty() ? (*f)[0].try_sym() : std::nullopt;
@@ -304,8 +304,8 @@ struct Checker {
         }
         const Type t = field.type == Type::List ? field.element : field.type;
         for (const Node& n : v) {
-            if (n.type() == moira::Type::Command || n.type() == moira::Type::Var ||
-                n.type() == moira::Type::Property)
+            if (n.type() == baker::Type::Command || n.type() == baker::Type::Var ||
+                n.type() == baker::Type::Property)
                 continue;  // known only when run
             if (t == Type::Shape) {
                 const Array* e = n.try_array();
@@ -346,14 +346,14 @@ struct Checker {
 
     static bool fits(const Node& n, Type t) {
         switch (t) {
-            case Type::Int: return n.type() == moira::Type::Int;
+            case Type::Int: return n.type() == baker::Type::Int;
             case Type::Float: return n.is_number();
             case Type::Bool: {
                 bool b = false;
                 return Values({&n, 1}, nullptr).read(0, b);
             }
-            case Type::Symbol: return n.type() == moira::Type::Symbol;
-            case Type::String: return n.type() == moira::Type::String;
+            case Type::Symbol: return n.type() == baker::Type::Symbol;
+            case Type::String: return n.type() == baker::Type::String;
             default: return true;
         }
     }
@@ -402,4 +402,4 @@ Config::Validator validator() {
     };
 }
 
-}  // namespace moira::shape
+}  // namespace baker::shape

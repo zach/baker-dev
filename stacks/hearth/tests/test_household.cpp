@@ -1,6 +1,6 @@
 #include "household.hpp"
 
-#include <moira/parse.hpp>
+#include <baker/parse.hpp>
 
 #include <doctest.h>
 
@@ -38,14 +38,14 @@ std::string actions(const std::string& more = {}) {
 }
 
 hearth::Kit kit(const std::string& data = kData, const std::string& setup_text = actions()) {
-    auto tree = moira::read_string(data);
+    auto tree = baker::read_string(data);
     REQUIRE(tree);
     hearth::Kit k;
     std::string error;
     REQUIRE_MESSAGE(hearth::load(*tree, k, error), error);
-    auto setup = moira::read_string(setup_text);
+    auto setup = baker::read_string(setup_text);
     REQUIRE(setup);
-    for (const moira::Node& n : (*setup)->nodes()) k.setup.push_back(n);
+    for (const baker::Node& n : (*setup)->nodes()) k.setup.push_back(n);
     k.tree = *setup;  // keeps the setup alive; the kit copied what it reads from the data
     return k;
 }
@@ -147,8 +147,8 @@ TEST_CASE("hearth: two needs that cut each other off are reported oscillating") 
 
 TEST_CASE("hearth: why reports the options, the pick, and the margin") {
     const hearth::Kit k = kit();
-    moira::Context ctx;
-    moira::Scheduler clock(ctx);
+    baker::Context ctx;
+    baker::Scheduler clock(ctx);
     std::vector<std::string> errors;
     hearth::prepare(ctx, clock, k, &errors);
     CHECK(errors.empty());
@@ -161,7 +161,7 @@ TEST_CASE("hearth: why reports the options, the pick, and the margin") {
     CHECK(why.find(" > ") != std::string::npos);
     CHECK(why.find("margin") != std::string::npos);
     // The villagers are objects scripts can reach by name.
-    auto hunger = ctx.eval(*moira::read_string("{h.ada need hunger}").value()->nodes().begin());
+    auto hunger = ctx.eval(*baker::read_string("{h.ada need hunger}").value()->nodes().begin());
     REQUIRE(hunger);
     CHECK(hunger->as_float().value_or(-1) > 0);
 }

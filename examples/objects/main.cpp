@@ -1,9 +1,9 @@
 // Objects: a C++ type callable from script, a typed message, a script handler attached to
 // the type, and a reference that outlives its object.
 //
-//   moira_example_objects
-#include <moira/object.hpp>
-#include <moira/std_script.hpp>
+//   baker_example_objects
+#include <baker/object.hpp>
+#include <baker/std_script.hpp>
 
 #include <cstdio>
 
@@ -13,14 +13,14 @@ struct HitMsg {
     int points;
 };
 
-struct Unit : moira::Object<Unit> {
+struct Unit : baker::Object<Unit> {
     int hp = 100;
     float x = 0;
 
     int on_hit(const HitMsg& m) { return hp -= m.points; }
     float dash(float distance) { return x += distance; }
 
-    static void bind(moira::Binder<Unit>& b) {
+    static void bind(baker::Binder<Unit>& b) {
         b.method("dash", &Unit::dash).doc("Moves `distance` along x.");
         b.property("hp", &Unit::hp);
         b.on<HitMsg>(&Unit::on_hit);  // also the method {unit hit points}
@@ -28,18 +28,18 @@ struct Unit : moira::Object<Unit> {
 };
 
 // Inherits Unit's methods, properties, and message handlers.
-struct Boss : moira::Object<Boss, Unit> {
-    static void bind(moira::Binder<Boss>&) {}
+struct Boss : baker::Object<Boss, Unit> {
+    static void bind(baker::Binder<Boss>&) {}
 };
 
 namespace {
 
-moira::Context ctx;
+baker::Context ctx;
 
 void show(const char* text) {
     auto r = ctx.eval(text);
     std::printf("%-26s => %s\n", text,
-                r ? moira::to_string(*r).c_str() : moira::to_string(r.error()).data());
+                r ? baker::to_string(*r).c_str() : baker::to_string(r.error()).data());
 }
 
 }  // namespace
@@ -67,7 +67,7 @@ int main() {
     // Script data on a C++ object, and C++ calling a script handler.
     show("{class Unit (taunt {set [line] \"Over here!\"} [line])}");
     if (auto r = ctx.call(grunt, "taunt"))
-        std::printf("ctx.call(grunt, \"taunt\")   => %s\n", moira::to_string(*r).c_str());
+        std::printf("ctx.call(grunt, \"taunt\")   => %s\n", baker::to_string(*r).c_str());
 
     // A reference kept after its object is destroyed is a clean error, not a crash.
     {

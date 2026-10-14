@@ -1,9 +1,9 @@
 // Objects: binding, dispatch in both directions, handles, script classes (spec §5, M5).
 #include <doctest.h>
-#include <moira/object.hpp>
-#include <moira/parse.hpp>
-#include <moira/script.hpp>
-#include <moira/std_script.hpp>
+#include <baker/object.hpp>
+#include <baker/parse.hpp>
+#include <baker/script.hpp>
+#include <baker/std_script.hpp>
 
 #include "alloc_counter.hpp"
 
@@ -11,8 +11,8 @@
 #include <vector>
 #include "ok.hpp"
 
-using namespace moira;
-using moira::test::ok;
+using namespace baker;
+using baker::test::ok;
 
 namespace {
 
@@ -121,7 +121,7 @@ TEST_CASE("inheritance: methods and properties are flattened, a derived method r
     CHECK(ctx.try_get<Hero>(h) == &hero);
     CHECK(ctx.try_get<Person>(h) == nullptr);
     CHECK(ctx.get<Creature>(h) == &hero);
-    CHECK(to_string(ctx.get<Person>(h).error()) == "moira: the object is a Hero, not a Person");
+    CHECK(to_string(ctx.get<Person>(h).error()) == "baker: the object is a Hero, not a Person");
     // Script handlers attached to a base type apply to derived objects.
     ok(ctx.eval("{class Creature (heal ($n) {set [hp] {+ [hp] $n}})}"));
     CHECK(ok(ctx.eval("{hero heal 2}")).as_int() == 10);
@@ -145,7 +145,7 @@ TEST_CASE("a destroyed object leaves a stale handle, never a dangling pointer") 
     const Node fresh = ok(ctx.add(q));  // likely reuses the slot, with a new salt
     CHECK(ctx.try_resolve(fresh) == &q);
     CHECK(ctx.try_resolve(old) == nullptr);
-    CHECK(to_string(ctx.get<Person>(old).error()) == "moira: the Person object was removed");
+    CHECK(to_string(ctx.get<Person>(old).error()) == "baker: the Person object was removed");
 }
 
 TEST_CASE("object commands evaluate slot 0") {
@@ -303,7 +303,7 @@ TEST_CASE("check knows the methods of named objects and of objects the tree crea
                        "level.dta"));
     const CheckReport report = check(*tree, ctx);
     REQUIRE(report.errors.size() == 1);
-    CHECK(to_string(report.errors[0]) == "moira: 'grow' takes 1 argument, given 0  (level.dta:4)");
+    CHECK(to_string(report.errors[0]) == "baker: 'grow' takes 1 argument, given 0  (level.dta:4)");
     REQUIRE(report.demand.size() == 2);
     CHECK(to_string(report).find("demand: 'fly' on Person is not defined, called at level.dta:5") !=
           std::string::npos);

@@ -1,6 +1,6 @@
-#include <moira/cache.hpp>
-#include <moira/config.hpp>
-#include <moira/write.hpp>
+#include <baker/cache.hpp>
+#include <baker/config.hpp>
+#include <baker/write.hpp>
 
 #include "common/containers.hpp"
 #include "session.hpp"
@@ -18,7 +18,7 @@
 #include <sys/stat.h>
 #endif
 
-namespace moira {
+namespace baker {
 namespace {
 
 const Symbol& scratch_name() {
@@ -649,7 +649,7 @@ struct Config::Impl {
         for (const ScratchEntry& e : scratch) {
             Ref<Array> nest = Array::make_copy(e.values->nodes());
             for (size_t i = e.path.size() - 1; i-- > 0;) nest = array(e.path[i].name, Node(nest));
-            overlay = moira::merge(*overlay, *array(Node(nest)));
+            overlay = baker::merge(*overlay, *array(Node(nest)));
         }
         return overlay;
     }
@@ -765,9 +765,9 @@ struct Config::Impl {
     [[nodiscard]] Ref<Array> merged() const {
         Ref<Array> r = Array::make(0);
         for (const LayerState& l : layers)
-            if (l.options.enabled) r = moira::merge(*r, *l.root);
+            if (l.options.enabled) r = baker::merge(*r, *l.root);
         if (scratch_enabled)
-            if (Ref<Array> s = scratch_root()) r = moira::merge(*r, *s);
+            if (Ref<Array> s = scratch_root()) r = baker::merge(*r, *s);
         return r;
     }
 
@@ -1665,9 +1665,9 @@ Expected<List<LayerEffectEntry>> Config::layer_effect(std::string_view layer) co
     Ref<Array> without = Array::make(0);
     for (size_t i = 0; i < impl_->layers.size(); ++i)
         if (impl_->layers[i].options.enabled && (!li || i != *li))
-            without = moira::merge(*without, *impl_->layers[i].root);
+            without = baker::merge(*without, *impl_->layers[i].root);
     const Ref<Array> scratch = impl_->scratch_enabled ? impl_->scratch_root() : nullptr;
-    if (!is_scratch && scratch) without = moira::merge(*without, *scratch);
+    if (!is_scratch && scratch) without = baker::merge(*without, *scratch);
 
     for (const Leaf& leaf : leaves_of(*tree)) {
         LayerEffectEntry e{};
@@ -1759,4 +1759,4 @@ Expected<void> Config::restore(const ConfigSnapshot& snapshot) {
     return {};
 }
 
-}  // namespace moira
+}  // namespace baker

@@ -2,7 +2,7 @@
 
 // What the binary cache reads from and replays into a LoadSession (cache.cpp, D72).
 
-#include <moira/parse.hpp>
+#include <baker/parse.hpp>
 
 #include "common/containers.hpp"
 
@@ -10,7 +10,7 @@
 #include <span>
 #include <string_view>
 
-namespace moira::detail {
+namespace baker::detail {
 
 // A file a recorded load read, or looked for and did not find (size -1).
 struct CacheFile {
@@ -54,4 +54,4 @@ struct SessionAccess {
     static void add_origin(LoadSession& s, const Origin& origin);
 };
 
-}  // namespace moira::detail
+}  // namespace baker::detail

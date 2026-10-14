@@ -1,6 +1,6 @@
-# Game Stacks on Moira
+# Game Stacks on Baker
 
-Six prototype development environments ("stacks") built around Moira, one per kind of
+Six prototype development environments ("stacks") built around Baker, one per kind of
 creative work, for focused agent-assisted development. Every game targets Windows PC only,
 for now; §10 keeps what a later console port would need.
 
@@ -19,7 +19,7 @@ A stack is a harness tree cut down to one task family, plus the environment an a
 needs to work inside it:
 
 ```
-L0  Moira                          shared, unchanged
+L0  Baker                          shared, unchanged
 L1  Base engine harness            shared by all six stacks (§2)
 L2  Game harness                   one per stack: the genre's vocabulary, in C++ and packs
 L3  Task harness                   one or more per stack: workbenches, written mostly in data
@@ -55,25 +55,25 @@ CPU problems until they are expensive.
 says which comes first: a tycoon game is played with a mouse, a racing or fighting game
 with a pad.
 
-**Toolchain.** MSVC 2022, which Moira's CI already builds and tests (C++20 and
-C++latest); clang-cl as a second compiler if a stack wants one. No porting gate: Moira's
+**Toolchain.** MSVC 2022, which Baker's CI already builds and tests (C++20 and
+C++latest); clang-cl as a second compiler if a stack wants one. No porting gate: Baker's
 C++20 coroutines and designated initializers already pass on MSVC.
 
 **The base engine.** The owner chose a thin C++ base of our own (§9) when PS4 was a
 target and ruled out Unreal Engine 5. With PC alone, UE5 is possible again (it has
-defaulted to C++20 since 5.3, so Moira could live in a plugin), as are Unity and Godot. The
+defaulted to C++20 since 5.3, so Baker could live in a plugin), as are Unity and Godot. The
 thin base still fits these stacks best:
 
-| | A. Thin C++ base (chosen) | B. Unreal Engine 5, Moira in a plugin | C. Unity or Godot, Moira for data |
+| | A. Thin C++ base (chosen) | B. Unreal Engine 5, Baker in a plugin | C. Unity or Godot, Baker for data |
 |---|---|---|---|
-| Moira's one-line `Tweak` | Everywhere | In C++ gameplay code; Blueprints need a binding | Only in native plugins |
+| Baker's one-line `Tweak` | Everywhere | In C++ gameplay code; Blueprints need a binding | Only in native plugins |
 | Determinism (fighting, racing, puzzle replays) | Ours to guarantee | Hard: Chaos physics and tick order are not ours | Hard, for the same reason |
 | Headless runner for agents | By construction | Possible (`-nullrhi`, commandlets), heavy to start | Batch mode, heavy to start |
 | Agent fit | Text all the way down | Assets are binary `.uasset`s | Scenes are YAML (Unity) or text (Godot) |
 | Time to first playable | Slowest: weeks for the base, shared by six stacks | Fast | Fastest |
 | Acton review (`.claude/skills/acton-review`) | Passes by construction | A large engine around a small library | A managed runtime or a variant type in the core loop |
 
-So A stands. B or C is the hedge if the base slips: Moira then holds the data (shapes,
+So A stands. B or C is the hedge if the base slips: Baker then holds the data (shapes,
 layers, provenance, write-back, `check`) and the stacks keep most of §3, but lose
 determinism and the one-line promise in gameplay code.
 
@@ -92,14 +92,14 @@ Everything is permissively licensed and recorded in each stack's `THIRD_PARTY.md
 
 | Need | Choice | Licence | Notes |
 |---|---|---|---|
-| Data, tuning, script | Moira | MIT | L0. `moira::moira`; `MOIRA_SHIPPING` in release. |
-| Containers | Moira's (`MOIRA_USE_EASTL` if the base adopts EASTL) | MIT / BSD-3 | One container family across base and Moira. |
+| Data, tuning, script | Baker | MIT | L0. `baker::baker`; `BAKER_SHIPPING` in release. |
+| Containers | Baker's (`BAKER_USE_EASTL` if the base adopts EASTL) | MIT / BSD-3 | One container family across base and Baker. |
 | Platform layer (window, input, gamepads, files, threads) | SDL3 | zlib | Keeps Win32 types out of game code (§10). |
 | Rendering | bgfx | BSD-2 | D3D11, D3D12, and Vulkan back ends. Prototypes need little: lit meshes, debug lines, text. |
 | Physics | Jolt Physics | MIT | Build with `JPH_CROSS_PLATFORM_DETERMINISTIC` for the stacks that replay (§4). |
 | Navigation | Recast/Detour | zlib | Behaviour and exploration stacks. |
 | Audio | miniaudio | MIT-0 / public domain | Enough for prototypes; FMOD or Wwise when a stack needs authored audio. |
-| Tools UI | Dear ImGui | MIT | Moira's `examples/harness-imgui` panels (Tweaks, Shapes, Console, Loop, Layers) are the starting point; it already builds with MSVC in CI. |
+| Tools UI | Dear ImGui | MIT | Baker's `examples/harness-imgui` panels (Tweaks, Shapes, Console, Loop, Layers) are the starting point; it already builds with MSVC in CI. |
 | Profiling | Tracy | BSD-3 | |
 | Build | CMake presets: `dev`, `shipping` | | MSVC 2022. |
 
@@ -109,7 +109,7 @@ add and hard to remove (Acton review, "entanglement").
 
 ### 2.2 The loop
 
-Moira owns no I/O; the base supplies it.
+Baker owns no I/O; the base supplies it.
 
 - **Change notification.** A directory watcher in the base (`ReadDirectoryChangesW`,
   behind the platform layer) notes each saved file with its save time. The game calls
@@ -133,7 +133,7 @@ Every stack uses the same layer stack, bottom to top:
 default        data/default.dta          the game
 local          data/local.dta            per developer, ignored by version control, optional
 agent          data/agent.dta            the agent's experiments (§3.3), optional
-scratch        (Moira's)                 unsaved live edits
+scratch        (Baker's)                 unsaved live edits
 ```
 
 - `cfg.session().set_pack_levels({"engine", "game", "task"})`: L1, L2, L3. Instance data
@@ -142,13 +142,13 @@ scratch        (Moira's)                 unsaved live edits
   minimum-spec profile for its simulation (fewer characters, shorter view distance) adds
   an optional `spec/low.dta` layer and toggles it with `cfg.toggle_layer`, which also
   re-runs the validators.
-- **Shipping.** The same stack, baked with `moira_bake` in the build and loaded through
-  `ConfigOptions::cache_dir`; under `MOIRA_SHIPPING`, reload and live edits are inert.
+- **Shipping.** The same stack, baked with `baker_bake` in the build and loaded through
+  `ConfigOptions::cache_dir`; under `BAKER_SHIPPING`, reload and live edits are inert.
 
 ### 2.4 Repository shape
 
 Each stack will be one repository. Until the first stack is ready to move out, the base and
-the stacks live in this repository's `stacks/` directory, one CMake project over Moira
+the stacks live in this repository's `stacks/` directory, one CMake project over Baker
 (§9).
 
 ```
@@ -185,7 +185,7 @@ sim --layers default,agent --scenario sim/scenarios/warden_p3.dta \
     --seeds 1-200 --out runs/2026-10-13T1405/
 ```
 
-A **scenario** is a Moira repro script (cookbook, "Repro scripts"): the state to start
+A **scenario** is a Baker repro script (cookbook, "Repro scripts"): the state to start
 from, then commands, driven by a fixed-step scheduler. A recorded play session is a
 scenario; so is a bot's run. Output is `.dta`, one file per run plus a summary, so the
 agent reads results with the same tools it reads the game's data with.
@@ -214,13 +214,13 @@ separately.
 
 ### 3.3 The tool surface
 
-One tool server per stack (`tools/agent-server`), exposing Moira's existing machinery.
-None of this needs a change to Moira:
+One tool server per stack (`tools/agent-server`), exposing Baker's existing machinery.
+None of this needs a change to Baker:
 
 | Tool | Built on |
 |---|---|
-| `check` | `moira::check` with `{.packs = &cfg.read_session()}`, and `to_json` (`docs/check-json.md`): errors, one-way warnings, demand, repetition, single-owner findings |
-| `reference` | `moira::reference`: every function, shape, pack, and generated file; the vocabulary the agent may use |
+| `check` | `baker::check` with `{.packs = &cfg.read_session()}`, and `to_json` (`docs/check-json.md`): errors, one-way warnings, demand, repetition, single-owner findings |
+| `reference` | `baker::reference`: every function, shape, pack, and generated file; the vocabulary the agent may use |
 | `eval` | The remote console, on loopback |
 | `source` | `cfg.source(path)`: where a value came from, origin included |
 | `run` | The headless runner (§3.1) |
@@ -379,7 +379,7 @@ jump the clock (`{econ.advance_days 30}`) and to grant or drain money.
              (unlock {>= {econ.total_earned} 5000})))
 ```
 
-Moira's integers are 64-bit, so late-game balances fit in data and in script without
+Baker's integers are 64-bit, so late-game balances fit in data and in script without
 scaling.
 
 **Agent loop.**
@@ -418,7 +418,7 @@ reactions, without getting stuck, oscillating, or starving?
 decay, smart objects that advertise how much they satisfy each need, and actions as
 sequences. A behaviour log per character.
 
-**L2: game harness.** Characters and smart objects are Moira objects (`Object<T>`), so
+**L2: game harness.** Characters and smart objects are Baker objects (`Object<T>`), so
 `{class ...}` lets a designer change one type's reaction in script without touching C++.
 Actions are script tasks (`thread_task`), so "walk to the fridge, open it, eat, close it"
 is data. Scoring is native; script runs at decision time only.
@@ -464,7 +464,7 @@ routine entropy (in band); share of objects used (above a floor).
 
 **On PC.** CPU is the constraint, on the minimum-spec machine. Score at a staggered
 decision rate (each character re-decides a few times a second, not every frame), keep
-scoring native, and spread households across worker threads, each with its own Moira
+scoring native, and spread households across worker threads, each with its own Baker
 `Context` (a Config is changed from one thread; others read its `root()`). Start with a
 budget of 150 characters at full simulation on the minimum-spec CPU.
 
@@ -712,7 +712,7 @@ Stuntline); navigation (Hearth, Wayfarer); bot drivers and the runner's statisti
 
 At each step, run the audit from `reading-a-studio.md` §7 on the stacks in use: the
 register comes from `reference`, loop times from `loop_stats()`, demand and repetition
-from `check`. Record results the way Moira's own steps are recorded: with numbers. *Run
+from `check`. Record results the way Baker's own steps are recorded: with numbers. *Run
 after step 4 (D114, `stacks/audit.md`): loop times read through `{live.loop}`.*
 
 ---
@@ -738,11 +738,11 @@ after step 4 (D114, `stacks/audit.md`): loop times read through `{live.loop}`.*
 
 ---
 
-## 8. What Moira needs
+## 8. What Baker needs
 
-Nothing in the core: every stack is built from what Moira already has (layers and toggles,
+Nothing in the core: every stack is built from what Baker already has (layers and toggles,
 shapes, packs and levels, `origin`, `check` and its JSON, the reference, the journal,
-`loop_stats`, `promote`, the remote console, the binary cache), and Moira already builds
+`loop_stats`, `promote`, the remote console, the binary cache), and Baker already builds
 and tests with MSVC. One candidate, to be pushed up only when a stack proves the need:
 
 - **A headless-runner example**: a fixed-step scheduler driven from a scenario file, with
@@ -775,11 +775,11 @@ Notes from the first version of this document, which targeted PS4 and Switch 2, 
 a port starts informed:
 
 - **PS4 is the floor** for CPU (eight 1.6 GHz Jaguar cores) and storage (a 5400 rpm hard
-  drive on the base model); Switch 2 adds Arm64 and a handheld mode, which fits a Moira
+  drive on the base model); Switch 2 adds Arm64 and a handheld mode, which fits a Baker
   layer toggled on undock.
-- **Gate 0:** build and run Moira's tests with each console SDK's compiler first. PS4's
-  support for C++20 coroutines (`moira::script` tasks) is unconfirmed; the fallbacks are a
-  newer SDK, `MOIRA_BUILD_SCRIPT=OFF` there, or a coroutine-free task implementation (a
+- **Gate 0:** build and run Baker's tests with each console SDK's compiler first. PS4's
+  support for C++20 coroutines (`baker::script` tasks) is unconfirmed; the fallbacks are a
+  newer SDK, `BAKER_BUILD_SCRIPT=OFF` there, or a coroutine-free task implementation (a
   spec deviation).
 - **Unreal Engine 5 does not target PS4**, which is why the base is our own; with PS4
   out, that reason no longer applies (§1), but the others do.
@@ -795,6 +795,6 @@ What to do now so that a port stays cheap:
 - Keep Win32 and D3D types behind SDL3 and the renderer; game code never sees them.
 - Keep platform differences in data: a `platform` layer slots in below `local` later.
 - Build with `/fp:precise` and no fast-math, as determinism already requires.
-- Use Moira's containers (or EASTL) in engine code, not the STL directly.
+- Use Baker's containers (or EASTL) in engine code, not the STL directly.
 - Budget on the minimum spec, and keep the budgets in data, so a console's numbers are a
   layer, not a rewrite.

@@ -4,7 +4,7 @@
 #   stacks_wayfarer         the game: the character on Jolt, streaming, the director, the map
 add_library(stacks_wayfarer_world STATIC world.cpp)
 target_include_directories(stacks_wayfarer_world PUBLIC .)
-target_link_libraries(stacks_wayfarer_world PUBLIC stacks_nav moira::moira)
+target_link_libraries(stacks_wayfarer_world PUBLIC stacks_nav baker::baker)
 stacks_target(stacks_wayfarer_world)
 
 add_executable(stacks_wayfarer main.cpp)

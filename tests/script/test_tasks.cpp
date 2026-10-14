@@ -1,7 +1,7 @@
 // Tasks (spec §5, D58, D67): C++ coroutines on a Scheduler.
 #include <doctest.h>
-#include <moira/script.hpp>
-#include <moira/task.hpp>
+#include <baker/script.hpp>
+#include <baker/task.hpp>
 
 #include "alloc_counter.hpp"
 #include "ok.hpp"
@@ -9,8 +9,8 @@
 #include <string>
 #include <vector>
 
-using namespace moira;
-using moira::test::ok;
+using namespace baker;
+using baker::test::ok;
 
 namespace {
 

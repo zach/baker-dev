@@ -1,8 +1,8 @@
 #include "economy.hpp"
 
+#include <baker/std_interop.hpp>
 #include <base/rng.hpp>
 #include <base/words.hpp>
-#include <moira/std_interop.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -10,17 +10,17 @@
 namespace ledger {
 namespace {
 
-double get_float(const moira::Array& a, const char* tag, double fallback) {
-    return a.find_float(moira::Symbol(tag), fallback).value_or(fallback);
+double get_float(const baker::Array& a, const char* tag, double fallback) {
+    return a.find_float(baker::Symbol(tag), fallback).value_or(fallback);
 }
 
-std::string get_sym(const moira::Array& a, const char* tag) {
-    auto s = a.find_sym(moira::Symbol(tag), moira::Symbol());
+std::string get_sym(const baker::Array& a, const char* tag) {
+    auto s = a.find_sym(baker::Symbol(tag), baker::Symbol());
     return s ? std::string(s->str()) : std::string();
 }
 
-std::string get_text(const moira::Array& a, const char* tag) {
-    if (const moira::Array* f = a.try_find(moira::Symbol(tag)); f && f->size() > 1) {
+std::string get_text(const baker::Array& a, const char* tag) {
+    if (const baker::Array* f = a.try_find(baker::Symbol(tag)); f && f->size() > 1) {
         if (auto s = (*f)[1].as_str()) return std::string(*s);
         if (auto s = (*f)[1].as_sym()) return std::string(s->str());
     }
@@ -28,8 +28,8 @@ std::string get_text(const moira::Array& a, const char* tag) {
 }
 
 // The second value of (tag value), raw: a command stays a command.
-moira::Node raw(const moira::Array& a, const char* tag) {
-    if (const moira::Array* f = a.try_find(moira::Symbol(tag)); f && f->size() > 1) return (*f)[1];
+baker::Node raw(const baker::Array& a, const char* tag) {
+    if (const baker::Array* f = a.try_find(baker::Symbol(tag)); f && f->size() > 1) return (*f)[1];
     return {};
 }
 
@@ -56,11 +56,11 @@ int Economy::strategy(const std::string& name) const {
     return -1;
 }
 
-bool load(const moira::Ref<moira::Array>& root, Economy& out, std::string& error) {
+bool load(const baker::Ref<baker::Array>& root, Economy& out, std::string& error) {
     Economy e;
     e.tree = root;
-    if (const moira::Array* goods = root->try_find(moira::Symbol("goods")))
-        for (const moira::Array& a : goods->subarrays()) {
+    if (const baker::Array* goods = root->try_find(baker::Symbol("goods")))
+        for (const baker::Array& a : goods->subarrays()) {
             Good g;
             g.name = base::name(a);
             g.base_price = get_float(a, "base_price", 1);
@@ -73,17 +73,17 @@ bool load(const moira::Ref<moira::Array>& root, Economy& out, std::string& error
         error = "no (goods ...) in the data";
         return false;
     }
-    if (const moira::Array* buildings = root->try_find(moira::Symbol("buildings")))
-        for (const moira::Array& a : buildings->subarrays()) {
+    if (const baker::Array* buildings = root->try_find(baker::Symbol("buildings")))
+        for (const baker::Array& a : buildings->subarrays()) {
             Building b;
             b.name = base::name(a);
             b.cost = static_cast<int64_t>(std::llround(get_float(a, "cost", 0)));
             b.upkeep = get_float(a, "upkeep", 0);
             b.rate = std::max(1, static_cast<int>(get_float(a, "rate", 1)));
             b.unlock = raw(a, "unlock");
-            b.has_unlock = a.try_find(moira::Symbol("unlock")) != nullptr;
+            b.has_unlock = a.try_find(baker::Symbol("unlock")) != nullptr;
             // (recipe wheat wheat -> flour): inputs, an arrow, one output.
-            const moira::Array* recipe = a.try_find(moira::Symbol("recipe"));
+            const baker::Array* recipe = a.try_find(baker::Symbol("recipe"));
             bool arrow = false;
             for (size_t i = 1; recipe && i < recipe->size(); ++i) {
                 auto s = (*recipe)[i].as_sym();
@@ -115,8 +115,8 @@ bool load(const moira::Ref<moira::Array>& root, Economy& out, std::string& error
             }
             e.buildings.push_back(std::move(b));
         }
-    if (const moira::Array* list = root->try_find(moira::Symbol("strategies")))
-        for (const moira::Array& a : list->subarrays()) {
+    if (const baker::Array* list = root->try_find(baker::Symbol("strategies")))
+        for (const baker::Array& a : list->subarrays()) {
             Strategy s;
             s.name = base::name(a);
             s.kind = get_sym(a, "kind");
@@ -128,8 +128,8 @@ bool load(const moira::Ref<moira::Array>& root, Economy& out, std::string& error
             s.chain = get_sym(a, "chain");
             e.strategies.push_back(std::move(s));
         }
-    if (const moira::Array* list = root->try_find(moira::Symbol("milestones")))
-        for (const moira::Array& a : list->subarrays()) {
+    if (const baker::Array* list = root->try_find(baker::Symbol("milestones")))
+        for (const baker::Array& a : list->subarrays()) {
             Milestone m;
             m.name = base::name(a);
             m.desc = get_text(a, "desc");

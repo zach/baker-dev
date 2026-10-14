@@ -1,4 +1,4 @@
-# Moira — Handoff Specification
+# Baker — Handoff Specification
 
 A small, MIT-licensed, modern C++ data + scripting system in the spirit of Harmonix's
 DataArray (DTA), as described in Eric Malafeew's GDC 2005 talk *Data-Driven Programming
@@ -65,8 +65,8 @@ The output must be cleanly MIT-licensable.
 
 ### Naming
 
-Library **Moira**, namespace `moira`, CMake target `moira::moira`, headers under
-`<moira/...>`, build switches prefixed `MOIRA_`.
+Library **Baker**, namespace `baker`, CMake target `baker::baker`, headers under
+`<baker/...>`, build switches prefixed `BAKER_`.
 
 ---
 
@@ -150,7 +150,7 @@ Handled by the parser/preprocessor, not at runtime:
 Every parse and lookup error carries file, line, and the array path that led there:
 
 ```
-moira: 'price' is float, not int  (menu.dta:3, at menu/'bacon and eggs')
+baker: 'price' is float, not int  (menu.dta:3, at menu/'bacon and eggs')
 ```
 
 Arrays retain their source file (interned `Symbol`) and line number. Retaining this is a
@@ -220,7 +220,7 @@ Non-negotiable targets, enforced by `static_assert` and a test:
   (trailing flexible array). One allocation per array, contiguous children, no
   `vector<Node>` indirection.
 - `Ref<T>` is a non-atomic intrusive refcount by default; an
-  `MOIRA_ATOMIC_REFCOUNT` option switches to atomic for multithreaded loading. Document
+  `BAKER_ATOMIC_REFCOUNT` option switches to atomic for multithreaded loading. Document
   the default as single-threaded-mutation, multi-thread-read-after-freeze.
 
 ```cpp
@@ -267,12 +267,12 @@ is never reclaimed — that is the original design and it is correct for this us
 The API people will actually type all day. Keep it short.
 
 ```cpp
-moira::Ref<moira::Array> menu = moira::read_file("menu.dta");
+baker::Ref<baker::Array> menu = baker::read_file("menu.dta");
 
 float price = menu->find("bacon and eggs")->find_float("price");
 auto  maybe = menu->try_find("fruit and cereal");        // optional-ish
 
-for (const moira::Array& item : menu->subarrays()) { ... } // ranges-compatible view
+for (const baker::Array& item : menu->subarrays()) { ... } // ranges-compatible view
 ```
 
 - `find(sym)` searches direct children that are arrays whose first node is `sym`. Linear
@@ -288,8 +288,8 @@ for (const moira::Array& item : menu->subarrays()) { ... } // ranges-compatible 
 Construction from C++ should be equally short:
 
 ```cpp
-auto price = moira::array("price", 12.75f);              // (price 12.75)
-auto eggs  = moira::array("eggs", price);                // (eggs (price 12.75))
+auto price = baker::array("price", 12.75f);              // (price 12.75)
+auto eggs  = baker::array("eggs", price);                // (eggs (price 12.75))
 ```
 
 Variadic factory, perfect-forwarded, one allocation sized exactly.
@@ -318,7 +318,7 @@ source noting the slide discrepancy for the next person who checks.)
 ### Config
 
 ```cpp
-moira::Config cfg;
+baker::Config cfg;
 cfg.load("default.dta");
 cfg.merge("app.dta");     // overrides
 ```
@@ -359,7 +359,7 @@ This is the centerpiece. It is what makes replacing a constant free.
 const float kBoxWidth = 2.0f;
 
 // After:
-static moira::Tweak<float> kBoxWidth{"box.width", 2.0f,
+static baker::Tweak<float> kBoxWidth{"box.width", 2.0f,
     {.range = {0, 10}, .step = 1, .desc = "Box width"}};
 
 float w = kBoxWidth;      // implicit conversion, one relaxed atomic load
@@ -387,7 +387,7 @@ Requirements:
   borrowed from SeExpr's editor, which does exactly this.
 - `on_change(callback)` per tweak, and `Config::on_reload(callback)` globally, for the
   "notify dependent C++" case from the talk.
-- A tweak may be marked `.dev_only = true`. Under `MOIRA_SHIPPING` (below), dev-only
+- A tweak may be marked `.dev_only = true`. Under `BAKER_SHIPPING` (below), dev-only
   tweaks ignore all data overrides and always return their code default — the equivalent
   of Unreal's `ECVF_Cheat`.
 - Metadata may equivalently live in the data file, matching the slide syntax:
@@ -418,11 +418,11 @@ migrate. Provide `Config::on_reload` returning `Reload::Migrated` or `Reload::Pu
 ### Reload telemetry
 
 Report how long each reload took and where the time went, so a studio's loop dashboard can
-show Moira's share of edit-to-see time (from saving a change in a tool to the running game
+show Baker's share of edit-to-see time (from saving a change in a tool to the running game
 reflecting it) and catch regressions.
 
 ```cpp
-namespace moira {
+namespace baker {
 
 // Monotonic nanoseconds from an arbitrary origin.
 // Default reads std::chrono::steady_clock; tests inject a fake.
@@ -456,7 +456,7 @@ public:
     void on_reload_complete(/* same callable form as on_reload */);
 };
 
-}  // namespace moira
+}  // namespace baker
 ```
 
 - **Six stages, in order**, each timed once per reload: *scan* (find changed files),
@@ -474,7 +474,7 @@ public:
   dropped. Telemetry adds no allocation per reload once the ring exists.
 - `on_reload_complete` fires after notify with the finished record, so a host can forward
   it to telemetry without polling.
-- Under `MOIRA_SHIPPING` the timing code compiles out; `last_reload()` returns empty and
+- Under `BAKER_SHIPPING` the timing code compiles out; `last_reload()` returns empty and
   `each_reload` visits nothing, so hosts need no `#ifdef`s.
 
 The library still owns no clock: the time source is injectable and only defaults to
@@ -487,7 +487,7 @@ variants A/B during polish, and move a winning experiment into shared data as a 
 diff.
 
 ```cpp
-namespace moira {
+namespace baker {
 
 struct LayerOptions {
     bool optional = false;  // a missing file is not an error; the layer exists, empty
@@ -530,7 +530,7 @@ public:
     WriteReport promote(std::string_view from_layer, std::string_view to_layer);
 };
 
-}  // namespace moira
+}  // namespace baker
 ```
 
 - **Enable and toggle.** Changing a layer's state re-merges, advances the epoch, fires
@@ -539,7 +539,7 @@ public:
 - **Personal layers** are a convention, not a mechanism. The host pushes a layer named
   `local` with `{.optional = true}` at a per-user path such as `local/<user>.dta`, above the
   shared layers and below live patches. The project keeps that directory out of version
-  control. Moira never looks up user names.
+  control. Baker never looks up user names.
 - **Scratch.** Every `Config` has a reserved, in-memory layer named `scratch`, always
   topmost and created empty. Edits from tools, including UI edits made through the tweak
   registry, go there, so provenance stays honest and "my tuning versus the files" becomes a
@@ -556,7 +556,7 @@ public:
   validates all of them first. It writes only if every entry succeeds; on any refusal it
   writes nothing and returns all refusals. The source layer stays in the stack, and the
   caller removes it.
-- Under `MOIRA_SHIPPING`, toggles, `set`, write-back, and `promote` are inert and return a
+- Under `BAKER_SHIPPING`, toggles, `set`, write-back, and `promote` are inert and return a
   "shipping build" error. `layer_effect` and `diff` still work.
 
 ### Snapshot and restore
@@ -566,7 +566,7 @@ recording, this makes a captured moment replayable; it also makes A/B comparison
 tuned states one call each.
 
 ```cpp
-namespace moira {
+namespace baker {
 
 class ConfigSnapshot;  // copyable; shares loaded arrays by Ref, so capture is cheap
 
@@ -576,7 +576,7 @@ public:
     void restore(const ConfigSnapshot& snapshot);
 };
 
-}  // namespace moira
+}  // namespace baker
 ```
 
 - A snapshot holds the ordered layer list (names, options, enabled state), a `Ref` to each
@@ -588,13 +588,13 @@ public:
 - `restore` never reads disk. If a file changed after the snapshot, values still come from
   the snapshot, and write-back of them refuses under the content-hash rule (§1).
 - Not captured: script variables, objects, tasks, and host state. Those belong to
-  `moira::script` and the host.
+  `baker::script` and the host.
 
 ### Loop telemetry and the edit journal
 
-Moira sits under every harness in the tree, so it is the cheapest place to measure the
+Baker sits under every harness in the tree, so it is the cheapest place to measure the
 loop. Everything below is observational, allocation-bounded (fixed-size ring buffers), and
-compiled out under `MOIRA_SHIPPING`. The library still owns no I/O, clock, or threads:
+compiled out under `BAKER_SHIPPING`. The library still owns no I/O, clock, or threads:
 the host supplies a time source (`cfg.set_time_source`, above) and reads results through
 calls or callbacks. See `reading-a-studio.md` §2 and §9.
 
@@ -672,26 +672,26 @@ No MFC-style macro tables. Deduce everything from the callable's signature:
 ```cpp
 ctx.func("+",  [](int a, int b) { return a + b; });
 ctx.func("print", [](std::string_view s) { std::puts(s.data()); });
-ctx.func("variadic", [](moira::Args args) { ... });   // escape hatch, raw nodes
+ctx.func("variadic", [](baker::Args args) { ... });   // escape hatch, raw nodes
 ```
 
 `func` inspects the callable via a `signature_of` trait, builds a marshalling shim that
 converts each `Node` to the parameter type through `Convert<T>` (an ADL-findable
 customization point, specializable by users for their own types), calls it, and converts
-the return. Arity and type mismatches produce a `moira::Error` naming the function, the
+the return. Arity and type mismatches produce a `baker::Error` naming the function, the
 argument index, and the call site's file:line.
 
 Parameter types supported out of the box: `int`, `float`, `bool`, `Symbol`,
 `std::string_view`, `const Array&`, `Node`, `Object*` and `T*` for bound object types,
-`std::optional<T>` for trailing optional args, `moira::Args` for the rest.
+`std::optional<T>` for trailing optional args, `baker::Args` for the rest.
 
 Three capabilities the original needed, all of which fall out of the signature if we let
 them:
 
 ```cpp
-// 1. Unevaluated parameters. moira::Raw<T> suppresses evaluation for that slot.
-ctx.func("set", [](moira::Raw<moira::Var> v, moira::Node value) { v.store(value); });
-ctx.func("if",  [](bool cond, moira::Raw<moira::Node> t, moira::Raw<moira::Node> f) {
+// 1. Unevaluated parameters. baker::Raw<T> suppresses evaluation for that slot.
+ctx.func("set", [](baker::Raw<baker::Var> v, baker::Node value) { v.store(value); });
+ctx.func("if",  [](bool cond, baker::Raw<baker::Node> t, baker::Raw<baker::Node> f) {
     return (cond ? t : f).eval();
 });
 
@@ -700,7 +700,7 @@ ctx.func("if",  [](bool cond, moira::Raw<moira::Node> t, moira::Raw<moira::Node>
 ctx.func("+", [](int a, int b)     { return a + b; });
 ctx.func("+", [](float a, float b) { return a + b; });   // registered as an overload set
 
-// 3. Variadics, via moira::Args.
+// 3. Variadics, via baker::Args.
 ```
 
 Overload resolution is first-match over the registered set, in registration order, on
@@ -720,7 +720,7 @@ for collisions:
   **status**: `stub` (placeholder awaiting a harder implementation), `provisional`, or
   `deprecated` with a replacement name. Script functions take status from data:
   `{func boss.find_cover ($p) (status stub) ...}`. Native ones take it from the binder:
-  `.status(moira::Stub)`. Tier and status appear in the generated reference.
+  `.status(baker::Stub)`. Tier and status appear in the generated reference.
 
 **Handler caching.** The original bound the resolved handler directly into the command
 node on first execution — safe because a function pointer never moves — at the cost of
@@ -749,12 +749,12 @@ resolution.
 CRTP + a static bind function. No macros in user code.
 
 ```cpp
-struct Person : moira::Object<Person> {
+struct Person : baker::Object<Person> {
     float height = 6.0f;
 
     float on_grow(float amount) { height += amount; tell_mom(); return height; }
 
-    static void bind(moira::Binder<Person>& b) {
+    static void bind(baker::Binder<Person>& b) {
         b.inherits<Creature>();
         b.method("grow", &Person::on_grow);
         b.property("height", &Person::height);     // gettable and settable
@@ -803,7 +803,7 @@ RAII, not manual pops). `ctx.var("game_time") = 500;` from C++, `int t =
 ctx.var("game_time").as_int();` back.
 
 Name lookup is the only cost; evaluating a bound `Var` node is a dereference. Provide
-`moira::VarRef` — a resolved handle callers hold in a static or member to skip lookup
+`baker::VarRef` — a resolved handle callers hold in a static or member to skip lookup
 entirely, which is what the original advised doing by hand.
 
 Dynamic scoping means a callee sees the caller's slots and can clobber them. That is a
@@ -828,12 +828,12 @@ time as an open problem it was "investigating LISP closures" for. C++20 coroutin
 it outright; take the win:
 
 ```cpp
-moira::Task blink(moira::Context& ctx) {
+baker::Task blink(baker::Context& ctx) {
     for (int i = 0; i < 3; ++i) {
         light.on();
-        co_await moira::delay(100_ticks);
+        co_await baker::delay(100_ticks);
         light.off();
-        co_await moira::until([] { return player_ready(); });
+        co_await baker::until([] { return player_ready(); });
     }
 }
 ctx.scheduler().spawn(blink(ctx));
@@ -855,7 +855,7 @@ We get it for free. Because `ctx.func` and `Binder` know the full signature, the
 can dump itself:
 
 ```cpp
-moira::write_reference(ctx, "docs/script-reference.md");
+baker::write_reference(ctx, "docs/script-reference.md");
 ```
 
 Output: every registered function and object method with parameter types, arity, optional
@@ -868,18 +868,18 @@ whole library. Do not skip it.
 
 ### Load-time checking
 
-`moira::check(const Array&, const Context&)` walks a loaded tree **without evaluating
+`baker::check(const Array&, const Context&)` walks a loaded tree **without evaluating
 anything** and reports every statically knowable error in one located pass: a command
 whose head resolves to a registered function but has the wrong arity for every overload,
 or passes a literal of the wrong type in a slot the signature fixes. Unregistered heads,
-arguments that are themselves commands or variables, and `moira::Args` slots are skipped —
+arguments that are themselves commands or variables, and `baker::Args` slots are skipped —
 laziness means their types aren't knowable until access, and the check must never
 pretend otherwise.
 
 The binder already holds every signature, so this costs little. It turns most script
 errors from "found when the event finally fires in playtest" into "found at load." Opt-in
 via a `Config` flag; run in CI over the real-corpus test with Harmonix's built-ins stubbed
-by arity. Adapted from SeExpr's prep-time type checking (see `seexpr-vs-moira.md` §6).
+by arity. Adapted from SeExpr's prep-time type checking (see `seexpr-vs-baker.md` §6).
 
 `check` also produces a **demand report**: every unresolved command head, every unknown
 object method, and every call to a function whose status is `stub`, each with all of its
@@ -915,14 +915,14 @@ partly a build artifact (`reading-a-studio.md` §7).
   no allocation, ~2 stores per call.
 - Any error unwinds with the stack rendered as `file.dta:line` frames, innermost first.
   The original dumped this *alongside* the C++ stack on assert, which is what makes it
-  useful — provide `moira::script_backtrace()` as a standalone call an assert handler or
+  useful — provide `baker::script_backtrace()` as a standalone call an assert handler or
   crash reporter can splice in.
 - `ctx.trace(bool)` for a per-command trace hook.
 - **Call statistics** in non-shipping builds: each function record keeps a call count and
   cumulative time, updated in place with no allocation. `ctx.stats()` returns them;
   `ctx.hardening_candidates(threshold)` lists script functions whose cumulative cost
   crosses a threshold — the measured list of what to push up for performance. Compiled
-  out under `MOIRA_SHIPPING`.
+  out under `BAKER_SHIPPING`.
 - Everything needed for an interactive debugger should be reachable, but do not build one.
   They shipped five years of games on print statements.
 
@@ -930,7 +930,7 @@ partly a build artifact (`reading-a-studio.md` §7).
 
 ## 6. Public API surface
 
-**Shapes: an optional third library.** `moira::shape` (depends only on `moira::data`)
+**Shapes: an optional third library.** `baker::shape` (depends only on `baker::data`)
 lets a layer declare the expected structure of a data domain *in data*:
 
 ```
@@ -942,52 +942,52 @@ lets a layer declare the expected structure of a data domain *in data*:
 
 A shape gives fields types, ranges, steps, kinds, descriptions, and notes — the tweak
 metadata of §4, generalized to arbitrary data. Shapes drive two things: validation (a
-`moira::check` extension reporting shape violations at load, located) and enumeration for
+`baker::check` extension reporting shape violations at load, located) and enumeration for
 generated tuning panels. They are strictly opt-in; unshaped data works everywhere, and a
 shaped domain still accepts extra fields with a warning rather than an error, so adding a
 field never requires touching the shape first. Shapes recover the one real benefit of
 Halo's code-defined schemas — a generated editing UI — while keeping schemas in data,
 where gardeners can write them. Budget: ≤ 600 lines, outside the core 4,000.
 
-**Two libraries, strictly layered.** `moira::data` covers nodes, symbols, arrays, parsing,
-writing, lookup, merge, config, tweaks, and the binary cache. `moira::script` covers
-evaluation, functions, objects, messages, and tasks, and depends on `moira::data`. The
+**Two libraries, strictly layered.** `baker::data` covers nodes, symbols, arrays, parsing,
+writing, lookup, merge, config, tweaks, and the binary cache. `baker::script` covers
+evaluation, functions, objects, messages, and tasks, and depends on `baker::data`. The
 reverse dependency must never exist. A program that only wants hot-reloadable config links
-`moira::data` and pays for nothing else; in that configuration `Command` and `Var` nodes
+`baker::data` and pays for nothing else; in that configuration `Command` and `Var` nodes
 still parse and round-trip, but typed access to one is a clean error saying the script
-layer isn't linked. Enforce the boundary in CI by building and testing `moira::data` alone.
+layer isn't linked. Enforce the boundary in CI by building and testing `baker::data` alone.
 
-The reason is adoption, and the evidence is SeExpr (see `seexpr-vs-moira.md` §7): the
+The reason is adoption, and the evidence is SeExpr (see `seexpr-vs-baker.md` §7): the
 portable, host-agnostic half of a system like this is useful to far more people than the
 engine-shaped half, and only stays portable if nothing reaches across the line.
 
 Headers, each independently includable:
 
 ```
-<moira/node.hpp>        Node, Type, Symbol, Ref
-<moira/array.hpp>       Array, find/eval, construction helpers
-<moira/parse.hpp>       read_file, read_string, Preprocessor options
-<moira/write.hpp>       pretty-printer (round-trips, preserves nothing else)
-<moira/config.hpp>      Config, Tweak, TweakRegistry
-<moira/script.hpp>      Context, func binding, variables
-<moira/object.hpp>      Object<T>, Binder, messages
-<moira/task.hpp>        Task, Scheduler, awaitables
-<moira/binary.hpp>      cache save/load
-<moira/moira.hpp>       umbrella
+<baker/node.hpp>        Node, Type, Symbol, Ref
+<baker/array.hpp>       Array, find/eval, construction helpers
+<baker/parse.hpp>       read_file, read_string, Preprocessor options
+<baker/write.hpp>       pretty-printer (round-trips, preserves nothing else)
+<baker/config.hpp>      Config, Tweak, TweakRegistry
+<baker/script.hpp>      Context, func binding, variables
+<baker/object.hpp>      Object<T>, Binder, messages
+<baker/task.hpp>        Task, Scheduler, awaitables
+<baker/binary.hpp>      cache save/load
+<baker/baker.hpp>       umbrella
 ```
 
 Style rules, applied uniformly:
 
 - Types `PascalCase`, functions and variables `snake_case`, constants `kPascalCase`.
 - `[[nodiscard]]` on every pure accessor. `noexcept` wherever it is true.
-- No macros in public headers except optional `MOIRA_*` build switches.
+- No macros in public headers except optional `BAKER_*` build switches.
 - No `iostream` anywhere in the library. Errors carry structured data; formatting is the
   caller's problem, with a `to_string(const Error&)` provided.
 - Exceptions on error paths only, and every throwing API has a non-throwing twin.
-  `MOIRA_NO_EXCEPTIONS` compiles the throwing forms out and makes the twins mandatory.
-  *(Superseded by D54: Moira never throws. Every fallible API returns `Expected<T>`,
+  `BAKER_NO_EXCEPTIONS` compiles the throwing forms out and makes the twins mandatory.
+  *(Superseded by D54: Baker never throws. Every fallible API returns `Expected<T>`,
   and the `try_` prefix now marks only weak lookups that return null.)*
-- `MOIRA_SHIPPING` makes reload and layer mutation no-ops after initial load, freezes every
+- `BAKER_SHIPPING` makes reload and layer mutation no-ops after initial load, freezes every
   tweak at its loaded value, and applies `dev_only` (§4). Loop telemetry, the edit
   journal, and call statistics are compiled out. Shipping builds should not be
   live-editable by accident; anything a live game *does* need to change after ship goes
@@ -1051,7 +1051,7 @@ Purpose: skip text parsing at startup. Our own format, `.datb`, versioned.
   cheat codes; ours leaves the hook and the anecdote in a comment.
 
 **Stretch goal (P3, do not start unless asked):** a read-only compatibility module for
-Harmonix's real DTB variants, behind `MOIRA_DTB_COMPAT`, enabling the corpus to be tested
+Harmonix's real DTB variants, behind `BAKER_DTB_COMPAT`, enabling the corpus to be tested
 from binary as well as text.
 
 ---
@@ -1063,19 +1063,19 @@ recorded. Do not start the next until the previous is green.
 
 | # | Scope | Done when |
 |---|-------|-----------|
-| **M0** | Repo skeleton: CMake, C++20, doctest vendored, CI, clang-format/tidy, LICENSE, README stub; separate `moira::data` and `moira::script` targets | `cmake --build` and `ctest` pass with one trivial test; CI builds and tests `moira::data` alone |
+| **M0** | Repo skeleton: CMake, C++20, doctest vendored, CI, clang-format/tidy, LICENSE, README stub; separate `baker::data` and `baker::script` targets | `cmake --build` and `ctest` pass with one trivial test; CI builds and tests `baker::data` alone |
 | **M1** | `Node`, `Symbol`, `Ref`, `Array`, text parser, preprocessor (include/merge/ifdef/define/macros), pretty-printer, error type with file:line | Layout `static_assert`s hold; round-trip test passes; **real-corpus parse at 100%**; fuzzer seeded and clean for 1M execs |
 | **M2** | Lookup API: `find*`/`try_find*`, defaults, sorted mode, path access, `Convert<T>` | Lookup benchmarks meet §7; error messages include path and source location |
-| **M3** | `Config`, merge, named layers, provenance, edit-mode parse and write-back, `Tweak<T>`, registry, hot reload, change callbacks, `MOIRA_SHIPPING` | One-line constant replacement demo in `examples/`; tweak read compiles to a single load; reload test mutates a file on disk and observes the new value; pushing then removing a layer restores every value exactly; `source()` names the correct layer, file, and line; under `MOIRA_SHIPPING`, reload is inert and `dev_only` tweaks return defaults; tweaking a value and calling `write_back` produces a one-line diff in the source file with comments and notes preserved, and refuses cleanly for a macro-sourced value |
+| **M3** | `Config`, merge, named layers, provenance, edit-mode parse and write-back, `Tweak<T>`, registry, hot reload, change callbacks, `BAKER_SHIPPING` | One-line constant replacement demo in `examples/`; tweak read compiles to a single load; reload test mutates a file on disk and observes the new value; pushing then removing a layer restores every value exactly; `source()` names the correct layer, file, and line; under `BAKER_SHIPPING`, reload is inert and `dev_only` tweaks return defaults; tweaking a value and calling `write_back` produces a one-line diff in the source file with comments and notes preserved, and refuses cleanly for a macro-sourced value |
 | **M3b** | Reload telemetry (`TimeSource`, `ReloadRequest`, `ReloadRecord`, history ring, `on_reload_complete`); `LayerOptions` (optional, enabled), toggles, the `scratch` layer and its `set` fast path, `layer_effect`, `diff`, `write_back_to` insertion, `promote`, `WriteReport`; `snapshot()` / `restore()`; the headless readiness test `tests/readiness_loop.cpp` | **Telemetry:** with a fake time source that advances a fixed step per call, one reload yields a record whose six stage durations match exactly; zero allocations per reload once the history exists; the ring wraps at capacity keeping the newest in order; a parse error yields `ParseError`, zero bind and notify time, and unchanged tweak values; `migrated` and `punted` match the callbacks' returns; `origin_ns` appears unchanged. **Layers:** toggling a layer off and on restores every value and every `source()`; an optional layer with a missing file loads and contributes nothing; `set` on an existing scalar path allocates nothing, triggers no full re-merge, and fires only the affected tweak's `on_change`; `set` then `write_back` changes one line on disk, keeps comments and notes, empties that path from scratch, and leaves `source()` naming the file and line; `write_back_to` into an absent personal layer creates the file with the nested entry, and into a populated file inserts beside existing siblings changing no other bytes; `promote` with one unwritable entry writes nothing and reports every refusal with file and line; write-back refuses when the file changed on disk after loading; in a three-layer stack `layer_effect` reports `below` and `shadowed` correctly. **Snapshots:** snapshot, push a layer, toggle another, set three values, restore: every tweak value and `source()` match; restore fires each reload callback exactly once and records trigger `restore`; taking a snapshot copies no array. **Readiness test:** in a temporary directory, a commented tunable with a note and an absent optional `local` layer; a bound `Tweak<float>`; a disk edit and `reload({.trigger = "test"_sym, .origin_ns = t})` under a fake time source with a complete record; `set` and `write_back` with a one-line diff, comment and note intact; an experiment layer toggled with `layer_effect` and both A/B values asserted; snapshot, disturb, restore, equal; zero allocations throughout in reload telemetry and tweak reads |
-| **M4** | `Context`, variables, dynamic scoping, lazy command evaluation, native `func` binding with signature deduction, `Raw<T>` params, overload sets, generated script reference | Calculator example; binding benchmark meets §7 with zero allocations; **`if` and `set` are ordinary registered functions with no evaluator special-casing**; a test asserts the untaken branch of an `if` is never evaluated; `script-reference.md` generates and is checked for drift; `moira::check` catches a wrong-arity call to a registered function at load, without evaluating anything; a script stub replaced by a native registration of the same name runs unchanged call sites; the demand report lists an unresolved head with all its call sites |
+| **M4** | `Context`, variables, dynamic scoping, lazy command evaluation, native `func` binding with signature deduction, `Raw<T>` params, overload sets, generated script reference | Calculator example; binding benchmark meets §7 with zero allocations; **`if` and `set` are ordinary registered functions with no evaluator special-casing**; a test asserts the untaken branch of an `if` is never evaluated; `script-reference.md` generates and is checked for drift; `baker::check` catches a wrong-arity call to a registered function at load, without evaluating anything; a script stub replaced by a native registration of the same name runs unchanged call sites; the demand report lists an unresolved head with all its call sites |
 | **M5** | `Object<T>`, `Binder`, method/property binding, inheritance flattening, namespace lookup, script-side `func`/`class`/`new` | Both dispatch directions work; the talk's `Person::grow` example runs from script and from C++ |
-| **M6** | Typed messages, allocation-free C++→C++ path, script call stack, trace hook, call statistics | Message benchmark meets §7; an error thrown 4 frames deep renders a correct stack; call statistics add no allocations and compile out under `MOIRA_SHIPPING` |
+| **M6** | Typed messages, allocation-free C++→C++ path, script call stack, trace hook, call statistics | Message benchmark meets §7; an error thrown 4 frames deep renders a correct stack; call statistics add no allocations and compile out under `BAKER_SHIPPING` |
 | **M7** | `Task`, `Scheduler`, coroutine awaitables, script-side scheduler commands | `delay`/`until`/interp all tick correctly; a task holding a local across a suspend point works (the problem the original had open) |
 | **M8** | Binary cache: write, load, fixups, staleness detection, `Cipher` hook | Cache load benchmark meets §7; cache and text loads produce structurally equal trees |
-| **M8b** | `moira::shape`: shape declarations, shape-aware `check`, enumeration API; `#require` | A shape violation in the corpus-style test data is reported at load with file and line; extra fields warn without failing; a pack loaded via `#require` from three files defines its macros once; a `game`-layer pack referencing a `task`-layer function produces a one-way-rule warning |
+| **M8b** | `baker::shape`: shape declarations, shape-aware `check`, enumeration API; `#require` | A shape violation in the corpus-style test data is reported at load with file and line; extra fields warn without failing; a pack loaded via `#require` from three files defines its macros once; a `game`-layer pack referencing a `task`-layer function produces a one-way-rule warning |
 | **M9** | Docs: README with the one-line-constant pitch up front, `docs/language.md`, `docs/cookbook.md`, `examples/` (config, scripting, objects, tasks, remote-console, live-ops overlay, and `harness-imgui`: a Dear ImGui reference harness with panels generated from tweaks and shapes, an `eval` console, provenance on hover, save-to-source via write-back, and three readiness panels: **Loop** (recent reload records as stage bars, with edit-to-see time when the host supplies origins), **Layers** (the stack with enable toggles, each layer's effect, and a promote button that shows refusals in place), and **Snapshots** (capture A, capture B, flip between them)) | A reader can go from zero to a working tweak in under five minutes of reading; the cookbook's live-ops section covers environment boundaries, version history, rollback, and personal and experiment layers; the harness pushes a personal `local` layer by the convention in §4 |
-| **M10** | Harness instrumentation: loop statistics (aggregating M3b's reload records), edit journal, pack harness metadata (`owners`, `for`, `stage`), `origin` provenance, repetition report, owner findings, machine-readable check output | `loop_stats()` reports rolling median and worst edit-to-see per file and per layer, and counts a failed reload; `unsaved()` lists a tweaked-but-not-written-back value; `source()` names a value's `origin` tool; a subtree repeated in three files appears in the repetition report with all three locations; a one-owner pack is reported; check JSON output is schema-versioned and stable across runs; all instrumentation adds no allocations on the hot path and compiles out under `MOIRA_SHIPPING`; core stays within the 15,000-line budget (if not, move the repetition report into a separate tool and record it in `docs/decisions.md`) |
+| **M10** | Harness instrumentation: loop statistics (aggregating M3b's reload records), edit journal, pack harness metadata (`owners`, `for`, `stage`), `origin` provenance, repetition report, owner findings, machine-readable check output | `loop_stats()` reports rolling median and worst edit-to-see per file and per layer, and counts a failed reload; `unsaved()` lists a tweaked-but-not-written-back value; `source()` names a value's `origin` tool; a subtree repeated in three files appears in the repetition report with all three locations; a one-owner pack is reported; check JSON output is schema-versioned and stable across runs; all instrumentation adds no allocations on the hot path and compiles out under `BAKER_SHIPPING`; core stays within the 15,000-line budget (if not, move the repetition report into a separate tool and record it in `docs/decisions.md`) |
 
 ---
 
@@ -1225,9 +1225,9 @@ target them. Branching is runtime in script and load-time in data via `#ifdef`.
 - Community format notes: `https://mariteaux.somnolescent.net/modding/guitar-hero/tutorials/an-introduction-to-data-array`
 - Test corpus: `https://github.com/mariteaux/milo-script-library`
 - Companion analyses, required reading: `halo-tags-vs-dataarray.md` (Bungie's tag
-  system, Game Tech 2004), `seexpr-vs-moira.md` (Disney's SeExpr, 2005–2019), and
+  system, Game Tech 2004), `seexpr-vs-baker.md` (Disney's SeExpr, 2005–2019), and
   `iteration-backgrounder.md` (iteration time, contemporary engines, ranked use cases),
-  `harness-tree-vision.md` (the harness tree and Moira's role as its substrate), and
+  `harness-tree-vision.md` (the harness tree and Baker's role as its substrate), and
   `pushing-up.md` (hardness, push-ups, and how each layer boundary is managed), and
   `reading-a-studio.md` (auditing a studio's harness tree; the source of the
   instrumentation in §4, §5, and M10)

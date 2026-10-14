@@ -16,29 +16,29 @@
 
 #include <SDL3/SDL.h>
 #include <imgui.h>
-#include <moira/std_interop.hpp>
-#include <moira/std_script.hpp>
+#include <baker/std_interop.hpp>
+#include <baker/std_script.hpp>
 
 #include <algorithm>
 #include <cstdio>
 #include <string>
 #include <vector>
 
-static moira::Tweak<int> kHitPause{
+static baker::Tweak<int> kHitPause{
     "duel.hit_pause", 6, {.range = {0, 30}, .desc = "Frames both fighters freeze on contact"}};
-static moira::Tweak<int> kBuffer{
+static baker::Tweak<int> kBuffer{
     "duel.buffer", 5, {.range = {1, 20}, .desc = "Frames a press waits to be acted on"}};
-static moira::Tweak<int> kStunDecay{
+static baker::Tweak<int> kStunDecay{
     "duel.stun_decay", 1, {.range = {0, 10}, .desc = "Hitstun each combo hit loses, in frames"}};
-static moira::Tweak<float> kHalfWidth{
+static baker::Tweak<float> kHalfWidth{
     "duel.stage_half_width", 4.0f, {.range = {2, 20}, .desc = "Metres from center to a wall"}};
-static moira::Tweak<float> kStartGap{
+static baker::Tweak<float> kStartGap{
     "duel.start_gap", 2.0f, {.range = {0.5f, 10}, .desc = "Metres between fighters at a start"}};
-static moira::Tweak<int> kRoundSeconds{
+static baker::Tweak<int> kRoundSeconds{
     "duel.round_seconds", 60, {.range = {5, 600}, .desc = "A round's time limit"}};
-static moira::Tweak<int> kKoFrames{
+static baker::Tweak<int> kKoFrames{
     "duel.ko_frames", 90, {.range = {1, 600}, .desc = "Frames from a knockout to the next round"}};
-static moira::Tweak<bool> kShowBoxes{"duel.show_boxes", true, {.desc = "Draw active hitboxes"}};
+static baker::Tweak<bool> kShowBoxes{"duel.show_boxes", true, {.desc = "Draw active hitboxes"}};
 
 namespace {
 
@@ -58,34 +58,34 @@ duel::Rules current_rules() {
     return r;
 }
 
-moira::Expected<int> side_index(int64_t side) {
+baker::Expected<int> side_index(int64_t side) {
     if (side != 1 && side != 2)
-        return moira::Unexpected(
-            moira::make_error(moira::ErrorCode::Range, "a side is 1 (left) or 2 (right)"));
+        return baker::Unexpected(
+            baker::make_error(baker::ErrorCode::Range, "a side is 1 (left) or 2 (right)"));
     return static_cast<int>(side - 1);
 }
 
 class DuelGame final : public base::Game {
 public:
-    void bind(moira::Context& ctx) override {
+    void bind(baker::Context& ctx) override {
         auto doc = [](auto f, const char* text) {
             if (f) f->doc(text);
         };
         doc(ctx.func("duel.reset", [this] { new_match(); }),
             "A new match: rounds to zero, both fighters at their marks, the pilots reseeded.");
-        doc(ctx.func("duel.p1", [this](moira::Symbol who) { return control(0, who); }),
+        doc(ctx.func("duel.p1", [this](baker::Symbol who) { return control(0, who); }),
             "Who plays the left side: human, dummy, block (a dummy that holds back), a CPU "
             "level (cpu), or a bot (bots).");
-        doc(ctx.func("duel.p2", [this](moira::Symbol who) { return control(1, who); }),
+        doc(ctx.func("duel.p2", [this](baker::Symbol who) { return control(1, who); }),
             "Who plays the right side; as duel.p1.");
         doc(ctx.func("duel.fighter",
-                     [this](int64_t side, moira::Symbol name) -> moira::Expected<void> {
+                     [this](int64_t side, baker::Symbol name) -> baker::Expected<void> {
                          auto s = side_index(side);
-                         if (!s) return moira::Unexpected(s.error());
+                         if (!s) return baker::Unexpected(s.error());
                          const int f = roster_.fighter(std::string(name.str()));
                          if (f < 0)
-                             return moira::Unexpected(moira::make_error(
-                                 moira::ErrorCode::NotFound,
+                             return baker::Unexpected(baker::make_error(
+                                 baker::ErrorCode::NotFound,
                                  "no fighter " + std::string(name.str()) + " in (fighters ...)"));
                          world_.fighter_data[*s] = f;
                          new_match();
@@ -93,9 +93,9 @@ public:
                      }),
             "Puts a fighter of (fighters ...) on a side, and starts a new match.");
         doc(ctx.func("duel.rounds",
-                     [this](int64_t side) -> moira::Expected<int64_t> {
+                     [this](int64_t side) -> baker::Expected<int64_t> {
                          auto s = side_index(side);
-                         if (!s) return moira::Unexpected(s.error());
+                         if (!s) return baker::Unexpected(s.error());
                          return world_.rounds[*s];
                      }),
             "Rounds a side has won since the match started.");
@@ -104,39 +104,39 @@ public:
                 [this] { return int64_t{world_.rounds[0] + world_.rounds[1] + world_.draws}; }),
             "Rounds finished since the match started, draws included.");
         doc(ctx.func("duel.win_rate",
-                     [this](int64_t side) -> moira::Expected<double> {
+                     [this](int64_t side) -> baker::Expected<double> {
                          auto s = side_index(side);
-                         if (!s) return moira::Unexpected(s.error());
+                         if (!s) return baker::Unexpected(s.error());
                          const int n = world_.rounds[0] + world_.rounds[1] + world_.draws;
                          return n ? double(world_.rounds[*s]) / n : 0.0;
                      }),
             "The share of finished rounds a side won; 0 before any.");
         doc(ctx.func("duel.health",
-                     [this](int64_t side) -> moira::Expected<int64_t> {
+                     [this](int64_t side) -> baker::Expected<int64_t> {
                          auto s = side_index(side);
-                         if (!s) return moira::Unexpected(s.error());
+                         if (!s) return baker::Unexpected(s.error());
                          return world_.f[*s].health;
                      }),
             "A side's health now.");
         doc(ctx.func("duel.fastest_reaction",
-                     [this](int64_t side) -> moira::Expected<int64_t> {
+                     [this](int64_t side) -> baker::Expected<int64_t> {
                          auto s = side_index(side);
-                         if (!s) return moira::Unexpected(s.error());
+                         if (!s) return baker::Unexpected(s.error());
                          return pilots_[*s].fastest_reaction();
                      }),
             "The fewest frames a side's pilot took to block an attack, from the attack's "
             "first frame; -1 if it never blocked.");
         doc(ctx.func("duel.on_hit",
-                     [this](moira::Symbol fighter, moira::Symbol move) -> moira::Expected<int64_t> {
+                     [this](baker::Symbol fighter, baker::Symbol move) -> baker::Expected<int64_t> {
                          auto m = find_move(fighter, move);
-                         if (!m) return moira::Unexpected(m.error());
+                         if (!m) return baker::Unexpected(m.error());
                          return (*m)->on_hit();
                      }),
             "Frames the attacker is ahead when the move hits on its first active frame.");
         doc(ctx.func("duel.on_block",
-                     [this](moira::Symbol fighter, moira::Symbol move) -> moira::Expected<int64_t> {
+                     [this](baker::Symbol fighter, baker::Symbol move) -> baker::Expected<int64_t> {
                          auto m = find_move(fighter, move);
-                         if (!m) return moira::Unexpected(m.error());
+                         if (!m) return baker::Unexpected(m.error());
                          return (*m)->on_block();
                      }),
             "Frames the attacker is ahead when the move is blocked; negative is unsafe.");
@@ -162,7 +162,7 @@ public:
             "The most damaging combo the search found, or an infinite one.");
     }
 
-    void load(const moira::Config& cfg) override {
+    void load(const baker::Config& cfg) override {
         duel::Roster next;
         std::string error;
         if (!duel::load(*cfg.root(), next, error)) {
@@ -324,7 +324,7 @@ public:
                     for (const duel::Brain& b : *list) names.push_back(b.name);
                 for (const std::string& name : names)
                     if (ImGui::Selectable(name.c_str(), name == current))
-                        (void)control(i, moira::Symbol(name));
+                        (void)control(i, baker::Symbol(name));
                 ImGui::EndCombo();
             }
             if (i == 0) ImGui::SameLine();
@@ -384,7 +384,7 @@ private:
                              seed_ * 2 + uint64_t(i));
     }
 
-    moira::Expected<void> control(int side, moira::Symbol who) {
+    baker::Expected<void> control(int side, baker::Symbol who) {
         const std::string name(who.str());
         Mode mode = Mode::Pilot;
         if (name == "human")
@@ -394,8 +394,8 @@ private:
         else if (name == "block")
             mode = Mode::Block;
         else if (!roster_.find_brain(name))
-            return moira::Unexpected(moira::make_error(
-                moira::ErrorCode::NotFound,
+            return baker::Unexpected(baker::make_error(
+                baker::ErrorCode::NotFound,
                 "no pilot " + name +
                     ": human, dummy, block, or a name in (cpu ...) or (bots ...)"));
         mode_[side] = mode;
@@ -442,13 +442,13 @@ private:
         return static_cast<Input>(in);
     }
 
-    moira::Expected<const duel::Move*> find_move(moira::Symbol fighter, moira::Symbol move) const {
+    baker::Expected<const duel::Move*> find_move(baker::Symbol fighter, baker::Symbol move) const {
         const int f = roster_.fighter(std::string(fighter.str()));
         if (f >= 0)
             for (const duel::Move& m : roster_.fighters[size_t(f)].moves)
                 if (m.name == move.str()) return &m;
-        return moira::Unexpected(moira::make_error(
-            moira::ErrorCode::NotFound,
+        return baker::Unexpected(baker::make_error(
+            baker::ErrorCode::NotFound,
             "no move " + std::string(fighter.str()) + "." + std::string(move.str())));
     }
 

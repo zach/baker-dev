@@ -1,9 +1,9 @@
 # Game stacks
 
-Windows PC prototypes built on Moira, one stack per kind of creative work, for focused
+Windows PC prototypes built on Baker, one stack per kind of creative work, for focused
 agent-assisted development. The design is `docs/background/game-stacks.md`; this directory
-is its code. It is a separate CMake project that uses Moira from this repository, and it
-lives outside `src/`: Moira's line budget and core rules do not cover it.
+is its code. It is a separate CMake project that uses Baker from this repository, and it
+lives outside `src/`: Baker's line budget and core rules do not cover it.
 
 | Directory | What | Status |
 |---|---|---|
@@ -38,10 +38,10 @@ test steps. It needs no installs.
 
 With the cube running, edit `stacks/cube/data/default.dta` and save: the next frame shows
 the change, and the top left shows the time from the save to that frame. F1 shows and
-hides Moira's panels: tweaks, console, loop times, layers, the edit journal, shapes, and
+hides Baker's panels: tweaks, console, loop times, layers, the edit journal, shapes, and
 snapshots. A value tuned in a panel can be saved back to its line in the file.
 
-The remote console listens on 127.0.0.1:4555; each line is a Moira command:
+The remote console listens on 127.0.0.1:4555; each line is a Baker command:
 
 ```sh
 printf '{cube.angle}\n' | nc 127.0.0.1 4555

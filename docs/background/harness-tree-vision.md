@@ -1,11 +1,11 @@
 # The Harness Tree
 
 A vision for how large-scale game development builds the environments in which a game is
-actually discovered — and what that implies for how Moira is implemented, integrated, and
+actually discovered — and what that implies for how Baker is implemented, integrated, and
 used.
 
-Companion to `moira-spec.md`, `iteration-backgrounder.md`, `halo-tags-vs-dataarray.md`,
-and `seexpr-vs-moira.md`. Sources are listed at the end.
+Companion to `baker-spec.md`, `iteration-backgrounder.md`, `halo-tags-vs-dataarray.md`,
+and `seexpr-vs-baker.md`. Sources are listed at the end.
 
 ---
 
@@ -23,7 +23,7 @@ often by playing the running game and adjusting it live.
 The harnesses form a tree. At the leaves is the data of one encounter. Above it, the
 harness a designer specialized to make that encounter tunable. Above that, the game-wide
 designer harness. Above that, the engine's data-definition harness. And at the root, a
-general substrate for representing, evaluating, and reloading data — which is what Moira
+general substrate for representing, evaluating, and reloading data — which is what Baker
 is for.
 
 This document tests that thesis against the public record, sharpens it, and turns it into
@@ -185,7 +185,7 @@ sufficient on its own: generated tools need a malleable environment to compose i
 
 The games industry's harness tree is arguably the largest real-world instance of a
 malleable-software ecosystem, built under deadline pressure by people who mostly never used
-the term. That's worth stating plainly, because it means Moira can borrow from both bodies
+the term. That's worth stating plainly, because it means Baker can borrow from both bodies
 of work: the industry's war stories for what fails in practice, and the research for why.
 
 ---
@@ -197,7 +197,7 @@ Your proposed layering holds up. Three refinements make it more useful.
 ### The layers
 
 ```
-L0  Substrate         Moira: representation, evaluation, reload, layers,
+L0  Substrate         Baker: representation, evaluation, reload, layers,
                       provenance, introspection.
                       Built by: library authors.
 
@@ -255,7 +255,7 @@ without a rebuild?** Nardi's gardeners only exist where the answer is yes.
 
 To make the layers concrete — illustrative syntax, not a spec.
 
-**L0 (Moira)** provides arrays, commands, macros, tweaks, layers, reload, `eval`.
+**L0 (Baker)** provides arrays, commands, macros, tweaks, layers, reload, `eval`.
 
 **L1 (engine harness)** binds engine verbs and declares shapes for engine objects:
 
@@ -363,9 +363,9 @@ for removal, and keep the substrate small enough that removing things is safe.
 
 ---
 
-## 6. What this means for Moira
+## 6. What this means for Baker
 
-Moira is L0. Its job is to make every layer above it cheap to build, fast to iterate, and
+Baker is L0. Its job is to make every layer above it cheap to build, fast to iterate, and
 malleable by the people one level up. Measured against that, the spec already covers a lot:
 macros and script functions give data-only vocabulary extension; native binding covers
 engine verbs; layers map naturally onto harness levels (engine defaults, game, level,
@@ -390,7 +390,7 @@ are wrong, but it left something on the table: Halo's schemas generated a comple
 UI. **Shapes** recover that without the cost. A shape is declared *in data*, by whichever
 layer owns the vocabulary (L1 for engine objects, L2 for game concepts), and gives fields
 types, ranges, kinds, descriptions, and notes — generalizing the tweak metadata that
-already exists. Shapes drive two things: generated tuning panels, and `moira::check`
+already exists. Shapes drive two things: generated tuning panels, and `baker::check`
 validation at load. They are opt-in; untyped data still works everywhere. Because shapes
 are data, gardeners can write them, which means L3 harnesses can get generated UI without
 an engineer.
@@ -405,7 +405,7 @@ the generated reference and tuning panels group by.
 
 ### 4. A reference harness
 
-Moira should ship one example of a complete L1-style harness: Dear ImGui panels generated
+Baker should ship one example of a complete L1-style harness: Dear ImGui panels generated
 from the tweak registry and shapes, a console on `eval`, provenance shown on hover, and a
 save button that writes back. Not core library code — an example, under `examples/` — but
 it is the thing that turns a substrate into something a team can picture adopting. It is
@@ -421,12 +421,12 @@ bounded, instrumented environment that gives a worker the domain's tools and a f
 loop — the same four properties as §0.
 
 Ink & Switch's point about AI coding applies directly: generated tools only compose if the
-environment underneath them is malleable. A harness tree built on Moira is text all the way
+environment underneath them is malleable. A harness tree built on Baker is text all the way
 down, introspectable through the generated reference and shapes, validated by `check`, and
 reloadable in seconds. Those are exactly the properties that make it feasible for an agent
 to act as a gardener — writing an L3 harness from a designer's description, validating it,
 and hot-loading it into the running game for the designer to try. That isn't a feature to
-build into Moira. It's a reason to get the substrate properties right, because they are
+build into Baker. It's a reason to get the substrate properties right, because they are
 what make the top of the tree cheap to grow, whoever is growing it.
 
 ---

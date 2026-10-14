@@ -13,7 +13,7 @@
 //   (menu
 //     ('bacon and eggs' (price 12.75) (calories 120)))
 //
-//   const moira::Array& menu = root->find("menu");          // child tagged menu
+//   const baker::Array& menu = root->find("menu");          // child tagged menu
 //   double price = menu.find("bacon and eggs").find_float("price");   // 12.75
 //   float  same  = root->get<float>("menu.'bacon and eggs'.price");   // by path
 //   int    cals  = root->get<int>("menu.'bacon and eggs'.fat", 0);    // absent: 0
@@ -27,13 +27,13 @@
 //
 // Raw versus typed: try_at(i), operator[], and try_find() return raw nodes and arrays and
 // never evaluate anything. Typed reads (find_int, find<T>, get<T>, ...) convert values through
-// Convert<T>. A Command or Var value needs moira::script to evaluate it; without that,
+// Convert<T>. A Command or Var value needs baker::script to evaluate it; without that,
 // reading one as a value is a clean error.
 //
 // Errors name the key, the expected and actual types, the source file and line, and the
 // array path that led there:
 //
-//   moira: 'price' is float, not int  (menu.dta:3, at menu/'bacon and eggs')
+//   baker: 'price' is float, not int  (menu.dta:3, at menu/'bacon and eggs')
 //
 // A lookup along a Path reports the whole path; a chain of finds reports the tag of the
 // array the failing call was made on (an array does not know its parents).
@@ -44,9 +44,9 @@
 // type is an error, because silently ignoring a mistyped value is the failure located
 // errors exist to prevent (docs/decisions.md D25).
 
-#include <moira/allocator.hpp>
-#include <moira/node.hpp>
-#include <moira/path.hpp>
+#include <baker/allocator.hpp>
+#include <baker/node.hpp>
+#include <baker/path.hpp>
 
 #include <cassert>
 #include <cstddef>
@@ -57,7 +57,7 @@
 #include <type_traits>
 #include <utility>
 
-namespace moira {
+namespace baker {
 
 class Array;
 
@@ -190,12 +190,12 @@ private:
 
 // Convert<T>: how a lookup reads a T. Specialize it for your own types:
 //
-//   template <> struct moira::Convert<Vec2> {
+//   template <> struct baker::Convert<Vec2> {
 //       static constexpr std::string_view name = "vec2";   // optional; used in errors
-//       static bool from(const moira::Values& v, Vec2& out) {
+//       static bool from(const baker::Values& v, Vec2& out) {
 //           return v.size() >= 2 && v.read(0, out.x) && v.read(1, out.y);
 //       }
-//       static void to(const Vec2& v, moira::ValueList& out) {   // optional; for set()
+//       static void to(const Vec2& v, baker::ValueList& out) {   // optional; for set()
 //           out.add(v.x);
 //           out.add(v.y);
 //       }
@@ -291,8 +291,8 @@ template <class T>
 [[nodiscard]] Error find_error(const Array& container, Symbol tag, const Array* found,
                                const ConvertInfo* info, const Values* values = nullptr);
 
-// Evaluates a Command or Var node in the calling thread's current Context. moira::script
-// installs it; it is null in a program that does not use moira::script.
+// Evaluates a Command or Var node in the calling thread's current Context. baker::script
+// installs it; it is null in a program that does not use baker::script.
 using Evaluator = Expected<Node> (*)(const Node&);
 void set_evaluator(Evaluator evaluator) noexcept;
 [[nodiscard]] Evaluator evaluator() noexcept;
@@ -755,8 +755,8 @@ Node to_node(T&& v) {
 // Builds an array from C++ values in one allocation sized exactly. Text becomes a
 // Symbol; use str() for a String.
 //
-//   auto price = moira::array("price", 12.75f);   // (price 12.75)
-//   auto eggs  = moira::array("eggs", price);     // (eggs (price 12.75))
+//   auto price = baker::array("price", 12.75f);   // (price 12.75)
+//   auto eggs  = baker::array("eggs", price);     // (eggs (price 12.75))
 template <class... Ts>
 [[nodiscard]] Ref<Array> array(Ts&&... xs) {
     if constexpr (sizeof...(Ts) == 0) {
@@ -767,4 +767,4 @@ template <class... Ts>
     }
 }
 
-}  // namespace moira
+}  // namespace baker

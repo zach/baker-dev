@@ -4,12 +4,12 @@
 
 #include "test_util.hpp"
 
-static moira::Tweak<float> kValue{"live_test.value", -1.0f};
+static baker::Tweak<float> kValue{"live_test.value", -1.0f};
 
 TEST_CASE("live: a saved edit is seen by the next frame, and timed from the save") {
     test::ScratchDir dir("live");
     REQUIRE(test::write(dir.path / "default.dta", "(live_test (value 1))"));
-    moira::Context ctx;
+    baker::Context ctx;
     base::Live live(ctx);
     REQUIRE(live.open({.data_dir = dir.path.string()}));
     CHECK(float(kValue) == 1.0f);
@@ -22,9 +22,9 @@ TEST_CASE("live: a saved edit is seen by the next frame, and timed from the save
     }));
 
     // The acceptance number (game-stacks.md §2.2): under a second from save to frame.
-    const moira::LoopStats stats = live.config().loop_stats();
+    const baker::LoopStats stats = live.config().loop_stats();
     bool found = false;
-    for (const moira::LoopRow& row : stats.files) {
+    for (const baker::LoopRow& row : stats.files) {
         if (row.edits == 0) continue;
         found = true;
         MESSAGE("edit to see: ", double(row.edit_median_ns) / 1e6, " ms");
@@ -37,7 +37,7 @@ TEST_CASE("live: the layers, and a broken save keeps the old value") {
     test::ScratchDir dir("layers");
     REQUIRE(test::write(dir.path / "default.dta", "(live_test (value 1))"));
     REQUIRE(test::write(dir.path / "local.dta", "(live_test (value 5))"));
-    moira::Context ctx;
+    baker::Context ctx;
     base::Live live(ctx);
     REQUIRE(live.open({.data_dir = dir.path.string(), .watch = false}));
     CHECK(float(kValue) == 5.0f);  // local over default
@@ -60,7 +60,7 @@ TEST_CASE("live: the layers, and a broken save keeps the old value") {
 
 TEST_CASE("live: a missing default.dta fails to open, and says so") {
     test::ScratchDir dir("missing");
-    moira::Context ctx;
+    baker::Context ctx;
     base::Live live(ctx);
     CHECK_FALSE(live.open({.data_dir = dir.path.string()}));
     std::vector<std::string> log;
@@ -72,7 +72,7 @@ TEST_CASE("live: a missing default.dta fails to open, and says so") {
 TEST_CASE("live: a data file defines script functions with #autorun, redefined on reload") {
     test::ScratchDir dir("autorun");
     REQUIRE(test::write(dir.path / "default.dta", "#autorun {func live_test.f () 1}\n(a 1)"));
-    moira::Context ctx;
+    baker::Context ctx;
     base::Live live(ctx);
     REQUIRE(live.open({.data_dir = dir.path.string(), .watch = false}));
     auto f = ctx.eval("{live_test.f}");
@@ -89,12 +89,12 @@ TEST_CASE("live: a data file defines script functions with #autorun, redefined o
 TEST_CASE("live: changed is called after the load and each change, after #autorun") {
     test::ScratchDir dir("changed");
     REQUIRE(test::write(dir.path / "default.dta", "#autorun {func live_test.g () 3}\n(a 1)"));
-    moira::Context ctx;
+    baker::Context ctx;
     base::Live live(ctx);
     int calls = 0;
     int64_t a = 0, g = 0;
     REQUIRE(live.open(
-        {.data_dir = dir.path.string(), .watch = false, .changed = [&](const moira::Config& cfg) {
+        {.data_dir = dir.path.string(), .watch = false, .changed = [&](const baker::Config& cfg) {
              ++calls;
              a = cfg.root()->get<int64_t>("a").value_or(0);
              auto r = ctx.eval("{live_test.g}");  // #autorun has run

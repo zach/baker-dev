@@ -1,8 +1,8 @@
 #include "world.hpp"
 
-#include <moira/config.hpp>
-#include <moira/parse.hpp>
-#include <moira/std_interop.hpp>
+#include <baker/config.hpp>
+#include <baker/parse.hpp>
+#include <baker/std_interop.hpp>
 
 #include <doctest.h>
 
@@ -34,7 +34,7 @@ const char* kYard = R"(
 )";
 
 wayfarer::World world(const std::string& text) {
-    auto tree = moira::read_string(text);
+    auto tree = baker::read_string(text);
     REQUIRE(tree);
     wayfarer::World w;
     std::string error;
@@ -51,11 +51,11 @@ std::string replace(std::string s, const std::string& from, const std::string& t
 }  // namespace
 
 TEST_CASE("wayfarer: the shipped world proves: no softlocks, everything reachable") {
-    moira::Config cfg;
+    baker::Config cfg;
     cfg.session().set_pack_levels({"engine", "game", "task"});
     cfg.session().add_include_dir(WAYFARER_DATA);
     auto pushed = cfg.push_layer("default", WAYFARER_DATA "/default.dta");
-    REQUIRE_MESSAGE(pushed, (pushed ? "" : std::string(moira::to_string(pushed.error()))));
+    REQUIRE_MESSAGE(pushed, (pushed ? "" : std::string(baker::to_string(pushed.error()))));
     wayfarer::World w;
     std::string error;
     REQUIRE_MESSAGE(wayfarer::load(cfg.root(), w, error), error);

@@ -201,7 +201,7 @@ They agree with the rest of the record, but the skill does not attribute them:
 - **Criticism.** "Engine developers such as Vittorio Romeo" calling strict data-oriented
   design brittle. No source was given, so it is excluded.
 - **Coroutines.** Console engines override coroutine frame allocation or use fibers. This
-  is plausible and matches `moira-gaps.md` item 7, but no source was given.
+  is plausible and matches `baker-gaps.md` item 7, but no source was given.
 
 ## Peer practice, from general knowledge (not checked this session)
 

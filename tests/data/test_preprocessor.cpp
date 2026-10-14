@@ -1,14 +1,14 @@
 // Directives and macros: include, merge, conditionals, defines, autorun.
 #include <doctest.h>
-#include <moira/parse.hpp>
-#include <moira/std_interop.hpp>
-#include <moira/write.hpp>
+#include <baker/parse.hpp>
+#include <baker/std_interop.hpp>
+#include <baker/write.hpp>
 
 #include <algorithm>
 #include <map>
 #include <string>
 
-using namespace moira;
+using namespace baker;
 
 namespace {
 
@@ -375,10 +375,10 @@ TEST_CASE("packs carry harness metadata: owners, audience, stage (spec §1)") {
 
     fs.files["bad.dta"] = "(pack bad (level game) (stage finished))";
     CHECK(to_string(fs.fail("bad.dta")) ==
-          "moira: pack 'bad': (stage S) is genesis, custom, product, or commodity  (bad.dta:1)");
+          "baker: pack 'bad': (stage S) is genesis, custom, product, or commodity  (bad.dta:1)");
     fs.files["bad2.dta"] = "(pack bad2 (level game)\n(owners \"a\" 3))";
     CHECK(to_string(fs.fail("bad2.dta")) ==
-          "moira: pack 'bad2': (owners ...) lists names  (bad2.dta:2)");
+          "baker: pack 'bad2': (owners ...) lists names  (bad2.dta:2)");
 }
 
 TEST_CASE("a file's origin is recorded and left out of the tree (D91)") {
@@ -418,7 +418,7 @@ TEST_CASE("a file's origin is recorded and left out of the tree (D91)") {
     CHECK_FALSE(fs.session.origin_of(Symbol("d.dta")));
 
     fs.files["g.dta"] = "(origin \"a.xlsx\" (tool))";
-    CHECK(to_string(fs.fail("g.dta")) == "moira: write (origin \"source\" (tool name))  (g.dta:1)");
+    CHECK(to_string(fs.fail("g.dta")) == "baker: write (origin \"source\" (tool name))  (g.dta:1)");
 }
 
 TEST_CASE("a pack's level must be one of the session's") {

@@ -1,4 +1,4 @@
-# The Moira language
+# The Baker language
 
 This guide is the language as the person writing `.dta` files meets it: data, the
 preprocessor, packs and levels, shapes, script, and errors. The C++ side appears where
@@ -68,15 +68,15 @@ a value of the wrong type is still an error, because silently ignoring a mistype
 the failure located errors exist to prevent.
 
 ```cpp
-auto root = moira::read_file("menu.dta");                     // Expected<Ref<Array>>
+auto root = baker::read_file("menu.dta");                     // Expected<Ref<Array>>
 double price = *(*root)->get<double>("menu.'bacon and eggs'.price");
 int fat = *(*root)->get<int>("menu.'bacon and eggs'.fat", 0);  // absent: 0
-const moira::Array* eggs = (*root)->try_get("menu.'bacon and eggs'");   // null if absent
+const baker::Array* eggs = (*root)->try_get("menu.'bacon and eggs'");   // null if absent
 auto cals = eggs->find_int("calories");                       // one level, by tag
 ```
 
 `Convert<T>` teaches lookups your own types; vectors, fixed arrays, and
-`std::string` (with `<moira/std_interop.hpp>`) are built in. When an array has several
+`std::string` (with `<baker/std_interop.hpp>`) are built in. When an array has several
 children with the same tag, lookup finds the first; `subarrays()` visits them all.
 
 Every array remembers its file and line, so a value can always say where it came from.
@@ -165,7 +165,7 @@ A *pack* is a file that declares itself one, as its first form:
 ```
 
 The host names the levels, hardest first; a pack's level is its rank among them (the
-spec calls this its layer; Moira says *level*, because a Config's layers are its stack of
+spec calls this its layer; Baker says *level*, because a Config's layers are its stack of
 files, D80):
 
 ```cpp
@@ -188,7 +188,7 @@ evolved, from an idea to a commodity:
 `Pack` the session records, for tools and reports; nothing else depends on them.
 
 **The one-way rule.** A harder pack may not depend on a softer one: engine code does not
-reach into one task's harness. Moira warns, never fails, on two kinds of reach:
+reach into one task's harness. Baker warns, never fails, on two kinds of reach:
 
 - **Macros**, while reading: a pack's file expanding a macro that a softer pack defined
   is a warning in `session.warnings()`, once per file and macro, with file and line
@@ -197,7 +197,7 @@ reach into one task's harness. Moira warns, never fails, on two kinds of reach:
   softer pack's file is a warning in `CheckReport::warnings` (D83). Pass the session that
   read the files: through a Config, `read_session()`, which holds every layer's packs
   (D110), not `session()`, which each layer reads a copy of:
-  `moira::check(tree, ctx, report, {.packs = &cfg.read_session()})`.
+  `baker::check(tree, ctx, report, {.packs = &cfg.read_session()})`.
 
 Softer using harder is the point of the levels, and passes silently; so does everything
 in files that declare no pack, so a small project pays nothing. By convention a pack's
@@ -265,11 +265,11 @@ warning, so adding data never waits on its shape. Commands and variables are not
 their values are unknown until they run.
 
 ```cpp
-cfg.add_validator(moira::shape::validator());   // checked at every push, reload, and restore
+cfg.add_validator(baker::shape::validator());   // checked at every push, reload, and restore
 ```
 
 Through a Config, violations go to the warning handler; the load itself never fails on a
-shape. Elsewhere, `moira::shape::Set` reads the declarations and `moira::shape::check`
+shape. Elsewhere, `baker::shape::Set` reads the declarations and `baker::shape::check`
 checks a tree; `set.shapes()` enumerates them, with their metadata, for a tool to build
 panels from. Shapes are opt-in, and cost nothing unless checked.
 
@@ -302,8 +302,8 @@ not`). Ints stay ints (wrapping on overflow) until a float joins them; `{/ 7 2}`
 Everything else is what the host binds:
 
 ```cpp
-moira::Context ctx;
-ctx.func("spawn", [](moira::Symbol kind, int64_t count) { /* ... */ return count; });
+baker::Context ctx;
+ctx.func("spawn", [](baker::Symbol kind, int64_t count) { /* ... */ return count; });
 ctx.global("difficulty", 2, "Set by the game: 1 to 3.");
 ```
 
@@ -337,7 +337,7 @@ demand report. A script function may not replace a native one unless written
 
 ### Objects and classes
 
-A C++ type derived from `moira::Object<T>` binds methods and properties once, in a static
+A C++ type derived from `baker::Object<T>` binds methods and properties once, in a static
 `bind`, and is added to a Context by name:
 
 ```dta
@@ -382,18 +382,18 @@ A task captures, when it is made, the value of every bound variable it names, so
 made inside `{do (($n 5)) ...}` still sees `$n` after the `do` has returned. Each returns
 a handle for `{scheduler cancel $h}`. A task made in a handler ends when its `$this` object
 is removed. The host owns time: `ctx.scheduler().tick(dt)`, once a frame, in its own
-units. C++ tasks are coroutines on the same scheduler (`co_await moira::delay(t)`).
+units. C++ tasks are coroutines on the same scheduler (`co_await baker::delay(t)`).
 
 ### Checking before running
 
-`moira::check(tree, ctx)` walks data without evaluating anything and reports every call
+`baker::check(tree, ctx)` walks data without evaluating anything and reports every call
 with the wrong number of arguments for every overload, or a literal argument of the wrong
 type. Arguments that are commands or variables are skipped: their types are unknown until
 run. Its **demand report** lists the calls to functions nobody has written yet, and to
 stubs, with every site: the backlog the data is asking for.
 
 ```
-moira: 'spawn' takes 2 arguments, given 1  (rules.dta:11)
+baker: 'spawn' takes 2 arguments, given 1  (rules.dta:11)
 demand: 'play_sfx' is not defined, called at rules.dta:11
 ```
 
@@ -402,7 +402,7 @@ times across the trees given to one call, with every place. They are candidates 
 word of their own (a macro, a `{func}`, a shape). A macro's expansions share its arrays and
 count once, since a macro is a word already made, and a repetition inside a larger one is
 reported only where it also appears on its own. Give one call every file, so it can compare
-them; `moira::find_repeats(trees)` (`<moira/repeats.hpp>`) does the same without a Context.
+them; `baker::find_repeats(trees)` (`<baker/repeats.hpp>`) does the same without a Context.
 
 ```
 repeat: 3 times, 10 nodes: (enemy (hp 30) (speed 2) (loot coin)) at a.dta:2, b.dta:2, c.dta:5
@@ -416,7 +416,7 @@ runs its validators after each push, toggle, reload, and restore, and sends what
 to its warning handler (D102).
 
 ```cpp
-cfg.add_validator(moira::check_validator(ctx, {.packs = &cfg.read_session()}));
+cfg.add_validator(baker::check_validator(ctx, {.packs = &cfg.read_session()}));
 ```
 
 The validator reports errors and one-way warnings; the demand report, repeats, and
@@ -428,11 +428,11 @@ reference: the harness register.
 
 ## Errors
 
-Moira never throws: every call that can fail returns `Expected<T>` (D54), whose error is
+Baker never throws: every call that can fail returns `Expected<T>` (D54), whose error is
 a structured `Error`: a code, a message, and where it happened. Its one-line form is
 
 ```
-moira: 'price' is float, not int  (menu.dta:3, at menu/'bacon and eggs')
+baker: 'price' is float, not int  (menu.dta:3, at menu/'bacon and eggs')
 ```
 
 read as: what went wrong; the file and line of the array involved; and the path from the
@@ -443,7 +443,7 @@ An error raised in script also carries the script calls it unwound through, inne
 first. `describe(error)` prints them:
 
 ```
-moira: '%' by zero  (boss.dta:9)
+baker: '%' by zero  (boss.dta:9)
   in {%}  (boss.dta:9)
   in {bob attack}  (boss.dta:4)
 ```

@@ -1,14 +1,14 @@
 // Script tasks (spec §5, D67): delay_task, interp_task, and thread_task, each a coroutine
 // from its Scheduler's pool, so both sides share one tick.
 
-#include <moira/task.hpp>
+#include <baker/task.hpp>
 
 #include "common/containers.hpp"
 #include "internal.hpp"
 
 #include <algorithm>
 
-namespace moira {
+namespace baker {
 namespace {
 
 // A task keeps its captures in its frame, so making one allocates nothing.
@@ -251,4 +251,4 @@ void register_task_builtins(Context& ctx) {
     }
 }
 
-}  // namespace moira
+}  // namespace baker

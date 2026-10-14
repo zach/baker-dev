@@ -1,12 +1,12 @@
 #include "base/app.hpp"
 
-#include "console.hpp"  // Moira's examples/remote-console
-#include "panels.hpp"   // Moira's examples/harness-imgui
+#include "console.hpp"  // Baker's examples/remote-console
+#include "panels.hpp"   // Baker's examples/harness-imgui
 
 #include <SDL3/SDL.h>
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
-#include <moira/task.hpp>
+#include <baker/task.hpp>
 
 #include <cstdio>
 #include <cstdlib>
@@ -57,10 +57,10 @@ void place(float x, float y, float w, float h, bool collapsed = false) {
 
 // The edit-to-see time of the newest reload that changed something, in milliseconds;
 // negative if there is none yet.
-double last_edit_to_see_ms(const moira::Config& cfg, std::string& file) {
+double last_edit_to_see_ms(const baker::Config& cfg, std::string& file) {
     double ms = -1;
-    cfg.each_reload([&](const moira::ReloadRecord& r) {
-        if (r.outcome != moira::ReloadOutcome::Ok || r.origin_ns == 0 || r.files_reloaded == 0)
+    cfg.each_reload([&](const baker::ReloadRecord& r) {
+        if (r.outcome != baker::ReloadOutcome::Ok || r.origin_ns == 0 || r.files_reloaded == 0)
             return;
         const uint64_t seen = r.visible_ns ? r.visible_ns : r.end_ns;
         ms = seen > r.origin_ns ? static_cast<double>(seen - r.origin_ns) / 1e6 : 0;
@@ -83,7 +83,7 @@ struct Tools {
     // panels used less start collapsed.
     void draw(App& app) {
         place(0.01f, 0.08f, 0.28f, 0.50f);
-        harness::tweaks_panel(app.config(), moira::TweakRegistry::global(), tweaks);
+        harness::tweaks_panel(app.config(), baker::TweakRegistry::global(), tweaks);
         place(0.01f, 0.60f, 0.28f, 0.38f);
         harness::console_panel(app.context(), console);
         place(0.71f, 0.08f, 0.28f, 0.34f);
@@ -147,12 +147,12 @@ int run(Game& game, const AppOptions& options) {
     game.bind(app.ctx_);
     struct Unbind {
         Game& game;
-        moira::Context& ctx;
+        baker::Context& ctx;
         ~Unbind() { game.unbind(ctx); }
     } unbind{game, app.ctx_};
     const bool loaded =
         app.live_.open({.data_dir = options.data_dir,
-                        .changed = [&game](const moira::Config& c) { game.load(c); }});
+                        .changed = [&game](const baker::Config& c) { game.load(c); }});
     std::vector<std::string> log;
     if (app.live_.take_log(log))
         for (const std::string& line : log) std::fprintf(stderr, "%s\n", line.c_str());

@@ -1,6 +1,6 @@
 #pragma once
 
-// moira::script: evaluating commands, binding native functions, and variables.
+// baker::script: evaluating commands, binding native functions, and variables.
 //
 // Evaluation is lazy (spec §5). Running {f a b} looks up f's handler and hands it the raw
 // command; nothing evaluates `a` or `b` until the handler reads one by type. So `if`,
@@ -8,7 +8,7 @@
 // special forms. A parameter declared Raw<Node> is never evaluated unless the function
 // asks; every other parameter is evaluated, then converted through Convert<T>.
 //
-//   moira::Context ctx;
+//   baker::Context ctx;
 //   ctx.func("hypot", [](double a, double b) { return std::sqrt(a * a + b * b); });
 //   double h = ctx.eval("{hypot 3 4}").as_float();                   // 5
 //
@@ -21,20 +21,20 @@
 // it is the original design, and it is why reading $a is a single load. Do not "fix" it
 // into lexical scoping.
 //
-// Typed lookups in moira::data (find_int, get<T>, ...) evaluate a Command or Var value in
+// Typed lookups in baker::data (find_int, get<T>, ...) evaluate a Command or Var value in
 // the calling thread's current Context: the innermost Context::Scope, else the Context
 // being evaluated, else the first Context created on the thread.
 //
 // A Context is single-threaded. Separate Contexts may evaluate the same trees at once,
 // because evaluation never modifies a tree.
 
-#include <moira/array.hpp>
-#include <moira/clock.hpp>
-#include <moira/list.hpp>
-#include <moira/node.hpp>
-#include <moira/parse.hpp>
-#include <moira/repeats.hpp>
-#include <moira/text.hpp>
+#include <baker/array.hpp>
+#include <baker/clock.hpp>
+#include <baker/list.hpp>
+#include <baker/node.hpp>
+#include <baker/parse.hpp>
+#include <baker/repeats.hpp>
+#include <baker/text.hpp>
 
 #include <atomic>
 #include <concepts>
@@ -46,7 +46,7 @@
 #include <type_traits>
 #include <utility>
 
-namespace moira {
+namespace baker {
 
 class Context;
 class Scheduler;
@@ -586,7 +586,7 @@ private:
     void* f_;
 };
 
-// The result of moira::check (below).
+// The result of baker::check (below).
 struct CheckReport {
     struct Site {
         Symbol file;
@@ -618,12 +618,12 @@ struct CheckOptions {
 };
 
 // Writes the report: errors, warnings, the demand report, repeats, then findings, one each.
-// <moira/std_interop.hpp> has to_string(report).
+// <baker/std_interop.hpp> has to_string(report).
 void write(const CheckReport& report, TextSink out);
-// Writes the report as one JSON object, schema "moira.check/1" (docs/check-json.md): the
+// Writes the report as one JSON object, schema "baker.check/1" (docs/check-json.md): the
 // same data as write(), every list in an order that depends only on the data, so two runs
 // over the same files give the same bytes. Given the session, it lists its packs and their
-// harness metadata too. <moira/std_script.hpp> has to_json(report).
+// harness metadata too. <baker/std_script.hpp> has to_json(report).
 void write_json(const CheckReport& report, TextSink out, const LoadSession* packs = nullptr);
 
 // What one function, or one script handler of a {class}, has cost (spec §5, "Call
@@ -744,7 +744,7 @@ public:
     [[nodiscard]] List<StackEntry> backtrace() const;
     [[nodiscard]] StackEntry stack_entry(const CallFrame& frame) const;
 
-    // --- Call statistics and tracing. Development aids: under MOIRA_SHIPPING they are
+    // --- Call statistics and tracing. Development aids: under BAKER_SHIPPING they are
     // compiled out, stats() is empty, and the switches do nothing. ---
 
     // Calls are always counted (one increment each). Timing them takes two clock reads per
@@ -771,7 +771,7 @@ public:
     void set_notice_sink(NoticeSink sink, void* user) noexcept;
     void notice(const Error& notice) const;
 
-    // Makes a Context current on this thread for typed lookups in moira::data.
+    // Makes a Context current on this thread for typed lookups in baker::data.
     class Scope {
     public:
         explicit Scope(Context& ctx) noexcept;
@@ -827,7 +827,7 @@ void check(const Array& tree, const Context& ctx, CheckReport& report,
 check_validator(const Context& ctx, const CheckOptions& options = {});
 
 // Writes the script reference (spec §5): every function with its overloads, tier, status,
-// and documentation, and every documented global, as Markdown. <moira/std_interop.hpp>
+// and documentation, and every documented global, as Markdown. <baker/std_interop.hpp>
 // has reference(ctx) returning a string.
 // Given the session that loaded the data, it adds the harness register: a Packs section
 // (each pack's level, requires, owners, audience, stage, and file) and an Origins section
@@ -892,4 +892,4 @@ Expected<T> Args::get_slow(size_t i) const {
     return out;
 }
 
-}  // namespace moira
+}  // namespace baker

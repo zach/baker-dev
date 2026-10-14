@@ -1,6 +1,6 @@
-#include <moira/config.hpp>
-#include <moira/tweak.hpp>
-#include <moira/write.hpp>
+#include <baker/config.hpp>
+#include <baker/tweak.hpp>
+#include <baker/write.hpp>
 
 #include "common/containers.hpp"
 
@@ -8,7 +8,7 @@
 
 #include <optional>
 
-namespace moira {
+namespace baker {
 namespace {
 
 constinit TweakRegistry g_registry;
@@ -141,7 +141,7 @@ void TweakBase::on_change(Callback<void()> callback) {
 Expected<void> TweakBase::set_values(std::span<const Node> values) {
     if constexpr (kShipping)
         return Unexpected(
-            make_error(ErrorCode::Refused, "live edits are disabled under MOIRA_SHIPPING"));
+            make_error(ErrorCode::Refused, "live edits are disabled under BAKER_SHIPPING"));
     const Values v(values, nullptr);
     if (!assign(v, false)) {
         Str text;
@@ -232,4 +232,4 @@ std::string_view TweakBase::group() const {
     return cut == std::string_view::npos ? std::string_view() : p.substr(0, cut);
 }
 
-}  // namespace moira
+}  // namespace baker

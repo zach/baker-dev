@@ -1,10 +1,10 @@
 // Lookup: find by tag, typed reads, fallbacks, paths, Convert<T>, sorted mode, errors.
 #include <doctest.h>
-#include <moira/array.hpp>
-#include <moira/parse.hpp>
-#include <moira/path.hpp>
-#include <moira/std_interop.hpp>
-#include <moira/write.hpp>
+#include <baker/array.hpp>
+#include <baker/parse.hpp>
+#include <baker/path.hpp>
+#include <baker/std_interop.hpp>
+#include <baker/write.hpp>
 
 #include "alloc_counter.hpp"
 
@@ -15,7 +15,7 @@
 #include <string>
 #include <vector>
 
-using namespace moira;
+using namespace baker;
 
 namespace {
 
@@ -50,7 +50,7 @@ struct Vec2 {
 }  // namespace
 
 template <>
-struct moira::Convert<Vec2> {
+struct baker::Convert<Vec2> {
     static constexpr std::string_view name = "vec2";
     static bool from(const Values& v, Vec2& out) {
         return v.size() == 2 && v.read(0, out.x) && v.read(1, out.y);
@@ -149,18 +149,18 @@ TEST_CASE("errors carry key, types, location, and path") {
     Error e = error_of(root->get<int>("menu.'bacon and eggs'.price"));
     CHECK(e.code() == ErrorCode::Type);
     CHECK(to_string(e) ==
-          "moira: 'price' is float, not int  (menu.dta:3, at menu/'bacon and eggs')");
+          "baker: 'price' is float, not int  (menu.dta:3, at menu/'bacon and eggs')");
 
     // Through a chain of finds, only the array's own tag is known.
     e = error_of(eggs.find_int("price"));
-    CHECK(to_string(e) == "moira: 'price' is float, not int  (menu.dta:3, at 'bacon and eggs')");
+    CHECK(to_string(e) == "baker: 'price' is float, not int  (menu.dta:3, at 'bacon and eggs')");
 
     e = error_of(eggs.find_int("fat"));
     CHECK(e.code() == ErrorCode::NotFound);
-    CHECK(to_string(e) == "moira: 'fat' not found  (menu.dta:2, at 'bacon and eggs')");
+    CHECK(to_string(e) == "baker: 'fat' not found  (menu.dta:2, at 'bacon and eggs')");
 
     e = error_of(root->get<double>("menu.waffles.price"));
-    CHECK(to_string(e) == "moira: 'waffles' not found  (menu.dta:1, at menu)");
+    CHECK(to_string(e) == "baker: 'waffles' not found  (menu.dta:1, at menu)");
 
     e = error_of(eggs.find_sym("price"));
     CHECK(e.message() == "'price' is float, not symbol");
@@ -184,14 +184,14 @@ TEST_CASE("errors carry key, types, location, and path") {
     CHECK(error_of(empty->find_int("nothing")).message() == "'nothing' has no value");
 }
 
-TEST_CASE("commands and variables need moira::script to be read as values") {
+TEST_CASE("commands and variables need baker::script to be read as values") {
     auto root = menu_root();
     const Array& fruit = *root->try_get("menu.'fruit and cereal'");
     Error e = error_of(fruit.find_str("on_order"));
-    CHECK(e.message() == "'on_order' is a command; reading it as a value needs moira::script");
+    CHECK(e.message() == "'on_order' is a command; reading it as a value needs baker::script");
     CHECK(e.line() == 9);
     e = error_of(fruit.find_int("count"));
-    CHECK(e.message() == "'count' is a var; reading it as a value needs moira::script");
+    CHECK(e.message() == "'count' is a var; reading it as a value needs baker::script");
     // Raw access never evaluates.
     CHECK(fruit.try_find("on_order")->values()[0].type() == Type::Command);
     CHECK(fruit.find<Node>("count")->type() == Type::Var);
@@ -282,10 +282,10 @@ TEST_CASE("paths walk names and indexes") {
     Error e = error_of(root.get<double>("renderer.clear_color.3"));
     CHECK(e.code() == ErrorCode::NotFound);
     CHECK(to_string(e) ==
-          "moira: element 3 is out of range (3 values)  (cfg.dta:1, at renderer/clear_color)");
+          "baker: element 3 is out of range (3 values)  (cfg.dta:1, at renderer/clear_color)");
     e = error_of(root.get<Symbol>("renderer.clear_color.1"));
     CHECK(to_string(e) ==
-          "moira: element 1 is float, not symbol  (cfg.dta:1, at renderer/clear_color)");
+          "baker: element 1 is float, not symbol  (cfg.dta:1, at renderer/clear_color)");
     e = error_of(root.get<int>("renderer.clear_color.0.x"));
     CHECK(e.code() == ErrorCode::NotFound);
     CHECK(e.path() == "renderer/clear_color/0");
@@ -418,7 +418,7 @@ TEST_CASE("typed reads with fallbacks, and their errors") {
     REQUIRE_FALSE(wrong);
     CHECK(wrong.error().code() == ErrorCode::Type);
     CHECK(to_string(wrong.error()) ==
-          "moira: 'price' is float, not int  (menu.dta:3, at 'bacon and eggs')");
+          "baker: 'price' is float, not int  (menu.dta:3, at 'bacon and eggs')");
     CHECK_FALSE(menu.find_array("waffles"));
     CHECK_FALSE(eggs.find_int("price", 0));  // present, wrong type
     CHECK_FALSE(root->get<int>("menu.'bacon and eggs'.price"));
@@ -429,7 +429,7 @@ TEST_CASE("typed reads with fallbacks, and their errors") {
 
 TEST_CASE("the corpus config reads through lookups") {
     LoadSession s;
-    auto app = read_file(std::string(MOIRA_CORPUS_DIR) + "/config_app.dta", s);
+    auto app = read_file(std::string(BAKER_CORPUS_DIR) + "/config_app.dta", s);
     REQUIRE(app);
     const Array& cfg = **app;
     CHECK(cfg.get<Vec2>("renderer.screen_size")->x == 1920);  // the app's override
@@ -461,13 +461,13 @@ TEST_CASE("a Path holds its segments inline, up to kMaxSegments") {
 }
 
 TEST_CASE("the tag run follows set(), sorting, and the documented re-tag rule (D77)") {
-    auto root = moira::read_string("(a 1) (b 2) 7 (c 3) ()", "run.dta");
+    auto root = baker::read_string("(a 1) (b 2) 7 (c 3) ()", "run.dta");
     REQUIRE(root);
     Array& r = *const_cast<Array*>(root->get());
     CHECK(r.try_find("b") == r[1].array());
     CHECK(r.try_find("zz") == nullptr);
     // set() replaces a child, and its tag.
-    r.set(1, Node(Array::make_copy((*moira::read_string("(z 9)"))->nodes()[0].array()->nodes())));
+    r.set(1, Node(Array::make_copy((*baker::read_string("(z 9)"))->nodes()[0].array()->nodes())));
     CHECK(r.try_find("b") == nullptr);
     REQUIRE(r.try_find("z"));
     CHECK((*r.try_find("z"))[1].try_int() == 9);

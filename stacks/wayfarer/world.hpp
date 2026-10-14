@@ -19,8 +19,8 @@
 
 #include <base/nav.hpp>
 
-#include <moira/array.hpp>
-#include <moira/config.hpp>
+#include <baker/array.hpp>
+#include <baker/config.hpp>
 
 #include <cstdint>
 #include <string>
@@ -62,7 +62,7 @@ enum class Fact : uint8_t { AtPoi, Flag, HasItem, MissionDone, Other };
 struct Goal {
     Fact fact = Fact::Other;
     int target = -1;      // a poi, flag, item, or mission
-    moira::Node command;  // as written: the game evaluates it
+    baker::Node command;  // as written: the game evaluates it
 };
 
 struct Objective {
@@ -111,7 +111,7 @@ struct World {
     std::vector<std::string> items, flags;
     std::vector<Ability> abilities;
     std::vector<Mission> missions;
-    moira::Ref<moira::Array> tree;  // keeps the goal commands alive
+    baker::Ref<baker::Array> tree;  // keeps the goal commands alive
 
     [[nodiscard]] int poi(const std::string& name) const;
     [[nodiscard]] int item(const std::string& name) const;
@@ -125,7 +125,7 @@ struct World {
 // Reads (wayfarer ...), (world ...), (items ...), (abilities ...), (cells ...), (pois ...),
 // and every (missions ...) (one per region file). False, with the reason, on a name that is
 // not defined or a world too large for the analyses (64 items, flags, or missions).
-[[nodiscard]] bool load(const moira::Ref<moira::Array>& root, World& out, std::string& error);
+[[nodiscard]] bool load(const baker::Ref<baker::Array>& root, World& out, std::string& error);
 
 // The navigation geometry of cell `c` and what overlaps its tile: its blocks, a ground slab,
 // the climb links of its climbable blocks (up to climb_max), its drops, and its glides that

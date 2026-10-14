@@ -1,8 +1,8 @@
 // The printer: spelling of every value, layout, and the round-trip guarantee.
 #include <doctest.h>
-#include <moira/parse.hpp>
-#include <moira/std_interop.hpp>
-#include <moira/write.hpp>
+#include <baker/parse.hpp>
+#include <baker/std_interop.hpp>
+#include <baker/write.hpp>
 
 #include "text.hpp"
 
@@ -15,7 +15,7 @@
 #include <random>
 #include <string>
 
-using namespace moira;
+using namespace baker;
 
 namespace {
 Ref<Array> parse(std::string_view text) {
@@ -42,9 +42,9 @@ TEST_CASE("atoms print in their reparseable spelling") {
     CHECK(to_string(Node(0.1)) == "0.1");
     CHECK(to_string(Node(0.1f)) == "0.10000000149011612");  // a float widened exactly
     // A float a script function returns reads as its shortest decimal; zero keeps its sign.
-    CHECK(moira::detail::float_to_decimal_double(0.1f) == 0.1);
-    CHECK(Node(moira::detail::float_to_decimal_double(0.0f)).float_bits() == 0);
-    CHECK(Node(moira::detail::float_to_decimal_double(-0.0f)).float_bits() == 0x8000000000000000u);
+    CHECK(baker::detail::float_to_decimal_double(0.1f) == 0.1);
+    CHECK(Node(baker::detail::float_to_decimal_double(0.0f)).float_bits() == 0);
+    CHECK(Node(baker::detail::float_to_decimal_double(-0.0f)).float_bits() == 0x8000000000000000u);
     CHECK(to_string(Node(int64_t{INT64_MIN})) == "-9223372036854775808");
     CHECK(to_string(Node(Symbol("price"))) == "price");
     CHECK(to_string(Node(Symbol("bacon and eggs"))) == "'bacon and eggs'");
@@ -157,7 +157,7 @@ TEST_CASE("printing round-trips random trees") {
 }
 
 TEST_CASE("write_file writes the file form") {
-    const auto path = (std::filesystem::temp_directory_path() / "moira_write_test.dta").string();
+    const auto path = (std::filesystem::temp_directory_path() / "baker_write_test.dta").string();
     auto root = parse("(a 1) (b \"two\")");
     REQUIRE(write_file(path, *root).has_value());
     auto back = read_file(path);

@@ -1,31 +1,31 @@
 #pragma once
 
-// moira::expected / moira::unexpected: std::expected when the standard library has it,
-// otherwise a minimal shim with the subset of the interface Moira uses.
+// baker::expected / baker::unexpected: std::expected when the standard library has it,
+// otherwise a minimal shim with the subset of the interface Baker uses.
 //
-// Compiled Moira functions return Expected<T>, so the library and every translation unit
+// Compiled Baker functions return Expected<T>, so the library and every translation unit
 // using it must make the same choice. CMake decides once, when configuring the library,
-// and exports MOIRA_STD_EXPECTED=0/1 to consumers (docs/decisions.md D21). Without it,
+// and exports BAKER_STD_EXPECTED=0/1 to consumers (docs/decisions.md D21). Without it,
 // the choice follows the current translation unit.
 
 #include <version>
 
 #if defined(__cpp_lib_expected) && __cpp_lib_expected >= 202202L
-#define MOIRA_LIB_HAS_STD_EXPECTED 1
+#define BAKER_LIB_HAS_STD_EXPECTED 1
 #else
-#define MOIRA_LIB_HAS_STD_EXPECTED 0
+#define BAKER_LIB_HAS_STD_EXPECTED 0
 #endif
 
-#if defined(MOIRA_STD_EXPECTED)
-#if MOIRA_STD_EXPECTED && !MOIRA_LIB_HAS_STD_EXPECTED
-#error "moira was built with std::expected (C++23); compile this code as C++23 too"
+#if defined(BAKER_STD_EXPECTED)
+#if BAKER_STD_EXPECTED && !BAKER_LIB_HAS_STD_EXPECTED
+#error "baker was built with std::expected (C++23); compile this code as C++23 too"
 #endif
-#define MOIRA_HAS_STD_EXPECTED MOIRA_STD_EXPECTED
+#define BAKER_HAS_STD_EXPECTED BAKER_STD_EXPECTED
 #else
-#define MOIRA_HAS_STD_EXPECTED MOIRA_LIB_HAS_STD_EXPECTED
+#define BAKER_HAS_STD_EXPECTED BAKER_LIB_HAS_STD_EXPECTED
 #endif
 
-#if MOIRA_HAS_STD_EXPECTED
+#if BAKER_HAS_STD_EXPECTED
 #include <expected>
 #else
 #include <new>
@@ -35,9 +35,9 @@
 
 #include <cstdlib>
 
-namespace moira {
+namespace baker {
 
-#if MOIRA_HAS_STD_EXPECTED
+#if BAKER_HAS_STD_EXPECTED
 
 template <class T, class E>
 using expected = std::expected<T, E>;
@@ -191,4 +191,4 @@ private:
 
 #endif
 
-}  // namespace moira
+}  // namespace baker

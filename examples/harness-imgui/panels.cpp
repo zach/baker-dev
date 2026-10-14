@@ -1,6 +1,6 @@
 #include "panels.hpp"
 
-#include <moira/std_script.hpp>
+#include <baker/std_script.hpp>
 
 #include <imgui.h>
 
@@ -14,43 +14,43 @@ namespace {
 
 // A Path from a std::string: Path takes a string_view, and two implicit conversions
 // are one too many.
-moira::Path path_of(const std::string& s) {
-    return moira::Path(std::string_view(s));
+baker::Path path_of(const std::string& s) {
+    return baker::Path(std::string_view(s));
 }
 
-std::string error_text(const moira::Error& e) {
-    return std::string(moira::to_string(e));
+std::string error_text(const baker::Error& e) {
+    return std::string(baker::to_string(e));
 }
 
-std::string file_name(moira::Symbol file) {
+std::string file_name(baker::Symbol file) {
     std::string f(file.str());
     const size_t slash = f.find_last_of("/\\");
     return slash == std::string::npos ? f : f.substr(slash + 1);
 }
 
 // Shows `path`'s provenance as a tooltip while the last item is hovered.
-void hover_provenance(const moira::Config& cfg, std::string_view path) {
+void hover_provenance(const baker::Config& cfg, std::string_view path) {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
         ImGui::SetTooltip("%s", provenance(cfg, path).c_str());
 }
 
 // A tweak's values as numbers, if every one is a number.
-bool numbers(const moira::TweakBase& t, std::vector<double>& out, bool& ints) {
-    moira::ValueList list;
+bool numbers(const baker::TweakBase& t, std::vector<double>& out, bool& ints) {
+    baker::ValueList list;
     t.values(list);
     out.clear();
     ints = true;
-    for (const moira::Node& n : list.nodes()) {
+    for (const baker::Node& n : list.nodes()) {
         auto v = n.try_float();
         if (!v) return false;
-        if (n.type() != moira::Type::Int) ints = false;
+        if (n.type() != baker::Type::Int) ints = false;
         out.push_back(*v);
     }
     return !out.empty() && out.size() <= 4;
 }
 
 // One widget for a tweak's numbers; true if the user changed them.
-bool number_widget(const char* label, std::vector<double>& v, bool ints, moira::TweakRange range,
+bool number_widget(const char* label, std::vector<double>& v, bool ints, baker::TweakRange range,
                    std::string_view kind) {
     float f[4] = {};
     for (size_t i = 0; i < v.size(); ++i) f[i] = static_cast<float>(v[i]);
@@ -76,24 +76,24 @@ bool number_widget(const char* label, std::vector<double>& v, bool ints, moira::
     return changed;
 }
 
-moira::TweakBase* find_tweak(moira::TweakRegistry& tweaks, std::string_view path) {
-    moira::TweakBase* found = nullptr;
-    tweaks.each([&](moira::TweakBase& t) {
+baker::TweakBase* find_tweak(baker::TweakRegistry& tweaks, std::string_view path) {
+    baker::TweakBase* found = nullptr;
+    tweaks.each([&](baker::TweakBase& t) {
         if (t.path() == path) found = &t;
     });
     return found;
 }
 
-std::string written(const moira::WriteReport& r) {
+std::string written(const baker::WriteReport& r) {
     std::string s = "saved:";
-    for (const moira::WrittenLine& w : r.written)
+    for (const baker::WrittenLine& w : r.written)
         s += " " + file_name(w.file) + ":" + std::to_string(w.line);
     return s;
 }
 
 }  // namespace
 
-std::string provenance(const moira::Config& cfg, std::string_view path) {
+std::string provenance(const baker::Config& cfg, std::string_view path) {
     auto s = cfg.source(path);
     if (!s) return error_text(s.error());
     std::string text;
@@ -112,10 +112,10 @@ std::string provenance(const moira::Config& cfg, std::string_view path) {
 
 // --- Tweaks ---
 
-void tweaks_panel(moira::Config& cfg, moira::TweakRegistry& tweaks, TweaksState& state) {
+void tweaks_panel(baker::Config& cfg, baker::TweakRegistry& tweaks, TweaksState& state) {
     if (ImGui::Begin("Tweaks")) {
         std::string group;
-        tweaks.each([&](moira::TweakBase& t) {
+        tweaks.each([&](baker::TweakBase& t) {
             if (t.group() != group) {
                 group = std::string(t.group());
                 ImGui::SeparatorText(group.c_str());
@@ -128,10 +128,10 @@ void tweaks_panel(moira::Config& cfg, moira::TweakRegistry& tweaks, TweaksState&
                 if (number_widget(label.c_str(), v, ints, t.range(), t.kind()))
                     state.request = {TweaksState::Request::Set, label, v};
             } else {
-                moira::ValueList list;
+                baker::ValueList list;
                 t.values(list);
                 std::string text;
-                for (const moira::Node& n : list.nodes()) text += moira::to_string(n) + " ";
+                for (const baker::Node& n : list.nodes()) text += baker::to_string(n) + " ";
                 ImGui::LabelText(label.c_str(), "%s", text.c_str());
             }
             hover_provenance(cfg, t.path());
@@ -162,7 +162,7 @@ void tweaks_panel(moira::Config& cfg, moira::TweakRegistry& tweaks, TweaksState&
     if (!state.request) return;
     const TweaksState::Request r = std::move(*state.request);
     state.request.reset();
-    moira::TweakBase* t = find_tweak(tweaks, r.path);
+    baker::TweakBase* t = find_tweak(tweaks, r.path);
     if (!t) {
         state.status = "no tweak " + r.path;
         return;
@@ -173,9 +173,9 @@ void tweaks_panel(moira::Config& cfg, moira::TweakRegistry& tweaks, TweaksState&
             std::vector<double> old;
             bool ints = false;
             numbers(*t, old, ints);
-            moira::ValueList list;
+            baker::ValueList list;
             for (double d : r.values)
-                list.push(ints ? moira::Node(static_cast<int64_t>(d)) : moira::Node(d));
+                list.push(ints ? baker::Node(static_cast<int64_t>(d)) : baker::Node(d));
             auto set = t->set_values(list.nodes());
             state.status = set ? "" : error_text(set.error());
             break;
@@ -203,7 +203,7 @@ void tweaks_panel(moira::Config& cfg, moira::TweakRegistry& tweaks, TweaksState&
 namespace {
 
 // A path segment, quoted if it needs to be.
-std::string segment(moira::Symbol s) {
+std::string segment(baker::Symbol s) {
     std::string out(s.str());
     if (out.find_first_of("./ '") != std::string::npos ||
         out.find_first_not_of("0123456789") == std::string::npos)
@@ -211,7 +211,7 @@ std::string segment(moira::Symbol s) {
     return out;
 }
 
-bool at_matches(const moira::shape::Shape& shape, const std::vector<moira::Symbol>& ancestors) {
+bool at_matches(const baker::shape::Shape& shape, const std::vector<baker::Symbol>& ancestors) {
     if (shape.at.empty()) return true;
     if (shape.at.size() != ancestors.size()) return false;
     for (size_t i = 0; i < ancestors.size(); ++i)
@@ -220,19 +220,19 @@ bool at_matches(const moira::shape::Shape& shape, const std::vector<moira::Symbo
 }
 
 struct ShapeWalk {
-    moira::Config& cfg;
-    const moira::shape::Set& set;
+    baker::Config& cfg;
+    const baker::shape::Set& set;
     ShapesState& state;
-    std::vector<moira::Symbol> tags;  // ancestors' tags, from the root
+    std::vector<baker::Symbol> tags;  // ancestors' tags, from the root
     std::string path;                 // the same, as a dotted path
 
-    void field(const moira::Array& a, const moira::shape::Field& f) {
+    void field(const baker::Array& a, const baker::shape::Field& f) {
         const std::string p = path + "." + segment(f.name);
-        const moira::Array* child = a.try_find(f.name);
+        const baker::Array* child = a.try_find(f.name);
         ImGui::PushID(p.c_str());
         const std::string label(f.name.str());
-        const moira::Node* value = child && child->size() > 1 ? &(*child)[1] : nullptr;
-        using T = moira::shape::Type;
+        const baker::Node* value = child && child->size() > 1 ? &(*child)[1] : nullptr;
+        using T = baker::shape::Type;
         const bool numeric = value && value->try_float() &&
                              (f.type == T::Int || f.type == T::Float || f.type == T::Bool);
         if (numeric && f.type == T::Bool) {
@@ -252,7 +252,7 @@ struct ShapeWalk {
                          : ImGui::DragFloat(label.c_str(), &x, 0.01f);
             if (changed) state.request = {ShapesState::Request::Set, p, x};
         } else {
-            std::string text = value ? moira::to_string(*value) : "(missing)";
+            std::string text = value ? baker::to_string(*value) : "(missing)";
             ImGui::LabelText(label.c_str(), "%s", text.c_str());
         }
         if (child) hover_provenance(cfg, p);
@@ -262,7 +262,7 @@ struct ShapeWalk {
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("%.*s", int(f.desc.size()), f.desc.data());
         }
-        auto src = child ? cfg.source(path_of(p)) : moira::Expected<moira::Source>(moira::Source{});
+        auto src = child ? cfg.source(path_of(p)) : baker::Expected<baker::Source>(baker::Source{});
         if (child && src && src->layer == "scratch") {
             ImGui::SameLine();
             if (ImGui::SmallButton("Save")) state.request = {ShapesState::Request::Save, p, 0};
@@ -270,9 +270,9 @@ struct ShapeWalk {
         ImGui::PopID();
     }
 
-    void walk(const moira::Array& a) {
-        for (const moira::Array& sub : a.subarrays()) {
-            const moira::Array* child = &sub;
+    void walk(const baker::Array& a) {
+        for (const baker::Array& sub : a.subarrays()) {
+            const baker::Array* child = &sub;
             if (child->empty()) continue;
             auto tag = (*child)[0].try_sym();
             if (!tag || *tag == "shapes") continue;
@@ -280,9 +280,9 @@ struct ShapeWalk {
             if (a.try_find(*tag) != child) continue;
             const size_t len = path.size();
             path += (path.empty() ? "" : ".") + segment(*tag);
-            if (const moira::shape::Shape* s = set.find(*tag); s && at_matches(*s, tags)) {
+            if (const baker::shape::Shape* s = set.find(*tag); s && at_matches(*s, tags)) {
                 if (ImGui::TreeNode(path.c_str())) {
-                    for (const moira::shape::Field& f : s->fields) field(*child, f);
+                    for (const baker::shape::Field& f : s->fields) field(*child, f);
                     ImGui::TreePop();
                 }
             }
@@ -296,11 +296,11 @@ struct ShapeWalk {
 
 }  // namespace
 
-void shapes_panel(moira::Config& cfg, ShapesState& state) {
-    moira::Ref<moira::Array> root = cfg.root();
+void shapes_panel(baker::Config& cfg, ShapesState& state) {
+    baker::Ref<baker::Array> root = cfg.root();
     if (ImGui::Begin("Shapes")) {
-        moira::shape::Set set;
-        moira::shape::Report report;
+        baker::shape::Set set;
+        baker::shape::Report report;
         set.add(*root, report);
         if (set.shapes().empty()) ImGui::TextDisabled("No (shapes ...) in the data.");
         ShapeWalk{cfg, set, state, {}, {}}.walk(*root);
@@ -313,10 +313,10 @@ void shapes_panel(moira::Config& cfg, ShapesState& state) {
     state.request.reset();
     if (r.kind == ShapesState::Request::Set) {
         // An int field stays an int.
-        const moira::Node old = root->get<moira::Node>(path_of(r.path)).value_or(moira::Node());
-        const moira::Node value = old.type() == moira::Type::Int
-                                      ? moira::Node(static_cast<int64_t>(r.value))
-                                      : moira::Node(r.value);
+        const baker::Node old = root->get<baker::Node>(path_of(r.path)).value_or(baker::Node());
+        const baker::Node value = old.type() == baker::Type::Int
+                                      ? baker::Node(static_cast<int64_t>(r.value))
+                                      : baker::Node(r.value);
         auto set = cfg.set(r.path, value);
         state.status = set ? "" : error_text(set.error());
     } else {
@@ -327,7 +327,7 @@ void shapes_panel(moira::Config& cfg, ShapesState& state) {
 
 // --- Console ---
 
-void console_panel(moira::Context& ctx, ConsoleState& state) {
+void console_panel(baker::Context& ctx, ConsoleState& state) {
     if (ImGui::Begin("Console")) {
         const float footer = ImGui::GetFrameHeightWithSpacing();
         if (ImGui::BeginChild("log", ImVec2(0, -footer))) {
@@ -354,9 +354,9 @@ void console_panel(moira::Context& ctx, ConsoleState& state) {
     state.log.push_back("> " + line);
     auto r = ctx.eval(line, "<console>");
     if (r) {
-        state.log.push_back("=> " + moira::to_string(*r));
+        state.log.push_back("=> " + baker::to_string(*r));
     } else {
-        std::string text(moira::describe(r.error()));
+        std::string text(baker::describe(r.error()));
         for (size_t start = 0, end; start < text.size(); start = end + 1) {
             end = text.find('\n', start);
             if (end == std::string::npos) end = text.size();
@@ -367,9 +367,9 @@ void console_panel(moira::Context& ctx, ConsoleState& state) {
 
 // --- Loop ---
 
-void loop_panel(const moira::Config& cfg) {
+void loop_panel(const baker::Config& cfg) {
     if (ImGui::Begin("Loop")) {
-        if constexpr (moira::kShipping) {
+        if constexpr (baker::kShipping) {
             ImGui::TextDisabled("Reload telemetry is compiled out of shipping builds.");
         } else {
             static const ImU32 kColors[6] = {
@@ -378,7 +378,7 @@ void loop_panel(const moira::Config& cfg) {
                 IM_COL32(230, 140, 80, 255),  IM_COL32(210, 90, 120, 255)};
             // Per file and per layer: edit-to-see (from a saved edit to the frame showing it)
             // and reload time, median and worst of the last 32 (D92).
-            const moira::LoopStats stats = cfg.loop_stats();
+            const baker::LoopStats stats = cfg.loop_stats();
             ImGui::Text("%u reloads, %u unchanged, %u failed", stats.reloads, stats.unchanged,
                         stats.failures);
             auto ms = [](uint64_t ns) { return double(ns) / 1e6; };
@@ -388,8 +388,8 @@ void loop_panel(const moira::Config& cfg) {
                      {"file or layer", "reloads", "failed", "edit to see", "reload", ""})
                     ImGui::TableSetupColumn(h);
                 ImGui::TableHeadersRow();
-                auto rows = [&](const moira::List<moira::LoopRow>& list, bool files) {
-                    for (const moira::LoopRow& r : list) {
+                auto rows = [&](const baker::List<baker::LoopRow>& list, bool files) {
+                    for (const baker::LoopRow& r : list) {
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn();
                         const std::string name =
@@ -421,10 +421,10 @@ void loop_panel(const moira::Config& cfg) {
             ImGui::Separator();
             ImGui::TextDisabled("scan read parse merge bind notify; newest first");
             // A host that polls for changes makes a record per check; show the changes.
-            std::vector<const moira::ReloadRecord*> records;
+            std::vector<const baker::ReloadRecord*> records;
             size_t unchanged = 0;
-            cfg.each_reload([&](const moira::ReloadRecord& r) {
-                if (r.outcome == moira::ReloadOutcome::Unchanged)
+            cfg.each_reload([&](const baker::ReloadRecord& r) {
+                if (r.outcome == baker::ReloadOutcome::Unchanged)
                     ++unchanged;
                 else
                     records.push_back(&r);
@@ -435,12 +435,12 @@ void loop_panel(const moira::Config& cfg) {
             const float width = std::max(ImGui::GetContentRegionAvail().x - 220.0f, 50.0f);
             for (auto it = records.rbegin(); it != records.rend() && it - records.rbegin() < 32;
                  ++it) {
-                const moira::ReloadRecord& r = **it;
+                const baker::ReloadRecord& r = **it;
                 const uint64_t stages[6] = {r.scan_ns,  r.read_ns, r.parse_ns,
                                             r.merge_ns, r.bind_ns, r.notify_ns};
-                const char* outcome = r.outcome == moira::ReloadOutcome::ParseError
+                const char* outcome = r.outcome == baker::ReloadOutcome::ParseError
                                           ? " (parse error)"
-                                      : r.outcome == moira::ReloadOutcome::Refused ? " (refused)"
+                                      : r.outcome == baker::ReloadOutcome::Refused ? " (refused)"
                                                                                    : "";
                 ImGui::Text("%-10s %7.2f ms%s", r.trigger.c_str(),
                             double(r.end_ns - r.start_ns) / 1e6, outcome);
@@ -477,50 +477,50 @@ void loop_panel(const moira::Config& cfg) {
 // --- Journal ---
 
 namespace {
-std::string values_text(const moira::Node* nodes, uint32_t count) {
+std::string values_text(const baker::Node* nodes, uint32_t count) {
     if (count == 0) return "(none)";
     std::string s;
     for (uint32_t i = 0; i < std::min<uint32_t>(count, 4); ++i)
-        s += (i ? " " : "") + moira::to_string(nodes[i]);
+        s += (i ? " " : "") + baker::to_string(nodes[i]);
     if (count > 4) s += " ...";
     return s;
 }
 }  // namespace
 
-std::string journal_line(const moira::JournalEntry& e) {
+std::string journal_line(const baker::JournalEntry& e) {
     std::string s = std::string(e.path.str()) + "  " + values_text(e.before, e.before_count) +
                     " -> " + values_text(e.after, e.after_count) + "  (";
     s += e.source.file.empty() ? std::string(e.source.layer.str())
                                : file_name(e.source.file) + ":" + std::to_string(e.source.line);
     s += ")  ";
     switch (e.fate) {
-        case moira::EditFate::Unsaved: s += "unsaved"; break;
-        case moira::EditFate::Superseded: s += "superseded"; break;
-        case moira::EditFate::Reverted: s += "reverted"; break;
-        case moira::EditFate::Written:
+        case baker::EditFate::Unsaved: s += "unsaved"; break;
+        case baker::EditFate::Superseded: s += "superseded"; break;
+        case baker::EditFate::Reverted: s += "reverted"; break;
+        case baker::EditFate::Written:
             s += "written " + file_name(e.written.file) + ":" + std::to_string(e.written.line);
             break;
     }
     return s;
 }
 
-void journal_panel(const moira::Config& cfg) {
+void journal_panel(const baker::Config& cfg) {
     if (ImGui::Begin("Journal")) {
-        std::vector<const moira::JournalEntry*> entries;
-        cfg.journal([&](const moira::JournalEntry& e) { entries.push_back(&e); });
+        std::vector<const baker::JournalEntry*> entries;
+        cfg.journal([&](const baker::JournalEntry& e) { entries.push_back(&e); });
         size_t unsaved = 0, written = 0;
         for (const auto* e : entries) {
-            unsaved += e->fate == moira::EditFate::Unsaved;
-            written += e->fate == moira::EditFate::Written;
+            unsaved += e->fate == baker::EditFate::Unsaved;
+            written += e->fate == baker::EditFate::Written;
         }
         // Discoveries kept against discoveries at risk: what write-back is for.
         ImGui::Text("%zu edits: %zu written, %zu unsaved", entries.size(), written, unsaved);
         ImGui::Separator();
         for (auto it = entries.rbegin(); it != entries.rend(); ++it) {
-            const moira::JournalEntry& e = **it;
+            const baker::JournalEntry& e = **it;
             const std::string line = journal_line(e);
-            const ImVec4 color = e.fate == moira::EditFate::Unsaved   ? ImVec4(1, 0.8f, 0.3f, 1)
-                                 : e.fate == moira::EditFate::Written ? ImVec4(0.5f, 0.9f, 0.5f, 1)
+            const ImVec4 color = e.fate == baker::EditFate::Unsaved   ? ImVec4(1, 0.8f, 0.3f, 1)
+                                 : e.fate == baker::EditFate::Written ? ImVec4(0.5f, 0.9f, 0.5f, 1)
                                                                       : ImVec4(0.6f, 0.6f, 0.6f, 1);
             ImGui::TextColored(color, "%s", line.c_str());
         }
@@ -530,8 +530,8 @@ void journal_panel(const moira::Config& cfg) {
 
 // --- Layers ---
 
-void layers_panel(moira::Config& cfg, LayersState& state) {
-    const std::vector<std::string> names = moira::strings(cfg.layers());
+void layers_panel(baker::Config& cfg, LayersState& state) {
+    const std::vector<std::string> names = baker::strings(cfg.layers());
     if (ImGui::Begin("Layers")) {
         ImGui::TextDisabled("bottom to top; hover a value for where it comes from");
         for (auto it = names.rbegin(); it != names.rend(); ++it) {
@@ -543,11 +543,11 @@ void layers_panel(moira::Config& cfg, LayersState& state) {
             if (ImGui::TreeNode(name.c_str())) {
                 if (auto effect = cfg.layer_effect(name)) {
                     if (effect->empty()) ImGui::TextDisabled("changes nothing");
-                    for (const moira::LayerEffectEntry& e : *effect) {
+                    for (const baker::LayerEffectEntry& e : *effect) {
                         ImGui::Text("%s%s: %s -> %s", e.shadowed ? "(shadowed) " : "",
                                     e.path.c_str(),
-                                    e.below ? moira::to_string(*e.below).c_str() : "(none)",
-                                    moira::to_string(e.value).c_str());
+                                    e.below ? baker::to_string(*e.below).c_str() : "(none)",
+                                    baker::to_string(e.value).c_str());
                         hover_provenance(cfg, e.path.str());
                     }
                 } else {
@@ -587,12 +587,12 @@ void layers_panel(moira::Config& cfg, LayersState& state) {
         if (!r) {
             state.report.push_back(error_text(r.error()));
         } else if (!r->ok()) {
-            for (const moira::Error& e : r->refused)
+            for (const baker::Error& e : r->refused)
                 state.report.push_back("refused: " + error_text(e));
         } else {
             state.report.push_back("promoted " + state.promote->from + " into " +
                                    state.promote->to);
-            for (const moira::WrittenLine& w : r->written)
+            for (const baker::WrittenLine& w : r->written)
                 state.report.push_back("  " + file_name(w.file) + ":" + std::to_string(w.line));
         }
         state.promote.reset();
@@ -601,7 +601,7 @@ void layers_panel(moira::Config& cfg, LayersState& state) {
 
 // --- Snapshots ---
 
-void snapshots_panel(moira::Config& cfg, SnapshotsState& state) {
+void snapshots_panel(baker::Config& cfg, SnapshotsState& state) {
     if (ImGui::Begin("Snapshots")) {
         if (ImGui::Button("Capture A")) state.request = SnapshotsState::CaptureA;
         ImGui::SameLine();

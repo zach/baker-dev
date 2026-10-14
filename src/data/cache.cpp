@@ -2,7 +2,7 @@
 // the file, after a block header, is the tree's arena block, so loading is one read into
 // one allocation, then one pass that turns offsets into pointers.
 
-#include <moira/cache.hpp>
+#include <baker/cache.hpp>
 
 #include "arena.hpp"
 #include "common/containers.hpp"
@@ -14,7 +14,7 @@
 #include <cstdio>
 #include <cstring>
 
-namespace moira {
+namespace baker {
 namespace detail {
 
 // What the format relies on in the layouts of Node and Array.
@@ -245,9 +245,9 @@ Unexpected bad(std::string_view name, std::string_view why, ErrorCode code = Err
 Expected<Ref<Array>> load(char* file, size_t bytes, std::string_view name, const Cipher* cipher,
                           const Array*& meta) {
     Header h{};
-    if (bytes < sizeof h) return bad(name, "is not a Moira cache");
+    if (bytes < sizeof h) return bad(name, "is not a Baker cache");
     std::memcpy(&h, file, sizeof h);
-    if (std::memcmp(h.magic, kMagic, sizeof kMagic) != 0) return bad(name, "is not a Moira cache");
+    if (std::memcmp(h.magic, kMagic, sizeof kMagic) != 0) return bad(name, "is not a Baker cache");
     if (h.version != kVersion)
         return bad(name,
                    "is a cache of format version " + decimal(h.version) +
@@ -654,4 +654,4 @@ Expected<Ref<Array>> read_cached(std::string_view text_path, std::string_view ca
     }
 }
 
-}  // namespace moira
+}  // namespace baker

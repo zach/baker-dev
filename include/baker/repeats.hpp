@@ -5,7 +5,7 @@
 // (a macro, a script function, a shape): the harness tree's "third time" rule, computed
 // rather than noticed.
 //
-//   auto repeats = moira::find_repeats(trees);   // List<Repeat>
+//   auto repeats = baker::find_repeats(trees);   // List<Repeat>
 //
 // Arrays, commands, and properties are compared structurally (node types and values,
 // recursively), after macro expansion and ignoring file and line. Reported: every subtree
@@ -16,15 +16,15 @@
 //
 // A tool, not a runtime path: it hashes every subtree, and allocates freely.
 
-#include <moira/array.hpp>
-#include <moira/list.hpp>
-#include <moira/node.hpp>
-#include <moira/symbol.hpp>
+#include <baker/array.hpp>
+#include <baker/list.hpp>
+#include <baker/node.hpp>
+#include <baker/symbol.hpp>
 
 #include <cstdint>
 #include <span>
 
-namespace moira {
+namespace baker {
 
 struct RepeatOptions {
     uint32_t min_nodes = 6;    // the smallest subtree reported, in nodes: (price 12.75) is 2
@@ -47,4 +47,4 @@ struct Repeat {
                                         const RepeatOptions& options = {});
 [[nodiscard]] List<Repeat> find_repeats(const Array& tree, const RepeatOptions& options = {});
 
-}  // namespace moira
+}  // namespace baker

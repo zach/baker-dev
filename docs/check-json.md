@@ -1,15 +1,15 @@
-# `check`'s JSON output: schema `moira.check/1`
+# `check`'s JSON output: schema `baker.check/1`
 
-`moira::write_json(report, sink, &session)` (or `to_json(report, &session)` with
-`<moira/std_script.hpp>`) writes a `CheckReport` as one JSON object, so a studio can keep it
+`baker::write_json(report, sink, &session)` (or `to_json(report, &session)` with
+`<baker/std_script.hpp>`) writes a `CheckReport` as one JSON object, so a studio can keep it
 as a build artifact and diff it from one milestone to the next (spec §5, D95). The text form
 (`write(report, sink)`) holds the same data for people.
 
 ```cpp
-moira::CheckReport report;
-const moira::Array* trees[] = {game.get(), level.get()};
-moira::check(trees, ctx, report, {.packs = &cfg.read_session()});
-std::ofstream("check.json") << moira::to_json(report, &cfg.read_session());
+baker::CheckReport report;
+const baker::Array* trees[] = {game.get(), level.get()};
+baker::check(trees, ctx, report, {.packs = &cfg.read_session()});
+std::ofstream("check.json") << baker::to_json(report, &cfg.read_session());
 ```
 
 `tests/script/check_expected.json` is a complete example, checked byte for byte by the test
@@ -20,12 +20,12 @@ suite.
 - **The same data gives the same bytes.** Every list is sorted by its data alone (below);
   nothing depends on memory addresses, hash order, or time.
 - **Files are named as the loads named them.** A path given relative to the working
-  directory stays relative; Moira adds no absolute paths.
+  directory stays relative; Baker adds no absolute paths.
 - **Formatting:** UTF-8, two-space indentation, one list entry per line, a newline at the
   end. Strings escape `"`, `\`, and control characters (`\n`, `\t`, `\u00XX`); other
   characters are written as they are. Numbers are integers.
-- **Versioning.** `schema` is `moira.check/MAJOR` while the minor version is 0, then
-  `moira.check/MAJOR.MINOR`. A field is only ever added with a new minor version, which old
+- **Versioning.** `schema` is `baker.check/MAJOR` while the minor version is 0, then
+  `baker.check/MAJOR.MINOR`. A field is only ever added with a new minor version, which old
   readers can ignore; a field is removed or renamed, or its meaning changed, only with a new
   major version.
 
@@ -33,7 +33,7 @@ suite.
 
 | Field | Type | Contents |
 |---|---|---|
-| `schema` | string | `"moira.check/1"` |
+| `schema` | string | `"baker.check/1"` |
 | `errors` | list of problems | calls with the wrong arguments for every overload |
 | `warnings` | list of problems | the one-way rule: a harder pack calling a softer one's function (D83) |
 | `demand` | list of demands | functions and methods called but not defined, or stubs |

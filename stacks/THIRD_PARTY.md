@@ -1,7 +1,7 @@
 # Third-party code in the stacks
 
 Fetched by CMake at configure time, at pinned releases (`cmake/dependencies.cmake`);
-nothing is vendored. Moira's own (`../THIRD_PARTY.md`) applies as well.
+nothing is vendored. Baker's own (`../THIRD_PARTY.md`) applies as well.
 
 | Component | Version | License | Used for |
 |-----------|---------|---------|----------|

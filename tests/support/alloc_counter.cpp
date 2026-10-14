@@ -5,10 +5,10 @@
 #include <new>
 
 #if defined(__SANITIZE_THREAD__)
-#define MOIRA_TSAN 1
+#define BAKER_TSAN 1
 #elif defined(__has_feature)
 #if __has_feature(thread_sanitizer)
-#define MOIRA_TSAN 1
+#define BAKER_TSAN 1
 #endif
 #endif
 
@@ -16,19 +16,19 @@ namespace {
 std::atomic<size_t> g_allocations{0};
 }  // namespace
 
-size_t moira::test::allocations() noexcept {
+size_t baker::test::allocations() noexcept {
     return g_allocations.load(std::memory_order_relaxed);
 }
 
-#if defined(MOIRA_TSAN)
+#if defined(BAKER_TSAN)
 
-bool moira::test::counting_allocations() noexcept {
+bool baker::test::counting_allocations() noexcept {
     return false;
 }
 
 #else
 
-bool moira::test::counting_allocations() noexcept {
+bool baker::test::counting_allocations() noexcept {
     return true;
 }
 

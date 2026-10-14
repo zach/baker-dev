@@ -1,10 +1,10 @@
 // M10: harness instrumentation (spec §4, §10; docs/decisions.md D90): loop statistics and
 // the edit journal, and the repetition report.
 #include <doctest.h>
-#include <moira/config.hpp>
-#include <moira/parse.hpp>
-#include <moira/repeats.hpp>
-#include <moira/std_interop.hpp>
+#include <baker/config.hpp>
+#include <baker/parse.hpp>
+#include <baker/repeats.hpp>
+#include <baker/std_interop.hpp>
 
 #include "alloc_counter.hpp"
 #include "temp_dir.hpp"
@@ -12,8 +12,8 @@
 #include <string>
 #include <vector>
 
-using namespace moira;
-using moira::test::TempDir;
+using namespace baker;
+using baker::test::TempDir;
 
 namespace {
 
@@ -42,7 +42,7 @@ struct FakeClock {
 
 }  // namespace
 
-#if !MOIRA_SHIPPING
+#if !BAKER_SHIPPING
 TEST_CASE(
     "loop statistics: edit-to-see per file and per layer, to the reload's end, then to "
     "mark_visible") {
@@ -285,8 +285,8 @@ TEST_CASE("the journal is a ring, and an edit on set's fast path allocates nothi
 }
 #endif
 
-#if MOIRA_SHIPPING
-TEST_CASE("under MOIRA_SHIPPING loop statistics are empty and mark_visible does nothing") {
+#if BAKER_SHIPPING
+TEST_CASE("under BAKER_SHIPPING loop statistics are empty and mark_visible does nothing") {
     TempDir dir;
     Config cfg({.tweaks = nullptr});
     REQUIRE(cfg.push_layer("d", dir.write("d.dta", "(a 1)\n")));

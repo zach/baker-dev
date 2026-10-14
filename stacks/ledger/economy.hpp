@@ -3,12 +3,12 @@
 // plays it with. One tick is one in-game day. No window and no script here: the game
 // evaluates the data's commands (unlocks, milestones) and calls in.
 //
-// Money is an int64 count of coins (Moira's integers are 64-bit, so late-game balances fit
+// Money is an int64 count of coins (Baker's integers are 64-bit, so late-game balances fit
 // in data and script); prices are doubles. A run is a function of the data and the seed.
 #pragma once
 
+#include <baker/array.hpp>
 #include <base/rng.hpp>
-#include <moira/array.hpp>
 
 #include <cstdint>
 #include <string>
@@ -31,7 +31,7 @@ struct Building {
     std::vector<int> inputs;  // goods consumed per batch, one entry per unit
     int output = -1;          // the good one batch makes (one unit)
     int rate = 1;             // batches a day
-    moira::Node unlock;       // a command, or a number (0: locked)
+    baker::Node unlock;       // a command, or a number (0: locked)
     bool has_unlock = false;  // false: unlocked from the start
 };
 
@@ -47,7 +47,7 @@ struct Strategy {
 
 struct Milestone {
     std::string name, desc;
-    moira::Node when;  // a command; true once reached
+    baker::Node when;  // a command; true once reached
     int target_day = 0;
 };
 
@@ -63,7 +63,7 @@ struct Economy {
     std::vector<Building> buildings;
     std::vector<Strategy> strategies;
     std::vector<Milestone> milestones;
-    moira::Ref<moira::Array> tree;  // keeps the commands alive
+    baker::Ref<baker::Array> tree;  // keeps the commands alive
 
     [[nodiscard]] int good(const std::string& name) const;
     [[nodiscard]] int building(const std::string& name) const;
@@ -72,7 +72,7 @@ struct Economy {
 
 // Reads (goods ...), (buildings ...), (strategies ...), and (milestones ...) from the merged
 // data. False, with the reason, on a recipe naming no good or a malformed recipe.
-[[nodiscard]] bool load(const moira::Ref<moira::Array>& root, Economy& out, std::string& error);
+[[nodiscard]] bool load(const baker::Ref<baker::Array>& root, Economy& out, std::string& error);
 
 struct Company {
     std::string name;

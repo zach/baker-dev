@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Checks that Moira's public headers reach only the standard headers D55 allows.
+"""Checks that Baker's public headers reach only the standard headers D55 allows.
 
-Walks each header's #include closure among include/moira/ and reports every standard
+Walks each header's #include closure among include/baker/ and reports every standard
 header reached outside the allow-list, with the chain that reaches it. Opt-in interop
 headers named std_*.hpp are exempt: a host includes them only when it wants the STL.
 Exits 1 if anything is reported, so CTest can run it.
@@ -11,7 +11,7 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-INCLUDE = ROOT / "include" / "moira"
+INCLUDE = ROOT / "include" / "baker"
 ALLOWED = {
     # language support and trivial C headers
     "cstddef", "cstdint", "climits", "cstdlib", "cstring", "cassert", "type_traits",
@@ -39,8 +39,8 @@ def main():
                 continue
             seen.add(h)
             for inc in includes(h):
-                if inc.startswith("moira/"):
-                    stack.append((INCLUDE / inc[len("moira/"):], chain + [inc[len("moira/"):]]))
+                if inc.startswith("baker/"):
+                    stack.append((INCLUDE / inc[len("baker/"):], chain + [inc[len("baker/"):]]))
                 elif inc not in ALLOWED:
                     bad.setdefault(inc, " -> ".join(chain))
         for inc, chain in sorted(bad.items()):

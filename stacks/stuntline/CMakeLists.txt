@@ -3,7 +3,7 @@
 #   stacks_stuntline        the game, and its agent commands (stacks/agent.md)
 add_library(stacks_stuntline_race STATIC race.cpp)
 target_include_directories(stacks_stuntline_race PUBLIC .)
-target_link_libraries(stacks_stuntline_race PUBLIC stacks_physics moira::moira)
+target_link_libraries(stacks_stuntline_race PUBLIC stacks_physics baker::baker)
 stacks_target(stacks_stuntline_race)
 stacks_deterministic(stacks_stuntline_race)
 

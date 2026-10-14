@@ -1,11 +1,11 @@
-#include <moira/allocator.hpp>
-#include <moira/error.hpp>
+#include <baker/allocator.hpp>
+#include <baker/error.hpp>
 
 #include "common/containers.hpp"
 
 #include <charconv>
 
-namespace moira {
+namespace baker {
 
 namespace detail {
 struct ErrorRecord {
@@ -129,11 +129,11 @@ Error make_error(ErrorCode code, std::string_view message, Symbol file, int32_t 
 }
 
 std::string_view to_string(const Error& e) {
-    if (!e.r_) return "moira: no error";
+    if (!e.r_) return "baker: no error";
     detail::ErrorRecord& r = *e.r_;
     if (!r.text.empty()) return r.text;
     Str& out = r.text;
-    out = "moira: ";
+    out = "baker: ";
     out += r.message;
     const bool has_file = !r.file.empty();
     const bool has_path = !r.path.empty();
@@ -190,4 +190,4 @@ std::string_view describe(const Error& e) {
     return r.described;
 }
 
-}  // namespace moira
+}  // namespace baker

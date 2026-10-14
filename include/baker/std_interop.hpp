@@ -2,18 +2,18 @@
 
 // Opt-in interop with the C++ standard library, for hosts that use it.
 //
-// Moira's other public headers reach only language-support headers and the non-allocating
+// Baker's other public headers reach only language-support headers and the non-allocating
 // vocabulary types (string_view, span, optional, expected; docs/decisions.md D55), so an
 // engine that bans the STL can include them. This header is the exception, by name: it
-// includes the standard containers, and nothing else in Moira includes it.
+// includes the standard containers, and nothing else in Baker includes it.
 
-#include <moira/array.hpp>
-#include <moira/error.hpp>
-#include <moira/list.hpp>
-#include <moira/path.hpp>
-#include <moira/symbol.hpp>
-#include <moira/text.hpp>
-#include <moira/write.hpp>
+#include <baker/array.hpp>
+#include <baker/error.hpp>
+#include <baker/list.hpp>
+#include <baker/path.hpp>
+#include <baker/symbol.hpp>
+#include <baker/text.hpp>
+#include <baker/write.hpp>
 
 #include <array>
 #include <cstddef>
@@ -22,11 +22,11 @@
 #include <vector>
 
 template <>
-struct std::hash<moira::Symbol> {
-    size_t operator()(moira::Symbol s) const noexcept { return static_cast<size_t>(s.hash()); }
+struct std::hash<baker::Symbol> {
+    size_t operator()(baker::Symbol s) const noexcept { return static_cast<size_t>(s.hash()); }
 };
 
-namespace moira {
+namespace baker {
 
 // A TextSink that appends to `s`.
 inline TextSink string_out(std::string& s) {
@@ -118,4 +118,4 @@ inline std::vector<std::string> strings(const List<Symbol>& symbols) {
     return out;
 }
 
-}  // namespace moira
+}  // namespace baker

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sends Moira commands to a running stack game's remote console and prints the replies.
+"""Sends Baker commands to a running stack game's remote console and prints the replies.
 
     python3 stacks/tools/console.py "{cube.angle}" "{cube.reset}"
     python3 stacks/tools/console.py --port 4555 < commands.dta     # one command per line

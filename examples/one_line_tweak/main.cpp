@@ -8,17 +8,17 @@
 // config.dta if the file sets it, reloads when the file changes, and can be tuned live and
 // saved back to the file.
 //
-//   moira_example_one_line_tweak [config.dta] [--watch]
+//   baker_example_one_line_tweak [config.dta] [--watch]
 //
 // With --watch, edit config.dta while it runs and the new width prints.
-#include <moira/config.hpp>
+#include <baker/config.hpp>
 
 #include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <thread>
 
-static moira::Tweak<float> kBoxWidth{
+static baker::Tweak<float> kBoxWidth{
     "box.width", 2.0f, {.range = {0, 10}, .step = 1, .desc = "Box width"}};
 
 namespace {
@@ -41,9 +41,9 @@ int main(int argc, char** argv) {
     std::printf("before loading: ");
     show();  // the default: no config yet
 
-    moira::Config cfg;
+    baker::Config cfg;
     if (auto r = cfg.load(path); !r) {
-        std::fprintf(stderr, "%s\n", moira::to_string(r.error()).data());
+        std::fprintf(stderr, "%s\n", baker::to_string(r.error()).data());
         return 1;
     }
     std::printf("after loading:  ");
@@ -56,7 +56,7 @@ int main(int argc, char** argv) {
     while (watch) {
         std::this_thread::sleep_for(std::chrono::milliseconds(250));
         if (auto r = cfg.reload(); !r)
-            std::fprintf(stderr, "%s\n", moira::to_string(r.error()).data());
+            std::fprintf(stderr, "%s\n", baker::to_string(r.error()).data());
     }
     return 0;
 }

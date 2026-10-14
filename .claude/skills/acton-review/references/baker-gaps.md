@@ -1,4 +1,4 @@
-# Moira under the data-oriented lens: known gaps
+# Baker under the data-oriented lens: known gaps
 
 **Status, 2026-10-13, after D100: no open gaps.** First audited 2026-10-11 at M6 step 1
 (`23f4142`); the audit's reasoning for each closed gap is in its D-entries. Sizes are GCC
@@ -17,7 +17,7 @@ or accepted as a deviation, record it in `docs/decisions.md` and update this fil
 | 8, exceptions | throwing forms removed entirely (D54) | **done** (D59) |
 | 9, `Error` size | `Error` becomes a handle (D55) | **done** (D60) |
 | 10, tooling in the core | accepted as a standing rule; link flags documented (D100) | **done** |
-| 11, the STL in public headers | header-only vocabulary types only (D60); `MOIRA_USE_EASTL` inside (D62) | **done** |
+| 11, the STL in public headers | header-only vocabulary types only (D60); `BAKER_USE_EASTL` inside (D62) | **done** |
 | 12, the reload history under polling | loop statistics keep their own samples (D90 Q1, D92) | **done** |
 
 ## Already aligned (keep it that way)
@@ -28,17 +28,17 @@ or accepted as a deviation, record it in `docs/decisions.md` and update this fil
   indexed by `Symbol::index()` (D44). No hashing on dispatch.
 - Lazy evaluation means no temporary argument lists and no allocation per call. Calls,
   methods, messages, task steps, and `get`/`set` are proven allocation-free by
-  `alloc_counter` tests; `moira_alloc_tests` fails if a Context or Config reaches
+  `alloc_counter` tests; `baker_alloc_tests` fails if a Context or Config reaches
   `operator new`.
 - `Tweak<float>` reads compile to one relaxed load, checked by a codegen test.
-- No RTTI is needed (D49), and `MOIRA_SHIPPING` builds run in CI. (Exceptions are
+- No RTTI is needed (D49), and `BAKER_SHIPPING` builds run in CI. (Exceptions are
   gone entirely: D54, D59.)
 - Object references are salted handles into a flat slot table (D4, D19), not pointers.
 - Every performance decision carries before/after numbers from the same machine (D47,
   D51, D52, D77, D78).
 - Tools share the core's libraries, and cost a game nothing it does not call: no tool adds
   a field to a hot structure, runtime state for tools compiles out under
-  `MOIRA_SHIPPING`, and a shipped game links 0 bytes of `check`, JSON, the reference, or
+  `BAKER_SHIPPING`, and a shipped game links 0 bytes of `check`, JSON, the reference, or
   `find_repeats`, and 4.8 KB of tooling with `--gc-sections` (D100). Flag a hot struct
   that gains a field only tools use, or a tool the runtime starts to reference.
 
@@ -77,7 +77,7 @@ One line each; the D-entries hold the measurements.
 6. **Objects carry a vtable and a side table (hot).** Loose parameters come from the
    Context's allocator and leave with the object (D98). The vtable costs a cold message
    about 26 instructions and 5 ns; removing it changes how every game object is declared
-   and destroyed, so accepted (D100). `handle_all` takes the caller's span: Moira never
+   and destroyed, so accepted (D100). `handle_all` takes the caller's span: Baker never
    iterates objects itself.
 10. **Tooling in the core (tool).** Accepted as a standing rule, now under "Already
    aligned": a minimal shipping game links 41.5 KB of tooling with default flags and 4.8

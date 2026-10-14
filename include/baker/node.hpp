@@ -1,6 +1,6 @@
 #pragma once
 
-// Node: the 16-byte tagged value every Moira tree is made of.
+// Node: the 16-byte tagged value every Baker tree is made of.
 //
 //   Type      Syntax              Payload
 //   Int       42  -7  0x1F        int64_t
@@ -8,11 +8,11 @@
 //   Symbol    price  'odd sym'    interned Symbol
 //   String    "bacon"             Ref<String>
 //   Array     ( ... )             Ref<Array>
-//   Command   { ... }             Ref<Array>; evaluated when read as a value (moira::script)
-//   Property  [ ... ]             Ref<Array>; property-path lookup (moira::script)
-//   Var       $name               variable name; bound to a slot by moira::script
-//   Func      -                   native function record (moira::script)
-//   Object    -                   64-bit salted object handle (moira::script)
+//   Command   { ... }             Ref<Array>; evaluated when read as a value (baker::script)
+//   Property  [ ... ]             Ref<Array>; property-path lookup (baker::script)
+//   Var       $name               variable name; bound to a slot by baker::script
+//   Func      -                   native function record (baker::script)
+//   Object    -                   64-bit salted object handle (baker::script)
 //
 // Numbers are stored at 64 bits, which costs nothing: the payload is 8 bytes anyway
 // because it holds pointers (docs/decisions.md D18). as<int32_t>(), as<float>() and other
@@ -23,9 +23,9 @@
 // error. An int always reads as a float (rounded beyond 2^53); a float reads as an int
 // only if it is integral and in range.
 
-#include <moira/error.hpp>
-#include <moira/ref.hpp>
-#include <moira/symbol.hpp>
+#include <baker/error.hpp>
+#include <baker/ref.hpp>
+#include <baker/symbol.hpp>
 
 #include <bit>
 #include <cassert>
@@ -37,7 +37,7 @@
 #include <type_traits>
 #include <utility>
 
-namespace moira {
+namespace baker {
 
 class Array;
 
@@ -56,9 +56,9 @@ enum class Type : uint8_t {
 
 [[nodiscard]] std::string_view type_name(Type type) noexcept;
 
-// Reference to an object owned by a moira::script Context: 32 bits of table index and 32
+// Reference to an object owned by a baker::script Context: 32 bits of table index and 32
 // bits of salt, the layout of Unreal's FWeakObjectPtr (docs/decisions.md D19). Opaque to
-// moira::data, which can store, copy, and compare it but never resolve it.
+// baker::data, which can store, copy, and compare it but never resolve it.
 struct ObjectHandle {
     uint64_t bits = 0;
 
@@ -74,8 +74,8 @@ struct ObjectHandle {
     friend constexpr bool operator==(ObjectHandle, ObjectHandle) noexcept = default;
 };
 
-// The part of a native function record moira::data needs: its name, so a Func node can be
-// printed. moira::script's handler records extend this.
+// The part of a native function record baker::data needs: its name, so a Func node can be
+// printed. baker::script's handler records extend this.
 struct FuncRecord {
     Symbol name;
 };
@@ -303,7 +303,7 @@ public:
         return type_ == Type::Float ? std::bit_cast<uint64_t>(value_.f) : 0;
     }
 
-    // 24 spare bits, reserved for moira::script (resolved-handler generation; see
+    // 24 spare bits, reserved for baker::script (resolved-handler generation; see
     // docs/decisions.md D5). Copied with the node; ignored by equality and printing.
     [[nodiscard]] uint32_t aux() const noexcept {
         return static_cast<uint32_t>(aux_[0]) | (static_cast<uint32_t>(aux_[1]) << 8) |
@@ -350,4 +350,4 @@ private:
 static_assert(sizeof(Node) == 16, "Node must stay 16 bytes");
 static_assert(alignof(Node) == 8, "Node must be 8-byte aligned");
 
-}  // namespace moira
+}  // namespace baker

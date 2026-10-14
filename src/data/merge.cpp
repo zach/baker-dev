@@ -5,7 +5,7 @@
 
 #include <optional>
 
-namespace moira {
+namespace baker {
 namespace detail {
 namespace {
 
@@ -115,4 +115,4 @@ Ref<Array> merge(const Array& base, const Array& over, MergePolicy policy) {
     return Array::make_from(nodes, base.file(), base.line());
 }
 
-}  // namespace moira
+}  // namespace baker

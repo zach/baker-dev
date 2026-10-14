@@ -1,13 +1,13 @@
-#include <moira/allocator.hpp>
+#include <baker/allocator.hpp>
 
 #include <atomic>
 #include <cstdlib>
 #include <new>
 
-namespace moira {
+namespace baker {
 namespace {
 
-// Moira never asks for more than the default alignment of new, so free() needs no
+// Baker never asks for more than the default alignment of new, so free() needs no
 // alignment to pick the matching delete.
 void* new_alloc(void*, size_t size, size_t align) {
     if (align > __STDCPP_DEFAULT_NEW_ALIGNMENT__) std::abort();
@@ -55,4 +55,4 @@ void default_free(void* p, size_t size) noexcept {
 }
 
 }  // namespace detail
-}  // namespace moira
+}  // namespace baker

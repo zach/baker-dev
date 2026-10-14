@@ -1,6 +1,6 @@
 #pragma once
 
-// moira::shape (spec §6, docs/decisions.md D84): the expected structure of a data domain,
+// baker::shape (spec §6, docs/decisions.md D84): the expected structure of a data domain,
 // declared in data, by whichever layer owns the vocabulary.
 //
 //   (shapes
@@ -22,49 +22,49 @@
 // warning, so adding data never requires touching its shape first. Commands and variables
 // are not checked: their values are unknown until run.
 //
-//   cfg.add_validator(moira::shape::validator());   // reported at every load and reload
+//   cfg.add_validator(baker::shape::validator());   // reported at every load and reload
 //
 // Shapes are opt-in: unshaped data works everywhere. The library depends only on
-// moira::data.
+// baker::data.
 
-#include <moira/array.hpp>
-#include <moira/config.hpp>
-#include <moira/error.hpp>
-#include <moira/list.hpp>
-#include <moira/symbol.hpp>
+#include <baker/array.hpp>
+#include <baker/config.hpp>
+#include <baker/error.hpp>
+#include <baker/list.hpp>
+#include <baker/symbol.hpp>
 
 #include <cstdint>
 #include <span>
 #include <string_view>
 
-namespace moira::shape {
+namespace baker::shape {
 
 enum class Type : uint8_t { Any, Int, Float, Bool, Symbol, String, List, Shape };
 
 struct Field {
-    moira::Symbol name;
+    baker::Symbol name;
     Type type = Type::Any;
     Type element = Type::Any;  // a List's elements
-    moira::Symbol shape;       // a Shape's, or a List of shapes', name
+    baker::Symbol shape;       // a Shape's, or a List of shapes', name
     bool optional = false;
     bool ranged = false;
     double min = 0, max = 0;
     double step = 0;  // 0: none
-    moira::Symbol kind;
+    baker::Symbol kind;
     std::string_view desc, note;  // in the declaration, which the Set keeps
-    moira::Symbol file;
+    baker::Symbol file;
     int32_t line = 0;
 };
 
 struct Shape {
-    moira::Symbol name;
-    List<moira::Symbol> at;  // ancestors' tags from the root; empty: anywhere
+    baker::Symbol name;
+    List<baker::Symbol> at;  // ancestors' tags from the root; empty: anywhere
     bool keyed = false;      // governs every child at `at`, whatever its tag
     List<Field> fields;
-    moira::Symbol file;
+    baker::Symbol file;
     int32_t line = 0;
 
-    [[nodiscard]] const Field* field(moira::Symbol field_name) const noexcept;
+    [[nodiscard]] const Field* field(baker::Symbol field_name) const noexcept;
 };
 
 struct Report {
@@ -89,7 +89,7 @@ public:
     // would. A malformed declaration is an error in `report`.
     void add(const Array& tree, Report& report);
     [[nodiscard]] std::span<const Shape> shapes() const noexcept;
-    [[nodiscard]] const Shape* find(moira::Symbol name) const noexcept;
+    [[nodiscard]] const Shape* find(baker::Symbol name) const noexcept;
 
     struct State;
 
@@ -103,4 +103,4 @@ void check(const Array& tree, const Set& shapes, Report& report);
 // against them, reporting errors and warnings to the warning handler.
 [[nodiscard]] Config::Validator validator();
 
-}  // namespace moira::shape
+}  // namespace baker::shape

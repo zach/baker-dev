@@ -2,7 +2,7 @@
 
 #include <string_view>
 
-namespace moira::fuzz {
+namespace baker::fuzz {
 
 // Parses `data` with no filesystem and tight limits. If it parses, prints the tree and
 // parses the printout again. Returns false (a bug) if a successful parse does not
@@ -14,4 +14,4 @@ bool check_parse(std::string_view data);
 // itself, and sorted-mode find agrees with linear find on every array in the tree.
 bool check_lookup(std::string_view data);
 
-}  // namespace moira::fuzz
+}  // namespace baker::fuzz

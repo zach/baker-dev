@@ -7,9 +7,9 @@
 // buttons drive, without synthesizing mouse clicks.
 #pragma once
 
-#include <moira/config.hpp>
-#include <moira/script.hpp>
-#include <moira/shape.hpp>
+#include <baker/config.hpp>
+#include <baker/script.hpp>
+#include <baker/shape.hpp>
 
 #include <optional>
 #include <string>
@@ -19,7 +19,7 @@ namespace harness {
 
 // "default.dta:3 (layer default)", the note if the data has one, or what is unsaved: the
 // tooltip shown on hovering a value.
-std::string provenance(const moira::Config& cfg, std::string_view path);
+std::string provenance(const baker::Config& cfg, std::string_view path);
 
 // --- Tweaks: a widget per registered tweak, from its type and metadata. ---
 struct TweaksState {
@@ -31,9 +31,9 @@ struct TweaksState {
     std::optional<Request> request;
     std::string status;  // the last request's outcome, shown in the panel
 };
-void tweaks_panel(moira::Config& cfg, moira::TweakRegistry& tweaks, TweaksState& state);
+void tweaks_panel(baker::Config& cfg, baker::TweakRegistry& tweaks, TweaksState& state);
 
-// --- Shapes: a widget per field of every array a shape governs (moira::shape). ---
+// --- Shapes: a widget per field of every array a shape governs (baker::shape). ---
 struct ShapesState {
     struct Request {
         enum Kind { Set, Save } kind;
@@ -43,7 +43,7 @@ struct ShapesState {
     std::optional<Request> request;
     std::string status;
 };
-void shapes_panel(moira::Config& cfg, ShapesState& state);
+void shapes_panel(baker::Config& cfg, ShapesState& state);
 
 // --- Console: eval, with its log and history. ---
 struct ConsoleState {
@@ -52,16 +52,16 @@ struct ConsoleState {
     std::vector<std::string> log;  // commands and their results or errors
     std::vector<std::string> history;
 };
-void console_panel(moira::Context& ctx, ConsoleState& state);
+void console_panel(baker::Context& ctx, ConsoleState& state);
 
 // --- Loop (D42, D92): edit-to-see and reload times per file and per layer (loop_stats),
 // then the recent reloads, each a bar of its six timed stages. ---
-void loop_panel(const moira::Config& cfg);
+void loop_panel(const baker::Config& cfg);
 
 // --- Journal (D93): the session's live edits, newest first, and what became of each. ---
 // One entry as the panel shows it: "box/width  2 -> 3  (default.dta:3)  written default.dta:3".
-std::string journal_line(const moira::JournalEntry& e);
-void journal_panel(const moira::Config& cfg);
+std::string journal_line(const baker::JournalEntry& e);
+void journal_panel(const baker::Config& cfg);
 
 // --- Layers (D42): the stack, enable toggles, each layer's effect, promotion. ---
 struct LayersState {
@@ -73,15 +73,15 @@ struct LayersState {
     std::string promote_to = "default";
     std::vector<std::string> report;  // the last promotion: lines written, or every refusal
 };
-void layers_panel(moira::Config& cfg, LayersState& state);
+void layers_panel(baker::Config& cfg, LayersState& state);
 
 // --- Snapshots (D42): capture A, capture B, and flip between them. ---
 struct SnapshotsState {
-    moira::ConfigSnapshot a, b;
+    baker::ConfigSnapshot a, b;
     enum Request { None, CaptureA, CaptureB, Flip } request = None;
     char showing = 0;  // 'A' or 'B' once restored
     std::string status;
 };
-void snapshots_panel(moira::Config& cfg, SnapshotsState& state);
+void snapshots_panel(baker::Config& cfg, SnapshotsState& state);
 
 }  // namespace harness
