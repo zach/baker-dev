@@ -18,6 +18,7 @@
 
 #include <Jolt/Jolt.h>
 
+#include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 
@@ -51,6 +52,8 @@ public:
         return system_->GetBodyInterfaceNoLock();
     }
 
+    // Scratch memory for Jolt's queries and characters (CharacterVirtual::ExtendedUpdate).
+    [[nodiscard]] JPH::TempAllocator& temp() noexcept;
     // One step of `dt` seconds, in `substeps` collision steps.
     void step(float dt, int substeps = 1);
     // FNV-1a over every body's position, rotation, and velocities, as bits, in body-ID order.

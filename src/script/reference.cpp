@@ -67,7 +67,7 @@ struct Checker {
             for (const Node& n : a.nodes())
                 if (const Array* c = n.array()) collect(*c, n.type() == Type::Command);
         if (!is_command || a.size() < 2) return;
-        if (a[0].is("class") && a[1].try_sym()) {
+        if ((a[0].is("class") || a[0].is("extend")) && a[1].try_sym()) {
             auto& handlers = classes[*a[1].try_sym()];
             for (size_t i = 2; i < a.size(); ++i)
                 if (const Array* h = a[i].try_array(); h && !h->empty() && (*h)[0].try_sym())

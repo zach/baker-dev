@@ -82,8 +82,9 @@ determinism and the one-line promise in gameplay code.
 ## 2. The base: shared by all six stacks
 
 *Built (D106): `stacks/base/`, with the cube game in `stacks/cube/`. Its README records
-what it holds and what was measured; Jolt, Recast/Detour, miniaudio, and Tracy wait for the
-first stack that needs them.*
+what it holds and what was measured. Jolt came in with Contraption and Stuntline (D111),
+Recast/Detour with Hearth and Wayfarer (D112); miniaudio and Tracy wait for the first stack
+that needs them.*
 
 ### 2.1 Components
 
@@ -405,6 +406,11 @@ same event three times.
 
 ### 4.3 Hearth: character behaviour in a simulation
 
+*Built (D112): `stacks/hearth/`, with keyed data and `(keyed)` shapes. Actions are
+`{class villager ...}` handlers that start `thread_task`s on a clock in game minutes;
+`on_need_critical` is a typed message. An L3 pack adds an action with `{extend villager
+...}` (D113): a second `{class villager}` replaces the first.*
+
 **The question.** Do the characters read as people, with routines, preferences, and
 reactions, without getting stuck, oscillating, or starving?
 
@@ -466,6 +472,11 @@ budget of 150 characters at full simulation on the minimum-spec CPU.
 logic in script, appears in a profile; move it native.
 
 ### 4.4 Wayfarer: exploration missions in a free-roaming world
+
+*Built (D112): `stacks/wayfarer/`, a world of box cells. Points of interest write
+`(pos x y z)` and cells `(grid x z)`, since `at` is the shape grammar's own word; missions
+load with their region files in the layers, and cells stream as built geometry (bodies and
+a navigation tile). Glides and drops are data; climbs come from climbable blocks.*
 
 **The question.** Does exploring lead somewhere? Are missions discoverable, reachable,
 paced, and impossible to break?
@@ -695,7 +706,9 @@ Stuntline); navigation (Hearth, Wayfarer); bot drivers and the runner's statisti
    *Done (D111): Jolt in the base, built cross-platform deterministic, with replay hashes
    that MSVC on Windows reproduces from Linux; both stacks playable, judged headless.*
 4. **Hearth and Wayfarer** last: the largest worlds, the most native code, the most
-   content.
+   content. *Done (D112): Recast/Detour in the base; Hearth soaks households on worker
+   threads, each with its own Context; Wayfarer proves its missions free of softlocks and
+   walks the proof's paths with the game's own character. Every stack of §4 is built.*
 
 At each step, run the audit from `reading-a-studio.md` §7 on the stacks in use: the
 register comes from `reference`, loop times from `loop_stats()`, demand and repetition

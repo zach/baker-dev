@@ -84,6 +84,10 @@ Physics::Physics(const PhysicsOptions& options) {
 
 Physics::~Physics() = default;
 
+JPH::TempAllocator& Physics::temp() noexcept {
+    return impl_->temp;
+}
+
 void Physics::step(float dt, int substeps) {
     impl_->system.Update(dt, substeps, &impl_->temp, &impl_->jobs);
 }

@@ -107,6 +107,12 @@ A parameter in [brackets] is optional, `unevaluated` is passed as written, and
 
 *Native.* `{do ($a ($b 1)) body...}`: binds the variables (unset, or to a value) for the duration of the body, restores them after, and returns the body's last value. Without the list, just runs the body.
 
+### `extend`
+
+- `{extend values...}` → value
+
+*Native.* `{extend Name (method ($params...) body...) ...}`: adds script handlers to a class, replacing only those of the same name, so another file (a task pack) can add one. `Name` is a `{class}` or a bound C++ type. Run it after the `{class}`: a redefinition replaces every handler.
+
 ### `func`
 
 - `{func values...}` → value

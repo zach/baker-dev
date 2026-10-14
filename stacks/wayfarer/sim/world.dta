@@ -1,0 +1,37 @@
+; Wayfarer's scenarios (game-stacks.md §4.4). The proof and the bots are analyses: they run
+; in a moment. The played scenarios walk the analyses' paths with the game's own character
+; on Jolt, so the runner and the game agree on what can be reached.
+(scenario proof
+   (desc "Every mission completable from every save point; every objective and point reachable")
+   (seconds 0.02)
+   (start {world.prove})
+   (objectives wayfarer.no_softlocks wayfarer.objectives_reachable wayfarer.points_reachable
+               wayfarer.goals_readable wayfarer.glides_make_it))
+(scenario pacing_direct
+   (desc "A bot that follows the objectives")
+   (seconds 0.02)
+   (start {world.pacing direct 1800})
+   (objectives wayfarer.no_dead_zone wayfarer.missions_on_time))
+(scenario pacing_curious
+   (desc "A bot that heads for what it can see, then the objectives")
+   (seconds 0.02)
+   (start {world.pacing curious 1800})
+   (objectives wayfarer.no_dead_zone wayfarer.finds_everything))
+(scenario pacing_completionist
+   (desc "A bot that visits every point, nearest first, then the objectives")
+   (seconds 0.02)
+   (start {world.pacing completionist 1800})
+   (objectives wayfarer.no_dead_zone wayfarer.finds_everything))
+
+(scenario played_climb
+   (desc "The character walks to the harbor (the gloves), then climbs to the lighthouse")
+   (seconds 70)
+   (start {world.autopilot harbor})
+   (at 6 {world.autopilot lighthouse})
+   (objectives wayfarer.played_arrives wayfarer.played_at_lighthouse wayfarer.played_streams))
+(scenario played_glide
+   (desc "From the eyrie, with the glider, the character glides to the island")
+   (seconds 30)
+   (start {world.give climbing_gloves} {world.give glider} {world.teleport eyrie}
+          {world.autopilot sky_garden})
+   (objectives wayfarer.played_arrives wayfarer.played_at_garden))

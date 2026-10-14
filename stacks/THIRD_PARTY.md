@@ -9,5 +9,6 @@ nothing is vendored. Moira's own (`../THIRD_PARTY.md`) applies as well.
 | [bgfx](https://github.com/bkaradzic/bgfx) with [bx](https://github.com/bkaradzic/bx) and [bimg](https://github.com/bkaradzic/bimg) | as [bgfx.cmake](https://github.com/bkaradzic/bgfx.cmake) v1.166.9546-589 pins them | BSD-2-Clause | Rendering; PNG screenshots (bimg) |
 | bgfx's precompiled example shaders (`debugdraw/*_fill_lit*`, `imgui/*_ocornut_imgui`) | as above | BSD-2-Clause | The box and ImGui shaders, compiled into `stacks_app` |
 | [bgfx.cmake](https://github.com/bkaradzic/bgfx.cmake) | v1.166.9546-589 | CC0-1.0 | bgfx's CMake build |
-| [Jolt Physics](https://github.com/jrouwe/JoltPhysics) | 5.5.0 | MIT | Rigid bodies, constraints, vehicles (Contraption, Stuntline), built cross-platform deterministic |
+| [Jolt Physics](https://github.com/jrouwe/JoltPhysics) | 5.5.0 | MIT | Rigid bodies, constraints, vehicles, a character (Contraption, Stuntline, Wayfarer), built cross-platform deterministic |
+| [Recast/Detour](https://github.com/recastnavigation/recastnavigation) | 1.6.0 | zlib | Navigation meshes and paths (Hearth, Wayfarer) |
 | [Dear ImGui](https://github.com/ocornut/imgui) | 1.92.9b (`f1cc2ae`) | MIT | Tuning panels (and its SDL3 platform backend) |

@@ -105,10 +105,18 @@ Options parse(int argc, char** argv, const std::string& data) {
 struct Loaded {
     moira::Context ctx;
     Live live{ctx};
+    Game* game = nullptr;  // bound to ctx: unbound before it goes
+    Loaded() = default;
+    Loaded(const Loaded&) = delete;
+    Loaded& operator=(const Loaded&) = delete;
+    ~Loaded() {
+        if (game) game->unbind(ctx);
+    }
 };
 
 bool load(Game& game, Loaded& l, const Options& o) {
     game.bind(l.ctx);
+    l.game = &game;
     const bool ok = l.live.open({.data_dir = o.data,
                                  .watch = false,
                                  .local = false,

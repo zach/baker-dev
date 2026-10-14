@@ -85,7 +85,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        game: [cube, duel, ledger, contraption, stuntline]
+        game: [cube, duel, ledger, contraption, stuntline, hearth, wayfarer]
     steps:
       - uses: actions/checkout@v4
       - uses: ilammy/msvc-dev-cmd@v1
@@ -102,7 +102,7 @@ jobs:
           game=${{ matrix.game }}
           mkdir -p package/data
           cp build-package/bin/stacks_$game.exe package/
-          cp stacks/$game/data/*.dta package/data/
+          cp -r stacks/$game/data/* package/data/  # Wayfarer's regions/ too
           if [ -d stacks/$game/packs ]; then cp -r stacks/$game/packs package/; fi
           cp stacks/$game/package/README.txt package/
           cd package && ./stacks_$game.exe --headless --frames 60 --console-port 0

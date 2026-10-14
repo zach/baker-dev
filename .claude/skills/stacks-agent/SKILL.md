@@ -71,6 +71,17 @@ and seed give the same result, so a failing seed is a reproduction.
 - **Stuntline** (`stacks/stuntline/`): the car, the kit, tracks, drivers. Read
   `$G eval "{track.load TRACK}" "{track.report}"` before and after: times, crashes by piece
   (1-based), airtime, jump speeds. A track change re-lays the whole track.
+- **Hearth** (`stacks/hearth/`): needs, objects, households, and the actions (the
+  `{class villager ...}` in `data/default.dta`). A new action in a task pack is
+  `{extend villager (NAME ($obj) ...)}`, never a second `{class}`, which replaces them all. After a change, quote `$G eval "{hearth.soak 50 30}" "{hearth.soak_report}"`:
+  failures per kind, things used, and the first few failures with the household, villager,
+  and game time. `{hearth.why NAME}` after `{hearth.spawn HOUSE}` explains one decision.
+- **Wayfarer** (`stacks/wayfarer/`): cells, points of interest, and the traversal limits in
+  `data/default.dta`; missions in `data/regions/`. Quote `$G eval "{world.prove}"
+  "{world.proof_report}"` before and after any change: a softlock names the save point and
+  the missions it strands. Pacing is per bot style: `{world.pacing STYLE 1800}` then
+  `{world.pacing_report}`. A changed traversal limit changes what can be reached: prove
+  again.
 
 ## Rules
 

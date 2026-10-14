@@ -354,6 +354,17 @@ one). Loose parameters belong to the object's stay in its Context: removing the 
 drops them. `{new T name (param value) ...}` makes an object of a script class or a bound
 type, and `{delete obj}` removes it.
 
+`{class T ...}` again replaces every handler of `T`: that is what a reloaded script means.
+To add handlers from another file (a task pack adding one action to a type), write
+`{extend T (name ($params) body...) ...}`: it adds each handler, replacing only one of the
+same name. `T` is a class already defined or a bound type. Run an extension after its
+class, as the layers' `#autorun` commands are, bottom to top.
+
+```dta
+{class villager (eat ($obj) ...) (sleep ($obj) ...)}     ; data/default.dta
+{extend villager (gossip ($obj) ...)}                     ; packs/task/gossip.dta
+```
+
 A command sent to a destroyed object is a clean error: Contexts refer to objects by salted
 handles, never pointers.
 
