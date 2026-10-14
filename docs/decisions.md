@@ -3374,3 +3374,34 @@ in `src/` changed.*
   over seeds 1–3 is byte-identical before and after, and the pinned replay hashes hold;
   the 29 stacks tests and Baker's local matrix pass.
 
+
+## D116. The cache writer keeps flat tables
+
+*Found in a fresh review of the core (2026-10-14).*
+
+- **The cost.** `write_cache` was 4–8 times a text parse of the same file, and a
+  development cache miss (`read_cached`, a Config layer with `cache_dir`) is a parse plus a
+  write. Under callgrind, half of a write was `malloc` and `free` for `std::unordered_map`
+  nodes, and most of the rest hashing: an array's address was looked up three times (seen?,
+  placed, written), a string's three, and every child reference once more as it was
+  written; every symbol occurrence went through a second map.
+- **The change.** One open-addressed table of addresses, with no allocation per entry,
+  answers "seen?" once per array or string. As the breadth-first pass meets each array or
+  string node it notes the target's offset (or string index) in order, so the write pass
+  reads them back in the same order and looks nothing up. Symbols number through a flat
+  table indexed by `Symbol::index()`. The file is byte-for-byte the same format.
+- **Benchmarks** (`bench_cache`, release, three alternating runs against `adc20b3`, same
+  machine; the instructions of one write of the small tree fell from about 138M to 54M):
+
+| | 1.2 MB text, 6.2 MB tree | 4.2 MB text, 21.1 MB tree |
+|---|---:|---:|
+| `write_cache`, before | 70.8–92.4 ms | 418.7–447.3 ms |
+| `write_cache`, after | 27.8–36.2 ms | 85.4–104.0 ms |
+| `read_cached`, no cache, before | 91.4–128.2 ms | 545.8–675.8 ms |
+| `read_cached`, no cache, after | 52.7–79.2 ms | 178.8–214.3 ms |
+| Config layer, `cache_dir`, no cache, before | 114.0–156.9 ms | 697.5–1128.3 ms |
+| Config layer, `cache_dir`, no cache, after | 55.5–80.6 ms | 301.0–347.7 ms |
+
+  The text parse and the cache load are untouched (parse 73.8–92.2 MB/s before, 76.5–85.4
+  after: noise). What remains of a write is mostly the zero-fill that keeps the file's
+  padding the same on every run, which its hash needs.
