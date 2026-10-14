@@ -3591,3 +3591,19 @@ it next. A move: no behavior changes.*
   0.30.
 - **Size:** the core is 11,181 lines (11,128 before): the header's declarations and three
   files' preambles.
+
+## D123. The review's remaining findings, recorded as open gaps
+
+*The owner's choice (2026-10-14): fix the config split and `layer_effect` now (D121,
+D122), and record the rest for later.*
+
+The review that produced D116–D122 also reported findings it did not act on. They are now
+gaps 13–30 in `.claude/skills/acton-review/references/baker-gaps.md`, each with its path
+class and whether anything measured it. Most are only read from the code, so each needs
+measuring before it is fixed (the skill's step 5). The ones on a hot path come first:
+- gap 13, two allocations per C++-to-script call;
+- gap 14, the method walk once any `{class}` exists;
+- gap 15, a refcounted copy per `const Array&` argument.
+
+Gap 18 is a load-path deviation from D61 (layer records on the default allocator).
+Gap 26 needs the owner's decision: whether `('' 1)` is tagged.
