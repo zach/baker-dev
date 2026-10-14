@@ -192,8 +192,10 @@ struct Config::Impl {
     mutable Str scan{alloc};  // changed()'s buffer, kept so that a poll allocates nothing
     // Every merge's temporaries, reused: a merge allocates only the arrays it keeps (D127).
     mutable detail::MergeScratch merge_scratch{alloc};
-    LoadSession base;
-    LoadSession as_read;  // read_session(): the last file layer's session, as of the last merge
+    LoadSession base{alloc};  // the sessions the Config keeps are on its allocator (D129)
+    LoadSession as_read{
+        alloc};  // read_session(): the last file layer's session, as of the last merge
+    Rc<LoadSession> as_read_from;  // the session as_read copies; held, so it is not reused
     Writer writer = write_disk_file;
     Callback<void(const Error&)> warn;
     struct Check {

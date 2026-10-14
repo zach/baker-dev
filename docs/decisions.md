@@ -3793,3 +3793,25 @@ choice.*
   136 and the Config's from 38 to 62. `reloads free the trees they replace` now takes its
   steady reading at version 10: the map's copy of the text is the Config's now, and
   versions 2 to 9 are a character shorter.
+
+## D129. A Config's sessions are its own, and a merge copies none it need not
+
+*From `docs/allocation-review.md`, the owner's choice.*
+
+- **Every merge copied a session.** `refresh_read` copied the top file layer's whole
+  `LoadSession` state into `read_session()`'s, at every commit: every define (a map node
+  each), pack, origin and warning. A layer's session is read-only once built, so the copy
+  is now skipped when the top layer's session is the one copied last time. The Config
+  holds an `Rc` to that session, so its address cannot be reused by another. The base
+  session is the host's to change, so it is still copied each time it is the top.
+- **Sessions on their owner's allocator.** `LoadSession(const Allocator&)` is new: its
+  state (defines, packs, origins, the record for a cache) comes from that allocator. A
+  copy keeps its source's allocator; an assignment keeps the target's, as containers do.
+  The Config's base session and `read_session()` copy are on its allocator, and so,
+  through copies, is every layer's session.
+- **Measured.** One full merge of three file layers, the bottom one defining 200 macros,
+  release, pinned: 209 default-allocator allocations before and 7 after; 160 µs and 153
+  µs. `baker_alloc_tests`' Config scenario: the default allocator's count went from 136 to
+  123, and the Config's from 62 to 74.
+- **Test** (`test_m3b.cpp`): a merge allocates the same with 100 macros as with 5. Against
+  the previous code it read 107 and 12.

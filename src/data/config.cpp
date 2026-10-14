@@ -327,10 +327,14 @@ Ref<Array> Config::Impl::merged() const {
 }
 
 void Config::Impl::refresh_read() {
-    const LoadSession* top = &base;
+    const Rc<LoadSession>* top = nullptr;
     for (const LayerState& l : layers)
-        if (!l.path.empty() && l.after) top = l.after.get();
-    as_read = *top;
+        if (!l.path.empty() && l.after) top = &l.after;
+    // A layer's session is read-only once built, so the same one needs no copy; the base
+    // is the host's to change, so it is copied each time (D129).
+    if (top && as_read_from.get() == top->get()) return;
+    as_read = top ? **top : base;
+    as_read_from = top ? *top : nullptr;
 }
 
 void Config::Impl::commit(Config& c, ReloadRecord& rec, uint64_t& t) {

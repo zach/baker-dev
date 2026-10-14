@@ -252,6 +252,48 @@ bool read_with(const LoadSession::Reader& reader, std::string_view path, Str& te
 }  // namespace detail
 
 struct LoadSession::State {
+    explicit State(const Allocator& a)
+        : alloc(&a),
+          defines(a),
+          include_dirs(a),
+          autorun(a),
+          required(a),
+          pack_levels(a),
+          packs(a),
+          origins(a),
+          macro_pack(a),
+          warnings(a),
+          files(a),
+          defines_before(a),
+          include_stack(a) {}
+    // A copy of `o` from `a`: each table assigned, so it keeps `a` (D129).
+    State(const State& o, const Allocator& a) : State(a) {
+        defines = o.defines;
+        reader = o.reader;
+        disk = o.disk;
+        include_dirs = o.include_dirs;
+        autorun = o.autorun;
+        required = o.required;
+        pack_levels = o.pack_levels;
+        packs = o.packs;
+        origins = o.origins;
+        macro_pack = o.macro_pack;
+        warnings = o.warnings;
+        recorded = o.recorded;
+        files = o.files;
+        defines_before = o.defines_before;
+        autorun_from = o.autorun_from;
+        required_from = o.required_from;
+        packs_from = o.packs_from;
+        origins_from = o.origins_from;
+        include_stack = o.include_stack;
+        nodes = o.nodes;
+        includes = o.includes;
+    }
+    State(const State&) = delete;
+    State& operator=(const State&) = delete;
+
+    const Allocator* alloc;
     HashMap<Symbol, Ref<Array>> defines;
     Reader reader = detail::read_disk_file;
     bool disk = true;  // `reader` is the default
@@ -795,15 +837,17 @@ private:
 
 }  // namespace detail
 
-// Sessions belong to whoever made them: from the default allocator (D61).
-LoadSession::LoadSession() : st_(detail::create<State>(default_allocator())) {}
+// Sessions belong to whoever made them: from the default allocator unless an owner passes
+// its own (D61, D129).
+LoadSession::LoadSession() : LoadSession(default_allocator()) {}
+LoadSession::LoadSession(const Allocator& alloc) : st_(detail::create<State>(alloc, alloc)) {}
 LoadSession::LoadSession(const LoadSession& o)
     : limits(o.limits),
       source_map(o.source_map),
       record_for_cache(o.record_for_cache),
       cipher(o.cipher),
       allocator(o.allocator),
-      st_(detail::create<State>(default_allocator(), *o.st_)) {}
+      st_(detail::create<State>(*o.st_->alloc, *o.st_, *o.st_->alloc)) {}
 LoadSession::LoadSession(LoadSession&& o) noexcept
     : limits(o.limits),
       source_map(o.source_map),
@@ -811,13 +855,14 @@ LoadSession::LoadSession(LoadSession&& o) noexcept
       cipher(o.cipher),
       allocator(o.allocator),
       st_(o.st_) {
-    o.st_ = detail::create<State>(
-        default_allocator());  // the moved-from session stays usable, and empty
+    // The moved-from session stays usable, and empty, on its allocator.
+    o.st_ = detail::create<State>(*st_->alloc, *st_->alloc);
 }
 LoadSession& LoadSession::operator=(const LoadSession& o) {
-    if (this != &o) {
-        State* st = detail::create<State>(default_allocator(), *o.st_);
-        detail::destroy(default_allocator(), st_);
+    if (this != &o) {  // keeps this session's allocator, as containers do
+        const Allocator& a = *st_->alloc;
+        State* st = detail::create<State>(a, *o.st_, a);
+        detail::destroy(a, st_);
         st_ = st;
         limits = o.limits;
         source_map = o.source_map;
@@ -837,7 +882,7 @@ LoadSession& LoadSession::operator=(LoadSession&& o) noexcept {
     return *this;
 }
 LoadSession::~LoadSession() {
-    detail::destroy(default_allocator(), st_);
+    detail::destroy(*st_->alloc, st_);
 }
 
 void LoadSession::define(Symbol name) {
