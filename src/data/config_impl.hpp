@@ -34,6 +34,11 @@ struct Dep {
 };
 
 struct LayerState {
+    LayerState() = default;
+    // A record the Config makes: its own containers from its allocator (D61). A copy keeps
+    // its source's.
+    explicit LayerState(const Allocator& a) : name(a), path(a), file(a), deps(a) {}
+
     Str name;
     Str path;  // as given; empty for an overlay
     Str file;  // the main file, normalized; empty for an overlay

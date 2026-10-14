@@ -637,6 +637,11 @@ Expected<Node> Args::eval(size_t i) const {
 }
 
 Expected<const Array*> Args::array(size_t i) const {
+    // A literal array, or a value an overload set evaluated, is held for the whole call by
+    // the command or by `kept`: no copy to keep (gap 15).
+    if (i < size_ && (evaluated_ || base_[i].type() == Type::Array))
+        if (const Array* a = base_[i].type() == Type::Array ? base_[i].try_array() : nullptr)
+            return a;
     auto r = eval(i);
     if (!r) return Unexpected(std::move(r).error());
     if (r->type() != Type::Array) return Unexpected(type_error(i, *r, "array"));

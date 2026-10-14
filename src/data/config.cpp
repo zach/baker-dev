@@ -139,7 +139,7 @@ Expected<void> Config::Impl::read(LayerState& layer, const LoadSession& before,
                                   uint64_t* read_ns) const {
     auto session = Rc<LoadSession>::make(alloc, before);
     session->clear_autorun();
-    Vec<Dep> deps;
+    Vec<Dep> deps(alloc);
     const LoadSession::Reader& reader = before.reader();
     // Edit mode reads text, which keeps the source maps write-back needs.
     Str cache(alloc);
@@ -434,9 +434,9 @@ Expected<void> Config::push_layer(std::string_view name, std::string_view path,
     if (auto ok = impl_->may_change(*this); !ok) return ok;
     if (name == "scratch" || impl_->find_layer(name))
         return Unexpected(refused("there is already a layer named '" + Str(name) + "'"));
-    LayerState layer;
-    layer.name = Str(name);
-    layer.path = Str(path);
+    LayerState layer(impl_->alloc);
+    layer.name.assign(name);
+    layer.path.assign(path);
     layer.options = options;
     if (auto r = impl_->read(layer, *impl_->session_below(impl_->layers, impl_->layers.size())); !r)
         return r;
@@ -452,8 +452,8 @@ Expected<void> Config::push_layer(std::string_view name, Ref<Array> overlay, Lay
             make_error(ErrorCode::NotFound, "null overlay for layer '" + Str(name) + "'"));
     if (name == "scratch" || impl_->find_layer(name))
         return Unexpected(refused("there is already a layer named '" + Str(name) + "'"));
-    LayerState layer;
-    layer.name = Str(name);
+    LayerState layer(impl_->alloc);
+    layer.name.assign(name);
     layer.options = options;
     layer.root = std::move(overlay);
     layer.after = impl_->session_below(impl_->layers, impl_->layers.size());

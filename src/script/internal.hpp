@@ -214,13 +214,15 @@ struct Context::Impl {
                                             const Node* this_node);
 
     // --- Objects (object.cpp). ---
+    // Pointers first, then the small fields: 32 bytes, two to a cache line (gap 17).
     struct Slot {
         ObjectBase* object = nullptr;
-        uint32_t salt = 1;
-        Symbol name;
         ScriptClass* script = nullptr;  // the class of a script-only object
-        bool owned = false;             // created by {new}: the Context deletes it
+        Symbol name;
+        uint32_t salt = 1;
+        bool owned = false;  // created by {new}: the Context deletes it
     };
+    static_assert(sizeof(Slot) == 4 * sizeof(void*), "Slot: two to a 64-byte cache line");
     [[nodiscard]] Slot* slot(ObjectHandle h) noexcept {
         const uint32_t i = h.index();
         return i < slots.size() && slots[i].object && slots[i].salt == h.salt() ? &slots[i]
@@ -282,6 +284,10 @@ struct Context::Impl {
     // Bit per Symbol::index(): some {class} has a handler of that name. The usual answer
     // for a message, "none", costs one load.
     Vec<uint64_t> handled_names{alloc};
+    [[nodiscard]] bool handled(Symbol name) const noexcept {
+        const uint32_t i = name.index();
+        return i / 64 < handled_names.size() && (handled_names[i / 64] >> (i % 64) & 1);
+    }
     const CallFrame* top = nullptr;  // the innermost call in progress
     uint32_t depth = 0;
     uintptr_t stack_base = 0;                        // the outermost call's stack address
@@ -308,6 +314,11 @@ struct Context::Impl {
     Vec<Vec<detail::Overload>> retired_overloads{alloc};
     Vec<Vec<ScriptClass::Handler>> retired_handlers{alloc};
     bool unsettled = false;
+
+    // Context::call's commands, {object method args...}, one per size below kCallSizes,
+    // reused while nothing else holds them: a C++ call into script allocates nothing.
+    static constexpr size_t kCallSizes = 8;
+    Ref<Array> call_arrays[kCallSizes];
 };
 
 // Restores every variable bound since it was made: dynamic scope, undone even on error.

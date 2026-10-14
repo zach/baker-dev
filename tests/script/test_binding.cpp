@@ -72,7 +72,11 @@ TEST_CASE("parameter and return types are deduced from the signature") {
     CHECK(ok(ctx.eval("{sym hello}")).as_sym() == Symbol("hello"));
     CHECK(ok(ctx.eval("{len \"four\"}")).as_int() == 4);
     CHECK(text(ok(ctx.eval("{shout \"hi\"}"))) == "hi!");
-    CHECK(ok(ctx.eval("{count (1 2 3)}")).as_int() == 3);
+    CHECK(ok(ctx.eval("{count (1 2 3)}")).as_int() == 3);  // a literal: not copied (gap 15)
+    CHECK(ok(ctx.eval("{do (($l (1 2))) {count $l}}")).as_int() == 2);
+    CHECK(ok(ctx.eval("{count {if 1 (4 5 6 7) 0}}")).as_int() == 4);
+    CHECK(ctx.eval("{count 3}").error().code() == ErrorCode::Type);
+    CHECK(ctx.eval("{count {sym x}}").error().code() == ErrorCode::Type);
     CHECK(ok(ctx.eval("{half 1}")).as_float() == 0.5);
     CHECK(ok(ctx.eval("{half 0.2}")).as_float() == 0.1);  // a float result reads back as written
     CHECK(ok(ctx.eval("{neg 0}")).as_int() == 1);

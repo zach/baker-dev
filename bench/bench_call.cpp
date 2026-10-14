@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <memory>
 #include <random>
 #include <string>
@@ -69,6 +70,11 @@ struct Person : baker::Object<Person> {
     }
 };
 
+// A type whose HitMsg is handled by a script class, not by C++.
+struct Scripted : baker::Object<Scripted> {
+    static void bind(baker::Binder<Scripted>&) {}
+};
+
 // One of 64 types with M methods, m0 to m(M-1), each a float argument, and a HitMsg handler.
 template <int N, int M>
 struct Wide : baker::Object<Wide<N, M>> {
@@ -104,9 +110,11 @@ int main() {
     ctx.var("loaded") = (**loaded)[0];
     ctx.var("solo") = baker::Node(baker::Array::make(3));
     if (!ctx.eval("{func add1 ($a) {+ $a 1}}")) return 1;
+    if (!ctx.func("len", [](const baker::Array& a) { return static_cast<int64_t>(a.size()); }))
+        return 1;
     auto tree = baker::read_string(
         "{add 1 2} {+ 1 2} {+ 1.5 2} {add $x 1} $x {if 1 2 3} {add1 1} {add {add 1 2} 3} "
-        "{bob grow 0} $loaded $solo",
+        "{bob grow 0} $loaded $solo {len (1 2 3)}",
         "bench.dta");
     if (!tree) return 1;
     const char* names[] = {
@@ -121,6 +129,7 @@ int main() {
         "{bob grow 0}: native method",
         "$loaded: an array from a load",
         "$solo: an array built by the host",
+        "{len (1 2 3)}: a const Array& argument",
     };
 
     std::printf("evaluating a command node (best of 7, 2M calls each)\n");
@@ -200,6 +209,26 @@ int main() {
                 return r ? static_cast<double>(*r) : -1.0;
             },
             "   (the time is for 64)");
+        // Script handlers reached from C++, and a native method once a {class} exists.
+        Scripted scripted;
+        if (!ctx.add(scripted, "scripted") || !ctx.eval("{class Scripted (hit ($points) $points)}"))
+            std::abort();
+        Scripted* volatile to_scripted = &scripted;
+        row(
+            "handle(HitMsg{1}), to a script handler",
+            [&](int i) {
+                auto r = to_scripted->handle(HitMsg{i & 1});
+                return r ? static_cast<double>(r->try_int().value_or(0)) : -1.0;
+            },
+            "");
+        const baker::Node grow = (**tree)[8];  // {bob grow 0}
+        row(
+            "{bob grow 0}, a {class} for another type",
+            [&](int) {
+                auto r = ctx.eval(opaque(grow));
+                return r ? r->try_float().value_or(0) : -1.0;
+            },
+            "");
         row(
             "ctx.call(bob, \"grow\", 1.5f), for comparison",
             [&](int) {
