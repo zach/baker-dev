@@ -14,11 +14,14 @@ lives outside `src/`: Moira's line budget and core rules do not cover it.
 | `ledger/` | A tycoon economy, balanced against bot strategies (design §4.2) | Built; see `ledger/README.md` |
 | `contraption/` | Physics puzzles, side on, on Jolt (design §4.1) | Built; see `contraption/README.md` |
 | `stuntline/` | Stunt races on tracks laid from a kit, on Jolt's vehicle (design §4.5) | Built; see `stuntline/README.md` |
+| `hearth/` | Households of villagers with needs, smart objects, and actions as script (design §4.3) | Built; see `hearth/README.md` |
+| `wayfarer/` | Exploration missions in a world streamed by cell, on Jolt's character (design §4.4) | Built; see `wayfarer/README.md` |
 
 ## Build and run
 
 You need CMake 3.25, Ninja or Visual Studio 2022, and network access the first time:
-SDL3, bgfx, and Dear ImGui are fetched at pinned releases (`THIRD_PARTY.md`).
+SDL3, bgfx, Dear ImGui, Jolt, and Recast/Detour are fetched at pinned releases
+(`THIRD_PARTY.md`).
 
 ```sh
 cmake -S stacks -B build-stacks -G Ninja -DCMAKE_BUILD_TYPE=Release

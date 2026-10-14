@@ -3227,3 +3227,69 @@ D108.*
   played replays) in 11.0–11.3 s; an attempt about 3 ms. Stuntline's 90 runs (each track
   raced by three drivers, and 30 played races) in 2.1–2.3 s; a 10 s race about 8 ms.
 - **CI** packages Contraption and Stuntline for Windows beside the others.
+
+## D112. Recast/Detour in the base; Hearth and Wayfarer
+
+*`docs/background/game-stacks.md` §6, step 4, and §4.3, §4.4. Outside Moira: nothing in
+`src/` changed. Each stack's README is its design note. Every stack of §4 is now built.*
+
+- **Recast/Detour 1.6.0** in the base (`base::NavMesh`), the owner's choice over a grid of
+  our own: a grid of square tiles, each built from boxes and added or dropped alone; off-mesh
+  links carry ability flags, and a path query names the abilities the walker has. Two bugs
+  of our own, found by the stacks: a tile 64 m across at a 0.3 m voxel is 213.3 voxels, and
+  a tile of 213 stops at 63.9 m, so neighbouring tiles never met (the voxel is now rounded to
+  fit the tile); and Detour's nearest polygon within a box can have its nearest point outside
+  the box (`nearest` now checks the reach).
+- **Hearth** (`stacks/hearth/`): villagers and smart objects are Moira objects (`Villager`,
+  `Thing`); an action is a `{class villager ...}` handler that starts a `thread_task` on
+  `clock`, a Scheduler in game minutes ("walk to the fridge, open it, eat, close it" is
+  data); a need below critical sends the typed message `NeedCritical`, script first, then
+  the native default. Scoring is native and runs only when a villager decides.
+- **Threaded soak, the owner's choice.** Households run on worker threads, each thread with
+  its own Context (the types, a clock, and the data's `#autorun` commands evaluated over the
+  one Config's tree, which atomic refcounts allow). A household's run depends only on its
+  seed, so results are the same on any number of threads; a test checks it.
+- **What the soak found, first run.** Over 10 seeds, 2 had a villager starving on day 1: a
+  critical need interrupted what was under way, and the next decision chose something else
+  (the bed over the fridge), so the need never recovered. The shape says a critical need
+  "overrides the routine", and now it does: while one is critical, only things that help a
+  critical need are options. Its tests build each failure on purpose: an action that never
+  ends (stuck), a fridge walled in (unused, then starving), two needs that cut each other
+  off (oscillating; a script `on_need_critical` that carries on ends it).
+- **Wayfarer** (`stacks/wayfarer/`): a 3 by 3 world of 64 m box cells; a character on Jolt's
+  `CharacterVirtual` that walks, climbs a climbable face it pushes into (up to
+  `climb_max`), and glides; cells streamed as static bodies and a navigation tile within
+  `stream_radius` of the player; six missions in three region files, with declarative
+  objectives the director evaluates in script (`at_poi`, `flag`, `has_item`,
+  `mission.done`, `time_of_day`).
+- **The proof** searches every save point (a place, and what is held, set, and done), moving
+  by paths whose links are the abilities held: 498 save points in the shipped world, none
+  softlocked, every objective and point reachable. Its tests build a softlock (a one-way
+  drop into a yard with a mission left outside), an unreachable objective, and a goal it
+  cannot read. **Bots** of three styles measure pacing; their first run found a tower top
+  no bot reached (its 1.5 m ledges were narrower than the walker after the mesh's erosion;
+  they are 2 m now), and a curious bot that wandered among what it had found for 24 minutes
+  once nothing new was in sight (it now follows the objectives, as a player would).
+- **Runner and game agree.** Two played scenarios walk the proof's paths with the game's own
+  character on Jolt: a climb to the lighthouse and a glide to the island. Both pass on every
+  seed.
+- **A gap in Moira, recorded.** A second `{class villager ...}` replaces the first (a
+  reloaded script redefines its class), so an L3 task pack cannot add one action to the
+  villager: the agent's authoring loop of §4.3 needs a way to extend a class from another
+  file. Not fixed here; it is the owner's call.
+- **Results** (Release, seeds 1–30). Hearth: 60 of 60 runs pass (1,500 soaks of 50
+  households for 30 game days, and 30 played days of the cottage). Wayfarer: 180 of 180
+  (the proof, three bots, and the two played routes, per seed). Longest stretch without a
+  discovery: direct 28 s, completionist 34 s, curious 77 s, against 90 s; the one glide
+  clears with 21% to spare; following the objectives, every mission is done at 142 s.
+- **Measured** (Release, the development container, a 4-core Xeon at 2.8 GHz). Hearth's
+  30 seeds in 18.6–22.7 s; one soak (50 households, 118 villagers, 3,540 character-days) in
+  1.96 s on one thread, 1.38 s on two, 0.79 s on four. One 60 Hz step of 150 villagers takes
+  22–24 µs, of 1,500 villagers 430–500 µs: the §4.3 budget of 150 at full simulation is two
+  orders of magnitude inside a frame here (not yet measured on the minimum-spec PC).
+  Wayfarer's 30 seeds in 0.95–1.04 s; loading the world, building every tile, and the proof
+  about 0.24 s; a streamed cell's navigation
+  tile about 16 ms to build on the main thread, a hitch to move off it.
+- **The base** also gained `Game::unbind` (a game drops what it keeps in a Context before
+  the Context goes) and `Physics::temp()` (Jolt's scratch allocator, for characters).
+- **CI** packages Hearth and Wayfarer for Windows beside the others.

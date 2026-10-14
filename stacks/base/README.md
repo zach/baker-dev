@@ -25,6 +25,7 @@ int main(int argc, char** argv) {
 | `stacks_core` | `live`, `watcher`, `fixed_step`, `game`, `sim` | No window, no renderer: the headless simulation (`../agent.md`) and the tests |
 | `stacks_app` | `app`, `render`, `tools` | SDL3 window and input, the bgfx renderer, Dear ImGui, the frame loop, the agent's commands |
 | `stacks_physics` | `physics` | Jolt, cross-platform deterministic: one world, two layers, single-threaded steps, a state hash |
+| `stacks_nav` | `nav` | Recast/Detour: tiled navigation meshes built from boxes, paths, abilities as link flags |
 | `stacks_moira_tools` | Moira's `examples/harness-imgui/panels.cpp` and `examples/remote-console/console.cpp` | Used as they are, not copied |
 
 - **`Live`** owns the Config and the layer stack of §2.3: `default.dta`, then `local.dta`
@@ -61,13 +62,20 @@ int main(int argc, char** argv) {
   job checks on Windows. A game's own simulation code must use Jolt's trigonometry
   (`JPH::Sin`, `Cos`, `Tan`, `ATan2`), not the C library's, which differs between platforms.
   Jolt also turns on AVX2, which the minimum-spec CPU has.
+- **`NavMesh`** is Recast and Detour behind a small API: a grid of square tiles, each built
+  from triangles (`NavGeometry::box`) and added or dropped alone, so a streamed world builds
+  a cell's tile when it loads; a house is one tile. Off-mesh links carry ability flags
+  (`nav::kClimb`, `kGlide`, ...) and a path query names the abilities the walker has. The
+  voxel is rounded to a whole number per tile, or neighbouring tiles do not meet.
+- **`Game::unbind`** drops what a game keeps in its Context (objects, a Scheduler) before
+  the Context goes, after play and after each agent command.
 - **`Renderer::box`** draws boxes and spheres (`Box::sphere`), oriented by Euler angles or
   a physics body's quaternion (`Box::quat`).
 
 ## Not in the base yet
 
-The design's §2.1 also lists Recast/Detour, miniaudio, and Tracy; each comes in with the
-first stack that needs it, once, in the base. Likewise the `spec/low.dta`
+The design's §2.1 also lists miniaudio and Tracy; each comes in with the first stack that
+needs it, once, in the base. Likewise the `spec/low.dta`
 layer, `moira_bake` caches, and a `shipping` preset wait for the first stack to ship a build.
 
 ## Measured
