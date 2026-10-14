@@ -1657,25 +1657,23 @@ Expected<List<LayerEffectEntry>> Config::layer_effect(std::string_view layer) co
     const Ref<Array> scratch = impl_->scratch_enabled ? impl_->scratch_root() : nullptr;
     if (!is_scratch && scratch) without = baker::merge(*without, *scratch);
 
+    const Source in_scratch{scratch_name()};
+    Vec<Node> below;
     for (const Leaf& leaf : leaves_of(*tree)) {
         LayerEffectEntry e{};
         const Path path(leaf.path);
         e.path = Symbol(leaf.path);
         e.value = pack(leaf.values);
-        e.source =
-            is_scratch ? Source{Symbol("scratch"), {}, 0} : impl_->located(layer, *leaf.holder);
-        Vec<Node> below;
+        e.source = li ? Impl::located(impl_->layers[*li], *leaf.holder) : in_scratch;
         if (value_nodes(*without, path, below)) e.below = pack(below);
+        // The topmost other layer that supplies the path: it shadows this one if above it.
+        const auto s = impl_->supplier(path, impl_->layers.size(), li ? *li : SIZE_MAX);
         const bool scratch_has = !is_scratch && impl_->scratch_entry(path);
-        if (scratch_has) {
-            e.below_source = Source{Symbol("scratch"), {}, 0};
-        } else if (auto s = impl_->supplier(path, impl_->layers.size(), li ? *li : SIZE_MAX)) {
+        if (scratch_has)
+            e.below_source = in_scratch;
+        else if (s)
             e.below_source = impl_->source_in(impl_->layers[*s], path);
-        }
-        e.shadowed = scratch_has;
-        if (li)
-            for (size_t i = *li + 1; i < impl_->layers.size() && !e.shadowed; ++i)
-                e.shadowed = impl_->supplier(path, i + 1, SIZE_MAX) == i;
+        e.shadowed = scratch_has || (li && s && *s > *li);
         out.push_back(std::move(e));
     }
     return List<LayerEffectEntry>(out);
@@ -1695,25 +1693,29 @@ Expected<List<DiffEntry>> Config::diff(std::string_view a, std::string_view b) c
     if (!tb) return Unexpected(std::move(tb).error());
     const Vec<Leaf> la = leaves_of(**ta), lb = leaves_of(**tb);
     auto source = [&](std::string_view layer, const Leaf& l) {
-        return layer == "scratch" ? Source{Symbol("scratch"), {}, 0}
-                                  : impl_->located(layer, *l.holder);
+        return layer == "scratch" ? Source{scratch_name()} : impl_->located(layer, *l.holder);
     };
+    // b's leaves by path, each matched at most once.
+    HashMap<Str, size_t> in_b;
+    for (size_t i = 0; i < lb.size(); ++i) in_b.emplace(lb[i].path, i);
+    Vec<bool> matched(lb.size(), false);
     Vec<DiffEntry> out;
     for (const Leaf& x : la) {
-        const auto y =
-            std::find_if(lb.begin(), lb.end(), [&](const Leaf& l) { return l.path == x.path; });
-        if (y != lb.end() && same_nodes(x.values, y->values)) continue;
+        const auto it = in_b.find(x.path);
+        const Leaf* y = it != in_b.end() ? &lb[it->second] : nullptr;
+        if (y) matched[it->second] = true;
+        if (y && same_nodes(x.values, y->values)) continue;
         DiffEntry d{Symbol(x.path), pack(x.values), std::nullopt, source(a, x), std::nullopt};
-        if (y != lb.end()) {
+        if (y) {
             d.b = pack(y->values);
             d.source_b = source(b, *y);
         }
         out.push_back(std::move(d));
     }
-    for (const Leaf& y : lb)
-        if (std::none_of(la.begin(), la.end(), [&](const Leaf& l) { return l.path == y.path; }))
-            out.push_back(
-                {Symbol(y.path), std::nullopt, pack(y.values), std::nullopt, source(b, y)});
+    for (size_t i = 0; i < lb.size(); ++i)
+        if (!matched[i])
+            out.push_back({Symbol(lb[i].path), std::nullopt, pack(lb[i].values), std::nullopt,
+                           source(b, lb[i])});
     return List<DiffEntry>(out);
 }
 

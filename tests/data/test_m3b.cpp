@@ -453,6 +453,19 @@ TEST_CASE("layer_effect reports below and shadowed in a three-layer stack") {
     CHECK_FALSE(e.below_source);
     CHECK(e.source.layer == "mid");
     CHECK(cfg.layer_effect("nope").error().code() == ErrorCode::NotFound);
+
+    // A disabled layer shadows nothing; one two layers up does; scratch does.
+    REQUIRE(cfg.push_layer("higher", parse("(a 4)")));
+    REQUIRE(cfg.set_layer_enabled("top", false));
+    REQUIRE(cfg.set("d.e", Node(5)));
+    effect = cfg.layer_effect("mid");
+    REQUIRE(effect);
+    CHECK((*effect)[0].shadowed);  // a: higher, above the disabled top
+    CHECK((*effect)[0].below_source->layer == "higher");
+    CHECK_FALSE((*effect)[1].shadowed);  // b: only top had it
+    CHECK((*effect)[1].below_source->layer == "base");
+    CHECK((*effect)[2].shadowed);  // d.e: scratch
+    CHECK((*effect)[2].below_source->layer == "scratch");
 }
 
 TEST_CASE("diff compares two layers' own values, for A/B") {

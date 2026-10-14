@@ -3537,3 +3537,24 @@ set while scratch is disabled waits rather than being refused.*
   layout. `{add 1 2}` 37.8–39.7 and 38.5–40.6.
 - **Size:** the core is 11,128 lines (11,073 before D116; the fixes of D116–D119 added
   more than this removed).
+
+## D121. `layer_effect` and `diff` without their quadratic loops
+
+*From the review of D116–D120 (2026-10-14), which left these for later; the owner asked
+for them next.*
+
+- **`layer_effect`** asked, for each leaf, every layer above the one examined whether it
+  supplied the path, each answer a resolve down the whole stack: O(L²) resolves a leaf.
+  The topmost other supplier, which it already found for `below_source`, answers the same
+  question: the leaf is shadowed if that layer is above it (or scratch has it). It also
+  found its own layer by name for each leaf's source, and interned "scratch" for each.
+- **`diff`** matched each leaf of one layer against every leaf of the other, both ways:
+  O(n·m) path comparisons. It now indexes the second layer's leaves by path once.
+- **Test.** The three-layer test also checks a disabled layer (shadows nothing), a layer
+  two above (shadows), and scratch (shadows); it passes against the previous code too,
+  as an equivalence should.
+- **Benchmark** (a driver of four layers of 2,000 leaves, examining the second, release,
+  pinned; the harness's Layers panel calls `layer_effect` each frame while open):
+  `layer_effect` 1.29–1.36 ms before and 1.10–1.17 after, and `diff` 3.46–3.54 ms and
+  1.25–1.32. With four layers `layer_effect` is mostly its one re-merge of the stack
+  without the layer, so the quadratic term mattered little here; it grows with layers.
