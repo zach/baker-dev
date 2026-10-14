@@ -67,6 +67,9 @@ int main(int argc, char** argv) {
   a cell's tile when it loads; a house is one tile. Off-mesh links carry ability flags
   (`nav::kClimb`, `kGlide`, ...) and a path query names the abilities the walker has. The
   voxel is rounded to a whole number per tile, or neighbouring tiles do not meet.
+- **`{live.loop}`**, a script word `Live` binds, returns `Config::loop_stats()` as one line:
+  edit-to-see and reload times per file and layer, so the console (and an audit's script)
+  can read a running game's loop (`../audit.md`, D114).
 - **`Game::unbind`** drops what a game keeps in its Context (objects, a Scheduler) before
   the Context goes, after play and after each agent command.
 - **`Renderer::box`** draws boxes and spheres (`Box::sphere`), oriented by Euler angles or

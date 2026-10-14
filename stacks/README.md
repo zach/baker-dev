@@ -10,6 +10,7 @@ lives outside `src/`: Moira's line budget and core rules do not cover it.
 | `base/` | The shared base (design §2): live data loop, window, renderer, tuning panels, console | Built; see `base/README.md` |
 | `cube/` | The base's acceptance game: a cube whose every value is a tweak | Built |
 | `agent.md`, `tools/` | The agent harness (design §3): headless simulation, objectives, the commands | Built |
+| `audit.md` | The harness audit of `reading-a-studio.md` §7, run on every stack (D114) | 2026-10-14 |
 | `duel/` | Player versus CPU fighting on frame data (design §4.6) | Built; see `duel/README.md` |
 | `ledger/` | A tycoon economy, balanced against bot strategies (design §4.2) | Built; see `ledger/README.md` |
 | `contraption/` | Physics puzzles, side on, on Jolt (design §4.1) | Built; see `contraption/README.md` |

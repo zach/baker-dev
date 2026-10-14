@@ -3316,3 +3316,38 @@ merge.*
   (`moira::script` 3,896). Hearth's test of a stuck action now adds that action with
   `{extend villager ...}`, as a task pack would.
 
+## D114. The harness audit of the stacks
+
+*`docs/background/reading-a-studio.md` §7, run on all seven games after step 4 of
+game-stacks.md §6, as §6 asks. The full audit is `stacks/audit.md`. Outside Moira: nothing
+in `src/` changed.*
+
+- **What it could not do.** The method watches people and interviews them; the stacks have
+  one person and an agent. Loop times are measured by a script, the dimensions profile is
+  the builder's reading, and voluntary use is unknown. Re-run it when anyone else plays.
+- **An instrument for step 2.** `{live.loop}`, bound by the base's `Live`, returns
+  `Config::loop_stats()` as text, so a script reads a running game's loop through the
+  console. Ten saves of a tweak in `local.dta` per game (Release, OpenGL under Xvfb, the
+  development container): edit-to-see median 5.4 ms (cube), 6.3 (Duel), 12.3 (Ledger),
+  10.0 (Contraption), 12.4 (Stuntline), 17.0 (Hearth), worst 24.4; Moira's reload 0.12–0.23
+  ms median in every game. **Wayfarer: 174 ms median, 215 ms worst**, all the game's own:
+  its gating view rebuilds the analyses' nine navigation tiles (about 16 ms each) after every
+  reload, even for a run speed. Inside the one-second target, and ten times the others.
+- **The other loops.** A C++ change: a 2–6 s rebuild and a restart. The agent: `check`
+  0.01–0.09 s, one seed of `sim` 0.01–1.05 s.
+- **Demand.** `check` over every stack's data, scenarios, and objectives: no errors,
+  warnings, unresolved words, stubs, repetitions, or findings. The demand is in the C++,
+  which `check` does not read: `tag_of` (an array's first symbol) written in 6 games, a
+  seeded RNG in 5, `not_found`, a `box` helper in 5 each, float and positional readers in 4
+  and 2, command truth in 3: 30 copies of words Moira and the base lack.
+- **The register's finding**: a bus factor of 1 at every layer. Every pack names two owner
+  roles, as `check` asks, and one person fills them all; only the register shows it.
+- **Flight**: one external harness, Ledger's spreadsheet, adopted by design and visible
+  through `origin`. **Evolution**: nothing commodity built in-house (SDL3, bgfx, ImGui, Jolt,
+  Recast/Detour adopted); the analyses (cheese search, proof, bots, soak) are genesis-stage
+  ideas fixed in C++, one each.
+- **Interventions proposed**: fix Wayfarer's loop (keep the analyses' mesh until its
+  geometry changes); push the 30 copies up to Moira (`Array::tag()`, a positional reader) and
+  the base (RNG, `Box` constructors, `not_found`, command truth); a second gardener when
+  there is a second person.
+
