@@ -8,6 +8,7 @@ drives a game. A game is one class:
 class CubeGame final : public base::Game {
     void bind(moira::Context& ctx) override;      // script functions, before the data loads
     void reset(uint64_t seed) override;           // the starting state, before play and each run
+    void load(const moira::Config& cfg) override; // structured data, after every change to the stack
     void step(double dt) override;                // one fixed simulation step; no rendering
     void draw(base::Renderer& r, float alpha) override;  // camera and boxes
 };
@@ -30,6 +31,12 @@ int main(int argc, char** argv) {
   optional, then Moira's scratch. It sets the session's pack levels (`engine`, `game`,
   `task`), adds the shape and `check` validators, and uses the file system's clock as the
   Config's, so a reload's origin is its file's save time.
+- **`Game::load`** is called after the load and after every change to the layer stack,
+  once `#autorun` has run: a game copies its structured data (a roster, an economy) into
+  its own arrays there. Tweaks need nothing. **`Game::ui`** draws a game's own windows every
+  frame (a game played with the mouse); `Game::tools` only while the panels show.
+- **Packs** live in `<data>/../packs` (design §2.4); data files `#require` them by relative
+  path, and the watcher watches that directory too.
 - **`Watcher`** asks the operating system which `.dta` files changed
   (`ReadDirectoryChangesW` on Windows, inotify on Linux), so a frame calls
   `Config::reload` only after a save. Polling instead, as Moira's harness example does,

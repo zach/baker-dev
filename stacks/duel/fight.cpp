@@ -538,7 +538,7 @@ Input Pilot::think(const World& w, const Roster& roster, int me) {
     if (b.mash && chance(b.mash)) {
         const Input buttons[4] = {kLight, kHeavy, kKick, kSpecial};
         pulse = buttons[roll() % 4];
-        if (roll() % 3 == 0) pulse |= kDown;
+        if (roll() % 3 == 0) pulse = static_cast<Input>(pulse | kDown);
     }
 
     // Every few frames: guard, attack, or walk.
@@ -619,7 +619,7 @@ struct Search {
         for (int t = 0; t < 200; ++t) {
             // Once the defender recovers, no later hit is part of this combo.
             if (w.f[1].state != State::Hitstun && w.pause == 0) return false;
-            const Input press = t < walk ? kRight : t == walk ? press_of(m) : 0;
+            const Input press = static_cast<Input>(t < walk ? kRight : t == walk ? press_of(m) : 0);
             const Input in[2] = {press, 0};
             step(w, roster, rules, in);
             if (w.last.kind == Event::Hit && w.last.attacker == 0)

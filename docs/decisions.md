@@ -3089,3 +3089,58 @@ shapes checked nothing.*
   error fails it (exit 1), and an undeclared field is printed as a warning, the demand for
   a word the game does not have yet.
 - **Docs:** `docs/language.md`'s Shapes section corrected, with keyed children.
+
+## D109. Duel and Ledger
+
+*`docs/background/game-stacks.md` §6, step 2: the first two stacks, on the base (D106) and
+the agent harness (D107). Each stack's README is its design note; nothing in `src/` beyond
+D108.*
+
+- **Duel** (`stacks/duel/`, §4.6). The fight is integers throughout, the owner's choice:
+  frames, millimetres, per mille; the data's metres and fractions are rounded once at load.
+  A test checks that the fight's frame advantage equals the frame table's formula. The CPU
+  and the bots are one mechanism (pilots) with different numbers: delayed sight, guarding
+  (crouching only for a low it has seen), punishing what it knows is unsafe, attacking and
+  cancelling. The combo search runs the fight itself over every cancel and link, memoized.
+- **Ledger** (`stacks/ledger/`, §4.2). A day is a tick; each company sells into a market of
+  its own whose price falls with saturation and recovers daily; unlocks and milestones are
+  commands in the data, evaluated about the company judged. Four strategies (greedy,
+  hoarder, specialist, random) compete from one start on the same market days.
+  `economy.xlsx` is exported by a standard-library script to `data/economy.dta` with an
+  `origin` form and each line's sheet row; a test fails if the export is stale.
+- **The base gained** `Game::load` (structured data after every change to the stack, once
+  `#autorun` has run), `Game::ui` (windows every frame), watching `<data>/../packs`, the
+  `eval` command, and shape checking in `check` (D108).
+- **Deviations from §4.** Duel's CPU difficulties are keyed data, not layers: every layer
+  above `default` is shared by all difficulties, so the agent's layer could not tune one;
+  the Duel panel switches difficulty in one session instead. Both stacks keep their data
+  keyed, with `(keyed)` shapes, not §4.2's `(good (name flour) ...)`, so a layer can retune
+  one entry.
+- **Bugs the work found.** A trade (both fighters hit on one frame) read the second
+  attacker's move after the first hit had cleared it: an out-of-bounds read, found by ASan
+  in a diagnostic driver, fixed by capturing both moves first. And the shapes gap of D108.
+- **Tuning the starting data** took the pilots through four designs before the win-rate
+  curve was reachable: reactive blocking alone cannot stop a 4-frame jab, so guarding is a
+  posture, with reactions only for switching high and low. Ledger's bots needed saving for
+  the best investment, no expansion while losing money, and selling buildings in debt;
+  before that the hoarder went bankrupt holding wheat it would not sell.
+- **Results.** Duel, seeds 1–30: 239 of 240 runs pass; the one failure is
+  `easy_vs_combo` at 0.27 against a ceiling of 0.25, at a band's edge. The CPU's win rates,
+  median: easy 0.40 against the masher and 0.17 against the combo player; normal 0.73,
+  0.40, and 0.77 against the turtle; hard 0.94 and 0.53. No infinites; the best combo is
+  jab > jab > jab > low_kick > palm, 255 damage; jab is +1 on block, the most of any move.
+  Ledger, seeds 1–30: 60 of 60 pass. The greedy bot's first mill on day 45–51, bakery
+  85–97, tailor 159–164, 100,000 coins 349–369; after ten hours it leads the specialist by
+  1.85–1.93 times, and wins every seed: a designer's call whether that is dominance or the
+  competent player the pace assumes (`stacks/ledger/README.md`).
+- **Measured** (Release, the development container: a 4-core Xeon at 2.8 GHz; not the
+  minimum-spec PC). Duel's 240 runs, 210 of them an hour of rounds (45 million frames, two
+  pilots each), in 3.6–3.7 s for the process: about 79 ns a frame. The combo search, with
+  the load, 7–15 ms. Ledger's 60 runs (30 first hours stepped at 60 Hz, 30 ten-hour soaks
+  of four companies) in 0.51–0.53 s; a load alone 5.3–5.7 ms. Sanitizers: every stacks
+  test passes under ASan and UBSan.
+- **Open** (recorded for a later step): packs read through a Config never reach
+  `cfg.session()`, since each layer reads with its own session copy, so `check` and
+  `reference` see no packs (no single-owner finding, no one-way warnings). The session
+  after the top layer holds them all; a Config accessor for it is the likely fix.
+- **CI** packages Duel and Ledger for Windows beside the cube (`stacks-<game>-windows`).

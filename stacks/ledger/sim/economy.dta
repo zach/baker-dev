@@ -1,0 +1,14 @@
+; Ledger's scenarios: every strategy in (strategies ...) runs a company from the same start
+; (econ.compete), judged by ../metrics. 720 in-game days is an hour of play at five seconds
+; a day; the soak is ten.
+(scenario first_hour
+   (desc "The first hour: does each step of the ladder arrive on the designer's pace?")
+   (seconds 3600)
+   (start {econ.compete})
+   (objectives ledger.pace_mill ledger.pace_bakery ledger.pace_tailor ledger.no_dead_ends))
+(scenario ten_hours
+   (desc "Ten hours: no runaway strategy, no dead content, no dead ends, money in a band")
+   (seconds 0.05)
+   (start {econ.compete} {econ.advance_days 7200})
+   (objectives ledger.no_runaway ledger.no_dead_buildings ledger.no_dead_ends
+               ledger.money_growth ledger.fortune))

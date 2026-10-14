@@ -18,6 +18,8 @@ stacks_cube check                             moira::check over data, scenarios,
 stacks_cube reference                         the vocabulary: functions, shapes, packs (Markdown)
 stacks_cube diff                              what agent.dta changes, value by value
 stacks_cube promote --to default [--write]    agent.dta into default.dta; --write is a person's
+stacks_cube eval [--seed N] "{command}"...     commands on the data and the reset game: a frame
+                                              table, a search, a report
 ```
 
 The design called this a tool server. A command-line tool is the same surface with less
@@ -80,6 +82,13 @@ so the commands a layer's `#autorun` collected were out of reach; `Config::autor
 returns them, enabled layers bottom to top. `Live` runs them after the load and at the frame
 after any change to the stack (a reload, a toggle from a panel), so a redefinition in
 `agent.dta` replaces the default's at once.
+
+## Check and shapes
+
+`check` also runs the shapes (`moira::shape`) over the merged data: a value out of range or
+of the wrong type fails it, and a field no shape declares is printed as a warning, which
+is how a designer's request for a word the game lacks shows up. Stacks keep data keyed, as
+`(moves (jab ...))`, so a layer can retune one entry; their shapes are `(keyed)` (D108).
 
 ## Who may write what (design §9)
 

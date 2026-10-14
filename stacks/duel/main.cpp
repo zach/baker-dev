@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <string>
+#include <vector>
 
 static moira::Tweak<int> kHitPause{
     "duel.hit_pause", 6, {.range = {0, 30}, .desc = "Frames both fighters freeze on contact"}};
@@ -240,9 +241,9 @@ public:
         r.clear_color(0.08f, 0.08f, 0.10f);
         base::Camera cam;
         cam.eye[0] = 0;
-        cam.eye[1] = 1.6f;
-        cam.eye[2] = -8.5f;
-        cam.at[1] = 1.2f;
+        cam.eye[1] = 1.0f;
+        cam.eye[2] = -6.5f;
+        cam.at[1] = 0.6f;
         cam.fov_y_degrees = 50;
         r.camera(cam);
         if (!loaded_) return;
@@ -281,28 +282,28 @@ public:
             const float full = half - 0.5f;
             const float share = float(std::max(0, f.health)) / float(std::max(1, d.health));
             const float sign = i == 0 ? -1.0f : 1.0f;
-            box(r, sign * (0.3f + full / 2), 3.3f, 0, full, 0.18f, 0.1f, 0.15f, 0.15f, 0.15f);
-            box(r, sign * (0.3f + full * share / 2), 3.3f, -0.06f, full * share, 0.16f, 0.1f, c[0],
+            box(r, sign * (0.3f + full / 2), 2.55f, 0, full, 0.18f, 0.1f, 0.15f, 0.15f, 0.15f);
+            box(r, sign * (0.3f + full * share / 2), 2.55f, -0.06f, full * share, 0.16f, 0.1f, c[0],
                 c[1], c[2]);
         }
 
         const int seconds_left =
             std::max(0, (current_rules().round_frames - world_.round_frame) / 60);
-        r.text(1, 4, "P1 %d  -  %d P2    time %d%s", world_.rounds[0], world_.rounds[1],
+        r.text(48, 4, "P1 %d  -  %d P2    time %d%s", world_.rounds[0], world_.rounds[1],
                seconds_left, paused_ ? "    PAUSED (P; period steps)" : "");
         if (contact_.kind != duel::Event::None)
-            r.text(1, 5, "last contact: P%d %s, %+d frames", contact_.attacker + 1,
+            r.text(48, 5, "last contact: P%d %s, %+d frames", contact_.attacker + 1,
                    contact_.kind == duel::Event::Hit ? "hit" : "blocked", contact_.advantage);
         for (int i = 0; i < 2; ++i)
             if (world_.f[i].combo_hits > 1)
-                r.text(i == 0 ? 1 : 60, 6, "%d hits, %d damage", world_.f[i].combo_hits,
+                r.text(i == 0 ? 48 : 90, 6, "%d hits, %d damage", world_.f[i].combo_hits,
                        world_.f[i].combo_damage);
-        r.text(1, 7, "P1 %s   P2 %s", who(0).c_str(), who(1).c_str());
+        r.text(48, 7, "P1 %s   P2 %s", who(0).c_str(), who(1).c_str());
     }
 
     void tools() override {
-        ImGui::SetNextWindowPos(ImVec2(380, 420), ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSize(ImVec2(520, 300), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowPos(ImVec2(380, 470), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(520, 240), ImGuiCond_FirstUseEver);
         if (!ImGui::Begin("Duel")) {
             ImGui::End();
             return;
@@ -314,18 +315,18 @@ public:
         if (ImGui::Button("New match")) new_match();
         for (int i = 0; i < 2; ++i) {
             ImGui::PushID(i);
-            ImGui::Text("P%d:", i + 1);
-            const char* fixed[] = {"human", "dummy", "block"};
-            for (const char* name : fixed) {
-                ImGui::SameLine();
-                if (ImGui::RadioButton(name, who(i) == name)) (void)control(i, moira::Symbol(name));
+            const std::string current = who(i);
+            ImGui::SetNextItemWidth(160);
+            if (ImGui::BeginCombo(i == 0 ? "P1 (left)" : "P2 (right)", current.c_str())) {
+                std::vector<std::string> names = {"human", "dummy", "block"};
+                for (const auto* list : {&roster_.cpu, &roster_.bots})
+                    for (const duel::Brain& b : *list) names.push_back(b.name);
+                for (const std::string& name : names)
+                    if (ImGui::Selectable(name.c_str(), name == current))
+                        (void)control(i, moira::Symbol(name));
+                ImGui::EndCombo();
             }
-            for (const auto* list : {&roster_.cpu, &roster_.bots})
-                for (const duel::Brain& b : *list) {
-                    ImGui::SameLine();
-                    if (ImGui::RadioButton(b.name.c_str(), who(i) == b.name))
-                        (void)control(i, moira::Symbol(b.name));
-                }
+            if (i == 0) ImGui::SameLine();
             ImGui::PopID();
         }
         if (ImGui::BeginTable("frames", 8, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
@@ -441,7 +442,7 @@ private:
 
     Input pad_input() const {
         if (!pad_) return 0;
-        Input in = 0;
+        unsigned in = 0;  // widened while built: MSVC warns on |= into 8 bits
         const int x = SDL_GetGamepadAxis(pad_, SDL_GAMEPAD_AXIS_LEFTX);
         const int y = SDL_GetGamepadAxis(pad_, SDL_GAMEPAD_AXIS_LEFTY);
         auto held = [&](SDL_GamepadButton b) { return SDL_GetGamepadButton(pad_, b); };
@@ -452,7 +453,7 @@ private:
         if (held(SDL_GAMEPAD_BUTTON_NORTH)) in |= duel::kHeavy;
         if (held(SDL_GAMEPAD_BUTTON_SOUTH)) in |= duel::kKick;
         if (held(SDL_GAMEPAD_BUTTON_EAST)) in |= duel::kSpecial;
-        return in;
+        return static_cast<Input>(in);
     }
 
     moira::Expected<const duel::Move*> find_move(moira::Symbol fighter, moira::Symbol move) const {
