@@ -153,14 +153,16 @@ Expected<void> Config::Impl::read(LayerState& layer, const LoadSession& before,
     }
     session->set_reader([&](std::string_view p, TextSink out) {
         const uint64_t t0 = read_ns ? now() : 0;
-        Str text;
-        const bool ok = detail::read_with(reader, p, text);
+        // Into the Config's buffer, which the parser copies from before it reads an include
+        // through here again: a file read allocates only the parser's copy (D131).
+        const bool ok = detail::read_with(reader, p, scan);
         if (read_ns) *read_ns += now() - t0;
-        if (p != cache.view()) deps.push_back({Str(p), ok, ok ? detail::content_hash(text) : 0});
-        if (ok) out(text);
+        if (p != cache.view())
+            deps.push_back({Str(p, alloc), ok, ok ? detail::content_hash(scan) : 0});
+        if (ok) out(scan);
         return ok;
     });
-    auto map = options.edit_mode ? Rc<SourceMap>::make(alloc) : nullptr;
+    auto map = options.edit_mode ? Rc<SourceMap>::make(alloc, alloc) : nullptr;
     session->source_map = map.get();
     auto root = cache.empty() ? read_file(layer.path, *session)
                               : read_through_cache(layer.path, cache, *session);
@@ -222,7 +224,8 @@ Ref<Array> Config::Impl::scratch_root() const {
     for (const ScratchEntry& e : scratch) {
         Ref<Array> nest = Array::make_copy(e.values->nodes());
         for (size_t i = e.path.size() - 1; i-- > 0;) nest = array(e.path[i].name, Node(nest));
-        overlay = baker::merge(*overlay, *array(Node(nest)));
+        overlay =
+            detail::merge(*overlay, *array(Node(nest)), MergePolicy::Overwrite, merge_scratch);
     }
     return overlay;
 }
@@ -317,17 +320,23 @@ void Config::Impl::put(Config& c, const Path& target, std::span<const Node> valu
 Ref<Array> Config::Impl::merged() const {
     Ref<Array> r = Array::make(0);
     for (const LayerState& l : layers)
-        if (l.options.enabled) r = baker::merge(*r, *l.root);
+        if (l.options.enabled)
+            r = detail::merge(*r, *l.root, MergePolicy::Overwrite, merge_scratch);
     if (scratch_enabled)
-        if (Ref<Array> s = scratch_root()) r = baker::merge(*r, *s);
+        if (Ref<Array> s = scratch_root())
+            r = detail::merge(*r, *s, MergePolicy::Overwrite, merge_scratch);
     return r;
 }
 
 void Config::Impl::refresh_read() {
-    const LoadSession* top = &base;
+    const Rc<LoadSession>* top = nullptr;
     for (const LayerState& l : layers)
-        if (!l.path.empty() && l.after) top = l.after.get();
-    as_read = *top;
+        if (!l.path.empty() && l.after) top = &l.after;
+    // A layer's session is read-only once built, so the same one needs no copy; the base
+    // is the host's to change, so it is copied each time (D129).
+    if (top && as_read_from.get() == top->get()) return;
+    as_read = top ? **top : base;
+    as_read_from = top ? *top : nullptr;
 }
 
 void Config::Impl::commit(Config& c, ReloadRecord& rec, uint64_t& t) {

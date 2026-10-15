@@ -12,6 +12,11 @@ Evidence comes from:
 
 Debug-build counts are counts, not timings. Timings are release builds pinned to one CPU.
 
+**Decided (D127):** option A, as recommended. Merge now shares identical arrays and
+reuses a scratch the Config owns; a three-layer merge went from 9,067 allocations to 8.
+The follow-ups below are done too: source maps (D128), sessions (D129), script callables
+and handlers (D130), and the first block, text copies and decisions' text (D131).
+
 ## The answer, first
 
 **Keep merged trees as solo blocks, and fix merge instead.** The cost gap 31 points at is

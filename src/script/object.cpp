@@ -546,7 +546,7 @@ Expected<void> read_handlers(Args& a, Context::Impl& impl, Vec<ScriptClass::Hand
         if (!h || h->empty() || (*h)[0].type() != Type::Symbol)
             return Unexpected(
                 a.error("a handler is (method ($params...) body...)", ErrorCode::Syntax));
-        ScriptClass::Handler handler{*(*h)[0].try_sym(), {}, {}};
+        ScriptClass::Handler handler{*(*h)[0].try_sym(), ScriptBody(impl.alloc), {}};
         handler.body.definition = Ref<Array>(const_cast<Array*>(h));
         handler.body.body = 1;
         if (const Array* params = h->size() > 1 ? (*h)[1].try_array() : nullptr) {
@@ -574,7 +574,7 @@ void register_object_builtins(Context& ctx) {
                 a.error("write {class Name (method ($params...) body...) ...}", ErrorCode::Syntax));
         const Symbol name = *a.raw(0).try_sym();
         Context::Impl& impl = a.context().impl();
-        auto cls = Own<ScriptClass>::make(impl.alloc);
+        auto cls = Own<ScriptClass>::make(impl.alloc, impl.alloc);
         cls->name = name;
         if (auto r = read_handlers(a, impl, cls->handlers); !r) return Unexpected(r.error());
         if (name.index() >= impl.class_by_name.size()) impl.class_by_name.resize(name.index() + 1);
@@ -603,7 +603,7 @@ void register_object_builtins(Context& ctx) {
                 return Unexpected(a.error(
                     quoted(name) + " is not a class: {class " + Str(name.str()) + " ...} it first",
                     ErrorCode::NotFound));
-            auto made = Own<ScriptClass>::make(impl.alloc);
+            auto made = Own<ScriptClass>::make(impl.alloc, impl.alloc);
             made->name = name;
             if (name.index() >= impl.class_by_name.size())
                 impl.class_by_name.resize(name.index() + 1);

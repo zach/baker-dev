@@ -28,7 +28,8 @@ Expected<Node> define(Args a, bool override) {
         return Unexpected(
             a.error(Str("write {") + form + " name ($params...) body...}", ErrorCode::Syntax));
     const Symbol name = *a.raw(0).try_sym();
-    detail::Shared holder = detail::Shared::make<ScriptBody>();
+    Context::Impl& impl = a.context().impl();
+    detail::Shared holder = detail::Shared::make_in<ScriptBody>(impl.alloc, impl.alloc);
     // Filled here, before any other reference to it exists.
     auto* body = const_cast<ScriptBody*>(static_cast<const ScriptBody*>(holder.get()));
     if (!parse_params(*a.raw(1).try_array(), *body))
@@ -54,7 +55,6 @@ Expected<Node> define(Args a, bool override) {
             break;
         }
     }
-    Context::Impl& impl = a.context().impl();
     Function& f = impl.function(name);
     if (f.tier == Tier::Native && !f.overloads.empty()) {
         if (!override)

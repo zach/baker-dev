@@ -115,6 +115,31 @@ TEST_CASE("a reload that finds nothing changed allocates nothing") {
     if (test::counting_allocations()) CHECK(scope.count() == 0);
 }
 
+TEST_CASE("a merge copies no session when the top layer's is unchanged (D129)") {
+    if constexpr (kShipping) return;  // shipping refuses toggling a layer
+    auto allocations_for = [](int macros) {
+        TempDir dir;
+        std::string defs;
+        for (int i = 0; i < macros; ++i)
+            defs += "#define M" + std::to_string(i) + " ((v " + std::to_string(i) + "))\n";
+        Config cfg({.tweaks = nullptr});
+        REQUIRE(cfg.push_layer("defs", dir.write("defs.dta", defs + "(a 1)")));
+        REQUIRE(cfg.push_layer("over", parse("(a 2)")));
+        REQUIRE(cfg.set_layer_enabled("over", false));
+        REQUIRE(cfg.set_layer_enabled("over", true));
+        REQUIRE(cfg.set_layer_enabled("over", false));
+        size_t count = 0;
+        {
+            const test::AllocationScope scope;  // no doctest assertion inside: they allocate
+            (void)cfg.set_layer_enabled("over", true);
+            count = scope.count();
+        }
+        CHECK(cfg.read_session().is_defined(Symbol("M0")));
+        return count;
+    };
+    if (test::counting_allocations()) CHECK(allocations_for(100) == allocations_for(5));
+}
+
 TEST_CASE("the history ring wraps, keeping the newest records in order") {
     Config cfg({.tweaks = nullptr});
     cfg.set_reload_history(3);

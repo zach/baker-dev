@@ -210,18 +210,23 @@ template <class T>
 inline constexpr bool is_raw<std::optional<Raw<T>>> = true;
 
 // A refcounted, type-erased, immutable object: the callable behind a function. get() is
-// one load, as std::shared_ptr's is. From the default allocator (D61).
+// one load, as std::shared_ptr's is. From an owner's allocator, which must outlive it (a
+// Context's natives and script bodies, D130), else the default allocator (D61).
 class Shared {
 public:
     Shared() noexcept = default;
     template <class T, class... A>
-    [[nodiscard]] static Shared make(A&&... a) {
-        auto* box =
-            ::new (default_alloc(sizeof(Box<T>), alignof(Box<T>))) Box<T>(std::forward<A>(a)...);
+    [[nodiscard]] static Shared make_in(const Allocator& alloc, A&&... a) {
+        auto* box = ::new (allocate(alloc, sizeof(Box<T>), alignof(Box<T>)))
+            Box<T>(alloc, std::forward<A>(a)...);
         Shared s;
         s.base_ = box;
         s.object_ = &box->value;
         return s;
+    }
+    template <class T, class... A>
+    [[nodiscard]] static Shared make(A&&... a) {
+        return make_in<T>(default_allocator(), std::forward<A>(a)...);
     }
     Shared(const Shared& o) noexcept : base_(o.base_), object_(o.object_) {
         if (base_) base_->refs.fetch_add(1, std::memory_order_relaxed);
@@ -249,14 +254,17 @@ private:
     struct Base {
         std::atomic<uint32_t> refs{1};
         void (*destroy)(Base*) = nullptr;
+        const Allocator* alloc = nullptr;
     };
     template <class T>
     struct Box : Base {
         template <class... A>
-        explicit Box(A&&... a) : value(std::forward<A>(a)...) {
+        explicit Box(const Allocator& from, A&&... a) : value(std::forward<A>(a)...) {
+            this->alloc = &from;
             this->destroy = [](Base* b) {
+                const Allocator& owner = *b->alloc;
                 static_cast<Box*>(b)->~Box();
-                default_free(b, sizeof(Box));
+                deallocate(owner, b, sizeof(Box));
             };
         }
         T value;
@@ -554,14 +562,14 @@ struct ParamTable {
 };
 
 template <class F, class R, class... P>
-Overload make_overload(F&& f, TypeList<P...>*) {
+Overload make_overload(F&& f, TypeList<P...>*, const Allocator& alloc = default_allocator()) {
     using Fn = std::remove_cvref_t<F>;
     using Table = ParamTable<P...>;
     Overload o;
     o.thunk = [](const void* c, Args& a) {
         return invoke<Fn, R, P...>(c, a, std::index_sequence_for<P...>{});
     };
-    o.callable = Shared::make<Fn>(std::forward<F>(f));
+    o.callable = Shared::make_in<Fn>(alloc, std::forward<F>(f));
     o.result = result_name<R>();
     o.params = std::span<const ParamInfo>(Table::kStorage.items, Table::kCount);
     for (const ParamInfo& p : o.params) {
@@ -660,6 +668,8 @@ class Context {
 public:
     // Everything the Context keeps comes from `allocator`, which must outlive it (D61).
     explicit Context(const Allocator& allocator = default_allocator());
+    // The allocator it was given: everything it keeps comes from it (D61).
+    [[nodiscard]] const Allocator& allocator() const noexcept;
     ~Context();
     Context(const Context&) = delete;
     Context& operator=(const Context&) = delete;
@@ -669,7 +679,10 @@ public:
     // A Command runs its function, a Var reads its variable, anything else is itself.
     [[nodiscard]] Expected<Node> eval(const Node& node);
     // Parses `text` and evaluates each top-level node in order, returning the last value
-    // (Int 0 if there is none). The entry point for consoles and remote commands.
+    // (Int 0 if there is none). The entry point for consoles and remote commands. The
+    // text's tree is built in an arena from the Context's allocator: a value kept from the
+    // result, or a {func} the text defined, keeps that arena, so the allocator must outlive
+    // it as well as the Context (D61, D131).
     [[nodiscard]] Expected<Node> eval(std::string_view text, std::string_view name = "<eval>");
 
     // --- Tasks (task.hpp). ---
@@ -691,9 +704,9 @@ public:
     template <class F>
     [[nodiscard]] Expected<FuncRef> func(Symbol name, F&& f) {
         using Sig = detail::signature_of<F>;
-        return add_overload(name,
-                            detail::make_overload<F, typename Sig::result>(
-                                std::forward<F>(f), static_cast<typename Sig::params*>(nullptr)));
+        return add_overload(name, detail::make_overload<F, typename Sig::result>(
+                                      std::forward<F>(f),
+                                      static_cast<typename Sig::params*>(nullptr), allocator()));
     }
     [[nodiscard]] bool has_func(Symbol name) const noexcept;
 

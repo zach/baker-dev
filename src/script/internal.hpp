@@ -111,6 +111,7 @@ struct Function : FuncRecord {
 
 // A {func} body: run with the parameters bound.
 struct ScriptBody {
+    explicit ScriptBody(const Allocator& a = default_allocator()) : params(a), param_info(a) {}
     Vec<Symbol> params;
     Vec<detail::ParamInfo> param_info;  // one "value" per parameter, for Overload
     Ref<Array> definition;
@@ -124,8 +125,9 @@ struct ScriptClass {
         ScriptBody body;
         mutable Counters counters;
     };
+    explicit ScriptClass(const Allocator& a) : handlers(a) {}
     Symbol name;
-    Vec<Handler> handlers;
+    Vec<Handler> handlers;  // from the Context's allocator, as the class (D130)
 
     [[nodiscard]] const Handler* handler(Symbol method) const noexcept {
         for (const Handler& h : handlers)

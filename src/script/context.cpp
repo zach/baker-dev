@@ -395,6 +395,10 @@ Expected<Node> Context::Impl::run(std::span<const Node> nodes) {
 
 // --- Context ---
 
+const Allocator& Context::allocator() const noexcept {
+    return impl_->alloc;
+}
+
 Context::Context(const Allocator& allocator)
     : impl_(detail::create<Impl>(allocator, *this, allocator)) {
     detail::set_evaluator(&evaluate_for_data);

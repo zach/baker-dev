@@ -3721,3 +3721,175 @@ callgrind and pinned timings in small drivers, against the previous build.*
 - **Unchanged:** `bench_lookup`'s rows. `find<float>` read 15.2–16.7 ns before and
   17.0–17.4 after, at the same instructions (37,251,771 and 37,251,931 for 200,000
   finds): code layout.
+
+## D127. Gap 31: fix merge, keep merged trees solo
+
+*The owner's decision (2026-10-14) on `docs/allocation-review.md`: option A, as
+recommended. D64 stands: arrays built after a load are solo blocks.*
+
+- **Why not an arena.** The review measured where a merge's cost lay. About 7 of every 9
+  arrays it rebuilt were copies of a layer's own array, and 77% of its allocations were
+  temporaries. An arena per merge would have kept both kinds of waste. It would also have
+  brought new retention: one held 80 B leaf would pin about 1.1 MB of merged and layer
+  arenas. And `Array::set` through `root()` would have kept every replaced node.
+- **What changed.**
+  - When a rebuilt array's nodes come out identical to the incoming array's, node for
+    node, the merge shares that array instead of building a copy. The shared array keeps
+    its own location, the layer's.
+  - The merge's temporaries live in a `detail::MergeScratch`: per depth of the
+    recursion, a buffer for the array being rebuilt and an open-addressed index of a wide
+    array's tags. The index is sized by the keys being merged, not by the symbol table. It
+    replaces D75's `unordered_map`, one node per key. Levels are owned one by one, so a
+    deeper level never moves a buffer an outer one uses.
+  - The Overwrite branch reorders `dst` in place rather than swapping it with a buffer
+    that may not share its allocator.
+  - The Config keeps one scratch on its allocator for every merge it makes: its stack,
+    scratch overlays, and `layer_effect`. `baker::merge` makes its own, and `#merge` in a
+    load makes one.
+  - `merge` reserves its result once rather than growing it.
+- **Measured** (a driver of three file layers of about 36 KB each, one full merge,
+  release, pinned; before is `6298f1a`):
+
+| | before | after |
+|---|---:|---:|
+| default-allocator allocations | 9,067 | 8 |
+| the merged tree's own bytes | 176,744 | 12,184 |
+| time | 365–374 µs | 152–154 µs |
+
+  A Config whose top layer overrides whole sections now allocates 6 times a merge
+  whatever its size: 20 sections or 800.
+- **Tests** (`test_config.cpp`):
+  - a layer that sets a whole section shares it;
+  - a merge allocates the same for 200 sections as for 20;
+  - wide arrays at two depths at once merge as one key at a time does.
+
+## D128. Source maps are flat, and a Config's are its own
+
+*The review's largest finding after merge (`docs/allocation-review.md`), the owner's
+choice.*
+
+- **The cost.** Edit mode, the default outside shipping, records for every array where it
+  and each node are written. Each array cost two allocations on the default allocator: a
+  hash-map node, and a vector of its spans. A 36 KB layer made about 5,000. The Config keeps
+  one map per layer, which made it the largest thing a Config held off its own allocator.
+- **Now.**
+  - Every array's spans lie in one run. An entry (the array kept alive, its extent, and
+    where its spans are in the run) is found through an open-addressed index by address.
+  - Recording an array allocates nothing of its own. When a file's text is recorded, the
+    run, the entries and the index are reserved for it at config's density: a node every
+    4 to 5 bytes and an array every 14. A denser file costs one doubling, not a regrowth
+    per array.
+  - Recording an array again (a `#merge` rebuild) replaces its entry.
+  - `SourceMap(const Allocator&)` is new. The Config passes its allocator for the maps it
+    makes, which D61 wanted: records an owner keeps come from its allocator. A host's map
+    stays on the default allocator.
+- **Measured** (an edit-mode read of a 36,306-byte layer, release, pinned, three
+  alternating runs against `e11054b`):
+  - default-allocator allocations: 5,084 before, 49 after;
+  - bytes live with the tree: 896,795 before, 892,915 after;
+  - time: 536–572 µs before, 422–437 µs after.
+
+  In `baker_alloc_tests`' Config scenario, the default allocator's count went from 172 to
+  136 and the Config's from 38 to 62. `reloads free the trees they replace` now takes its
+  steady reading at version 10: the map's copy of the text is the Config's now, and
+  versions 2 to 9 are a character shorter.
+
+## D129. A Config's sessions are its own, and a merge copies none it need not
+
+*From `docs/allocation-review.md`, the owner's choice.*
+
+- **Every merge copied a session.** `refresh_read` copied the top file layer's whole
+  `LoadSession` state into `read_session()`'s, at every commit: every define (a map node
+  each), pack, origin and warning. A layer's session is read-only once built, so the copy
+  is now skipped when the top layer's session is the one copied last time. The Config
+  holds an `Rc` to that session, so its address cannot be reused by another. The base
+  session is the host's to change, so it is still copied each time it is the top.
+- **Sessions on their owner's allocator.** `LoadSession(const Allocator&)` is new: its
+  state (defines, packs, origins, the record for a cache) comes from that allocator. A
+  copy keeps its source's allocator; an assignment keeps the target's, as containers do.
+  The Config's base session and `read_session()` copy are on its allocator, and so,
+  through copies, is every layer's session.
+- **Measured.** One full merge of three file layers, the bottom one defining 200 macros,
+  release, pinned: 209 default-allocator allocations before and 7 after; 160 µs and 153
+  µs. `baker_alloc_tests`' Config scenario: the default allocator's count went from 136 to
+  123, and the Config's from 62 to 74.
+- **Test** (`test_m3b.cpp`): a merge allocates the same with 100 macros as with 5. Against
+  the previous code it read 107 and 12.
+
+## D130. A Context's callables and handlers are its own
+
+*From `docs/allocation-review.md`, the owner's choice. Closes the review's D61
+inconsistency in baker::script.*
+
+- **The inconsistency.** D61 says function records and classes are the owner's. But a
+  function's callable is a `detail::Shared`, classed in D61 as a header type, and so came
+  from the default allocator. That covered every native's callable and every `{func}`'s
+  `ScriptBody` with its parameter lists. `ScriptClass` took no allocator, so neither did
+  its handlers and their bodies.
+- **Now.**
+  - `Shared::make_in(alloc, ...)` records its allocator, and `Shared::make` is
+    `make_in(default_allocator())`.
+  - `make_overload` takes an allocator; `Context::func` passes the Context's, through the
+    new `Context::allocator()`.
+  - `{func}` bodies, `ScriptBody`'s vectors, `ScriptClass`'s handler vector and each
+    handler's body take the Context's allocator.
+  - Type records stay process-wide, on the default allocator, as D61 says.
+- **Measured** (`baker_alloc_tests`' Context scenario, which now prints both): the
+  default allocator's count went from 121 to 80, and the Context's from 132 to 173. What
+  remains on the default allocator is what D61 assigns there: `eval(text)`'s parse
+  temporaries, error records, type records and the symbol table. Nothing on a call
+  changed: `Shared::get()` is the same load.
+
+## D131. A load's first block is sized from its text, and a layer read copies its text once
+
+*From `docs/allocation-review.md`, the owner's choice ("arena sizing and text copies").
+It also corrects D61's and D64's text, and documents `eval(text)`'s lifetime.*
+
+- **The first block.** A load's arena started with a block of four bytes per byte of
+  text. Real trees run from about half their text (string-heavy) to eight times it
+  (bracket-heavy), so that block either wasted most of itself or doubled into a second and
+  third. A 102 KB tree-heavy text took three blocks and used 51% of 1.23 MB.
+  - **Now:** `first_block` counts arrays, tokens, strings and characters in one pass over
+    the first 16 KB, then scales the count to the whole text. A text of 16 KB or less keeps
+    the old 4×, where the pass would cost more than the slack saves.
+  - **After a full first block,** the next block is the same size, then sizes double as
+    before. The first block was meant to hold the whole load, so doubling it on a small
+    miss overshoots.
+  - A pass over the whole text cost 17% of parse speed (134 → 111 MB/s), which is why
+    only 16 KB is sampled.
+- **Measured.** Parses in a counting driver:
+
+  | Text | Blocks before | Blocks now | Bytes before | Bytes now | Used before | Used now |
+  |---|---:|---:|---:|---:|---:|---:|
+  | dense, 102 KB | 3 | 2 | 1,224,608 | 700,136 | 51% | 88% |
+  | sparse | 2 | 2 | 408,144 | 137,080 | 34% | ~101% |
+
+  - Sparse's ~101% is its two blocks counted against the estimate.
+  - Most corpus files now load in one block.
+- **`bench_parse`** (4.2 MB corpus), pinned to one CPU, alternating runs:
+  - Before: 117.9, 116.5, 115.9 MB/s. Now: 125.5, 127.7, 128.5 MB/s. 43 allocations both.
+  - An earlier session read the other way (137 vs 131), so this is noise.
+  - Callgrind: 4,114.9M instructions before, 4,117.4M now (+0.06%, the sampling pass).
+- **Text copies.** A Config's layer reader read each file into a fresh `Str`, hashed it
+  for the layer's deps, and passed it to the parser, which copied it again.
+  - Now the reader reads into the Config's `scan` buffer (`changed()`'s, reused), so a
+    file read allocates only the parser's copy.
+  - The reader returns before the parser reads an include through it again, so the buffer
+    is never in use twice.
+  - A dep's path is now on the Config's allocator, like the rest of its layer records.
+  - `baker_alloc_tests`' Config scenario: the default allocator's count went from 123
+    to 120.
+  - **Left:** a cache read through a custom reader still copies the cache from the
+    reader's `Str` into the arena that holds it. Without a size up front, the arena
+    cannot be the sink. Custom readers (packs, memory) are the rare path.
+- **Corrections to earlier entries.**
+  - **D61** lists snapshots among the default allocator's results. A `ConfigSnapshot` is
+    built on its Config's allocator and keeps it (D62), as D61's own note on copies
+    implies.
+  - **D64** says blocks grow from 4 KB. The minimum block is 512 B (`kMinBlock`). The
+    first block is sized for the load: 4× the text in D64, and `first_block` since this
+    entry.
+- **`eval(text)`'s lifetime.** `Context::eval(text)` builds its tree in an arena from the
+  Context's allocator. A value kept from it, or a `{func}` the text defined, keeps that
+  arena alive, so the allocator must outlive it as well as the Context. D61's contract
+  already covered this; `script.hpp` now says so where `eval` is declared.

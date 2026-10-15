@@ -143,10 +143,11 @@ TEST_CASE("a Config allocates through its allocator, and nothing through operato
 TEST_CASE("a Context allocates through its allocator, and nothing through operator new") {
     Counting mine;
     const baker::Allocator alloc = mine.allocator();
-    size_t global = 0;
+    size_t global = 0, unowned = 0;
     bool ok = false;
     {
         const baker::test::AllocationScope scope;
+        const size_t unowned_before = g_default_allocations.load();
         {
             baker::Context ctx(alloc);
             ok = ctx.func("add", &add).has_value();
@@ -159,9 +160,11 @@ TEST_CASE("a Context allocates through its allocator, and nothing through operat
             ok = ok && ctx.eval("{bob step 1.5} {new Mover m2 (x 2)} {delete m2}").has_value();
             ok = ok && !ctx.eval("{add 1}").has_value();  // an error record
         }
+        unowned = g_default_allocations.load() - unowned_before;
         global = scope.count();
     }
     CHECK(ok);
+    MESSAGE("Context: " << unowned << " allocations through the default allocator");
     if (baker::test::counting_allocations()) CHECK(global == 0);  // not under TSan
     CHECK(mine.allocs > 0);
     CHECK(mine.allocs == mine.frees);
@@ -211,7 +214,7 @@ TEST_CASE("reloads free the trees they replace") {
         for (int i = 1; i <= 50; ++i) {
             g_version = i;
             ok = ok && config.reload().value_or(false);
-            if (i == 2) steady = mine.live_bytes;
+            if (i == 10) steady = mine.live_bytes;  // from here the text keeps its length
         }
         ok = ok && config.get<int>(baker::Path("speed")).value_or(0) == 50;
         CHECK(mine.live_bytes == steady);  // each reload's arena replaced the last

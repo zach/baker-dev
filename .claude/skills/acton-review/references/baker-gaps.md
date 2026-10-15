@@ -1,7 +1,9 @@
 # Baker under the data-oriented lens: known gaps
 
-**Status, 2026-10-14, after D126: gaps 1–21 and 26 are closed; 22–25 and 27–31 below
-are open.** D124 closed the hot-path batch (13–18), D125 gap 26, D126 the load-path batch
+**Status, 2026-10-14, after D131: gaps 1–21, 26 and 31 are closed; 22–25 and 27–30 below
+are open.** D127 closed gap 31 (the owner's choice in `docs/allocation-review.md`), and
+D128–D131 the review's other findings: edit-mode source maps, sessions, script callables
+and handlers on their owner's allocator, and the first arena block and text copies. D124 closed the hot-path batch (13–18), D125 gap 26, D126 the load-path batch
 (19–21). A fresh review of the core (2026-10-14) fixed what it found that was a bug or a
 measured cost (D116–D122) and recorded the rest here, for later. D117's deferral costs one
 predictable branch per host `eval`, none per call. Before that, **2026-10-13, after D100:
@@ -51,7 +53,7 @@ before fixing (SKILL.md, step 5), and do not fix one without a cost that justifi
 | 28, duplicated code | code | `Path::parse` and `Path::matches` tokenize alike; `LoadSession`'s four special members copy the same five fields; origin and pack registration is written in both the Parser and `SessionAccess`; `format_double` and its fallback normalize the decimal point twice; the arity message is built five times in baker::script; `cache.cpp`'s `nodes_at` re-derives `Array::run_bytes`. | read |
 | 29, methods' status | tool | A method's `Status` and replacement are stored, but the reference prints only functions' status, and checks use only `Stub`. Print it, or drop the replacement. | read |
 | 30, build time | build | doctest's implementation is compiled twice (`doctest_main.cpp`, `tests/alloc/main.cpp`, about 6.5 s each at `-O3`), `alloc_counter.cpp` seven times, and `bench_call.cpp` takes 35 s (128 bound types). An OBJECT library for each, and a runtime method count in the bench, would cut them. | reproduced (timed) |
-| 31, a Config's merged trees | load | Each merge builds the Config's tree as solo arrays from the default allocator (D61, D64): about 50 blocks in `baker_alloc_tests`' Config scenario, of 215 default allocations. A Config arena for its merged root would put them on the Config's own heap and free them in one go. That changes D64's ownership, so it needs the owner's decision. | measured (D124) |
+| 31, a Config's merged trees | load | Each merge builds the Config's tree as solo arrays from the default allocator (D61, D64): about 50 blocks in `baker_alloc_tests`' Config scenario, of 215 default allocations. A Config arena for its merged root would put them on the Config's own heap and free them in one go. That changes D64's ownership, so it needs the owner's decision. | **closed**, D127: merge shares identical arrays and reuses its scratch; 9,067 allocations a merge to 8, trees stay solo |
 
 ## Already aligned (keep it that way)
 

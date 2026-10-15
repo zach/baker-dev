@@ -102,6 +102,61 @@ TEST_CASE("a large merge, indexed, gives what small merges give") {
     }
 }
 
+TEST_CASE("wide arrays at two depths merge as narrow ones do (D127)") {
+    // The root and one section each pass 32 incoming keys: each depth indexes, while the
+    // depth above holds its own index.
+    std::string base, over;
+    for (int i = 0; i < 60; ++i) base += "(k" + std::to_string(i) + " 1) ";
+    std::string wide_b = "(wide", wide_o = "(wide";
+    for (int i = 0; i < 50; ++i) {
+        wide_b += " (w" + std::to_string(i) + " 1 (deep 1))";
+        wide_o += " (w" + std::to_string(i + 25) + " 2)";
+    }
+    base += wide_b + ") ";
+    over += wide_o + ") ";
+    for (int i = 30; i < 90; ++i) over += "(k" + std::to_string(i) + " 3) ";
+    const auto b = parse(base.c_str()), o = parse(over.c_str());
+    const Ref<Array> merged = merge(*b, *o);
+    // Narrow: one key at a time.
+    Ref<Array> step = b;
+    for (uint32_t i = 0; i < o->size(); ++i)
+        step = merge(*step, *Array::make_copy(o->nodes().subspan(i, 1)));
+    CHECK(str_of(*merged) == str_of(*step));
+    CHECK(merged->get<int>("wide.w30.0") == 2);
+    CHECK(merged->get<int>("wide.w30.deep.0") == 1);
+    CHECK(merged->get<int>("wide.w10.0") == 1);
+    CHECK(merged->get<int>("k45.0") == 3);
+}
+
+TEST_CASE("a layer that sets a whole section shares it, and a merge allocates little (D127)") {
+    const auto base = parse("(s (speed 1) (count 2)) (t (x 1))");
+    const auto over = parse("(s (speed 3) (count 4))");
+    const Ref<Array> merged = merge(*base, *over);
+    CHECK(merged->try_find("s") == over->try_find("s"));  // the layer's own array
+    CHECK(merged->try_find("t") == base->try_find("t"));
+    // A Config merging layers that override whole sections allocates the same for 20
+    // sections as for 200: only what it keeps, the roots.
+    auto allocations_for = [](int sections) {
+        std::string lo, hi;
+        for (int i = 0; i < sections; ++i) {
+            lo += "(s" + std::to_string(i) + " (speed 1) (count 1) (sub (x 1) (y 1)))";
+            if (i % 2 == 0)
+                hi += "(s" + std::to_string(i) + " (speed 2) (count 2) (sub (x 2) (y 2)))";
+        }
+        Config cfg({.tweaks = nullptr});
+        REQUIRE(cfg.push_layer("lo", parse(lo.c_str())));
+        REQUIRE(cfg.push_layer("hi", parse(hi.c_str())));
+        REQUIRE(cfg.set_layer_enabled("hi", false));
+        REQUIRE(cfg.set_layer_enabled("hi", true));  // warm the scratch
+        REQUIRE(cfg.set_layer_enabled("hi", false));
+        const test::AllocationScope scope;
+        (void)cfg.set_layer_enabled("hi", true);
+        return scope.count();
+    };
+    if constexpr (!kShipping)  // shipping refuses toggling a layer
+        if (test::counting_allocations()) CHECK(allocations_for(200) == allocations_for(20));
+}
+
 TEST_CASE("edit mode records where every node is written") {
     const std::string text = "[M 5]\n(a 1 \"two\" 'three four' M\n  (b 2.5))\n";
     LoadSession s;

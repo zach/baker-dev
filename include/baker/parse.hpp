@@ -103,6 +103,10 @@ public:
     using Reader = Callback<bool(std::string_view path, TextSink out)>;
 
     LoadSession();
+    // Its state (defines, packs, origins, ...) from `alloc`, which must outlive it: an
+    // owner that keeps sessions (a Config) passes its own (D129). A copy keeps its source's
+    // allocator; the default constructor uses the default allocator.
+    explicit LoadSession(const Allocator& alloc);
     LoadSession(const LoadSession& other);
     LoadSession(LoadSession&& other) noexcept;
     LoadSession& operator=(const LoadSession& other);
