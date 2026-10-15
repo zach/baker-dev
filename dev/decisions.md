@@ -4647,3 +4647,25 @@ side.*
   skills, the stacks' docs and the decision records themselves. The publisher's citation
   patterns now read `dev/`. The release check refuses a published line that names `dev/`,
   except a path such as `/dev/null`.
+
+## D153. Integrations to pursue: shared Baker features first, then the agent bridge
+
+*The owner asked for a competitive analysis of Baker against the data, tuning and scripting
+systems of larger engines and services, a choice of the most valuable integrations, and
+critiqued plans for them. The analysis is `dev/background/integration-landscape.md`; the
+plans are `dev/integration-plans.md`.*
+
+- **Finding.** No engine, service or library surveyed ships one-line write-back of a value
+  tuned live, per-value provenance, or one stack for local and live layers. The pairings
+  that would show this best need the same few Baker features, so most of the work is
+  Baker's own and the integrations stay thin.
+- **Chosen integrations:** an agent bridge (MCP), editor tooling (tree-sitter and an LSP
+  driven by `check`), Godot through GDExtension, and published live-ops overlays. Unreal,
+  a spreadsheet round-trip and a Tracy adapter were considered and deferred.
+- **The owner's choices:**
+  - Start with the shared features E1 (`explain`), E2 (a JSON reply form and the Config's
+    tools as script functions) and E3 (a machine-readable reference), then plan A, the
+    agent bridge, with its evaluation on the stacks.
+  - Each integration lives in its own repository from `tools/integration-template/`,
+    including the MIT-only ones (`INTEGRATIONS.md`, rule 2).
+  - E2's reply form and `bind_config_tools` ship in the published library.
