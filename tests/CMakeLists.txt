@@ -21,6 +21,7 @@ add_executable(baker_data_tests
   data/test_m3b.cpp
   data/test_m10.cpp
   data/test_explain.cpp
+  data/test_tweaks_json.cpp
   data/test_parse.cpp
   data/test_preprocessor.cpp
   data/test_version.cpp
@@ -51,7 +52,8 @@ if(BAKER_BUILD_SCRIPT)
     script/test_stats.cpp
     script/test_tasks.cpp
     script/test_request.cpp
-    script/test_config_tools.cpp)
+    script/test_config_tools.cpp
+    script/test_reference_json.cpp)
   target_link_libraries(baker_script_tests PRIVATE baker::script baker_doctest_main
                         baker_alloc_counter)
   target_compile_definitions(baker_script_tests PRIVATE

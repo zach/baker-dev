@@ -239,3 +239,29 @@ TEST_CASE("a softer pack may narrow a harder pack's shape, not loosen it (D145)"
     Run loose{"loose_base.dta", "loose_mod.dta"};
     CHECK(loose.reported.empty());
 }
+
+// --- As JSON, baker.shapes/1 (dev/tool-surface-plan.md §6). ---
+
+TEST_CASE("the shapes as JSON: each shape and its fields") {
+    shape::Set shapes;
+    shape::Report report;
+    shapes.add(
+        *ok(read_string("(shapes\n"
+                        "   (boss_phase (at bosses * phases) (keyed)\n"
+                        "      (enter_at float (range 0 1) (step 0.05) (desc \"HP fraction\"))\n"
+                        "      (adds (list symbol) (optional))))\n",
+                        "shapes.dta")),
+        report);
+    REQUIRE(report.errors.empty());
+    std::string json;
+    shape::write_json(shapes, string_out(json));
+    CHECK(json.rfind("{\n  \"schema\": \"baker.shapes/1\",\n  \"shapes\": [\n", 0) == 0);
+    CHECK(json.find(R"j({"name": "boss_phase", "at": ["bosses", "*", "phases"], "keyed": true, )j"
+                    R"j("file": "shapes.dta", "line": 2, "fields": [)j") != std::string::npos);
+    CHECK(json.find(R"j({"name": "enter_at", "type": "float", "element": "", "shape": "", )j"
+                    R"j("optional": false, "range": [0.0, 1.0], "step": 0.05, "kind": "", )j"
+                    R"j("desc": "HP fraction", "note": "", "file": "shapes.dta", "line": 3})j") !=
+          std::string::npos);
+    CHECK(json.find(R"j({"name": "adds", "type": "list", "element": "symbol", )j"
+                    R"j("shape": "", "optional": true, "range": null,)j") != std::string::npos);
+}

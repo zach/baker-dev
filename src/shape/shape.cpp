@@ -455,4 +455,51 @@ Config::Validator validator(const Config& cfg) {
     };
 }
 
+void write_json(const Set& shapes, TextSink text) {
+    Vec<const Shape*> ss;
+    for (const Shape& sh : shapes.shapes()) ss.push_back(&sh);
+    std::sort(ss.begin(), ss.end(),
+              [](const Shape* a, const Shape* b) { return a->name.str() < b->name.str(); });
+    Str out = "{\n  \"schema\": \"baker.shapes/1\",\n  \"shapes\": [";
+    for (size_t i = 0; i < ss.size(); ++i) {
+        const Shape& sh = *ss[i];
+        out += i ? ",\n    {\"name\": " : "\n    {\"name\": ";
+        detail::json_string(out, sh.name.str());
+        out += ", \"at\": ";
+        detail::json_names(out, sh.at.items());
+        out += Str(", \"keyed\": ") + (sh.keyed ? "true" : "false") + ", \"file\": ";
+        detail::json_string(out, sh.file.str());
+        out += ", \"line\": " + detail::decimal(sh.line) + ", \"fields\": [";
+        for (size_t j = 0; j < sh.fields.size(); ++j) {
+            const Field& f = sh.fields[j];
+            out += j ? ",\n      {\"name\": " : "\n      {\"name\": ";
+            detail::json_string(out, f.name.str());
+            out += ", \"type\": ";
+            detail::json_string(out, type_text(f.type));
+            out += ", \"element\": ";
+            detail::json_string(out, f.type == Type::List ? type_text(f.element) : "");
+            out += ", \"shape\": ";
+            detail::json_string(out, f.shape.str());
+            out += Str(", \"optional\": ") + (f.optional ? "true" : "false") + ", \"range\": ";
+            if (f.ranged)
+                out +=
+                    "[" + detail::text_of(Node(f.min)) + ", " + detail::text_of(Node(f.max)) + "]";
+            else
+                out += "null";
+            out += ", \"step\": " + detail::text_of(Node(f.step)) + ", \"kind\": ";
+            detail::json_string(out, f.kind.str());
+            out += ", \"desc\": ";
+            detail::json_string(out, f.desc);
+            out += ", \"note\": ";
+            detail::json_string(out, f.note);
+            out += ", \"file\": ";
+            detail::json_string(out, f.file.str());
+            out += ", \"line\": " + detail::decimal(f.line) + "}";
+        }
+        out += sh.fields.empty() ? "]}" : "\n    ]}";
+    }
+    out += ss.empty() ? "]\n}\n" : "\n  ]\n}\n";
+    text(out);
+}
+
 }  // namespace baker::shape

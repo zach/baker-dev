@@ -201,6 +201,7 @@ Android: CMake builds get C++20 from the targets; with `ndk-build`, add
 - [`docs/cookbook.md`](docs/cookbook.md): patterns, live ops among them.
 - [`docs/script-reference.md`](docs/script-reference.md): every built-in, generated.
 - [`docs/reply-json.md`](docs/reply-json.md): one-line JSON replies for tools and consoles.
+- [`docs/reference-json.md`](docs/reference-json.md): the vocabulary, tweaks and shapes as JSON.
 - [`CHANGELOG.md`](CHANGELOG.md): what each release changed.
 
 ## License

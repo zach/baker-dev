@@ -4797,3 +4797,52 @@ to a running game needs the Config's answers (provenance, layers, live edits), n
   - the live tools: set, unsaved, the journal, toggles, snapshot and restore, reload, loop;
   - the writers absent by default, and writing a one-line change with `allow_write`;
   - a shipping build's reading tools only.
+
+## D157. The vocabulary as JSON: `baker.reference/1`, `baker.tweaks/1`, `baker.shapes/1`
+
+*E3 of the tool surface (`dev/tool-surface-plan.md` §6), and the last step of the three
+D153 started with. Agents, editors and engine docks need the functions, tweaks and shapes
+as data. The reference was Markdown only.*
+
+- **Three documents, three libraries** (`docs/reference-json.md`). Each is sorted, so a
+  program gives the same bytes every run, and each is versioned like `baker.check/1`.
+  - `write_reference_json(ctx, sink, packs)` in `baker::script` lists:
+    - functions: tier, status, replacement, doc, a script function's `file` and `line`
+      (already recorded on `Function`), and overloads with each parameter's type, kind
+      and rawness, the result type, `min_args`, and `max_args` (`null` for a rest
+      parameter);
+    - types: bases, methods, properties, and script handlers;
+    - script-only classes;
+    - globals;
+    - packs and origins, as `check` writes them.
+  - `write_json(registry, sink)` in `baker::data`, next to the tweaks:
+    - path, type, default, current value, bound;
+    - range, step, desc, kind, group, dev_only;
+    - source while bound.
+  - `shape::write_json(set, sink)` in `baker::shape`: each shape's `at`, keyed, place, and
+    fields.
+- **A deviation from the note.** The note had `Tweak<T>` record a type name at
+  construction. `TweakBase` already knows it through its `ConvertInfo`, so the new public
+  `type_name()` reads that, with no new storage. The names are Baker's own (`float32`,
+  `int32`), as errors print them.
+- **Not in it.** JSON Schema output is left to a tool, which can derive it from
+  `baker.shapes/1`. Macro definition sites need a load-path change and wait for plan B's
+  go-to-definition.
+- **The stacks.** `<game> reference --json` prints the three documents in one object.
+  Duel's lists 57 functions, the `config.*` tools among them, 8 tweaks and 4 shapes. The
+  stacks' agent docs and skill mention it.
+- **Checked.**
+  - `tests/script/test_reference_json.cpp`:
+    - byte-stable output;
+    - a native overload with an optional parameter;
+    - a script function's file and line;
+    - a rest parameter;
+    - a type's method, property and handler;
+    - a script-only class;
+    - a global;
+    - packs and origins.
+  - `tests/data/test_tweaks_json.cpp`: the whole document, compared exactly, with a bound
+    and an unbound tweak.
+  - `tests/shape/test_shape.cpp`: a keyed shape's fields.
+  - Python parsed all three documents as JSON.
+- **Core:** 12,556 → 12,829 lines. `baker::shape`: 466 → 513 of its 600.

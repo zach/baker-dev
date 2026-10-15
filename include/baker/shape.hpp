@@ -32,6 +32,7 @@
 #include <baker/error.hpp>
 #include <baker/list.hpp>
 #include <baker/symbol.hpp>
+#include <baker/text.hpp>
 
 #include <cstdint>
 #include <span>
@@ -109,5 +110,10 @@ void check(const Array& tree, const Set& shapes, Report& report);
 // merged root against them, reporting errors and warnings to the warning handler. `cfg`
 // must outlive the validator.
 [[nodiscard]] Config::Validator validator(const Config& cfg);
+
+// The shapes of `shapes` as JSON (schema baker.shapes/1, docs/reference-json.md), sorted by
+// name: each shape's place, keyed or not, and its fields with their types, ranges, steps,
+// kinds, documentation, and where they are declared. For editors and agents.
+void write_json(const Set& shapes, TextSink out);
 
 }  // namespace baker::shape

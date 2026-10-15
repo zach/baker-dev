@@ -858,6 +858,12 @@ check_validator(const Context& ctx, const CheckOptions& options = {});
 void reference(const Context& ctx, TextSink out, const LoadSession* packs = nullptr);
 [[nodiscard]] Expected<void> write_reference(const Context& ctx, std::string_view path,
                                              const LoadSession* packs = nullptr);
+// The same as JSON (schema baker.reference/1, docs/reference-json.md), for tools and
+// agents: every function with its overloads' parameter types, status, documentation, and,
+// for a script function, its file and line; every type's methods, properties, and script
+// handlers; script-only classes; documented globals; and, given the session, its packs and
+// origins. Sorted by name, so the same Context gives the same bytes.
+void write_reference_json(const Context& ctx, TextSink out, const LoadSession* packs = nullptr);
 
 // Evaluates one line from a tool and writes one line of JSON (schema baker.reply/1,
 // docs/reply-json.md). A request is (ID {command}), its ID an int, symbol or string that

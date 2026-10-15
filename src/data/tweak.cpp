@@ -6,6 +6,7 @@
 
 #include "text.hpp"
 
+#include <algorithm>
 #include <optional>
 
 namespace baker {
@@ -240,6 +241,78 @@ std::string_view TweakBase::group() const {
     const std::string_view p = path_;
     const size_t cut = p.find_last_of("./");
     return cut == std::string_view::npos ? std::string_view() : p.substr(0, cut);
+}
+
+// --- As JSON (baker.tweaks/1) ---
+
+namespace {
+// The tweak's values as one text: a single value bare, several in parentheses.
+Str values_text(const ValueList& v) {
+    const auto nodes = v.nodes();
+    if (nodes.size() == 1) return detail::text_of(nodes[0]);
+    return detail::text_of(Node(Array::make_copy(nodes)));
+}
+
+void json_number(Str& out, double d) {
+    out += detail::text_of(Node(d));
+}
+}  // namespace
+
+void write_json(const TweakRegistry& tweaks, TextSink text) {
+    Vec<const TweakBase*> ts;
+    tweaks.each([&](const TweakBase& t) { ts.push_back(&t); });
+    std::sort(ts.begin(), ts.end(),
+              [](const TweakBase* a, const TweakBase* b) { return a->path() < b->path(); });
+    Str out = "{\n  \"schema\": \"baker.tweaks/1\",\n  \"tweaks\": [";
+    for (size_t i = 0; i < ts.size(); ++i) {
+        const TweakBase& t = *ts[i];
+        ValueList def, cur;
+        t.default_values(def);
+        t.values(cur);
+        out += i ? ",\n    {\"path\": " : "\n    {\"path\": ";
+        detail::json_string(out, t.path());
+        out += ", \"type\": ";
+        detail::json_string(out, t.type_name());
+        out += ", \"default\": ";
+        detail::json_string(out, values_text(def));
+        out += ", \"value\": ";
+        detail::json_string(out, values_text(cur));
+        out += Str(", \"bound\": ") + (t.bound() ? "true" : "false") + ", \"range\": ";
+        if (const TweakRange r = t.range(); !r.empty()) {
+            out += '[';
+            json_number(out, r.min);
+            out += ", ";
+            json_number(out, r.max);
+            out += ']';
+        } else {
+            out += "null";
+        }
+        out += ", \"step\": ";
+        json_number(out, t.step());
+        out += ", \"desc\": ";
+        detail::json_string(out, t.desc());
+        out += ", \"kind\": ";
+        detail::json_string(out, t.kind());
+        out += ", \"group\": ";
+        detail::json_string(out, t.group());
+        out += Str(", \"dev_only\": ") + (t.code_meta().dev_only ? "true" : "false");
+        out += ", \"source\": ";
+        std::optional<Source> source;
+        if (t.bound())
+            if (auto s = t.source()) source = *s;
+        if (source) {
+            out += "{\"layer\": ";
+            detail::json_string(out, source->layer.str());
+            out += ", \"file\": ";
+            detail::json_string(out, source->file.str());
+            out += ", \"line\": " + detail::decimal(source->line) + "}";
+        } else {
+            out += "null";
+        }
+        out += '}';
+    }
+    out += ts.empty() ? "]\n}\n" : "\n  ]\n}\n";
+    text(out);
 }
 
 }  // namespace baker

@@ -36,6 +36,7 @@
 #include <baker/path.hpp>
 
 #include <baker/callback.hpp>
+#include <baker/text.hpp>
 
 #include <atomic>
 #include <span>
@@ -76,6 +77,8 @@ public:
     // True while the config supplies the value; false while the default stands.
     [[nodiscard]] bool bound() const noexcept { return bound_ != nullptr; }
     [[nodiscard]] TweakRegistry& registry() const noexcept { return *registry_; }
+    // The value's type, as errors and the reference name it: "float32", "int", "vec2"...
+    [[nodiscard]] std::string_view type_name() const noexcept { return info().name; }
 
     // Metadata, the data file's winning over the code's.
     [[nodiscard]] TweakRange range() const;
@@ -172,6 +175,11 @@ private:
     TweakBase* head_ = nullptr;
     Config* config_ = nullptr;
 };
+
+// Every tweak in `tweaks` as JSON (schema baker.tweaks/1, docs/reference-json.md), sorted by
+// path: its type, default and current value, metadata (the data's winning over the code's),
+// and, while a config supplies it, where the value came from. For tools and agents.
+void write_json(const TweakRegistry& tweaks, TextSink out);
 
 namespace detail {
 template <class T>
