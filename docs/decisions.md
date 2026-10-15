@@ -4229,3 +4229,33 @@ check.*
   - both behave the same loaded from a cache.
 
   It fails against the previous code, which never warned.
+
+## D142. A text-only session for mods, and keyed tables as the content convention
+
+*Gaps 43 and 36, as D138 decided.*
+
+- **`LoadSession::text_only`** (gap 43) refuses every cache.
+  - `read_cache` and `read_cache_bytes` return `ErrorCode::Refused` ("... is a cache, and
+    this session reads text only").
+  - `read_cached` and a Config's `cache_dir` read the text instead, with D140's warning in
+    shipping.
+  - Copies of the session carry the option: it is one of the public options
+    `copy_options` copies (D136).
+  - **Why:** a cache is a memory image whose offsets a forged file can point anywhere
+    (D71), while the parser takes any input without crashing. A loader of content from
+    outside the game's own packages (mods, user files) sets it. The cookbook states the
+    rule.
+- **Keyed tables** (gap 36): the cookbook's new section on content packages makes keyed
+  children the convention for anything packages extend.
+  - There is no new syntax or check. Replacing a value list is also the normal, intended
+    way a patch changes a value, so a warning could not tell the two apart.
+  - `layer_effect` already lists what a layer replaces.
+- **The same section** says how a game stacks its packages:
+  - optional DLC layers, with fallbacks in code;
+  - title updates change values, not the macros below them (research scenario 4);
+  - declare `requires` (D141);
+  - mods are text.
+
+  The cache section now describes D139's shipping check and D140's names.
+- **Test** (text-only): `read_cache` and `read_cache_bytes` are refused, `read_cached`
+  reads the text, and a copy of the session refuses too.

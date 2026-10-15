@@ -242,12 +242,49 @@ and one allocation each: a 6.2 MB tree in 2.3–2.5 ms (D79).
   for (auto& [name, path] : layers) bake.push_layer(name, path);   // writes the caches
   ```
 
-  The shipped game builds the same Config with the same `cache_dir`, and under
-  `BAKER_SHIPPING` loads each layer from its cache without checking the text.
+  The shipped game builds the same Config with the same `cache_dir`. Under
+  `BAKER_SHIPPING` it loads each layer from its cache without re-reading the files. It
+  does check that the session begins as the bake did, in memory: the same macros, pack
+  levels, and required files (D139). A cache baked for another session is set aside for
+  the text, with a warning, or refused if there is no text. Caches are named by the
+  normalized layer path, so the bake and the game may spell paths differently (D140).
 - A cache holds the expanded tree and replays the defines, macros, and `#autorun` commands
   its load made. It is build output: it detects damage, not tampering, so text from a
   source you do not trust goes through the parser. A `Cipher` (`LoadSession::cipher`)
   enciphers caches, if a game wants players not to edit them.
+
+## Content packages: patches, DLC, and mods
+
+How a game delivers content after it ships, from `docs/background/content-updates.md`:
+
+- **Each package is a layer:** the base game, then each DLC, then title updates, then live
+  ops. A DLC that may be absent is pushed with `LayerOptions::optional`. Code that reads
+  its content takes a fallback (`get(path, fallback)`), so a save that names an
+  uninstalled DLC's content still loads.
+- **Anything packages extend is a keyed table.** Two layers that set one value list leave
+  the top one's list, because Overwrite replaces values. Keyed children merge, so every
+  package's entries survive. This is how Rock Band's `songs.dta` scaled to thousands of
+  downloadable songs:
+
+  ```dta
+  ; base: (songs (song_a (bpm 120)) (song_b (bpm 90)))
+  ; dlc_pack1.dta:
+  (songs (song_c (bpm 140)))
+  ; merged: (songs (song_a ...) (song_b ...) (song_c ...))
+  ```
+
+  A value list such as `(setlist song_a song_b)` is right for something one package owns.
+  `layer_effect` shows a layer that replaces another's list.
+- **A title update changes values, not the macros below it.** A layer reads with the macros
+  of the layers below it. A macro a title update redefines reaches only the layers above
+  it, never the base that already expanded it.
+- **Declare what a package requires.** `(pack expansion (level dlc) (requires
+  season_pass))`. A requirement that is not loaded once the pack's file is read is a
+  located warning, forwarded to the Config's warning handler (D141).
+- **Mods and user files are text, never caches.** A cache is a memory image that a forged
+  file can point anywhere. A loader of content from outside the game's own packages sets
+  `LoadSession::text_only`, which refuses every cache and parses the text, which no input
+  can make crash the reader (D142). The game's own packages are signed by their platform.
 
 ## Linking a shipped game
 

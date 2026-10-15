@@ -153,6 +153,11 @@ public:
     bool record_for_cache = false;
     // Enciphers the caches written with this session and deciphers those read (cache.hpp).
     const Cipher* cipher = nullptr;
+    // Refuses every cache: reads through this session parse text, which no input can make
+    // crash the reader. A cache is a memory image that a forged file can point anywhere, so a
+    // loader of content from outside the game's own packages (mods, user files) sets this
+    // (docs/decisions.md D142).
+    bool text_only = false;
     // Where the trees read through this session come from: each read is one arena from
     // it (docs/decisions.md D64), which must outlive the tree. Null: the default allocator.
     const Allocator* allocator = nullptr;

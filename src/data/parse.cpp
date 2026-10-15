@@ -841,6 +841,7 @@ void LoadSession::copy_options(const LoadSession& o) noexcept {
     source_map = o.source_map;
     record_for_cache = o.record_for_cache;
     cipher = o.cipher;
+    text_only = o.text_only;
     allocator = o.allocator;
 }
 LoadSession::LoadSession(const LoadSession& o)

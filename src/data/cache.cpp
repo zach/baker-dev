@@ -629,8 +629,16 @@ Expected<void> bytes_of(const Array& root, const LoadSession* session, Str& out)
     return Writer().run(root, meta.get(), session ? session->cipher : nullptr, out);
 }
 
+// A text-only session takes no cache (D142).
+Unexpected refused_text_only(std::string_view name) {
+    return Unexpected(make_error(ErrorCode::Refused,
+                                 "'" + Str(name) + "' is a cache, and this session reads text only",
+                                 Symbol(name)));
+}
+
 Expected<Ref<Array>> from_bytes(std::string_view bytes, std::string_view name,
                                 const LoadSession& session, const Array*& meta) {
+    if (session.text_only) return refused_text_only(name);
     char* file;
     const Arena::Handle arena(Arena::create_holding(allocator_of(session), bytes.size(), file));
     if (!bytes.empty()) std::memcpy(file, bytes.data(), bytes.size());
@@ -639,6 +647,7 @@ Expected<Ref<Array>> from_bytes(std::string_view bytes, std::string_view name,
 
 // Loads the cache at `path` without replaying it.
 Expected<Ref<Array>> open(std::string_view path, const LoadSession& session, const Array*& meta) {
+    if (session.text_only) return refused_text_only(path);
     auto cannot = [&] {
         return Unexpected(make_error(ErrorCode::Io, "cannot read '" + Str(path) + "'"));
     };

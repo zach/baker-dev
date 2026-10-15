@@ -345,6 +345,31 @@ TEST_CASE("shipping says why it read the text instead of a cache (D140)") {
     CHECK(std::string(r.error().message()).find("no usable cache") != std::string::npos);
 }
 
+TEST_CASE("a text-only session refuses caches and reads the text (D142)") {
+    test::TempDir dir;
+    const std::string text = dir.write("mod.dta", "(mod (speed 9))");
+    const std::string cache = dir.path("mod.datb");
+    LoadSession bake;
+    bake.record_for_cache = true;
+    auto root = ok(read_file(text, bake));
+    ok(write_cache(*root, cache, &bake));
+    std::string bytes;
+    ok(write_cache(*root, string_out(bytes), &bake));
+
+    LoadSession mods;
+    mods.text_only = true;
+    auto from_file = read_cache(cache, mods);
+    REQUIRE_FALSE(from_file);
+    CHECK(from_file.error().code() == ErrorCode::Refused);
+    CHECK(std::string(from_file.error().message()).find("reads text only") != std::string::npos);
+    auto from_bytes = read_cache_bytes(bytes, "mod.datb", mods);
+    REQUIRE_FALSE(from_bytes);
+    CHECK(from_bytes.error().code() == ErrorCode::Refused);
+    CHECK(to_string(*ok(read_cached(text, cache, mods))) == "((mod (speed 9)))");
+    LoadSession copy = mods;  // an option, carried by copies
+    CHECK_FALSE(read_cache(cache, copy));
+}
+
 TEST_CASE("a define's body decides freshness, by structure (gap 21)") {
     if constexpr (kShipping) return;  // freshness is development's
     test::TempDir dir;
