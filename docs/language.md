@@ -180,7 +180,7 @@ A *pack* is a file that declares itself one, as its first form:
 
 The host names the levels, hardest first; a pack's level is its rank among them (the
 spec calls this its layer; Baker says *level*, because a Config's layers are its stack of
-files, D80):
+files) (D80):
 
 ```cpp
 cfg.session().set_pack_levels({"engine", "game", "task"});
@@ -190,8 +190,8 @@ The form is recorded (`session.packs()`, `session.pack_of(file)`) and left out o
 tree. A pack without a level, or with a level not in the list, is an error at load.
 
 **Requires and versions.** Once a pack's file is read, each pack it `requires` must be
-loaded, and a required version met; otherwise the load warns, located, and goes on (D141,
-D147). A version is dot-separated integers, compared part by part (`"1.10"` is after
+loaded, and a required version met; otherwise the load warns, located, and goes on
+(D141, D147). A version is dot-separated integers, compared part by part (`"1.10"` is after
 `"1.2"`), written as a string, a symbol, or an integer, never a float:
 
 ```dta

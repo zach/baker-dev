@@ -149,7 +149,7 @@ TEST_CASE("printing round-trips random trees") {
         std::vector<Node> top;
         for (int i = pick(6); i > 0; --i) {
             Node n = gen(0);
-            if (n.type() == Type::Property) n = Node(Ref<Array>(n.mutable_array()));  // D13
+            if (n.type() == Type::Property) n = Node(Ref<Array>(n.mutable_array()));  // (D13)
             top.push_back(n);
         }
         check_round_trip(*Array::make_from(top));

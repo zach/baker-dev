@@ -169,6 +169,14 @@ jobs:
       - name: Line budget (informational)
         run: python3 tools/count_lines.py
 
+  release:
+    name: release dry run
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tree as a release would publish it (docs/releasing.md)
+        run: python3 tools/release/publish.py check
+
   tidy:
     name: clang-tidy
     runs-on: ubuntu-24.04

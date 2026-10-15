@@ -21,8 +21,8 @@ Checks: >
 #   thunks erase types through void*, and the arena and cache memcpy pointer arrays.
 # bugprone-unchecked-optional-access: try_int() and the like are read after the node's type
 #   is checked, which the analysis cannot follow.
-# modernize-avoid-c-arrays: fixed tables and stack buffers stay C arrays (D55: no STL in
-#   public headers). -return-braced-init-list, -use-auto: style.
+# modernize-avoid-c-arrays: fixed tables and stack buffers stay C arrays, since public
+#   headers use no STL (D55). -return-braced-init-list, -use-auto: style.
 # modernize-loop-convert: index loops over containers that grow or shrink while they run
 #   (a cache's breadth-first layout, callbacks that unsubscribe).
 # performance-enum-size: some enums are sized to pin a struct's layout.

@@ -2,7 +2,7 @@
 
 // Callback<R(A...)>: an owning, copyable callable, for the few places Baker stores host
 // code to call later (a file reader, reload and change callbacks). It is what
-// std::function would be here, but D55 keeps <functional> out of public headers.
+// std::function would be here, but <functional> stays out of public headers (D55).
 //
 // A callable is copied into the default allocator (D61) when it is stored. A plain
 // function, or a lambda with no captures, can instead be stored by pointer with no

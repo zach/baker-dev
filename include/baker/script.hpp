@@ -211,7 +211,7 @@ inline constexpr bool is_raw<std::optional<Raw<T>>> = true;
 
 // A refcounted, type-erased, immutable object: the callable behind a function. get() is
 // one load, as std::shared_ptr's is. From an owner's allocator, which must outlive it (a
-// Context's natives and script bodies, D130), else the default allocator (D61).
+// Context's natives and script bodies) (D130), else the default allocator (D61).
 class Shared {
 public:
     Shared() noexcept = default;
@@ -637,8 +637,8 @@ void write(const CheckReport& report, TextSink out);
 // harness metadata too. <baker/std_script.hpp> has to_json(report).
 void write_json(const CheckReport& report, TextSink out, const LoadSession* packs = nullptr);
 
-// What one function, or one script handler of a {class}, has cost (spec §5, "Call
-// statistics"). Times are in TimeSource nanoseconds: `total_ns` includes the calls it made,
+// What one function, or one script handler of a {class}, has cost: its call statistics
+// (spec §5). Times are in TimeSource nanoseconds: `total_ns` includes the calls it made,
 // `self_ns` does not. A recursive function's total counts each level.
 struct CallStats {
     Symbol name;

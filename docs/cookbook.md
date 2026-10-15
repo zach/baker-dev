@@ -255,7 +255,7 @@ and one allocation each: a 6.2 MB tree in 2.3–2.5 ms (D79).
 
 ## Content packages: patches, DLC, and mods
 
-How a game delivers content after it ships, from `docs/background/content-updates.md`:
+How a game delivers content after it ships (docs/background/content-updates.md):
 
 - **Each package is a layer:** the base game, then each DLC, then title updates, then live
   ops. A package installed later still goes in its place: `push_layer("pack3", path,

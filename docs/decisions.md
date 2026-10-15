@@ -4548,3 +4548,48 @@ where `read_cache` took 8 ms on the same 22 MB cache.*
   4.2 MB text, plus the layer's merge.
 - **Test:** a Config with a logging reader asks it for the cache once and the text once
   (freshness). A Config with the disk's reader loads the same values from the cache.
+
+## D150. Releases publish the core library to github.com/zach/baker
+
+*The owner asked for a process that publishes the core library alone to a separate
+repository, tagged with semantic versions from 0.1.0, by an automatic process that runs only
+when asked. Their choices: library, tests, examples and user docs ship; citations are
+stripped on publish; one commit per release; a hand-run GitHub Actions workflow; the
+LICENSE names Zach Baker; notes come from CHANGELOG.md; the public repository runs CI of its
+own. The process is `docs/releasing.md`.*
+
+- **What ships** is `tools/release/manifest.txt`. It ships the library, `tests/`, `fuzz/`,
+  `examples/`, `bench/`, the tools the build and tests run, and the four user docs, with
+  `tools/release/public/` laid over it (a trimmed CI workflow, a `.gitignore`). It leaves
+  out `stacks/`, `.claude/`, `CLAUDE.md`, `docs/spec.md`, this file, `docs/background/`,
+  `docs/allocation-review.md`, `tools/release/` and the dev-only tools.
+- **Citations.** `publish.py` strips parentheticals made only of citations (decision
+  numbers, spec sections, background notes, gap numbers) and keeps the words of mixed ones.
+  A citation that began a line hands its punctuation to the line before, and a comment that
+  was only a citation goes. A published line that still names what the release leaves out
+  fails the release.
+  - The first dry run left 34 such lines, citations in running text or wrapped across lines.
+    They were reworded here. `write.hpp` now lists the values the printer cannot spell
+    instead of pointing at D13.
+  - 417 lines change on the way out. The stripped tree passes clang-format and builds, and
+    all 17 tests pass on it alone.
+- **Guard.** `publish.py check` (CI's "release dry run" job, `tools/local_matrix.sh`)
+  prepares the release at the declared version on every change. A sentence the release
+  could not publish therefore fails where it is written, not on release day.
+- **History.** Each release is one commit on zach/baker's `main`, the child of the release
+  before, titled "Baker X.Y.Z" with the changelog entry as its message. It is tagged
+  `vX.Y.Z` and published as a GitHub release. The first release follows zach/baker's
+  initial commit, whose LICENSE already names Zach Baker; baker-dev's LICENSE now matches it.
+- **Versions.** `publish.py bump` sets the version in CMake, `version.hpp`, `version.cpp`
+  and the README's `FetchContent` tag, and opens a changelog entry. A release refuses a tree
+  whose version files disagree, a missing or TODO entry, or a version not above the newest
+  tag. The tree now declares 0.1.0, ready for the first release.
+- **The workflow** (`.github/workflows/release.yml`, `workflow_dispatch` only, from `main`):
+  - `prepare` builds and checks the tree;
+  - `verify` builds and tests it alone with GCC, Clang with sanitizers, shipping and MSVC,
+    and checks its format;
+  - `publish` commits, tags, pushes and creates the release, only with *publish* checked,
+    through the `release` environment the owner can gate with an approval. It needs the
+    `BAKER_PUBLISH_TOKEN` secret.
+- **Agents** start, prepare or publish a release only at the owner's explicit request
+  (CLAUDE.md).

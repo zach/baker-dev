@@ -476,7 +476,7 @@ bool ObjectBase::handles() const noexcept {
     return ctx_ && (detail::scripted(*this, name) || detail::has_method(type(), name));
 }
 
-// Sends `message` to each object (spec §5's "where there is one there are many"): the
+// Sends `message` to each object, since where there is one there are many (spec §5): the
 // type's handler is looked up once for each run of objects of one type, so a span sorted
 // by type pays one search per type. Objects that do not handle M are skipped. Returns how
 // many handled it, or the first error a handler returned.

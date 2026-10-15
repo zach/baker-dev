@@ -1,5 +1,4 @@
-// Tasks: the frame pool, the Scheduler's table of tasks, and the tick (docs/decisions.md D58,
-// D67).
+// Tasks: the frame pool, the Scheduler's table of tasks, and the tick (D58, D67).
 
 #include <baker/task.hpp>
 

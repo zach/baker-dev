@@ -107,7 +107,7 @@ MergeScratch::Level& MergeScratch::level(size_t depth) {
 
 // The GDC 2005 slide shows (a (b 1)) merged with (a (b 2) (c 2)) giving (a (b 1) (c 2)).
 // The spec took that for a typo; for #merge it is not, and for Config layers the leaves
-// win. Both policies are here; see docs/decisions.md D1.
+// win. Both policies are here (docs/decisions.md D1).
 bool merge_into(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const Array& src,
                 size_t src_first, MergePolicy policy, SourceMap* map, MergeScratch& scratch,
                 Arena* arena) {

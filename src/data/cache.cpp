@@ -581,8 +581,8 @@ Expected<Ref<Array>> load(char* file, size_t bytes, std::string_view name, const
 // --- The record of a load (D72). ---
 
 // A macro body's hash, from its nodes: the same tree hashes the same in any process, and
-// nothing is printed or allocated (gap 21; the text's hash cost a freshness check about
-// half a microsecond a define).
+// nothing is printed or allocated. The text's hash cost a freshness check about half a
+// microsecond a define (gap 21).
 uint64_t node_hash(const Node& n, uint64_t h) noexcept {
     constexpr uint64_t k = 0x9E3779B97F4A7C15ull;
     const auto mix = [&](uint64_t v) { h = std::rotl((h ^ v) * k, 27); };
