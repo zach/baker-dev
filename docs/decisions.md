@@ -4365,3 +4365,42 @@ array, as Module Manager's `!NODE` sits on the node.*
   - a mod narrowing the range takes effect;
   - a type change is refused;
   - unpacked files behave as before.
+
+## D146. Script a removed layer defined goes with it
+
+*Gap 39, as D138 decided.*
+
+- **Before.** A host ran each layer's `#autorun` commands on its Context after a stack
+  change. A function or handler a removed layer had defined stayed defined: an uninstalled
+  DLC's `{dlc_bonus}` still ran (research scenario 8), and a native it had
+  `{override}`-n stayed replaced.
+- **Now: `Context::run_autorun(commands)`.**
+  - It first restores everything the previous `run_autorun`'s commands defined or
+    replaced, newest first, then runs `commands` in order.
+  - So after a stack change, the script state autorun made is exactly what the current
+    stack's autorun makes:
+    - a removed layer's functions and handlers are gone;
+    - a native they overrode comes back;
+    - a lower layer's definition of the same name, re-run, is the one in force.
+  - A failing command does not stop the rest; the failures are returned as a list (empty
+    on success).
+- **How.**
+  - While `run_autorun` runs, `{func}`/`{override}`, `{class}` and `{extend}` record the
+    name's state before its first change: a function's overloads, tier, status and doc,
+    or a class's handlers (`note_function`, `note_class`).
+  - The next run restores them through `retire()`, so a body still running finishes on its
+    own definition (D117's rule for redefinitions).
+  - Definitions made outside `run_autorun`, such as a console's `eval` or the host's
+    natives, are not recorded. If autorun later redefines one of those names, the next run
+    restores it to what it was before autorun touched it.
+  - Variables and objects that autorun commands made are not undone. The decision covered
+    functions and handlers.
+- **No Config change.** The stacks' `Live::autorun` now calls `run_autorun`. The cookbook
+  and `Config::autorun()`'s comment say to.
+- **Test:**
+  - base and DLC autorun, then base alone: the DLC's function is gone, the overridden
+    native is back, the base's `greet` is back, and the class's handlers are restored,
+    with the DLC's added handler gone;
+  - a console function is untouched;
+  - an empty run undoes everything autorun defined;
+  - a failing command is reported while the next still runs.

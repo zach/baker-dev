@@ -276,7 +276,8 @@ public:
     // The #autorun commands of the enabled file layers, bottom to top, as their last reads
     // collected them (D107). Each layer is read with a session of its own, so they are not
     // in session().autorun(); a host runs them after a push, reload, or toggle, so that a
-    // data file can define script functions. Allocates its result.
+    // data file can define script functions, with Context::run_autorun, which also undoes
+    // what a removed layer's commands defined (D146). Allocates its result.
     [[nodiscard]] List<Node> autorun() const;
     [[nodiscard]] Expected<void> set_layer_enabled(std::string_view name, bool enabled);
     // Returns the new state.

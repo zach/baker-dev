@@ -437,6 +437,60 @@ void Context::Impl::retire(Vec<ScriptClass::Handler>& handlers) {
     }
 }
 
+void Context::Impl::note_function(Symbol name) {
+    if (!in_autorun) return;
+    for (const SavedFunction& s : autorun_functions)
+        if (s.name == name) return;  // the first change keeps what was there before
+    SavedFunction entry{
+        name, false, Tier::Native, Status::Normal, {}, Str(alloc), Vec<detail::Overload>(alloc),
+        {},   0};
+    if (const Function* f = find(name); f && !f->overloads.empty()) {
+        entry.existed = true;
+        entry.tier = f->tier;
+        entry.status = f->status;
+        entry.replacement = f->replacement;
+        entry.doc = f->doc;
+        entry.overloads = f->overloads;
+        entry.file = f->file;
+        entry.line = f->line;
+    }
+    autorun_functions.push_back(std::move(entry));
+}
+
+void Context::Impl::note_class(Symbol name) {
+    if (!in_autorun) return;
+    for (const SavedClass& s : autorun_classes)
+        if (s.name == name) return;
+    SavedClass entry{name, Vec<ScriptClass::Handler>(alloc)};
+    if (const ScriptClass* c = script_class(name)) entry.handlers = c->handlers;
+    autorun_classes.push_back(std::move(entry));
+}
+
+void Context::Impl::retract_autorun() {
+    for (size_t i = autorun_functions.size(); i-- > 0;) {
+        SavedFunction& s = autorun_functions[i];
+        Function& f = function(s.name);
+        retire(f.overloads);  // a body of it may be running
+        if (s.existed) {
+            f.tier = s.tier;
+            f.status = s.status;
+            f.replacement = s.replacement;
+            f.doc = std::move(s.doc);
+            f.overloads = std::move(s.overloads);
+            f.file = s.file;
+            f.line = s.line;
+        }
+        f.refresh();
+    }
+    for (size_t i = autorun_classes.size(); i-- > 0;)
+        if (ScriptClass* c = script_class(autorun_classes[i].name)) {
+            retire(c->handlers);
+            c->handlers = std::move(autorun_classes[i].handlers);
+        }
+    autorun_functions.clear();
+    autorun_classes.clear();
+}
+
 void Context::Impl::settle() {
     retired_overloads.clear();
     retired_handlers.clear();
@@ -570,6 +624,7 @@ void register_object_builtins(Context& ctx) {
         auto cls = Own<ScriptClass>::make(impl.alloc, impl.alloc);
         cls->name = name;
         if (auto r = read_handlers(a, impl, cls->handlers); !r) return Unexpected(r.error());
+        impl.note_class(name);
         if (name.index() >= impl.class_by_name.size()) impl.class_by_name.resize(name.index() + 1);
         if (ScriptClass* old = impl.class_by_name[name.index()]) {
             impl.retire(old->handlers);
@@ -606,6 +661,7 @@ void register_object_builtins(Context& ctx) {
         }
         Vec<ScriptClass::Handler> added(impl.alloc);
         if (auto r = read_handlers(a, impl, added); !r) return Unexpected(r.error());
+        impl.note_class(name);
         impl.retire(cls->handlers);
         for (ScriptClass::Handler& h : added) {
             ScriptClass::Handler* same = nullptr;

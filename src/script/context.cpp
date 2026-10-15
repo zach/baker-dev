@@ -457,6 +457,16 @@ Expected<Node> Context::run(std::span<const Node> nodes) {
     return r;
 }
 
+List<Error> Context::run_autorun(std::span<const Node> commands) {
+    impl_->retract_autorun();
+    impl_->in_autorun = true;
+    Vec<Error> failed;
+    for (const Node& command : commands)
+        if (auto r = eval(command); !r) failed.push_back(std::move(r).error());
+    impl_->in_autorun = false;
+    return failed.empty() ? List<Error>() : List<Error>({failed.data(), failed.size()});
+}
+
 Expected<Node> Context::eval(std::string_view text, std::string_view name) {
     LoadSession session;
     session.allocator = &impl_->alloc;  // the tree is the Context's (D64)

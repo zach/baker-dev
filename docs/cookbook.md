@@ -282,6 +282,9 @@ How a game delivers content after it ships, from `docs/background/content-update
 - **A title update changes values, not the macros below it.** A layer reads with the macros
   of the layers below it. A macro a title update redefines reaches only the layers above
   it, never the base that already expanded it.
+- **Run autorun with `Context::run_autorun(cfg.autorun().items())`** after every stack
+  change. Script an uninstalled DLC defined goes with it, and what it replaced comes back
+  (D146).
 - **Declare what a package requires.** `(pack expansion (level dlc) (requires
   season_pass))`. A requirement that is not loaded once the pack's file is read is a
   located warning, forwarded to the Config's warning handler (D141).
