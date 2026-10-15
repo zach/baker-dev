@@ -4334,3 +4334,34 @@ array, as Module Manager's `!NODE` sits on the node.*
     takes its `#ifdef HARD` branch;
   - overlays placed below the base and below `scratch`;
   - the two refusals leave the stack unchanged.
+
+## D145. A softer pack may narrow a harder pack's shape, not loosen it
+
+*Gap 38, as D138 decided. This extends D80's one-way rule to D84's shapes.*
+
+- **Before.** Shapes merge as data (D84), so any later layer could retune them. A mod that
+  redeclared `(speed int (range 1 1000))` silenced the base game's range check (research
+  scenario 9).
+- **Now.**
+  - **`Set::add(tree, report, packs)`.** With a session's packs, a field declared again by
+    a softer pack (a higher rank) than the one that declared it is held to the harder
+    declaration.
+    - It may narrow a range or add metadata.
+    - Widening or dropping a range, changing the type (or list element, or shape), or
+      making a required field optional is a located warning. The harder declaration stays
+      in force.
+    - A harder pack above a softer one may change anything.
+    - Files that declare no pack are unconstrained, as the one-way rule leaves them.
+  - **`shape::validator(cfg)`** replaces `validator()`. It reads the shapes of each
+    enabled layer bottom to top, with the Config's read session (D110), and checks the
+    merged root against them. Before, it read the merged root's shapes, where a
+    declaration a later layer overrode was already gone.
+  - All callers (stacks, the ImGui harness, tests, `language.md`) pass the Config.
+- **`Config::layer_root(name)`**: a layer's own tree, before any merge; null for an
+  unknown layer and for scratch. The validator reads it.
+- **Test** (packs `game` over `mod`):
+  - a mod widening `speed`'s range and making `name` optional is refused twice, and its
+    `speed 900` is still out of the base's range;
+  - a mod narrowing the range takes effect;
+  - a type change is refused;
+  - unpacked files behave as before.

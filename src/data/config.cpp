@@ -567,6 +567,11 @@ bool Config::layer_enabled(std::string_view name) const {
     return at && impl_->layers[*at].options.enabled;
 }
 
+Ref<Array> Config::layer_root(std::string_view name) const {
+    const auto at = impl_->find_layer(name);
+    return at ? impl_->layers[*at].root : nullptr;
+}
+
 // --- Reading ---
 
 Config::ScratchHit Config::scratch_values(const Path& path, Values& out) const noexcept {

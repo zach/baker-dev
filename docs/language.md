@@ -279,7 +279,7 @@ warning, so adding data never waits on its shape. Commands and variables are not
 their values are unknown until they run.
 
 ```cpp
-cfg.add_validator(baker::shape::validator());   // checked at every push, reload, and restore
+cfg.add_validator(baker::shape::validator(cfg));   // checked at every push, reload, and restore
 ```
 
 Through a Config, violations go to the warning handler; the load itself never fails on a

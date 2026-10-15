@@ -283,6 +283,10 @@ public:
     [[nodiscard]] Expected<bool> toggle_layer(std::string_view name);
     // False for an unknown layer.
     [[nodiscard]] bool layer_enabled(std::string_view name) const;
+    // The layer's own tree, as read, before any merge; null for an unknown layer and for
+    // scratch. For tools such as shape::validator, which read it (D145); changing it changes
+    // nothing until the next merge, and is not supported.
+    [[nodiscard]] Ref<Array> layer_root(std::string_view name) const;
 
     // --- Reading. ---
     // The merged tree, including scratch as of the last full merge. Holding the Ref keeps

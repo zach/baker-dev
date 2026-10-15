@@ -99,7 +99,7 @@ int main(int argc, char** argv) {
     baker::Config cfg;
     cfg.set_warning_handler(
         [&](const baker::Error& e) { console.log.push_back(std::string(baker::to_string(e))); });
-    cfg.add_validator(baker::shape::validator());
+    cfg.add_validator(baker::shape::validator(cfg));
     cfg.add_validator(baker::check_validator(ctx));  // script calls, at every merge too
     cfg.set_time_source(
         [](void*) { return file_clock_ns(std::filesystem::file_time_type::clock::now()); });

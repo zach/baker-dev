@@ -24,7 +24,7 @@ bool Live::open(const LiveOptions& options) {
     baker::LoadSession& session = cfg_.session();
     session.set_pack_levels({"engine", "game", "task"});
     session.add_include_dir(data_dir_);
-    cfg_.add_validator(baker::shape::validator());
+    cfg_.add_validator(baker::shape::validator(cfg_));
     cfg_.add_validator(baker::check_validator(ctx_, {.packs = &cfg_.read_session()}));
 
     struct Layer {

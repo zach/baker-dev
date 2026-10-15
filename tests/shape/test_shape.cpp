@@ -9,6 +9,7 @@
 #include "ok.hpp"
 
 #include <algorithm>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -40,7 +41,7 @@ TEST_CASE("a violation in corpus-style data is reported at load, located") {
     Config cfg({.tweaks = nullptr});
     std::vector<std::string> reported;
     cfg.set_warning_handler([&](const Error& e) { reported.emplace_back(to_string(e)); });
-    cfg.add_validator(shape::validator());
+    cfg.add_validator(shape::validator(cfg));
     REQUIRE(cfg.push_layer("bosses", kDir + "/bosses.dta"));
     // Before the patch: the dragon's third phase is out of range, the golem's phase lacks
     // its cadence (errors), and the golem's taunts is not declared (a warning).
@@ -183,4 +184,58 @@ TEST_CASE("a (keyed) shape governs every child at its path, whatever its tag (D1
     const auto bad = check_text("(shapes (move (keyed) (startup int)))");
     REQUIRE(bad.errors.size() == 1);
     CHECK(texts(bad.errors)[0].find("no (at ...)") != std::string::npos);
+}
+
+TEST_CASE("a softer pack may narrow a harder pack's shape, not loosen it (D145)") {
+    static const std::map<std::string, std::string> files = {
+        {"base.dta",
+         "(pack game_rules (level game))\n"
+         "(shapes (player (speed int (range 1 10)) (name symbol)))\n(player (speed 5) (name p))"},
+        {"mod.dta",
+         "(pack fast_mod (level mod))\n"
+         "(shapes (player (speed int (range 1 1000)) (name symbol (optional))))\n"
+         "(player (speed 900))"},
+        {"tight.dta",
+         "(pack tight_mod (level mod))\n(shapes (player (speed int (range 2 8))))\n"
+         "(player (speed 9))"},
+        {"retype.dta", "(pack retype_mod (level mod))\n(shapes (player (speed float)))"},
+        {"loose_base.dta", "(shapes (player (speed int (range 1 10))))\n(player (speed 5))"},
+        {"loose_mod.dta", "(shapes (player (speed int (range 1 1000))))\n(player (speed 900))"}};
+    struct Run {
+        Config cfg{{.tweaks = nullptr}};
+        std::vector<std::string> reported;
+        explicit Run(std::initializer_list<const char*> layers) {
+            cfg.session().set_reader([](std::string_view p, TextSink out) {
+                const auto it = files.find(std::string(p));
+                if (it == files.end()) return false;
+                out(it->second);
+                return true;
+            });
+            cfg.session().set_pack_levels({"game", "mod"});
+            cfg.set_warning_handler([&](const Error& e) { reported.emplace_back(to_string(e)); });
+            cfg.add_validator(shape::validator(cfg));
+            for (const char* l : layers) REQUIRE(cfg.push_layer(l, l));
+        }
+        bool has(const std::string& part) const {
+            return std::any_of(reported.begin(), reported.end(), [&](const std::string& r) {
+                return r.find(part) != std::string::npos;
+            });
+        }
+    };
+    // Widening the range and making a required field optional are refused, and the base's
+    // range still governs: 900 is out of range.
+    Run widen{"base.dta", "mod.dta"};
+    CHECK(widen.has("'speed' is declared by a harder pack"));
+    CHECK(widen.has("'name' is declared by a harder pack"));
+    CHECK(widen.has("'speed' is 900, outside 1.0 to 10.0"));
+    // Narrowing is the softer pack's to do: 9 is outside its 2 to 8.
+    Run narrow{"base.dta", "tight.dta"};
+    CHECK_FALSE(narrow.has("declared by a harder pack"));
+    CHECK(narrow.has("'speed' is 9, outside 2.0 to 8.0"));
+    // Another type is a loosening too.
+    Run retype{"base.dta", "retype.dta"};
+    CHECK(retype.has("'speed' is declared by a harder pack"));
+    // Files that declare no pack are unconstrained, as before (D84).
+    Run loose{"loose_base.dta", "loose_mod.dta"};
+    CHECK(loose.reported.empty());
 }

@@ -22,7 +22,7 @@
 // warning, so adding data never requires touching its shape first. Commands and variables
 // are not checked: their values are unknown until run.
 //
-//   cfg.add_validator(baker::shape::validator());   // reported at every load and reload
+//   cfg.add_validator(baker::shape::validator(cfg));   // reported at every load and reload
 //
 // Shapes are opt-in: unshaped data works everywhere. The library depends only on
 // baker::data.
@@ -87,7 +87,12 @@ public:
     // Reads every (shapes ...) at the top of `tree`. A field declared again takes the new
     // type and whatever metadata the new declaration gives, as Config's merge of two layers
     // would. A malformed declaration is an error in `report`.
-    void add(const Array& tree, Report& report);
+    //
+    // With `packs`, harder packs' declarations hold (D145): a field a softer pack declares
+    // again may narrow a range or add metadata, but one that widens or drops a range, changes
+    // the type, or makes a required field optional is a warning in `report`, and the harder
+    // declaration stays. Files that declare no pack are unconstrained, as in the one-way rule.
+    void add(const Array& tree, Report& report, const LoadSession* packs = nullptr);
     [[nodiscard]] std::span<const Shape> shapes() const noexcept;
     [[nodiscard]] const Shape* find(baker::Symbol name) const noexcept;
 
@@ -99,8 +104,10 @@ private:
 
 // Checks every array of `tree` that a shape of `shapes` governs, into `report`.
 void check(const Array& tree, const Set& shapes, Report& report);
-// For Config::add_validator: reads the shapes the merged root declares and checks the root
-// against them, reporting errors and warnings to the warning handler.
-[[nodiscard]] Config::Validator validator();
+// For Config::add_validator: reads the shapes each enabled layer of `cfg` declares, bottom to
+// top, with its read session's packs (so harder packs' shapes hold, D145), and checks the
+// merged root against them, reporting errors and warnings to the warning handler. `cfg`
+// must outlive the validator.
+[[nodiscard]] Config::Validator validator(const Config& cfg);
 
 }  // namespace baker::shape
