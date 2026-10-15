@@ -320,38 +320,8 @@ void write(const CheckReport& report, TextSink text) {
 
 namespace {
 
-// One JSON string, escaped: quote, backslash, and control characters; UTF-8 as it is.
-void json_string(Str& out, std::string_view s) {
-    out += '"';
-    for (const char ch : s) {
-        const auto c = static_cast<unsigned char>(ch);
-        if (c == '"' || c == '\\') {
-            out += '\\';
-            out += ch;
-        } else if (c == '\n') {
-            out += "\\n";
-        } else if (c == '\t') {
-            out += "\\t";
-        } else if (c < 0x20) {
-            static const char hex[] = "0123456789abcdef";
-            out += "\\u00";
-            out += hex[c >> 4];
-            out += hex[c & 15];
-        } else {
-            out += ch;
-        }
-    }
-    out += '"';
-}
-
-void json_names(Str& out, const List<Symbol>& names) {
-    out += '[';
-    for (size_t i = 0; i < names.size(); ++i) {
-        if (i) out += ", ";
-        json_string(out, names[i].str());
-    }
-    out += ']';
-}
+using detail::json_names;
+using detail::json_string;
 
 void json_sites(Str& out, Vec<CheckReport::Site> sites) {
     std::sort(sites.begin(), sites.end(), [](const auto& a, const auto& b) {
@@ -459,11 +429,11 @@ void write_json(const CheckReport& report, TextSink text, const LoadSession* pac
         out += ", \"file\": ";
         json_string(out, p.file.str());
         out += ", \"requires\": ";
-        json_names(out, p.requires_packs);
+        json_names(out, p.requires_packs.items());
         out += ", \"owners\": ";
-        json_names(out, p.owners);
+        json_names(out, p.owners.items());
         out += ", \"for\": ";
-        json_names(out, p.audience);
+        json_names(out, p.audience.items());
         out += ", \"stage\": ";
         json_string(out, p.stage.str());
         out += '}';

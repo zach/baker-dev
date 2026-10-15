@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string_view>
 
 namespace baker {
@@ -28,6 +29,11 @@ namespace baker::detail {
 [[nodiscard]] Str text_of(const Path& path, size_t count = SIZE_MAX, char separator = '/');
 [[nodiscard]] Str text_of(const Node& node);
 [[nodiscard]] Str dta_of(const Array& root);
+
+// JSON, for the machine-readable outputs (check, the reference, replies): one string,
+// escaped (quote, backslash, control characters; UTF-8 as it is), and a list of names.
+void json_string(Str& out, std::string_view s);
+void json_names(Str& out, std::span<const Symbol> names);
 
 // Bytes that end an atom. Every byte <= 0x20 is whitespace.
 [[nodiscard]] constexpr bool is_atom_end(unsigned char c) noexcept {
