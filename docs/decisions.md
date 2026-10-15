@@ -4018,3 +4018,29 @@ duplicates or keeping `find()`'s.*
   file it had seen, so a map reused across reads of a changed file returned text that no
   longer matched its spans. It now replaces it.
 - **Tests:** one each, and each fails against the previous code.
+
+## D136. Six duplications, each now written once
+
+*Gap 28, from the 2026-10-14 review.*
+
+Each pair below did the same thing in two places, so a fix in one could miss the other.
+Behavior is unchanged and the existing tests cover each site.
+
+- **Path tokenizing.** `Path::parse` and `Path::matches` read a path's segments alike:
+  quotes, separators, a trailing separator, and an all-digits name as an index. Both now
+  read through `next_segment` and `is_index`.
+- **`LoadSession`'s options.** Its copy and move constructors and assignments each copied
+  the same five public fields. They now call `copy_options`, so a sixth option is added
+  in one place.
+- **Pack and origin registration.** The Parser registered a pack or an origin its own way,
+  and a cache's replay did it through `SessionAccess`. Both now use
+  `SessionAccess::add_pack` and `add_origin`; `add_pack` returns the pack's index, which
+  the Parser keeps.
+- **Locale-neutral `%g`.** `format_double_fallback` and `float_to_decimal_double` each
+  printed with `%g` and replaced the C locale's decimal point by hand. Both now print
+  through `print_g`.
+- **The arity message.** "`'f' takes 2 arguments, given 3`" was assembled at five sites:
+  calls, script handlers, `get` and `set`, and two checks. `arity_message` builds it.
+- **An array's node offset.** The cache re-derived where an array's nodes start, which
+  must match `Array`'s layout. It now uses the new `Array::nodes_offset`, which `bytes()`
+  and `data()` share.

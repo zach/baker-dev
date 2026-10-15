@@ -48,9 +48,10 @@ struct SessionAccess {
     [[nodiscard]] static std::span<const Symbol> pack_levels(const LoadSession& s) noexcept;
     [[nodiscard]] static std::span<const Pack> new_packs(const LoadSession& s) noexcept;
     [[nodiscard]] static const Pack* macro_pack(const LoadSession& s, Symbol macro) noexcept;
-    // Adds a pack a cache recorded (ranked by the session's levels), unless its file is
-    // known; and attributes a macro to the pack declared by `file`.
-    static void add_pack(LoadSession& s, const Pack& pack);
+    // Adds a pack, ranked by the session's levels, unless its file has one; returns its index
+    // either way. The Parser and a cache's replay share it (D136). And attributes a macro
+    // to the pack declared by `file`.
+    static size_t add_pack(LoadSession& s, const Pack& pack);
     static void set_macro_pack(LoadSession& s, Symbol macro, Symbol file);
     // Origins (D91): those the last recorded read declared; and one a cache recorded.
     [[nodiscard]] static std::span<const Origin> new_origins(const LoadSession& s) noexcept;

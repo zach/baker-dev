@@ -165,6 +165,9 @@ private:
     friend Expected<Ref<Array>> read_string(std::string_view, std::string_view, LoadSession&);
     friend Expected<Ref<Array>> read_file(std::string_view, LoadSession&);
 
+    // The public options above, from `o`: what every copy and move carries.
+    void copy_options(const LoadSession& o) noexcept;
+
     State* st_;
 };
 

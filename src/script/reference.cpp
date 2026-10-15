@@ -111,9 +111,7 @@ struct Checker {
         }
         if (!arity_ok) {
             if (set.size() == 1)
-                error(command, quoted(name) + " takes " +
-                                   arity_text(set[0].min_args, set[0].max_args) + ", given " +
-                                   detail::decimal(n));
+                error(command, arity_message(name, set[0].min_args, set[0].max_args, n));
             else
                 error(command, "no overload of " + quoted(name) + " takes " + arity_text(n, n));
             return;
@@ -199,9 +197,7 @@ struct Checker {
         if (auto it = defined.find(*name); it != defined.end()) {
             if (it->second.stub) demand(*name, true, command);
             if (n != it->second.arity)
-                error(command, quoted(*name) + " takes " +
-                                   arity_text(it->second.arity, it->second.arity) + ", given " +
-                                   detail::decimal(n));
+                error(command, arity_message(*name, it->second.arity, it->second.arity, n));
             return;
         }
         demand(*name, false, command);

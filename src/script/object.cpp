@@ -301,12 +301,8 @@ Expected<Node> Context::Impl::send(ObjectHandle target, const Array& command, Co
             ++handler->counters.calls;
             if (counted) *counted = &handler->counters;
         }
-        if (n != handler->body.params.size())
-            return fail(command, ErrorCode::Type,
-                        quoted(method) + " takes " +
-                            arity_text(uint32_t(handler->body.params.size()),
-                                       uint32_t(handler->body.params.size())) +
-                            ", given " + detail::decimal(static_cast<int64_t>(n)));
+        if (const auto params = uint32_t(handler->body.params.size()); n != params)
+            return fail(command, ErrorCode::Type, arity_message(method, params, params, n));
         Args args(self, command, command.begin() + 2, n, 0, false, 2, object);
         const Node this_node = Node::object(target);
         Expected<Node> r = run_script(handler->body, args, &this_node);
@@ -328,11 +324,8 @@ Expected<Node> Context::Impl::send(ObjectHandle target, const Array& command, Co
         return s->name.empty() ? Node() : Node(s->name);
     }
     if (method == kGet || method == kSet) {
-        if (n != (method == kGet ? 1u : 2u))
-            return fail(command, ErrorCode::Type,
-                        quoted(method) + " takes " +
-                            arity_text(method == kGet ? 1 : 2, method == kGet ? 1 : 2) +
-                            ", given " + detail::decimal(static_cast<int64_t>(n)));
+        if (const uint32_t want = method == kGet ? 1 : 2; n != want)
+            return fail(command, ErrorCode::Type, arity_message(method, want, want, n));
         auto key = args.get<Symbol>(0);
         if (!key) return Unexpected(std::move(key).error());
         if (method == kGet) {

@@ -68,9 +68,7 @@ BAKER_COLD Expected<Node> too_deep(const Array& command, uint32_t depth, uintptr
 
 BAKER_COLD Expected<Node> bad_arity(const Array& command, Symbol name, const detail::Overload& o,
                                     size_t n) {
-    return fail(command, ErrorCode::Type,
-                quoted(name) + " takes " + arity_text(o.min_args, o.max_args) + ", given " +
-                    detail::decimal(static_cast<int64_t>(n)));
+    return fail(command, ErrorCode::Type, arity_message(name, o.min_args, o.max_args, n));
 }
 
 BAKER_COLD Expected<Node> no_overload(const Array& command, Symbol name,
@@ -181,6 +179,11 @@ Str arity_text(uint32_t min, uint32_t max) {
     else
         n = detail::decimal(min) + " to " + detail::decimal(max);
     return n + (n == "1" || n == "at least 1" ? " argument" : " arguments");
+}
+
+Str arity_message(Symbol name, uint32_t min, uint32_t max, size_t given) {
+    return quoted(name) + " takes " + arity_text(min, max) + ", given " +
+           detail::decimal(static_cast<int64_t>(given));
 }
 
 // --- Impl ---

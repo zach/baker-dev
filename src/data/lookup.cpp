@@ -144,35 +144,54 @@ Path::Path(std::string_view text) {
     }
 }
 
-bool Path::parse(std::string_view text) {
-    size_t i = 0;
+namespace {
+
+// Reads the segment of `text` at `i` into `name` and moves `i` past it and the separator
+// after it. False when it is malformed: an unclosed quote, an empty name, or a missing or
+// trailing separator. Path::parse and Path::matches read a path through it alike (D136).
+bool next_segment(std::string_view text, size_t& i, std::string_view& name, bool& quoted) noexcept {
     const size_t n = text.size();
-    while (i < n) {
+    quoted = text[i] == '\'';
+    if (quoted) {
+        const size_t close = text.find('\'', i + 1);
+        if (close == std::string_view::npos) return false;
+        name = text.substr(i + 1, close - i - 1);
+        i = close + 1;
+    } else {
+        size_t j = i;
+        while (j < n && text[j] != '.' && text[j] != '/') ++j;
+        name = text.substr(i, j - i);
+        if (name.empty()) return false;
+        i = j;
+    }
+    if (i == n) return true;
+    if (text[i] != '.' && text[i] != '/') return false;
+    return ++i != n;
+}
+
+// An unquoted name of digits is an index.
+bool is_index(std::string_view name, bool quoted) noexcept {
+    return !quoted &&
+           std::all_of(name.begin(), name.end(), [](char c) { return c >= '0' && c <= '9'; });
+}
+
+}  // namespace
+
+bool Path::parse(std::string_view text) {
+    for (size_t i = 0; i < text.size();) {
+        std::string_view name;
+        bool quoted = false;
+        if (!next_segment(text, i, name, quoted)) return false;
         Segment seg;
-        if (text[i] == '\'') {
-            const size_t close = text.find('\'', i + 1);
-            if (close == std::string_view::npos) return false;
-            seg.name = Symbol(text.substr(i + 1, close - i - 1));
-            i = close + 1;
+        if (is_index(name, quoted)) {
+            const auto r = std::from_chars(name.data(), name.data() + name.size(), seg.index);
+            if (r.ec != std::errc()) return false;
+            seg.is_index = true;
         } else {
-            size_t j = i;
-            while (j < n && text[j] != '.' && text[j] != '/') ++j;
-            const std::string_view s = text.substr(i, j - i);
-            if (s.empty()) return false;
-            if (std::all_of(s.begin(), s.end(), [](char c) { return c >= '0' && c <= '9'; })) {
-                const auto r = std::from_chars(s.data(), s.data() + s.size(), seg.index);
-                if (r.ec != std::errc()) return false;
-                seg.is_index = true;
-            } else {
-                seg.name = Symbol(s);
-            }
-            i = j;
+            seg.name = Symbol(name);
         }
         if (size_ == kMaxSegments) return false;
         segments_[size_++] = seg;
-        if (i == n) break;
-        if (text[i] != '.' && text[i] != '/') return false;
-        if (++i == n) return false;  // trailing separator
     }
     return true;
 }
@@ -195,39 +214,20 @@ void Path::write(TextSink out, size_t count, char separator) const {
 
 bool Path::matches(std::string_view text) const noexcept {
     if (!valid_) return false;
-    size_t i = 0, k = 0;
-    const size_t n = text.size();
-    while (i < n) {
+    size_t k = 0;
+    for (size_t i = 0; i < text.size();) {
         if (k == size_) return false;
         const Segment& seg = segments_[k++];
         std::string_view name;
-        bool quoted_name = false;
-        if (text[i] == '\'') {
-            const size_t close = text.find('\'', i + 1);
-            if (close == std::string_view::npos) return false;
-            name = text.substr(i + 1, close - i - 1);
-            quoted_name = true;
-            i = close + 1;
-        } else {
-            size_t j = i;
-            while (j < n && text[j] != '.' && text[j] != '/') ++j;
-            name = text.substr(i, j - i);
-            if (name.empty()) return false;
-            i = j;
-        }
-        const bool digits = !quoted_name && std::all_of(name.begin(), name.end(), [](char c) {
-            return c >= '0' && c <= '9';
-        });
-        if (digits) {
+        bool quoted = false;
+        if (!next_segment(text, i, name, quoted)) return false;
+        if (is_index(name, quoted)) {
             uint32_t index = 0;
             const auto r = std::from_chars(name.data(), name.data() + name.size(), index);
             if (r.ec != std::errc() || !seg.is_index || seg.index != index) return false;
         } else if (seg.is_index || seg.name.str() != name) {
             return false;
         }
-        if (i == n) break;
-        if (text[i] != '.' && text[i] != '/') return false;
-        if (++i == n) return false;
     }
     return k == size_;
 }
