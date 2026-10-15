@@ -4404,3 +4404,32 @@ array, as Module Manager's `!NODE` sits on the node.*
   - a console function is untouched;
   - an empty run undoes everything autorun defined;
   - a failing command is reported while the next still runs.
+
+## D147. Packs declare versions, and a required version is checked
+
+*Gap 42, as D138 decided.*
+
+- **Syntax.**
+  - `(version "1.2")` in a pack declaration.
+  - A `requires` entry may be `(name "version")`, meaning that pack at that version or
+    later: `(requires (base_game "1.2") season_pass)`.
+  - A version is dot-separated integers, written as a string, a symbol, or a non-negative
+    integer. A float is refused with "write a version as a string", because `1.10` would
+    read as `1.1`. Anything else is a located error.
+  - Versions compare part by part, numerically, with a missing part counting as 0. So
+    `"1.10"` is after `"1.2"`, and `"2"` equals `"2.0"`.
+- **The check** is D141's, once the pack's file is read and after a cache replay. A required
+  pack that is older, or declares no version, is a located warning ("... requires 'base'
+  "1.10" or later, which is "1.2""). The load goes on.
+- **`Pack`** gains `version` and `requires_versions`, parallel to `requires_packs` (empty:
+  any version).
+- **Caches record both.** A versioned requirement is stored as `(name "version")`, and the
+  pack entry gains its version. That changes the recorded load's layout, so the cache
+  format is now version 5: older caches are refused, and development rebuilds them.
+- **Test:**
+  - a met requirement gives no warning;
+  - `"1.10"` against `"1.2"` warns, part by part;
+  - an integer version satisfies `"1.9.3"`;
+  - a pack without a version warns;
+  - four malformed declarations are errors;
+  - a cache keeps the versions and checks them on replay.

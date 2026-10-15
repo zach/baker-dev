@@ -565,6 +565,40 @@ private:
         return true;
     }
 
+    // A version: dot-separated integers, as a string, a symbol, or an int, into `out` as
+    // its text (D147). A float is refused: 1.10 would read as 1.1.
+    bool version_of(const Node& n, Symbol& out, int32_t line) {
+        std::string_view text;
+        Str number;
+        if (const auto sym = n.try_sym()) {
+            text = sym->str();
+        } else if (const String* str = n.string()) {
+            text = str->view();
+        } else if (const auto i = n.try_int(); i && *i >= 0) {
+            number = detail::decimal(*i);
+            text = number;
+        } else {
+            return fail(ErrorCode::Syntax, "write a version as a string: (version \"1.10\")", line);
+        }
+        bool digit = false;
+        for (const char c : text) {
+            if (c == '.' && digit) {
+                digit = false;
+            } else if (c >= '0' && c <= '9') {
+                digit = true;
+            } else {
+                digit = false;
+                break;
+            }
+        }
+        if (!digit)
+            return fail(ErrorCode::Syntax,
+                        "'" + Str(text) + "' is not a version: dot-separated integers, as \"1.10\"",
+                        line);
+        out = Symbol(text);
+        return true;
+    }
+
     // (origin "economy.xlsx" (tool sheets-export)): recorded for this file, left out of the
     // tree.
     bool declare_origin(const Array& decl) {
@@ -600,10 +634,29 @@ private:
                             "', which is not one of the session's pack levels (" + levels + ")",
                         decl.line());
         }
-        Vec<Symbol> needs, owners, audience;
+        Vec<Symbol> needs, at_least, owners, audience;
         if (const Array* r = decl.try_find("requires"))
-            for (const Node& n : r->values())
-                if (const auto x = n.try_sym()) needs.push_back(*x);
+            for (const Node& n : r->values()) {
+                if (const auto x = n.try_sym()) {
+                    needs.push_back(*x);
+                    at_least.emplace_back();
+                    continue;
+                }
+                // (name "version"): that pack, at that version or later (D147).
+                const Array* v = n.try_array();
+                Symbol min;
+                if (!v || v->size() != 2 || v->tag().empty())
+                    return fail(ErrorCode::Syntax,
+                                "pack '" + Str(name->str()) +
+                                    "': (requires name (name \"version\") ...) lists packs",
+                                r->line());
+                if (!version_of((*v)[1], min, v->line())) return false;
+                needs.push_back(v->tag());
+                at_least.push_back(min);
+            }
+        Symbol version;
+        if (const Array* v = decl.try_find("version"))
+            if (v->size() != 2 || !version_of((*v)[1], version, v->line())) return false;
         if (!names(decl, "owners", *name, owners) || !names(decl, "for", *name, audience))
             return false;
         Symbol stage;
@@ -618,6 +671,7 @@ private:
         }
         pack_ = static_cast<int32_t>(SessionAccess::add_pack(
             s_, Pack{*name, *l, 0, file_, List<Symbol>({needs.data(), needs.size()}),
+                     List<Symbol>({at_least.data(), at_least.size()}), version,
                      List<Symbol>({owners.data(), owners.size()}),
                      List<Symbol>({audience.data(), audience.size()}), stage}));
         pack_line_ = decl.line();
@@ -979,16 +1033,43 @@ void SessionAccess::add_autorun(LoadSession& s, Node command) {
 void SessionAccess::add_warning(LoadSession& s, Error warning) {
     s.st_->warnings.push_back(std::move(warning));
 }
+namespace {
+// Whether version `a` is older than `b`, part by part; a missing part counts as 0 (D147).
+bool older(std::string_view a, std::string_view b) noexcept {
+    while (!a.empty() || !b.empty()) {
+        uint64_t x = 0, y = 0;
+        for (; !a.empty() && a.front() != '.'; a.remove_prefix(1))
+            x = x * 10 + static_cast<uint64_t>(a.front() - '0');
+        for (; !b.empty() && b.front() != '.'; b.remove_prefix(1))
+            y = y * 10 + static_cast<uint64_t>(b.front() - '0');
+        if (x != y) return x < y;
+        if (!a.empty()) a.remove_prefix(1);
+        if (!b.empty()) b.remove_prefix(1);
+    }
+    return false;
+}
+}  // namespace
+
 void SessionAccess::warn_missing_requires(LoadSession& s, const Pack& pack, int32_t line) {
     const auto& packs = s.st_->packs;
-    for (const Symbol need : pack.requires_packs) {
-        const bool loaded =
-            std::any_of(packs.begin(), packs.end(), [&](const Pack& p) { return p.name == need; });
-        if (!loaded)
-            s.st_->warnings.push_back(make_error(
-                ErrorCode::NotFound,
-                "pack " + quoted(pack.name) + " requires " + quoted(need) + ", which is not loaded",
-                pack.file, line));
+    for (size_t i = 0; i < pack.requires_packs.size(); ++i) {
+        const Symbol need = pack.requires_packs[i];
+        const Symbol min = i < pack.requires_versions.size() ? pack.requires_versions[i] : Symbol();
+        const auto it =
+            std::find_if(packs.begin(), packs.end(), [&](const Pack& p) { return p.name == need; });
+        Str problem;
+        if (it == packs.end())
+            problem = ", which is not loaded";
+        else if (!min.empty() && it->version.empty())
+            problem = " \"" + Str(min.str()) + "\" or later, which declares no version";
+        else if (!min.empty() && older(it->version.str(), min.str()))
+            problem =
+                " \"" + Str(min.str()) + "\" or later, which is \"" + Str(it->version.str()) + "\"";
+        if (!problem.empty())
+            s.st_->warnings.push_back(
+                make_error(ErrorCode::NotFound,
+                           "pack " + quoted(pack.name) + " requires " + quoted(need) + problem,
+                           pack.file, line));
     }
 }
 std::span<const Str> SessionAccess::required(const LoadSession& s) noexcept {

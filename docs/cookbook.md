@@ -285,8 +285,8 @@ How a game delivers content after it ships, from `docs/background/content-update
 - **Run autorun with `Context::run_autorun(cfg.autorun().items())`** after every stack
   change. Script an uninstalled DLC defined goes with it, and what it replaced comes back
   (D146).
-- **Declare what a package requires.** `(pack expansion (level dlc) (requires
-  season_pass))`. A requirement that is not loaded once the pack's file is read is a
+- **Declare what a package requires**, and at which version: `(pack expansion (level dlc)
+  (version "1.0") (requires (base_game "1.2") season_pass))`. A requirement that is not loaded once the pack's file is read is a
   located warning, forwarded to the Config's warning handler (D141).
 - **Mods and user files are text, never caches.** A cache is a memory image that a forged
   file can point anywhere. A loader of content from outside the game's own packages sets

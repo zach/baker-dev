@@ -35,8 +35,8 @@ static_assert(sizeof(String) == 8 && sizeof(Symbol) == 8);
 
 constexpr char kMagic[10] = {'M', 'O', 'I', 'R', 'A', '.', 'D', 'A', 'T', 'B'};
 // 2: packs' harness metadata, origins (D91); 3: the header hashed (D119); 4: '' keys no tag
-// in the tag run (D125).
-constexpr uint16_t kVersion = 4;
+// in the tag run (D125); 5: packs' versions, and the versions they require (D147).
+constexpr uint16_t kVersion = 5;
 constexpr uint32_t kEndian = 0x01020304;
 
 // Offsets count from the start of the file. The blob follows the header: arrays from the
@@ -52,7 +52,8 @@ constexpr uint32_t kEndian = 0x01020304;
 //   (required "path" ...)              files #require had read when the load began
 //   (require "path" ...)               files the load #required
 //   (levels L ...)                     the session's pack levels (D80)
-//   (packs (name level file (requires ...) (owners ...) (for ...) stage-or-0) ...)
+//   (packs (name level file (requires name-or-(name "version") ...) (owners ...) (for ...)
+//           stage-or-0 version-or-0) ...)
 //                                      packs the load declared
 //   (macro_packs NAME file ...)        the pack each macro the load defined came from
 //   (origins (file "source" tool-or-0) ...)   origins the load's files declared (D91)
@@ -490,7 +491,15 @@ Ref<Array> record_of(const LoadSession& s) {
     for (const Symbol l : A::pack_levels(s)) levels.emplace_back(l);
     for (const Pack& p : A::new_packs(s)) {
         Vec<Node> deps{Node(Symbol("requires"))};
-        for (const Symbol d : p.requires_packs) deps.emplace_back(d);
+        for (size_t i = 0; i < p.requires_packs.size(); ++i) {
+            const Symbol min = i < p.requires_versions.size() ? p.requires_versions[i] : Symbol();
+            if (min.empty()) {
+                deps.emplace_back(p.requires_packs[i]);
+            } else {
+                Vec<Node> versioned{Node(p.requires_packs[i]), Node(String::make(min.str()))};
+                deps.push_back(list(versioned));
+            }
+        }
         Vec<Node> owners{Node(Symbol("owners"))}, audience{Node(Symbol("for"))};
         for (const Symbol o : p.owners) owners.emplace_back(o);
         for (const Symbol a : p.audience) audience.emplace_back(a);
@@ -500,7 +509,8 @@ Ref<Array> record_of(const LoadSession& s) {
                         list(deps),
                         list(owners),
                         list(audience),
-                        p.stage.empty() ? Node(0) : Node(p.stage)};
+                        p.stage.empty() ? Node(0) : Node(p.stage),
+                        p.version.empty() ? Node(0) : Node(String::make(p.version.str()))};
         packs.push_back(list(entry));
     }
     for (const Origin& o : A::new_origins(s)) {
@@ -584,17 +594,27 @@ void replay(const Array& meta, LoadSession& s) {
     if (const Array* ps = meta.try_find("packs"))
         for (const Node& n : ps->values()) {
             const Array* p = n.array();
-            if (!p || p->size() != 7) continue;
-            Vec<Symbol> lists[3];  // requires, owners, for
+            if (!p || p->size() != 8) continue;
+            Vec<Symbol> lists[3], at_least;  // requires, owners, for; requires' versions
             for (uint32_t k = 0; k < 3; ++k)
                 if (const Array* d = (*p)[3 + k].array())
-                    for (const Node& x : d->values())
-                        if (const auto sym = x.try_sym()) lists[k].push_back(*sym);
+                    for (const Node& x : d->values()) {
+                        if (const auto sym = x.try_sym()) {
+                            lists[k].push_back(*sym);
+                            if (k == 0) at_least.emplace_back();
+                        } else if (const Array* v = x.array(); k == 0 && v && v->size() == 2) {
+                            lists[0].push_back(v->tag());
+                            at_least.emplace_back((*v)[1].try_str().value_or(""));
+                        }
+                    }
+            const String* version = (*p)[7].string();
             const Pack pack{(*p)[0].try_sym().value_or(Symbol()),
                             (*p)[1].try_sym().value_or(Symbol()),
                             0,
                             (*p)[2].try_sym().value_or(Symbol()),
                             List<Symbol>({lists[0].data(), lists[0].size()}),
+                            List<Symbol>({at_least.data(), at_least.size()}),
+                            version ? Symbol(version->view()) : Symbol(),
                             List<Symbol>({lists[1].data(), lists[1].size()}),
                             List<Symbol>({lists[2].data(), lists[2].size()}),
                             (*p)[6].try_sym().value_or(Symbol())};

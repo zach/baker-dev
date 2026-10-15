@@ -189,6 +189,15 @@ cfg.session().set_pack_levels({"engine", "game", "task"});
 The form is recorded (`session.packs()`, `session.pack_of(file)`) and left out of the
 tree. A pack without a level, or with a level not in the list, is an error at load.
 
+**Requires and versions.** Once a pack's file is read, each pack it `requires` must be
+loaded, and a required version met; otherwise the load warns, located, and goes on (D141,
+D147). A version is dot-separated integers, compared part by part (`"1.10"` is after
+`"1.2"`), written as a string, a symbol, or an integer, never a float:
+
+```dta
+(pack frost_dlc (level dlc) (version "1.0") (requires (base_game "1.2") season_pass))
+```
+
 **Harness metadata.** A pack may also say who keeps it, whom it is for, and how far it has
 evolved, from an idea to a commodity:
 
