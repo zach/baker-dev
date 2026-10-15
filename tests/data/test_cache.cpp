@@ -281,6 +281,29 @@ TEST_CASE("read_cached uses a fresh cache and rewrites a stale one") {
     CHECK_FALSE(cache_fresh(dir.path("bare.datb"), again));
 }
 
+TEST_CASE("a define's body decides freshness, by structure (gap 21)") {
+    if constexpr (kShipping) return;  // freshness is development's
+    test::TempDir dir;
+    const std::string main = dir.write("main.dta", "(a BODY)");
+    const std::string cache = dir.path("main.datb");
+    auto session_with = [](std::string_view body) {
+        LoadSession s;
+        s.define("BODY", ok(read_string(body, "d.dta")));
+        return s;
+    };
+    LoadSession first = session_with("(x 1) (y \"s\" 2.5)");
+    first.record_for_cache = true;
+    ok(write_cache(*ok(read_file(main, first)), cache, &first));
+    LoadSession same = session_with("(x 1) (y \"s\" 2.5)");  // another tree, equal
+    CHECK(cache_fresh(cache, same));
+    LoadSession number = session_with("(x 2) (y \"s\" 2.5)");
+    CHECK_FALSE(cache_fresh(cache, number));
+    LoadSession string = session_with("(\"x\" 1) (y \"s\" 2.5)");  // a string, not a symbol
+    CHECK_FALSE(cache_fresh(cache, string));
+    LoadSession nesting = session_with("((x 1) (y \"s\" 2.5))");
+    CHECK_FALSE(cache_fresh(cache, nesting));
+}
+
 TEST_CASE("a cache load leaves the session as the text load did") {
     test::TempDir dir;
     const std::string main = dir.write("main.dta", R"(

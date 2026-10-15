@@ -19,12 +19,6 @@
 namespace baker {
 namespace {
 
-std::optional<Symbol> tag_of(const Node& n) noexcept {
-    const Array* a = n.try_array();
-    if (!a || a->empty()) return std::nullopt;
-    return (*a)[0].try_sym();
-}
-
 // The sorted-mode order: by hash, then text. Both depend only on the symbol's text, so
 // the order is the same on every run.
 bool tag_less(Symbol a, Symbol b) noexcept {
@@ -250,10 +244,10 @@ Expected<const Array*> Array::find_array(Symbol tag) const {
 void Array::sort_for_lookup() {
     // A stable merge sort. std::stable_sort would take its buffer from operator new.
     const auto less = [](const Node& a, const Node& b) {
-        const auto tb = tag_of(b);
-        if (!tb) return false;
-        const auto ta = tag_of(a);
-        return !ta || tag_less(*ta, *tb);
+        const Symbol tb = detail::tag_of(b);
+        if (tb.empty()) return false;
+        const Symbol ta = detail::tag_of(a);
+        return ta.empty() || tag_less(ta, tb);
     };
     Node* d = data();
     const size_t n = size_;
@@ -272,11 +266,12 @@ void Array::sort_for_lookup() {
 }
 
 const Array* Array::find_sorted(Symbol tag) const noexcept {
+    if (tag.empty()) return nullptr;  // '' is no tag (D125)
     const Node* it = std::partition_point(begin(), end(), [tag](const Node& n) {
-        const auto t = tag_of(n);
-        return !t || tag_less(*t, tag);
+        const Symbol t = detail::tag_of(n);
+        return t.empty() || tag_less(t, tag);
     });
-    return it != end() && tag_of(*it) == tag ? it->try_array() : nullptr;
+    return it != end() && detail::tag_of(*it) == tag ? it->try_array() : nullptr;
 }
 
 namespace detail {

@@ -77,6 +77,10 @@ private:
         return ok;
     }
 
+    static int32_t count_lines(std::string_view s) noexcept {
+        return static_cast<int32_t>(std::count(s.begin(), s.end(), '\n'));
+    }
+
     bool lex_token(Token& t, Error& err) {
         t = Token{};
         const size_t n = src_.size();
@@ -92,7 +96,7 @@ private:
                 if (c == '\n') ++line_;
                 ++pos_;
             } else if (c == ';') {
-                while (pos_ < n && src_[pos_] != '\n') ++pos_;
+                pos_ = std::min(src_.find('\n', pos_), n);  // to the newline, as memchr
             } else if (c == '/' && pos_ + 1 < n && src_[pos_ + 1] == '*') {
                 const int32_t start = line_;
                 pos_ += 2;
@@ -140,24 +144,15 @@ private:
     bool lex_string(Token& t, Error& err) {
         const int32_t start_line = line_;
         const size_t begin = ++pos_;
-        const size_t n = src_.size();
-        size_t i = begin;
-        bool escapes = false;
-        while (i < n && src_[i] != '"') {
-            if (src_[i] == '\\' && i + 1 < n && (src_[i + 1] == 'n' || src_[i + 1] == 'q')) {
-                escapes = true;
-                i += 2;
-                continue;
-            }
-            ++i;
-        }
-        if (i >= n) return fail(err, ErrorCode::Syntax, "unterminated string", start_line);
+        // Neither escape contains a quote, so the string ends at the first one.
+        const size_t i = src_.find('"', begin);
+        if (i == std::string_view::npos)
+            return fail(err, ErrorCode::Syntax, "unterminated string", start_line);
         const std::string_view raw = src_.substr(begin, i - begin);
-        for (char ch : raw)
-            if (ch == '\n') ++line_;
+        line_ += count_lines(raw);
         pos_ = i + 1;
         t.kind = Tok::String;
-        if (!escapes) {
+        if (raw.find('\\') == std::string_view::npos) {
             t.text = raw;
             return true;
         }
@@ -183,8 +178,7 @@ private:
         t.kind = Tok::Symbol;
         t.quoted = true;
         t.text = src_.substr(begin, end - begin);
-        for (char ch : t.text)
-            if (ch == '\n') ++line_;
+        line_ += count_lines(t.text);
         pos_ = end + 1;
         return true;
     }

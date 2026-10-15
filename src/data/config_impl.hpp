@@ -81,8 +81,7 @@ inline Error refused(std::string_view message, Symbol file = {}, int32_t line = 
 }
 
 inline bool is_tagged(const Node& n) noexcept {
-    const Array* a = n.try_array();
-    return a && !a->empty() && (*a)[0].type() == Type::Symbol;
+    return !detail::tag_of(n).empty();
 }
 
 inline bool has_values(const Array& a) noexcept {

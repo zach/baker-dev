@@ -9,12 +9,8 @@ namespace baker {
 namespace detail {
 namespace {
 
-std::optional<Symbol> tag_of(const Array& a) noexcept {
-    return a.empty() ? std::nullopt : a[0].try_sym();
-}
 bool is_tagged(const Node& n) noexcept {
-    const Array* a = n.try_array();
-    return a && tag_of(*a);
+    return !tag_of(n).empty();
 }
 // Whether `a` has values from `first` on: nodes other than tagged arrays.
 bool has_values(const Array& a, size_t first) noexcept {
@@ -52,27 +48,27 @@ bool merge_into(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const 
         index.emplace();
         for (size_t i = dst_first; i < dst.size(); ++i)
             if (const Array* da = dst[i].try_array())
-                if (const auto t = tag_of(*da)) index->emplace(*t, i);
+                if (const Symbol t = da->tag(); !t.empty()) index->emplace(t, i);
     }
     for (size_t j = src_first; j < src.size(); ++j) {
         const Array* sa = src[j].try_array();
         if (!sa) continue;
-        const auto tag = tag_of(*sa);
-        if (!tag && policy == MergePolicy::Overwrite) continue;  // a value, handled above
+        const Symbol tag = sa->tag();
+        if (tag.empty() && policy == MergePolicy::Overwrite) continue;  // a value, handled above
         size_t found = dst.size();
-        if (tag && indexed) {
-            if (const auto it = index->find(*tag); it != index->end()) found = it->second;
-        } else if (tag) {
+        if (!tag.empty() && indexed) {
+            if (const auto it = index->find(tag); it != index->end()) found = it->second;
+        } else if (!tag.empty()) {
             for (size_t i = dst_first; i < dst.size(); ++i) {
                 const Array* da = dst[i].try_array();
-                if (da && tag_of(*da) == tag) {
+                if (da && da->tag() == tag) {
                     found = i;
                     break;
                 }
             }
         }
         if (found == dst.size()) {
-            if (tag && indexed) index->emplace(*tag, dst.size());
+            if (!tag.empty() && indexed) index->emplace(tag, dst.size());
             dst.push_back(src[j]);
             if (spans) {
                 const SourceSpan* sp = map->span(src, j);

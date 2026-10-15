@@ -55,7 +55,7 @@ if(BAKER_BUILD_SCRIPT)
 endif()
 
 if(BAKER_BUILD_SHAPE)
-  add_executable(baker_shape_tests shape/test_shape.cpp)
+  add_executable(baker_shape_tests shape/test_shape.cpp support/alloc_counter.cpp)
   target_link_libraries(baker_shape_tests PRIVATE baker::shape baker_doctest_main)
   target_include_directories(baker_shape_tests PRIVATE support)
   target_compile_definitions(baker_shape_tests PRIVATE BAKER_SHAPE_DIR="${PROJECT_SOURCE_DIR}/tests/shape")

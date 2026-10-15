@@ -409,7 +409,17 @@ void Context::remove(ObjectBase& object) noexcept {
     if (impl_->ticking || impl_->depth)
         impl_->defer_removal(object.handle_);
     else
-        impl_->remove(object.handle_);
+        impl_->remove_now(object.handle_);
+}
+
+// Removes the object at `h`, and destroys it if the Context owns it ({new}).
+void Context::Impl::remove_now(ObjectHandle h) noexcept {
+    Slot* s = slot(h);
+    if (!s) return;  // removed already, or destroyed by its owner
+    ObjectBase* o = s->object;
+    const bool was_owned = s->owned;
+    remove(h);
+    if (was_owned) destroy_owned(o);
 }
 
 void Context::Impl::defer_removal(ObjectHandle h) {
@@ -443,15 +453,8 @@ void Context::Impl::settle() {
 
 void Context::sync() {
     Impl& impl = *impl_;
-    for (size_t i = 0; i < impl.deferred.size(); ++i) {  // removals may defer more
-        const ObjectHandle h = impl.deferred[i];
-        Impl::Slot* s = impl.slot(h);
-        if (!s) continue;  // removed already, or destroyed by its owner
-        ObjectBase* o = s->object;
-        const bool owned = s->owned;
-        impl.remove(h);
-        if (owned) impl.destroy_owned(o);
-    }
+    for (size_t i = 0; i < impl.deferred.size(); ++i)  // removals may defer more
+        impl.remove_now(impl.deferred[i]);
     impl.deferred.clear();
 }
 

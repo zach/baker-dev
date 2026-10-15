@@ -420,6 +420,8 @@ public:
 
     // This array's own tag: its first node, if a symbol; the empty Symbol if not (D115).
     // Walking (enemies (grunt ...) (brute ...)), each child's tag is its name.
+    // The tag: the first node if it is a symbol other than '' (D115, D125), else the empty
+    // Symbol, which no array is tagged with.
     [[nodiscard]] Symbol tag() const noexcept {
         if (size_ == 0) return {};
         const auto s = data()[0].try_sym();
@@ -552,7 +554,7 @@ private:
         // data()[0] is readable even in an empty array (see allocate()).
         const Array* a = n.try_array();
         const auto tag = a ? a->data()[0].try_sym() : std::nullopt;
-        return tag ? key_of(*tag) : kNoTag;
+        return tag && !tag->empty() ? key_of(*tag) : kNoTag;  // '' is no tag (D125)
     }
     // The run follows the header, so a scan needs no load to find it and shares the
     // header's cache line; the nodes follow the run.
@@ -581,6 +583,14 @@ private:
     uint16_t flags_ = 0;  // kSortedForLookup
     // uint32_t tags[size_], padded to 8, follows (D77), then Node nodes[size_].
 };
+
+namespace detail {
+// The tag of `n` if it is an array (Array::tag()), else the empty Symbol.
+[[nodiscard]] inline Symbol tag_of(const Node& n) noexcept {
+    const Array* a = n.try_array();
+    return a ? a->tag() : Symbol();
+}
+}  // namespace detail
 
 static_assert(sizeof(Array) == 24, "Array header must stay 24 bytes");
 

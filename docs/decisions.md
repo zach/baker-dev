@@ -3661,3 +3661,63 @@ three alternating runs against `fd99ac7`, pinned to one CPU, with the same bench
 - **Unchanged:** every other `bench_call` row is within noise. `{add1 1}` read 80.7–81.8 ns
   before and 82.2–85.2 after, at the same instructions (220,503,011 and 220,503,076 for
   200,000 calls): code layout.
+
+## D125. Gap 26: `''` is no tag, everywhere
+
+*The owner's decision (2026-10-14), as recommended: D115's meaning.*
+
+- **The disagreement.** `Array::tag()` (D115) returned the empty Symbol for `('' 1)`, as
+  for an untagged array. But four other places tagged it: lookup (`try_find('')` found it
+  through the tag run, and sorted lookup through its own `tag_of`), merge (it matched two
+  such arrays by key and merged their children), the Config's leaves, and the cache's tag
+  run.
+- **Now.** `Array::tag()` is the one meaning, with `detail::tag_of(const Node&)` for nodes:
+  - the tag run keys `''` as no tag;
+  - `find_sorted('')` finds nothing;
+  - merge treats `('' ...)` as a value;
+  - the Config's `is_tagged` and the shape checker's walk follow suit.
+
+  The cache's tag run writes no tag for `''`. Its format is version 4, so a version-3
+  cache is rebuilt.
+- **Data.** Nothing in the tests, examples, stacks or docs used `''` as a key.
+- **Test** (`test_lookup.cpp`): linear and sorted lookup, merge, and a cache round trip.
+  Against the previous code it fails four times.
+
+## D126. Gaps 19–21: the load-path batch; a leak the census found
+
+*The owner chose this batch (2026-10-14). Each gap was measured before it was changed:
+callgrind and pinned timings in small drivers, against the previous build.*
+
+- **Gap 19, the lexer.** It skipped `;` comments, scanned strings for the closing quote,
+  and counted newlines inside strings and quoted symbols, all a byte at a time. Neither
+  escape (`\n`, `\q`) contains a quote, so a string ends at its first one: `find`
+  (memchr) now scans both strings and comments, and `std::count` counts newlines. A string
+  is unescaped only if it holds a backslash at all.
+  - On `bench_parse`'s text, with short strings, it is 0.36% fewer instructions and no
+    timing change (132–137 MB/s before and after).
+  - On text of long descriptions and comment headers, it is 26% fewer instructions
+    (90.8M to 67.3M for three parses of 1.2 MB) and 450–460 MB/s to 610–623.
+- **Gap 20, the shape checker.** It found each tagged array's shape by scanning every
+  shape, gave every instance its own `seen` vector, and kept D119's checked-nested set
+  as a hash map, a node per nested value. Now:
+  - shapes are found by `Symbol::index()`;
+  - `seen` is one stack with a mark per instance;
+  - the nested set is a stack, emptied as the walk leaves the instance that filled it.
+
+  Checking 20,000 units against 21 shapes went from 12.7–13.1 ms and 140,014 allocations
+  to 3.3–3.5 ms and 12. A test checks that 1,000 instances allocate what 10 do.
+- **Gap 21, cache freshness.** Each check printed every session define's body to text to
+  hash it: 92% of a check. Bodies are now hashed from their nodes: type, value, a
+  symbol's precomputed hash, and a string's content hash. That is stable across
+  processes and allocates nothing. A check with 200 session macros went from 98.6–101.5
+  µs to 34.6–35.0. A cache written by the previous code reads as stale, once, and is
+  rebuilt.
+  - Test: a define's body decides freshness by structure. An equal body from another
+    parse is fresh; a changed number, a string for a symbol, or added nesting is stale.
+- **A leak (found by the allocation census for gap 31).** `Context::remove` on an object
+  `{new}` made, outside any call or tick, removed it but never destroyed it. A removal
+  deferred to the end of a call or a tick did destroy it. Both now go through
+  `Impl::remove_now`. The test fails against the previous code.
+- **Unchanged:** `bench_lookup`'s rows. `find<float>` read 15.2–16.7 ns before and
+  17.0–17.4 after, at the same instructions (37,251,771 and 37,251,931 for 200,000
+  finds): code layout.

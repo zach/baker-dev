@@ -1,7 +1,8 @@
 # Baker under the data-oriented lens: known gaps
 
-**Status, 2026-10-14, after D124: gaps 1–18 are closed; gaps 19–31 below are open.**
-D124 closed the hot-path batch, 13–18. A fresh review of the core (2026-10-14) fixed what it found that was a bug or a
+**Status, 2026-10-14, after D126: gaps 1–21 and 26 are closed; 22–25 and 27–31 below
+are open.** D124 closed the hot-path batch (13–18), D125 gap 26, D126 the load-path batch
+(19–21). A fresh review of the core (2026-10-14) fixed what it found that was a bug or a
 measured cost (D116–D122) and recorded the rest here, for later. D117's deferral costs one
 predictable branch per host `eval`, none per call. Before that, **2026-10-13, after D100:
 no open gaps.** First audited 2026-10-11 at M6 step 1 (`23f4142`); the audit's reasoning
@@ -38,14 +39,14 @@ before fixing (SKILL.md, step 5), and do not fix one without a cost that justifi
 | 16, debug-build argument indexing | hot (debug) | `ArgIndex::of(I)` is not forced to compile time, so MSVC's debug build, a stated target (D62), runs a loop per argument per call. | **closed**, D124: compile-time indexes |
 | 17, `Slot` padding | hot | `Context::Impl::Slot` is 40 bytes; reordered it is 32, two to a cache line. | **closed**, D124: 32 bytes, asserted |
 | 18, layer records ignore the Config's allocator | load | D61 says a Config's tables take its allocator; `LayerState`'s strings and `deps`, `read()`'s deps, `copy_scratch`, `reread`'s `fresh` and `promote`'s `virt` use the default one. `baker_alloc_tests` passes because nothing reaches `operator new`. | **closed**, D124: the Config's own records; the rest is D61's (gap 31) |
-| 19, the lexer scans strings a byte at a time | load | `lex_string` runs an escape-aware loop where the closing quote is always the first `"`; the newline count is a second loop, written twice; a `;` comment is skipped a byte at a time. `memchr`-style scans and `std::count` would do. | read |
-| 20, the shape checker searches and allocates | load | `walk()` finds a tag's shape by a linear scan of every shape, for each tagged array; `instance()` allocates a `seen` vector per governed array and searches it per field. | read |
-| 21, freshness re-serializes macros | load (development) | `cache.cpp`'s `fresh()` prints every session define's body to text to hash it, on every check of every layer. | read |
+| 19, the lexer scans strings a byte at a time | load | `lex_string` runs an escape-aware loop where the closing quote is always the first `"`; the newline count is a second loop, written twice; a `;` comment is skipped a byte at a time. `memchr`-style scans and `std::count` would do. | **closed**, D126: find and count, 26% on text with long strings |
+| 20, the shape checker searches and allocates | load | `walk()` finds a tag's shape by a linear scan of every shape, for each tagged array; `instance()` allocates a `seen` vector per governed array and searches it per field. | **closed**, D126: by index, stacks; 3.8× and 12 allocations |
+| 21, freshness re-serializes macros | load (development) | `cache.cpp`'s `fresh()` prints every session define's body to text to hash it, on every check of every layer. | **closed**, D126: hashed from nodes, 2.9× |
 | 22, write-back merges twice | tool | `write_into` merges the whole stack to see whether a layer above hides the value, then `commit` merges again; a `supplier` check answers the first. `source_in` is also computed twice. | read |
 | 23, session copies | tool | `promote` copies the session below for every leaf, and `refresh_read` copies a whole `LoadSession` on every commit even when the top layer's session has not changed. | read |
 | 24, a write's time is in no stage | tool | `write_into` and `promote` start the parse clock after the writer runs, so the write's time falls in no stage, against `finish()`'s promise that the stages tile the change. The "reread, time, mark ParseError" block is written three times; one helper would fix both. | read |
 | 25, quadratic leftovers | tool | `collect_leaves` searches a vector of seen tags per child; `restore` re-marks journal entries O(J·S). | read |
-| 26, the `''` tag | correctness | `Array::tag()` treats the empty symbol as no tag (D115), but lookup's `tag_of` and merge's `tag_of` treat `('' 1)` as tagged. Decide one meaning, then keep one function. | read |
+| 26, the `''` tag | correctness | `Array::tag()` treats the empty symbol as no tag (D115), but lookup's `tag_of` and merge's `tag_of` treat `('' 1)` as tagged. Decide one meaning, then keep one function. | **closed**, D125: '' is no tag, everywhere |
 | 27, latent desyncs | correctness | `merge_into`'s Overwrite branch rebuilds `dst` but not its spans (no caller combines them yet); an included file's nodes count twice toward `max_nodes`; `SourceMap::record_text` keeps the old text when a map is reused. | read |
 | 28, duplicated code | code | `Path::parse` and `Path::matches` tokenize alike; `LoadSession`'s four special members copy the same five fields; origin and pack registration is written in both the Parser and `SessionAccess`; `format_double` and its fallback normalize the decimal point twice; the arity message is built five times in baker::script; `cache.cpp`'s `nodes_at` re-derives `Array::run_bytes`. | read |
 | 29, methods' status | tool | A method's `Status` and replacement are stored, but the reference prints only functions' status, and checks use only `Stub`. Print it, or drop the replacement. | read |

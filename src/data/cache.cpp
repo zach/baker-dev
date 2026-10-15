@@ -34,7 +34,9 @@ static_assert(L::kValue == 0 && L::kType == 8 && L::kSize == 4 && L::kFile == 8)
 static_assert(sizeof(String) == 8 && sizeof(Symbol) == 8);
 
 constexpr char kMagic[10] = {'M', 'O', 'I', 'R', 'A', '.', 'D', 'A', 'T', 'B'};
-constexpr uint16_t kVersion = 3;  // 2: packs' harness metadata, origins (D91); 3: D119
+// 2: packs' harness metadata, origins (D91); 3: the header hashed (D119); 4: '' keys no tag
+// in the tag run (D125).
+constexpr uint16_t kVersion = 4;
 constexpr uint32_t kEndian = 0x01020304;
 
 // Offsets count from the start of the file. The blob follows the header: arrays from the
@@ -299,9 +301,8 @@ private:
         }
         // The tag run, as symbol indexes of this file (D77).
         for (uint32_t i = 0; i < a.size(); ++i) {
-            const Array* c = nodes[i].try_array();
-            const auto tag = c && !c->empty() ? c->nodes()[0].try_sym() : std::nullopt;
-            const uint32_t key = tag ? static_cast<uint32_t>(symbol(*tag)) : kNoTag;
+            const Symbol tag = detail::tag_of(nodes[i]);
+            const uint32_t key = tag.empty() ? kNoTag : static_cast<uint32_t>(symbol(tag));
             put(out, at + sizeof(Array) + size_t{i} * 4, key);
         }
     }
@@ -424,8 +425,32 @@ Expected<Ref<Array>> load(char* file, size_t bytes, std::string_view name, const
 
 // --- The record of a load (D72). ---
 
+// A macro body's hash, from its nodes: the same tree hashes the same in any process, and
+// nothing is printed or allocated (gap 21; the text's hash cost a freshness check about
+// half a microsecond a define).
+uint64_t node_hash(const Node& n, uint64_t h) noexcept {
+    constexpr uint64_t k = 0x9E3779B97F4A7C15ull;
+    const auto mix = [&](uint64_t v) { h = std::rotl((h ^ v) * k, 27); };
+    mix(static_cast<uint64_t>(n.type()) + 1);
+    switch (n.type()) {
+        case Type::Int: mix(static_cast<uint64_t>(*n.try_int())); break;
+        case Type::Float: mix(n.float_bits()); break;
+        case Type::Symbol: mix(n.try_sym()->hash()); break;
+        case Type::Var: mix(n.var_name().hash()); break;
+        case Type::String: mix(content_hash(n.string()->view())); break;
+        case Type::Array:
+        case Type::Command:
+        case Type::Property:
+            mix(n.array()->size());
+            for (const Node& c : *n.array()) h = node_hash(c, h);
+            break;
+        default: break;  // a cache holds data only
+    }
+    return h;
+}
+
 uint64_t body_hash(const Ref<Array>& body) {
-    return body ? content_hash(text_of(Node(body))) : 0;
+    return body ? node_hash(Node(body), 1) : 0;
 }
 
 Node list(Vec<Node>& nodes) {
