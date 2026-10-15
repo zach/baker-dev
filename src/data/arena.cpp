@@ -59,7 +59,8 @@ void* Arena::take(size_t bytes, uint32_t& offset) {
         current_ = b;
         cur_ = start;
         left_ = size - header;
-        if (next_ < kMaxBlock) next_ *= 2;
+        // The first block was sized for the whole load: one more of its size, then doubling.
+        if (next_ < kMaxBlock && b->next) next_ *= 2;
     }
     char* p = cur_;
     offset = static_cast<uint32_t>(p - reinterpret_cast<char*>(current_));

@@ -679,7 +679,10 @@ public:
     // A Command runs its function, a Var reads its variable, anything else is itself.
     [[nodiscard]] Expected<Node> eval(const Node& node);
     // Parses `text` and evaluates each top-level node in order, returning the last value
-    // (Int 0 if there is none). The entry point for consoles and remote commands.
+    // (Int 0 if there is none). The entry point for consoles and remote commands. The
+    // text's tree is built in an arena from the Context's allocator: a value kept from the
+    // result, or a {func} the text defined, keeps that arena, so the allocator must outlive
+    // it as well as the Context (D61, D131).
     [[nodiscard]] Expected<Node> eval(std::string_view text, std::string_view name = "<eval>");
 
     // --- Tasks (task.hpp). ---

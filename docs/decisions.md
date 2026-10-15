@@ -3839,3 +3839,57 @@ inconsistency in baker::script.*
   remains on the default allocator is what D61 assigns there: `eval(text)`'s parse
   temporaries, error records, type records and the symbol table. Nothing on a call
   changed: `Shared::get()` is the same load.
+
+## D131. A load's first block is sized from its text, and a layer read copies its text once
+
+*From `docs/allocation-review.md`, the owner's choice ("arena sizing and text copies").
+It also corrects D61's and D64's text, and documents `eval(text)`'s lifetime.*
+
+- **The first block.** A load's arena started with a block of four bytes per byte of
+  text. Real trees run from about half their text (string-heavy) to eight times it
+  (bracket-heavy), so that block either wasted most of itself or doubled into a second and
+  third. A 102 KB tree-heavy text took three blocks and used 51% of 1.23 MB.
+  - **Now:** `first_block` counts arrays, tokens, strings and characters in one pass over
+    the first 16 KB, then scales the count to the whole text. A text of 16 KB or less keeps
+    the old 4×, where the pass would cost more than the slack saves.
+  - **After a full first block,** the next block is the same size, then sizes double as
+    before. The first block was meant to hold the whole load, so doubling it on a small
+    miss overshoots.
+  - A pass over the whole text cost 17% of parse speed (134 → 111 MB/s), which is why
+    only 16 KB is sampled.
+- **Measured.** Parses in a counting driver:
+
+  | Text | Blocks before | Blocks now | Bytes before | Bytes now | Used before | Used now |
+  |---|---:|---:|---:|---:|---:|---:|
+  | dense, 102 KB | 3 | 2 | 1,224,608 | 700,136 | 51% | 88% |
+  | sparse | 2 | 2 | 408,144 | 137,080 | 34% | ~101% |
+
+  - Sparse's ~101% is its two blocks counted against the estimate.
+  - Most corpus files now load in one block.
+- **`bench_parse`** (4.2 MB corpus), pinned to one CPU, alternating runs:
+  - Before: 117.9, 116.5, 115.9 MB/s. Now: 125.5, 127.7, 128.5 MB/s. 43 allocations both.
+  - An earlier session read the other way (137 vs 131), so this is noise.
+  - Callgrind: 4,114.9M instructions before, 4,117.4M now (+0.06%, the sampling pass).
+- **Text copies.** A Config's layer reader read each file into a fresh `Str`, hashed it
+  for the layer's deps, and passed it to the parser, which copied it again.
+  - Now the reader reads into the Config's `scan` buffer (`changed()`'s, reused), so a
+    file read allocates only the parser's copy.
+  - The reader returns before the parser reads an include through it again, so the buffer
+    is never in use twice.
+  - A dep's path is now on the Config's allocator, like the rest of its layer records.
+  - `baker_alloc_tests`' Config scenario: the default allocator's count went from 123
+    to 120.
+  - **Left:** a cache read through a custom reader still copies the cache from the
+    reader's `Str` into the arena that holds it. Without a size up front, the arena
+    cannot be the sink. Custom readers (packs, memory) are the rare path.
+- **Corrections to earlier entries.**
+  - **D61** lists snapshots among the default allocator's results. A `ConfigSnapshot` is
+    built on its Config's allocator and keeps it (D62), as D61's own note on copies
+    implies.
+  - **D64** says blocks grow from 4 KB. The minimum block is 512 B (`kMinBlock`). The
+    first block is sized for the load: 4× the text in D64, and `first_block` since this
+    entry.
+- **`eval(text)`'s lifetime.** `Context::eval(text)` builds its tree in an arena from the
+  Context's allocator. A value kept from it, or a `{func}` the text defined, keeps that
+  arena alive, so the allocator must outlive it as well as the Context. D61's contract
+  already covered this; `script.hpp` now says so where `eval` is declared.

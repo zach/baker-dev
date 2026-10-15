@@ -1020,6 +1020,60 @@ void SessionAccess::add_required(LoadSession& s, std::string_view path) {
 }
 }  // namespace detail
 
+namespace {
+
+// The bytes of the tree `text` makes, estimated in one fast pass (D131): each bracket opens
+// an array, each token outside a comment is a node with its tag-run key, and a string's
+// bytes are stored once. Real trees run from half to eight times their text, so a fixed
+// multiple wasted most of the first block on one end and doubled into a second on the other.
+size_t tree_estimate(std::string_view t) noexcept {
+    size_t arrays = 0, tokens = 0, strings = 0, chars = 0;
+    bool in_atom = false;
+    for (size_t i = 0; i < t.size();) {
+        const char c = t[i];
+        if (c == ';') {  // to the end of the line
+            i = std::min(t.find('\n', i), t.size());
+            in_atom = false;
+        } else if (c == '"') {
+            const size_t end = std::min(t.find('"', i + 1), t.size());
+            chars += end - i;
+            ++strings;
+            ++tokens;
+            i = end + 1;
+            in_atom = false;
+        } else if (c == '(' || c == '{' || c == '[') {
+            ++arrays;
+            ++tokens;
+            ++i;
+            in_atom = false;
+        } else if (c == ')' || c == '}' || c == ']' || static_cast<unsigned char>(c) <= ' ') {
+            ++i;
+            in_atom = false;
+        } else {
+            tokens += in_atom ? 0 : 1;
+            in_atom = true;
+            ++i;
+        }
+    }
+    // An array: its header and half a word of tag-run padding; a node: 16 bytes and its
+    // 4-byte key; a string: its header, its characters, and padding.
+    const size_t bytes = arrays * (sizeof(Array) + 4) + tokens * (sizeof(Node) + sizeof(uint32_t)) +
+                         strings * 16 + chars;
+    return bytes + bytes / 16;  // a margin for macro expansions
+}
+
+// The first block of a load's arena: the old four bytes per byte for a small text, where
+// a pass would cost more than the slack; else tree_estimate of the first 16 KB, scaled, so
+// the pass costs a few microseconds whatever the size.
+size_t first_block(std::string_view text) noexcept {
+    constexpr size_t kSample = 16384;
+    if (text.size() <= kSample) return text.size() * 4;
+    return static_cast<size_t>(static_cast<double>(tree_estimate(text.substr(0, kSample))) *
+                               static_cast<double>(text.size()) / kSample);
+}
+
+}  // namespace
+
 Expected<Ref<Array>> read_string(std::string_view text, std::string_view name,
                                  LoadSession& session) {
     const bool top = session.st_->include_stack.empty();
@@ -1046,9 +1100,9 @@ Expected<Ref<Array>> read_string(std::string_view text, std::string_view name,
     } pop{session.st_->include_stack};
 
     // One arena per top-level read; a nested read (an include) has its own parser, not this.
-    // About 4 bytes of tree per byte of text, for the first block.
+    // Its first block is sized from the text (D131).
     const detail::Arena::Handle arena(detail::Arena::create(
-        session.allocator ? *session.allocator : default_allocator(), text.size() * 4));
+        session.allocator ? *session.allocator : default_allocator(), first_block(text)));
     detail::Parser parser(session, *arena, text, Symbol(file), 0);
     Ref<Array> root;
     Error err;

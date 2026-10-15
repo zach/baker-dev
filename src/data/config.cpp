@@ -153,11 +153,13 @@ Expected<void> Config::Impl::read(LayerState& layer, const LoadSession& before,
     }
     session->set_reader([&](std::string_view p, TextSink out) {
         const uint64_t t0 = read_ns ? now() : 0;
-        Str text;
-        const bool ok = detail::read_with(reader, p, text);
+        // Into the Config's buffer, which the parser copies from before it reads an include
+        // through here again: a file read allocates only the parser's copy (D131).
+        const bool ok = detail::read_with(reader, p, scan);
         if (read_ns) *read_ns += now() - t0;
-        if (p != cache.view()) deps.push_back({Str(p), ok, ok ? detail::content_hash(text) : 0});
-        if (ok) out(text);
+        if (p != cache.view())
+            deps.push_back({Str(p, alloc), ok, ok ? detail::content_hash(scan) : 0});
+        if (ok) out(scan);
         return ok;
     });
     auto map = options.edit_mode ? Rc<SourceMap>::make(alloc, alloc) : nullptr;

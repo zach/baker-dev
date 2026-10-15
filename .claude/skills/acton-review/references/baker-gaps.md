@@ -1,7 +1,9 @@
 # Baker under the data-oriented lens: known gaps
 
-**Status, 2026-10-14, after D127: gaps 1–21, 26 and 31 are closed; 22–25 and 27–30 below
-are open.** D127 closed gap 31 (the owner's choice in `docs/allocation-review.md`). D124 closed the hot-path batch (13–18), D125 gap 26, D126 the load-path batch
+**Status, 2026-10-14, after D131: gaps 1–21, 26 and 31 are closed; 22–25 and 27–30 below
+are open.** D127 closed gap 31 (the owner's choice in `docs/allocation-review.md`), and
+D128–D131 the review's other findings: edit-mode source maps, sessions, script callables
+and handlers on their owner's allocator, and the first arena block and text copies. D124 closed the hot-path batch (13–18), D125 gap 26, D126 the load-path batch
 (19–21). A fresh review of the core (2026-10-14) fixed what it found that was a bug or a
 measured cost (D116–D122) and recorded the rest here, for later. D117's deferral costs one
 predictable branch per host `eval`, none per call. Before that, **2026-10-13, after D100:
