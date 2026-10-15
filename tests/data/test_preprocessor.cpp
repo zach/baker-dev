@@ -1,5 +1,6 @@
 // Directives and macros: include, merge, conditionals, defines, autorun.
 #include <doctest.h>
+#include <baker/cache.hpp>
 #include <baker/parse.hpp>
 #include <baker/std_interop.hpp>
 #include <baker/write.hpp>
@@ -7,6 +8,7 @@
 #include <algorithm>
 #include <map>
 #include <string>
+#include <vector>
 
 using namespace baker;
 
@@ -317,6 +319,51 @@ TEST_CASE("#require reads a file once per session (spec §1)") {
     // A missing required file is an error, as for #include.
     fs.files["e.dta"] = "#require nope.dta";
     CHECK(fs.fail("e.dta").code() == ErrorCode::Io);
+}
+
+TEST_CASE("a pack whose required pack is not loaded is warned about (D141)") {
+    auto requires_warnings = [](const LoadSession& s) {
+        std::vector<std::string> out;
+        for (const Error& w : s.warnings())
+            if (std::string(w.message()).find(" requires ") != std::string::npos)
+                out.push_back(std::string(w.file().str()) + ":" + std::to_string(w.line()) + ": " +
+                              std::string(w.message()));
+        return out;
+    };
+    Files fs;
+    fs.session.set_pack_levels({"game", "dlc"});
+    fs.files["combat_core.dta"] = "(pack combat_core (level game))\n#define HIT (2)";
+    // The cookbook's pattern: declare what it requires, then #require it.
+    fs.files["boss_tools.dta"] =
+        "(pack boss_tools (level dlc) (requires combat_core))\n#require combat_core.dta\n"
+        "(boss (hit HIT))";
+    fs.files["expansion.dta"] =
+        "; an expansion\n(pack expansion (level dlc) (requires season_pass))\n"
+        "(zone (desert 4))";
+    CHECK(fs.load("boss_tools.dta") == "((boss (hit 2)))");
+    CHECK(requires_warnings(fs.session).empty());
+    CHECK(fs.load("expansion.dta") == "((zone (desert 4)))");  // loads, and is warned about
+    const auto warned = requires_warnings(fs.session);
+    REQUIRE(warned.size() == 1);
+    CHECK(warned[0].find("pack 'expansion' requires 'season_pass', which is not loaded") !=
+          std::string::npos);
+    CHECK(warned[0].find("expansion.dta:2") != std::string::npos);
+
+    // A cache replays the packs and checks them once all are back.
+    for (const char* file : {"boss_tools.dta", "expansion.dta"}) {
+        LoadSession bake;
+        bake.set_pack_levels({"game", "dlc"});
+        bake.set_reader(fs.session.reader());
+        bake.record_for_cache = true;
+        auto root = read_file(file, bake);
+        REQUIRE(root);
+        std::string bytes;
+        REQUIRE(write_cache(**root, string_out(bytes), &bake));
+        LoadSession game;
+        game.set_pack_levels({"game", "dlc"});
+        REQUIRE(read_cache_bytes(bytes, file, game));
+        CHECK(requires_warnings(game).size() == (std::string(file) == "expansion.dta" ? 1u : 0u));
+    }
 }
 
 TEST_CASE("packs declare a level, and the one-way rule warns on softer macros (D80)") {

@@ -374,6 +374,10 @@ public:
         if (root->height() > s_.limits.max_depth + 1) return too_deep(1);
         if (map_) map_->record(root, {file_, 0, size_, {}}, spans_);
         out = std::move(root);
+        // Once the file is read: a pack usually #requires what it requires after declaring it.
+        if (pack_ >= 0)
+            SessionAccess::warn_missing_requires(s_, s_.st_->packs[static_cast<size_t>(pack_)],
+                                                 pack_line_);
         return true;
     }
 
@@ -614,6 +618,7 @@ private:
             s_, Pack{*name, *l, 0, file_, List<Symbol>({needs.data(), needs.size()}),
                      List<Symbol>({owners.data(), owners.size()}),
                      List<Symbol>({audience.data(), audience.size()}), stage}));
+        pack_line_ = decl.line();
         return true;
     }
 
@@ -819,9 +824,10 @@ private:
     Vec<SourceSpan> spans_;  // parallel to scratch_ in edit mode
     Vec<FrameInfo> frames_;
     Vec<Cond> conds_;
-    int32_t pack_ = -1;    // the pack this file declared, as an index; -1 for none
-    bool origin_ = false;  // this file declared its origin
-    Vec<Symbol> warned_;   // macros this file has been warned about
+    int32_t pack_ = -1;      // the pack this file declared, as an index; -1 for none
+    int32_t pack_line_ = 0;  // where it declared it
+    bool origin_ = false;    // this file declared its origin
+    Vec<Symbol> warned_;     // macros this file has been warned about
 };
 
 }  // namespace detail
@@ -835,6 +841,7 @@ void LoadSession::copy_options(const LoadSession& o) noexcept {
     source_map = o.source_map;
     record_for_cache = o.record_for_cache;
     cipher = o.cipher;
+    text_only = o.text_only;
     allocator = o.allocator;
 }
 LoadSession::LoadSession(const LoadSession& o)
@@ -951,6 +958,21 @@ std::span<const Node> SessionAccess::new_autorun(const LoadSession& s) noexcept 
 }
 void SessionAccess::add_autorun(LoadSession& s, Node command) {
     s.st_->autorun.push_back(std::move(command));
+}
+void SessionAccess::add_warning(LoadSession& s, Error warning) {
+    s.st_->warnings.push_back(std::move(warning));
+}
+void SessionAccess::warn_missing_requires(LoadSession& s, const Pack& pack, int32_t line) {
+    const auto& packs = s.st_->packs;
+    for (const Symbol need : pack.requires_packs) {
+        const bool loaded =
+            std::any_of(packs.begin(), packs.end(), [&](const Pack& p) { return p.name == need; });
+        if (!loaded)
+            s.st_->warnings.push_back(make_error(
+                ErrorCode::NotFound,
+                "pack " + quoted(pack.name) + " requires " + quoted(need) + ", which is not loaded",
+                pack.file, line));
+    }
 }
 std::span<const Str> SessionAccess::required(const LoadSession& s) noexcept {
     return {s.st_->required.data(), s.st_->required.size()};

@@ -514,25 +514,11 @@ Ref<Array> record_of(const LoadSession& s) {
     return Array::make_from({meta.data(), meta.size()});
 }
 
-// Whether the files the load read are unchanged, and the session's defines are those it
-// began with.
-bool fresh(const Array& meta, LoadSession& s) {
-    const Array* files = meta.try_find("files");
+// Whether the session is as the recorded load began: its defines and macros, its pack
+// levels, and the files #require had read. No file is read, so shipping checks it too (D139).
+bool begins_alike(const Array& meta, LoadSession& s) {
     const Array* before = meta.try_find("before");
-    if (!files || !before) return false;
-    Str text;
-    for (const Node& n : files->values()) {
-        const Array* f = n.array();
-        if (!f || f->size() != 3 || !f->nodes()[0].string()) return false;
-        text.clear();
-        const bool read = s.reader()(f->nodes()[0].string()->view(), str_out(text));
-        const int64_t size = f->nodes()[1].try_int().value_or(-1);
-        const auto hash = static_cast<uint64_t>(f->nodes()[2].try_int().value_or(0));
-        if (size < 0
-                ? read
-                : !read || static_cast<int64_t>(text.size()) != size || content_hash(text) != hash)
-            return false;
-    }
+    if (!before) return false;
     // The files #require had read decide what a #require splices.
     const Array* required = meta.try_find("required");
     const auto paths = SessionAccess::required(s);
@@ -558,8 +544,30 @@ bool fresh(const Array& meta, LoadSession& s) {
     return true;
 }
 
+// Whether the session begins alike and the files the load read are unchanged: the session
+// first, which reads no file.
+bool fresh(const Array& meta, LoadSession& s) {
+    const Array* files = meta.try_find("files");
+    if (!files || !begins_alike(meta, s)) return false;
+    Str text;
+    for (const Node& n : files->values()) {
+        const Array* f = n.array();
+        if (!f || f->size() != 3 || !f->nodes()[0].string()) return false;
+        text.clear();
+        const bool read = s.reader()(f->nodes()[0].string()->view(), str_out(text));
+        const int64_t size = f->nodes()[1].try_int().value_or(-1);
+        const auto hash = static_cast<uint64_t>(f->nodes()[2].try_int().value_or(0));
+        if (size < 0
+                ? read
+                : !read || static_cast<int64_t>(text.size()) != size || content_hash(text) != hash)
+            return false;
+    }
+    return true;
+}
+
 // Leaves the session as the recorded load left it.
 void replay(const Array& meta, LoadSession& s) {
+    const size_t packs_before = s.packs().size();
     if (const Array* d = meta.try_find("define"))
         for (uint32_t i = 1; i + 1 < d->size(); i += 2) {
             const Symbol name = (*d)[i].try_sym().value_or(Symbol());
@@ -582,14 +590,19 @@ void replay(const Array& meta, LoadSession& s) {
                 if (const Array* d = (*p)[3 + k].array())
                     for (const Node& x : d->values())
                         if (const auto sym = x.try_sym()) lists[k].push_back(*sym);
-            SessionAccess::add_pack(
-                s, Pack{(*p)[0].try_sym().value_or(Symbol()), (*p)[1].try_sym().value_or(Symbol()),
-                        0, (*p)[2].try_sym().value_or(Symbol()),
-                        List<Symbol>({lists[0].data(), lists[0].size()}),
-                        List<Symbol>({lists[1].data(), lists[1].size()}),
-                        List<Symbol>({lists[2].data(), lists[2].size()}),
-                        (*p)[6].try_sym().value_or(Symbol())});
+            const Pack pack{(*p)[0].try_sym().value_or(Symbol()),
+                            (*p)[1].try_sym().value_or(Symbol()),
+                            0,
+                            (*p)[2].try_sym().value_or(Symbol()),
+                            List<Symbol>({lists[0].data(), lists[0].size()}),
+                            List<Symbol>({lists[1].data(), lists[1].size()}),
+                            List<Symbol>({lists[2].data(), lists[2].size()}),
+                            (*p)[6].try_sym().value_or(Symbol())};
+            SessionAccess::add_pack(s, pack);
         }
+    // Once every recorded pack is back, as the read checked once each file was read (D141).
+    for (const Pack& pack : s.packs().subspan(packs_before))
+        SessionAccess::warn_missing_requires(s, pack, 1);  // a cache keeps no lines
     if (const Array* os = meta.try_find("origins"))
         for (const Node& n : os->values()) {
             const Array* o = n.array();
@@ -616,8 +629,16 @@ Expected<void> bytes_of(const Array& root, const LoadSession* session, Str& out)
     return Writer().run(root, meta.get(), session ? session->cipher : nullptr, out);
 }
 
+// A text-only session takes no cache (D142).
+Unexpected refused_text_only(std::string_view name) {
+    return Unexpected(make_error(ErrorCode::Refused,
+                                 "'" + Str(name) + "' is a cache, and this session reads text only",
+                                 Symbol(name)));
+}
+
 Expected<Ref<Array>> from_bytes(std::string_view bytes, std::string_view name,
                                 const LoadSession& session, const Array*& meta) {
+    if (session.text_only) return refused_text_only(name);
     char* file;
     const Arena::Handle arena(Arena::create_holding(allocator_of(session), bytes.size(), file));
     if (!bytes.empty()) std::memcpy(file, bytes.data(), bytes.size());
@@ -626,6 +647,7 @@ Expected<Ref<Array>> from_bytes(std::string_view bytes, std::string_view name,
 
 // Loads the cache at `path` without replaying it.
 Expected<Ref<Array>> open(std::string_view path, const LoadSession& session, const Array*& meta) {
+    if (session.text_only) return refused_text_only(path);
     auto cannot = [&] {
         return Unexpected(make_error(ErrorCode::Io, "cannot read '" + Str(path) + "'"));
     };
@@ -681,6 +703,29 @@ Ref<Array> detail::read_fresh_cache(std::string_view path, LoadSession& session)
     return std::move(*r);
 }
 
+Expected<Ref<Array>> detail::read_shipped(std::string_view text_path, std::string_view cache_path,
+                                          LoadSession& session) {
+    const Array* meta = nullptr;
+    auto r = open(cache_path, session, meta);
+    // A cache baked without a recorded load says nothing to check, and is trusted.
+    if (r && (!meta || begins_alike(*meta, session))) return replayed(std::move(r), meta, session);
+    // Why the cache was set aside, for a warning if the text reads and the error if not (D140).
+    const Str why = r ? "'" + Str(cache_path) +
+                            "' was baked for other macros, pack levels, or required files than "
+                            "this session has"
+                      : "no usable cache for '" + Str(text_path) + "': " + r.error().message();
+    auto text = read_file(text_path, session);
+    if (text) {
+        SessionAccess::add_warning(session,
+                                   make_error(r ? ErrorCode::Refused : ErrorCode::Io,
+                                              why + "; read the text instead", Symbol(cache_path)));
+        return text;
+    }
+    return Unexpected(make_error(r ? ErrorCode::Refused : text.error().code(),
+                                 why + ", and the text cannot be read: " + text.error().message(),
+                                 Symbol(cache_path)));
+}
+
 Expected<void> write_cache(const Array& root, TextSink out, const LoadSession* session) {
     Str bytes;
     if (auto r = detail::bytes_of(root, session, bytes); !r) return r;
@@ -729,9 +774,8 @@ bool cache_fresh(std::string_view cache_path, LoadSession& session) {
 
 Expected<Ref<Array>> read_cached(std::string_view text_path, std::string_view cache_path,
                                  LoadSession& session) {
-    if constexpr (kShipping) {  // shipping trusts the cache, and writes none
-        if (auto r = read_cache(cache_path, session)) return r;
-        return read_file(text_path, session);
+    if constexpr (kShipping) {  // a cache for this session, else the text; writes none
+        return detail::read_shipped(text_path, cache_path, session);
     } else {
         if (Ref<Array> fresh = detail::read_fresh_cache(cache_path, session)) return fresh;
         const bool was = std::exchange(session.record_for_cache, true);

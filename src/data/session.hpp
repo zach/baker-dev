@@ -26,6 +26,11 @@ bool read_with(const LoadSession::Reader& reader, std::string_view path, Str& te
 
 // The cache at `path`, replayed on the session, if it loads and is fresh; else null.
 [[nodiscard]] Ref<Array> read_fresh_cache(std::string_view path, LoadSession& session);
+// Shipping's read: the cache at `cache_path` if the session begins as its load did (macros,
+// pack levels, required files; no file is read), else the text, else a located refusal
+// when a cache exists but was baked for another session (D139).
+[[nodiscard]] Expected<Ref<Array>> read_shipped(std::string_view text_path,
+                                                std::string_view cache_path, LoadSession& session);
 
 struct SessionAccess {
     using Defines = HashMap<Symbol, Ref<Array>>;
@@ -38,6 +43,8 @@ struct SessionAccess {
     // The #autorun commands the last top-level read added.
     [[nodiscard]] static std::span<const Node> new_autorun(const LoadSession& s) noexcept;
     static void add_autorun(LoadSession& s, Node command);
+    // A warning for warnings(), as the one-way rule's are (a shipping cache set aside, D140).
+    static void add_warning(LoadSession& s, Error warning);
     // The files #require has read, in order; the first required_before() were read before
     // the last recorded top-level read began.
     [[nodiscard]] static std::span<const Str> required(const LoadSession& s) noexcept;
@@ -52,6 +59,9 @@ struct SessionAccess {
     // either way. The Parser and a cache's replay share it (D136). And attributes a macro
     // to the pack declared by `file`.
     static size_t add_pack(LoadSession& s, const Pack& pack);
+    // Warns, at `line` of the pack's file, of each pack `pack` requires that the session has
+    // not loaded: a required pack loads first, below or earlier (D141).
+    static void warn_missing_requires(LoadSession& s, const Pack& pack, int32_t line);
     static void set_macro_pack(LoadSession& s, Symbol macro, Symbol file);
     // Origins (D91): those the last recorded read declared; and one a cache recorded.
     [[nodiscard]] static std::span<const Origin> new_origins(const LoadSession& s) noexcept;

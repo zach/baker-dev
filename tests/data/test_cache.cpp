@@ -281,6 +281,96 @@ TEST_CASE("read_cached uses a fresh cache and rewrites a stale one") {
     CHECK_FALSE(cache_fresh(dir.path("bare.datb"), again));
 }
 
+TEST_CASE("a cache baked for other macros is not used, in shipping too (D139)") {
+    // A DLC baked against a base whose macro a title update then changed (gap 33).
+    test::TempDir dir;
+    const std::string dlc = dir.write("dlc/axe.dta", "(axe (damage DMG))");
+    const std::string cache = dir.path("axe.datb");
+    auto session_with = [](std::string_view dmg) {
+        LoadSession s;
+        s.define("DMG", ok(read_string(dmg, "base.dta")));
+        return s;
+    };
+    LoadSession bake = session_with("10");
+    bake.record_for_cache = true;
+    ok(write_cache(*ok(read_file(dlc, bake)), cache, &bake));
+
+    LoadSession same = session_with("10");
+    CHECK(to_string(*ok(read_cached(dlc, cache, same))) == "((axe (damage 10)))");
+    LoadSession patched = session_with("12");  // the title update's macro
+    CHECK(to_string(*ok(read_cached(dlc, cache, patched))) == "((axe (damage 12)))");
+
+    // Without the text, a cache for another session is refused rather than used.
+    if constexpr (kShipping) {  // development would have rewritten the cache above
+        std::filesystem::remove(dlc);
+        LoadSession again = session_with("12");
+        auto r = read_cached(dlc, cache, again);
+        REQUIRE_FALSE(r);
+        CHECK(r.error().code() == ErrorCode::Refused);
+        CHECK(std::string(r.error().message()).find("was baked for other macros") !=
+              std::string::npos);
+        LoadSession matching = session_with("10");
+        CHECK(to_string(*ok(read_cached(dlc, cache, matching))) == "((axe (damage 10)))");
+    }
+}
+
+TEST_CASE("shipping says why it read the text instead of a cache (D140)") {
+    if constexpr (kShipping) {  // development rebuilds caches silently
+        test::TempDir dir;
+        const std::string text = dir.write("a.dta", "(a A)");
+        const std::string cache = dir.path("a.datb");
+        auto warned = [](const LoadSession& s, std::string_view what) {
+            for (const Error& w : s.warnings())
+                if (std::string(w.message()).find(what) != std::string::npos) return true;
+            return false;
+        };
+        LoadSession none;
+        CHECK(to_string(*ok(read_cached(text, cache, none))) == "((a A))");
+        CHECK(warned(none, "no usable cache"));
+
+        LoadSession bake;
+        bake.define("A", ok(read_string("1", "d.dta")));
+        bake.record_for_cache = true;
+        ok(write_cache(*ok(read_file(text, bake)), cache, &bake));
+        LoadSession other;
+        other.define("A", ok(read_string("2", "d.dta")));
+        CHECK(to_string(*ok(read_cached(text, cache, other))) == "((a 2))");
+        CHECK(warned(other, "was baked for other macros"));
+
+        std::filesystem::remove(text);
+        std::filesystem::remove(cache);
+        LoadSession gone;
+        auto r = read_cached(text, cache, gone);
+        REQUIRE_FALSE(r);
+        CHECK(std::string(r.error().message()).find("no usable cache") != std::string::npos);
+    }
+}
+
+TEST_CASE("a text-only session refuses caches and reads the text (D142)") {
+    test::TempDir dir;
+    const std::string text = dir.write("mod.dta", "(mod (speed 9))");
+    const std::string cache = dir.path("mod.datb");
+    LoadSession bake;
+    bake.record_for_cache = true;
+    auto root = ok(read_file(text, bake));
+    ok(write_cache(*root, cache, &bake));
+    std::string bytes;
+    ok(write_cache(*root, string_out(bytes), &bake));
+
+    LoadSession mods;
+    mods.text_only = true;
+    auto from_file = read_cache(cache, mods);
+    REQUIRE_FALSE(from_file);
+    CHECK(from_file.error().code() == ErrorCode::Refused);
+    CHECK(std::string(from_file.error().message()).find("reads text only") != std::string::npos);
+    auto from_bytes = read_cache_bytes(bytes, "mod.datb", mods);
+    REQUIRE_FALSE(from_bytes);
+    CHECK(from_bytes.error().code() == ErrorCode::Refused);
+    CHECK(to_string(*ok(read_cached(text, cache, mods))) == "((mod (speed 9)))");
+    LoadSession copy = mods;  // an option, carried by copies
+    CHECK_FALSE(read_cache(cache, copy));
+}
+
 TEST_CASE("a define's body decides freshness, by structure (gap 21)") {
     if constexpr (kShipping) return;  // freshness is development's
     test::TempDir dir;

@@ -853,6 +853,29 @@ TEST_CASE("cache_dir: file layers load through caches outside edit mode") {
     CHECK(writes == before);
 }
 
+TEST_CASE("cache_dir names a cache by the normalized path (D140)") {
+    if constexpr (kShipping) return;  // shipping writes no caches
+    TempDir dir;
+    fs::create_directories(dir.path("cache"));
+    dir.write("dlc/axe.dta", "(axe (damage 10))");
+    const std::string cache_dir = dir.path("cache");
+    int writes = 0;
+    auto load = [&](const std::string& path) {
+        Config cfg({.edit_mode = false, .tweaks = nullptr, .cache_dir = cache_dir});
+        cfg.set_writer([&](std::string_view p, std::string_view text) {
+            ++writes;
+            std::ofstream(std::string(p), std::ios::binary) << text;
+            return true;
+        });
+        REQUIRE(cfg.push_layer("axe", path));
+        CHECK(cfg.get<int>("axe.damage") == 10);
+    };
+    load(dir.path("dlc/axe.dta"));
+    load(dir.path("./dlc/../dlc/axe.dta"));  // spelled otherwise: the same cache
+    CHECK(writes == 1);
+    CHECK(std::distance(fs::directory_iterator(cache_dir), fs::directory_iterator()) == 1);
+}
+
 TEST_CASE("Config forwards the one-way rule's warnings") {
     TempDir dir;
     dir.write("task.dta", "(pack boss_task (level task))\n#define PHASES (3)");

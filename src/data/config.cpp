@@ -120,9 +120,8 @@ void Config::Impl::log_edit(ScratchEntry& owner, const Node* before, uint32_t be
 
 Expected<Ref<Array>> Config::Impl::read_through_cache(std::string_view path, const Str& cache,
                                                       LoadSession& session) const {
-    if constexpr (kShipping) {  // shipping trusts the cache, and writes none
-        if (auto r = read_cache(cache, session)) return r;
-        return read_file(path, session);
+    if constexpr (kShipping) {  // a cache for this session, else the text; writes none
+        return detail::read_shipped(path, cache, session);
     } else {
         if (Ref<Array> fresh = detail::read_fresh_cache(cache, session)) return fresh;
         session.record_for_cache = true;
@@ -144,9 +143,10 @@ Expected<void> Config::Impl::read(LayerState& layer, const LoadSession& before,
     // Edit mode reads text, which keeps the source maps write-back needs.
     Str cache(alloc);
     if (!options.edit_mode && !cache_dir.empty()) {
-        // The cache's name: the hash of the layer's path, in hex.
+        // The cache's name: the hash of the layer's normalized path, in hex, so that the bake
+        // and the game agree however the path is spelled (D140).
         char name[17];
-        uint64_t h = detail::content_hash(layer.path);
+        uint64_t h = detail::content_hash(detail::normalize_path(layer.path));
         for (int i = 15; i >= 0; --i, h >>= 4) name[i] = "0123456789abcdef"[h & 15];
         name[16] = '\0';
         cache.append(cache_dir).append("/").append(name).append(".datb");

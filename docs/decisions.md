@@ -4124,3 +4124,138 @@ its own D-entry, with tests and numbers, when it is built.*
   3. Layer semantics: 35, 37, 38, 39.
   4. Versions: 42.
   5. The cache format redesign last, because it is the largest: 34.
+
+## D139. Shipping checks a cache against the session, and falls back to the text
+
+*Gap 33, as D138 decided. This changes D70 Q2 ("shipping trusts the cache") for this one
+check.*
+
+- **The failure.** A title update that changes a base macro ships a new base cache, but a
+  DLC's cache, baked against the old base, kept the old values in a shipping build:
+  measured, the base's sword read 12 and the DLC's axe 10, with no warning
+  (`docs/background/content-updates.md`, scenario 11).
+- **Now.** `fresh()` is split in two.
+  - **`begins_alike`** checks what the recorded load began with: the macros and flags
+    (`before`), the pack levels, and the files `#require` had read. All of it is in
+    memory, so no file is read.
+  - **The rest** of `fresh()` re-reads the recorded files.
+  - **Development** checks `begins_alike` first, so a session that differs no longer
+    re-reads every file to find out.
+  - **Shipping** (`read_cached`, and a Config's `cache_dir` reads) runs only
+    `begins_alike`, through `detail::read_shipped`:
+    - a cache for this session is used;
+    - otherwise the text is read;
+    - when a cache exists but was baked for another session and there is no text, the read
+      is refused (`ErrorCode::Refused`, located at the cache). The message names what to
+      check: macros, pack levels, or required files.
+  - Shipping still does not re-read the files a cache recorded: an edited text with
+    unchanged macros keeps its cache, as before. That is the decided scope (no I/O).
+  - A cache baked without a recorded load has nothing to check and is still trusted.
+- **Measured.**
+  - **The research's driver** (title update, then shipping): with the text shipped, the
+    DLC now reads 12. With caches only, the layer is refused with the located error.
+  - **Cost** (`read_cached` of a small file in an optimized shipping build, pinned, best
+    of 9 × 200 reads, three runs):
+
+    | | before | after |
+    |---|---:|---:|
+    | no macros | 2.88–2.96 µs | 3.04–3.13 µs |
+    | 200 macros | 8.63–8.72 µs | 18.27–18.64 µs |
+
+  - About 50 ns per macro per layer read. That is 0.2 ms for twenty layers over 200
+    macros, at load.
+  - The local matrix's `ship` configuration sets no build type and is unoptimized (about
+    10 times slower here). These numbers come from a Release shipping build made for the
+    purpose.
+- **Test:**
+  - a DLC cache baked with `DMG` 10 is read for a session where `DMG` is 12, and gives 12
+    in both builds;
+  - in shipping, the same read with the text deleted is refused, and with a matching
+    session it uses the cache.
+
+  It fails against the previous code: shipping returned 10.
+
+## D140. A cache is named by the normalized path, and a shipping fallback says why
+
+*Gap 40, as D138 decided.*
+
+- **Names.** A Config named a layer's cache by the hash of its path string as written, so
+  `dlc/axe.dta`, `./dlc/axe.dta` and `dlc/../dlc/axe.dta` were three caches. The bake
+  machine and the game had to agree byte for byte, and a DLC installed under a
+  differently spelled path missed its cache (research scenario 12). The name now hashes
+  the normalized path.
+  - Every existing cache name changes once. Development rebuilds; shipped caches must be
+    re-baked (breaking changes are allowed).
+- **Saying why.** When shipping reads the text instead of a cache, it now adds a warning to
+  the session, located at the cache:
+  - "no usable cache for X: <reason>" when the cache is missing, damaged, or of another
+    format;
+  - "... was baked for other macros, pack levels, or required files" when D139 set it
+    aside.
+
+  A Config forwards session warnings to its warning handler, as it does the one-way rule's
+  (D80). When the text cannot be read either, the error carries both reasons.
+  - New: `SessionAccess::add_warning`.
+  - Development stays silent: it rebuilds caches as part of its work.
+- **Tests:**
+  - in development, a layer loaded under two spellings of its path writes one cache;
+  - in shipping, the missing-cache and stale-cache fallbacks warn, and with no text the
+    error names the cache.
+
+  The naming test fails against the previous code: two caches.
+
+## D141. A pack whose required pack is not loaded is warned about
+
+*Gap 41, as D138 decided.*
+
+- **Before.** `(pack expansion (level dlc) (requires season_pass))` was recorded and never
+  checked. A DLC whose prerequisite was not installed loaded silently (research
+  scenario 7).
+- **Now.** A pack's `requires` is checked once its file has been read, so the cookbook's
+  pattern of declaring a requirement and then `#require`-ing it on the next line is
+  satisfied.
+  - **What counts as loaded:** any pack the session has registered, from a layer below or
+    earlier in the read.
+  - **When one is missing:** a located warning, at the declaration's line, "pack
+    'expansion' requires 'season_pass', which is not loaded", goes to `warnings()`. A
+    Config forwards it to its warning handler, as it does the one-way rule's (D80). The
+    load still succeeds: the rule warns and never fails.
+  - **A cache load** replays its packs and then checks the new ones, at line 1, because a
+    cache keeps no lines.
+  - One helper, `SessionAccess::warn_missing_requires`, serves both paths.
+- **Test:**
+  - the cookbook pattern gives no warning;
+  - an unmet requirement warns at `expansion.dta:2`;
+  - both behave the same loaded from a cache.
+
+  It fails against the previous code, which never warned.
+
+## D142. A text-only session for mods, and keyed tables as the content convention
+
+*Gaps 43 and 36, as D138 decided.*
+
+- **`LoadSession::text_only`** (gap 43) refuses every cache.
+  - `read_cache` and `read_cache_bytes` return `ErrorCode::Refused` ("... is a cache, and
+    this session reads text only").
+  - `read_cached` and a Config's `cache_dir` read the text instead, with D140's warning in
+    shipping.
+  - Copies of the session carry the option: it is one of the public options
+    `copy_options` copies (D136).
+  - **Why:** a cache is a memory image whose offsets a forged file can point anywhere
+    (D71), while the parser takes any input without crashing. A loader of content from
+    outside the game's own packages (mods, user files) sets it. The cookbook states the
+    rule.
+- **Keyed tables** (gap 36): the cookbook's new section on content packages makes keyed
+  children the convention for anything packages extend.
+  - There is no new syntax or check. Replacing a value list is also the normal, intended
+    way a patch changes a value, so a warning could not tell the two apart.
+  - `layer_effect` already lists what a layer replaces.
+- **The same section** says how a game stacks its packages:
+  - optional DLC layers, with fallbacks in code;
+  - title updates change values, not the macros below them (research scenario 4);
+  - declare `requires` (D141);
+  - mods are text.
+
+  The cache section now describes D139's shipping check and D140's names.
+- **Test** (text-only): `read_cache` and `read_cache_bytes` are refused, `read_cached`
+  reads the text, and a copy of the session refuses too.
