@@ -13,6 +13,20 @@ with `.clang-tidy`, where every finding is an error (D103).
 below are for Baker; the stacks keep Baker's no-exceptions rule and formatting, build with
 warnings as errors, and have their own CI job.
 
+## Releases
+
+The core library is published to github.com/zach/baker, one commit per release, tagged
+with its semantic version (`docs/releasing.md`, D150).
+
+- **Never start, prepare, or publish a release on your own initiative.** Run the Release
+  workflow, `publish.py bump`, or `publish.py commit` only when the owner asks for that
+  release in so many words, and run the workflow with *publish* checked only when they ask
+  to publish.
+- What ships is public: write `README.md`, the user docs and `CHANGELOG.md` for users of
+  the library. Citations in parentheses, such as `(D77)` or `(spec §5)`, are stripped on the
+  way out; one in running text is not, and `publish.py check` (CI, the local matrix) fails
+  until it is reworded.
+
 ## Rules
 
 - **Breaking changes are allowed and encouraged.** Do not keep backward-compatibility

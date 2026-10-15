@@ -4,8 +4,15 @@
 //
 // The printer round-trips: parsing what it writes gives a structurally equal tree. It
 // preserves nothing else; comments, formatting, and macro structure are gone (edit-mode
-// parsing and write-back, M3, are how source text is preserved). Values that have no
-// DTA spelling are listed in docs/decisions.md (D13).
+// parsing and write-back are how source text is preserved).
+//
+// A parsed tree always round-trips. A tree built in C++ can hold values DTA text cannot
+// spell, which print as near as they can (D13):
+//   - a symbol that needs quoting and also contains `'`;
+//   - a string holding a backslash followed by `n` or `q`;
+//   - a NaN or infinite float (`nan`, `inf`, which read back as symbols);
+//   - an object handle (the quoted symbol `'<object 3:17>'`);
+//   - a Property node at a root's top level.
 
 #include <baker/array.hpp>
 #include <baker/error.hpp>

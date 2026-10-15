@@ -280,8 +280,8 @@ struct Context::Impl {
     Vec<Function*> by_index{alloc};  // by Symbol::index()
     Vec<Own<Function>> functions{alloc};
     // Variable cells, by Symbol::index(): pages of 1 << kPageBits, owned. Plain pointers, as
-    // they were before D61: through a wrapper, GCC stopped merging the stores that copy a
-    // cell, and a read of $x lost 4 ns to store forwarding.
+    // they were before Baker's own containers (D61): through a wrapper, GCC stopped merging
+    // the stores that copy a cell, and a read of $x lost 4 ns to store forwarding.
     Vec<Node*> pages{alloc};
     Vec<std::pair<Node*, Node>> saved{alloc};  // values shadowed by bind()
     Vec<Node> kept{alloc};                     // evaluated values a call refers to

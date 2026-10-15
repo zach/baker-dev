@@ -25,7 +25,7 @@ You need CMake 3.20, Ninja or Make, and a C++20 compiler (GCC 13, Clang 18, or M
 **1. Build Baker.** This builds the library, its tests, and the examples:
 
 ```sh
-git clone https://github.com/zach/baker-dev.git baker && cd baker
+git clone https://github.com/zach/baker.git && cd baker
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
@@ -94,7 +94,7 @@ restarted.
 
 ```cmake
 include(FetchContent)
-FetchContent_Declare(baker GIT_REPOSITORY https://github.com/zach/baker-dev.git GIT_TAG main)
+FetchContent_Declare(baker GIT_REPOSITORY https://github.com/zach/baker.git GIT_TAG v0.1.0)
 FetchContent_MakeAvailable(baker)
 target_link_libraries(game PRIVATE baker::baker)
 ```
@@ -150,8 +150,8 @@ use them); text comes out through a `TextSink`. `<baker/std_interop.hpp>` and
 
 ## Measured
 
-Release builds, GCC 13 on the development container (Xeon, 2.8 GHz); the method and the
-full tables are in [`docs/decisions.md`](docs/decisions.md).
+Release builds, GCC 13 on the development container (Xeon, 2.8 GHz); the benchmarks are
+in `bench/` (`-DBAKER_BUILD_BENCH=ON`).
 
 | | | |
 |---|---:|---|
@@ -200,8 +200,7 @@ Android: CMake builds get C++20 from the targets; with `ndk-build`, add
 - [`docs/language.md`](docs/language.md): the language, from data to script.
 - [`docs/cookbook.md`](docs/cookbook.md): patterns, live ops among them.
 - [`docs/script-reference.md`](docs/script-reference.md): every built-in, generated.
-- [`docs/spec.md`](docs/spec.md): the design; [`docs/decisions.md`](docs/decisions.md):
-  every deviation from it, and the results of each step.
+- [`CHANGELOG.md`](CHANGELOG.md): what each release changed.
 
 ## License
 

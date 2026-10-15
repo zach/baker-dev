@@ -116,9 +116,9 @@ struct ConfigOptions {
     bool live_layers = false;     // allow layer changes and live edits after freeze()
     // The registry whose tweaks this config binds; null for none.
     TweakRegistry* tweaks = &TweakRegistry::global();
-    // Outside edit mode, file layers load through binary caches kept here (cache.hpp,
-    // D70): a fresh cache instead of the text, else the text and a new cache, written
-    // through the Config's writer. Copied by the Config; empty: no caches. The directory
+    // Outside edit mode, file layers load through binary caches kept here (D70): a fresh
+    // cache instead of the text, else the text and a new cache, written through the
+    // Config's writer (cache.hpp). Copied by the Config; empty: no caches. The directory
     // must exist. Shipping builds write none: run the same layers through a development
     // build's Config (a build step), and ship the directory.
     std::string_view cache_dir = {};

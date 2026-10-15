@@ -1,4 +1,4 @@
-// D64: a load's tree lives in one arena, counted as a whole.
+// A load's tree lives in one arena, counted as a whole (D64).
 #include <doctest.h>
 #include <baker/array.hpp>
 #include <baker/parse.hpp>

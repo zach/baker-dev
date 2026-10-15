@@ -66,7 +66,7 @@ if(BAKER_BUILD_SHAPE)
 endif()
 
 if(BAKER_BUILD_SCRIPT)
-  # D61: its own binary, because main installs the default allocator before anything runs.
+  # Its own binary, because main installs the default allocator before anything runs (D61).
   add_executable(baker_alloc_tests alloc/main.cpp alloc/test_allocators.cpp)
   target_link_libraries(baker_alloc_tests PRIVATE baker::script baker_doctest baker_alloc_counter)
   add_test(NAME baker_alloc_tests COMMAND baker_alloc_tests)
@@ -88,8 +88,8 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT BAKER_SANITIZE AND NOT BAKE
     -P ${CMAKE_CURRENT_SOURCE_DIR}/codegen/check_tweak_read.cmake)
 endif()
 
-# D55: public headers reach only the allowed standard headers (std_*.hpp excepted), and
-# each compiles on its own.
+# Public headers reach only the allowed standard headers (std_*.hpp excepted), and each
+# compiles on its own (D55).
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_FOUND)
   add_test(NAME baker_header_allowlist

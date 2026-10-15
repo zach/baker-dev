@@ -1,7 +1,7 @@
 #pragma once
 
-// Test-only global allocation counter (spec §7: allocation counts are enforced by a test,
-// not by eyeball). Linking alloc_counter.cpp replaces the global operator new.
+// Test-only global allocation counter: allocation counts are enforced by a test, not by
+// eyeball (spec §7). Linking alloc_counter.cpp replaces the global operator new.
 
 #include <cstddef>
 

@@ -1,0 +1,34 @@
+# What a release of Baker ships to github.com/zach/baker (docs/releasing.md).
+# One glob per line, relative to the repository root; `**` matches any depth.
+# A line starting with `!` removes what earlier lines matched. Files under
+# tools/release/public/ are laid over the result afterwards (the public CI, .gitignore).
+
+CMakeLists.txt
+LICENSE
+README.md
+CHANGELOG.md
+THIRD_PARTY.md
+.clang-format
+.clang-tidy
+.gitattributes
+
+include/**
+src/**
+third_party/**
+tests/**
+fuzz/**
+examples/**
+bench/**
+
+tools/baker_bake.cpp
+tools/parse_corpus.cpp
+tools/check_headers.py
+tools/check_readme.py
+
+docs/language.md
+docs/cookbook.md
+docs/script-reference.md
+docs/check-json.md
+
+# The harness's local scratch data, should any be committed.
+!examples/harness-imgui/data/local/**

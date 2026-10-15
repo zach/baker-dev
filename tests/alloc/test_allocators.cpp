@@ -1,4 +1,4 @@
-// D61: a Context and a Config allocate only through Baker allocators. This binary's main
+// A Context and a Config allocate only through Baker allocators (D61). This binary's main
 // (main.cpp) installs a malloc default allocator before anything else runs, so global
 // operator new can be watched on its own.
 

@@ -3,8 +3,8 @@
 //   baker_parse_corpus [--roundtrip] [--milo-paths] [-D NAME]... [-I DIR]... PATH...
 //
 // Use it to check the parser against a local checkout of a real DTA corpus (for example
-// mariteaux/milo-script-library). Nothing from such a corpus is part of this repository;
-// see docs/decisions.md D3. Each file is read with a fresh session; includes resolve
+// mariteaux/milo-script-library). Nothing from such a corpus is part of this repository
+// (docs/decisions.md D3). Each file is read with a fresh session; includes resolve
 // against the file's own directory, then each -I directory, then the PATH it was found
 // under. Exits 1 if any file fails.
 //

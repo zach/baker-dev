@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks that Baker's public headers reach only the standard headers D55 allows.
+"""Checks that Baker's public headers reach only the standard headers allowed (D55).
 
 Walks each header's #include closure among include/baker/ and reports every standard
 header reached outside the allow-list, with the chain that reaches it. Opt-in interop
