@@ -4259,3 +4259,52 @@ check.*
   The cache section now describes D139's shipping check and D140's names.
 - **Test** (text-only): `read_cache` and `read_cache_bytes` are refused, `read_cached`
   reads the text, and a copy of the session refuses too.
+
+## D143. A layer removes a key with `(key #remove)`
+
+*Gap 35, as D138 decided. The owner chose the spelling: the marker sits in the key's own
+array, as Module Manager's `!NODE` sits on the node.*
+
+- **Syntax.**
+  - `#remove` is a directive the parser accepts only as a tagged array's one value:
+    `(enemies (exploit_boss #remove))`.
+  - It is stored as the reserved symbol `#remove`.
+  - `(a #remove 1)`, `(a 1 #remove)`, `(#remove)`, a bare `#remove` and `{f #remove}`
+    are located errors: "#remove is written as a key's only value: (key #remove)".
+  - The printer writes the symbol back as `#remove`, so text round-trips.
+- **Semantics** (Config layers only):
+  - In an Overwrite merge, an incoming `(key #remove)` removes every child tagged `key`
+    from the layers below, with its spans. Removals are applied after the rest of the
+    level is merged, so the tag index stays valid.
+  - A key the layers below lack removes nothing.
+  - FillMissing (`#merge`) ignores the marker.
+  - What a layer adds to the stack never carries a marker. An appended subtree holding one
+    is copied without it (`without_removals`), so a bottom layer's markers, or one inside
+    a key new to the stack, never reach the merged tree.
+  - Removing the layer brings the key back. A layer above may set it again.
+- **`Array::has_removal()`**: a flag set by `finish()` when an array is a marker or holds
+  one at any depth. The merge copies a subtree only when the flag says it must, so data
+  without markers pays one flag test per appended subtree. The flag is in the array
+  header, so caches keep it (no format change).
+- **Tools.**
+  - `layer_effect` and `diff` list a removal with the value `#remove`, and `below` shows
+    what it removed.
+  - `promote` refuses a removal leaf with a located message, because writing
+    `(key #remove)` beside a key's children would not parse.
+  - Write-back never produces a marker.
+- **Cost.**
+  - `bench_parse` (4.2 MB corpus, callgrind): 4,131.2M → 4,177.3M instructions (+1.1%),
+    29.5M of them in `finish()`.
+    - A first version tested each child separately and cost +4.0%.
+    - The flag is now ORed in the pass that already reads each child's height.
+  - Pinned wall-clock runs read 101–126 MB/s for both builds, so noise exceeds the
+    difference.
+  - The merge benchmark is unchanged in kind: one flag test per appended subtree.
+- **Tests:**
+  - research scenario 5: the debug menu flag, the exploit boss and a whole `cheats`
+    section are removed;
+  - `layer_effect` shows a removal and what it removed;
+  - a DLC above sets a removed key again, and removing the layer restores the keys;
+  - a bottom-layer marker and a marker inside a new key are absent from the tree;
+  - a cache round trip keeps the flag and still removes;
+  - the bad forms are errors, the marker prints back, and `#merge` ignores it.

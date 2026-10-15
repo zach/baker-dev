@@ -89,6 +89,20 @@ recursively; everything else (the values) replaces what was below. So
 `(width 3)` over `(width 2 (range 0 10))` gives `(width 3 (range 0 10))`: a layer changes
 a value without restating its metadata. A tag the lower tree lacks is added.
 
+**Removing a key.** In a Config layer, `(key #remove)` removes `key`, and everything under it,
+from the layers below (D143):
+
+```dta
+(menu (debug_menu #remove))
+(enemies (exploit_boss #remove))
+```
+
+The marker is the key's only value. Anything else, such as `(a #remove 1)` or a bare
+`#remove`, is an error at load. A key the layers below lack removes nothing, a layer above
+may set the key again, and removing the layer brings the key back. The merged tree never
+holds a marker, and `#merge` ignores one (it only fills in what is missing).
+`layer_effect` lists a removal with the value `#remove`, and what it removed in `below`.
+
 ## The preprocessor
 
 Directives are handled while a file is read and never appear in the tree. Files read

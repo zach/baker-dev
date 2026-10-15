@@ -2,6 +2,7 @@
 
 #include "common/containers.hpp"
 
+#include "merge.hpp"
 #include "text.hpp"
 
 #include <charconv>
@@ -18,7 +19,7 @@ char close_of(Type t) noexcept {
 }
 
 void put_symbol(Str& out, std::string_view s) {
-    if (detail::is_bare_symbol(s)) {
+    if (detail::is_bare_symbol(s) || s == detail::remove_marker().str()) {  // (key #remove)
         out += s;
     } else {
         out += '\'';

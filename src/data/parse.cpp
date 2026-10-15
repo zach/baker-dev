@@ -389,7 +389,8 @@ private:
         int32_t line;
         Symbol name;  // DefineBody
         char open = '(';
-        uint32_t begin = 0;  // offset of the opening bracket
+        uint32_t begin = 0;    // offset of the opening bracket
+        bool removes = false;  // holds #remove, which must be its one value (D143)
     };
     struct Cond {
         bool active;         // tokens in the current branch are read
@@ -490,6 +491,7 @@ private:
                         t.line);
         frames_.pop_back();
         std::span<Node> kids(scratch_.data() + f.start, scratch_.size() - f.start);
+        if (f.removes && kids.size() != 2) return bad_remove(f.line);
 
         if (f.kind == Frame::MacroDef) {
             const auto name = kids.empty() ? std::nullopt : kids[0].try_sym();
@@ -699,8 +701,23 @@ private:
         return true;
     }
 
+    // `(key #remove)`: the marker is the tagged array's one value (D143).
+    bool bad_remove(int32_t line) {
+        return fail(ErrorCode::Directive, "#remove is written as a key's only value: (key #remove)",
+                    line);
+    }
+    bool removal(const Token& t) {
+        FrameInfo& f = frames_.back();
+        if (f.kind != Frame::Array || scratch_.size() != f.start + 1 ||
+            !scratch_[f.start].try_sym())
+            return bad_remove(t.line);
+        f.removes = true;
+        return push(Node(remove_marker()), here(t));
+    }
+
     bool directive(const Token& t) {
         const std::string_view d = t.text;
+        if (d == "remove") return removal(t);
         if (d == "ifdef" || d == "ifndef") return conditional(t, true);
         if (d == "else" || d == "endif") return else_or_endif(t);
         if (d == "include" || d == "include_opt" || d == "merge" || d == "require") {

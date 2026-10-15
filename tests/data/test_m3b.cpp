@@ -1,6 +1,7 @@
 // M3b: reload telemetry, layer options and toggles, scratch, layer effect and diff,
 // write_back_to insertion, promote, and snapshots (spec §4, docs/decisions.md D42).
 #include <doctest.h>
+#include <baker/cache.hpp>
 #include <baker/config.hpp>
 #include <baker/parse.hpp>
 #include <baker/std_interop.hpp>
@@ -140,6 +141,75 @@ TEST_CASE("promote writes what the Config reads, however the source repeats a ta
         CHECK(cfg.get<int>("sec.a").value_or(-1) == 1);
         CHECK(cfg.get<int>("sec.b").value_or(-1) == 2);
     }
+}
+
+TEST_CASE("a layer removes a key from the layers below with (key #remove) (D143)") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer("base", dir.write("base.dta",
+                                             "(menu (debug_menu 1) (items play options credits))\n"
+                                             "(enemies (grunt (hp 10)) (exploit_boss (hp 1)))\n"
+                                             "(cheats (god 1))\n")));
+    REQUIRE(cfg.push_layer("tu", dir.write("tu.dta",
+                                           "(menu (debug_menu #remove))\n"
+                                           "(enemies (exploit_boss #remove))\n"
+                                           "(cheats #remove)\n(missing #remove)\n")));
+    CHECK(to_string(*cfg.root()) ==
+          "((menu (items play options credits)) (enemies (grunt (hp 10))))");
+    CHECK_FALSE(cfg.get<int>("menu.debug_menu"));
+    CHECK(cfg.get<int>("enemies.grunt.hp") == 10);
+
+    // The layer's effect names each removal and what it removed.
+    const auto effect = ok(cfg.layer_effect("tu"));
+    bool saw = false;
+    for (const LayerEffectEntry& e : effect)
+        if (e.path == Symbol("menu.debug_menu")) {
+            saw = true;
+            CHECK(e.value.is(Symbol("#remove")));
+            REQUIRE(e.below);
+            CHECK(to_string(*e.below) == "1");
+        }
+    CHECK(saw);
+
+    // Removing the layer brings the keys back; a layer above may set a key again.
+    REQUIRE(cfg.push_layer("dlc", dir.write("dlc.dta", "(cheats (god 2))\n")));
+    CHECK(cfg.get<int>("cheats.god") == 2);
+    REQUIRE(cfg.remove_layer("tu"));
+    CHECK(cfg.get<int>("menu.debug_menu") == 1);
+    CHECK(cfg.get<int>("enemies.exploit_boss.hp") == 1);
+
+    // A key new to the stack keeps none of the removals inside it.
+    REQUIRE(cfg.push_layer("season", dir.write("season.dta", "(event (x 1) (y #remove))\n")));
+    CHECK(to_string(*ok(cfg.root()->find_array("event"))) == "(x 1)");
+
+    // A layer read from a cache keeps its removals: the flag is in the array header.
+    auto layer = ok(read_string("(menu (debug_menu #remove))", "tu.dta"));
+    CHECK(layer->has_removal());
+    std::string bytes;
+    REQUIRE(write_cache(*layer, string_out(bytes)));
+    auto cached = ok(read_cache_bytes(bytes, "tu.datb"));
+    CHECK(cached->has_removal());
+    CHECK(to_string(*merge(*ok(read_string("(menu (debug_menu 1) (x 2))", "b.dta")), *cached)) ==
+          "((menu (x 2)))");
+
+    // A marker in the bottom layer removes nothing and is not in the tree.
+    Config alone({.tweaks = nullptr});
+    REQUIRE(alone.push_layer("only", dir.write("only.dta", "(a (b #remove) (c 1))")));
+    CHECK(to_string(*alone.root()) == "((a (c 1)))");
+}
+
+TEST_CASE("#remove is a key's only value, prints back, and #merge ignores it (D143)") {
+    CHECK(to_string(*ok(read_string("(a (b #remove))", "r.dta"))) == "((a (b #remove)))");
+    for (const char* bad : {"(a #remove 1)", "(a 1 #remove)", "(#remove)", "#remove", "{f #remove}",
+                            "(a (b #remove) #remove)"}) {
+        auto r = read_string(bad, "bad.dta");
+        REQUIRE_FALSE(r);
+        CHECK(std::string(r.error().message()).find("(key #remove)") != std::string::npos);
+    }
+    TempDir dir;
+    dir.write("over.dta", "(a (b #remove) (c 2))");
+    const std::string main = dir.write("main.dta", "(a (b 1))\n#merge over.dta\n");
+    CHECK(to_string(*ok(read_file(main))) == "((a (b 1) (c 2)))");
 }
 
 TEST_CASE("telemetry adds no allocation per reload once the history exists") {

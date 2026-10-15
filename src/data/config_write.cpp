@@ -443,6 +443,13 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
     before.set_reader(vread);
     Vec<Error> refusals;
     for (const Leaf& leaf : leaves) {
+        if (leaf.values.size() == 1 && leaf.values[0].is(detail::remove_marker())) {
+            // Writing (key #remove) beside the key's children would not parse (D143).
+            refusals.push_back(refused("promote cannot write the removal of " +
+                                       quoted(Path(leaf.path)) +
+                                       "; remove the key from the target by hand"));
+            continue;
+        }
         auto p = impl_->plan(target, Path(leaf.path), leaf.values, true, vread);
         if (!p) {
             refusals.push_back(std::move(p).error());

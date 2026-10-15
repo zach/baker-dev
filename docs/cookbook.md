@@ -275,6 +275,8 @@ How a game delivers content after it ships, from `docs/background/content-update
 
   A value list such as `(setlist song_a song_b)` is right for something one package owns.
   `layer_effect` shows a layer that replaces another's list.
+- **A title update removes with `(key #remove)`**, a debug menu or an exploit's entry, and
+  the key stays gone until the layer is removed (D143).
 - **A title update changes values, not the macros below it.** A layer reads with the macros
   of the layers below it. A macro a title update redefines reaches only the layers above
   it, never the base that already expanded it.
