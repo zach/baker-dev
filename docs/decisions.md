@@ -3996,3 +3996,25 @@ duplicates or keeping `find()`'s.*
 - **Left as they are.** `layer_effect` and `diff` still list each tag's first child, as
   `find()` does. They describe a layer's own text rather than move values, and nothing
   reported a problem with them.
+
+## D135. Three latent desyncs
+
+*Gap 27, from the 2026-10-14 review (D116–D122).*
+
+- **An overwriting merge left spans behind.**
+  - `merge_into`'s Overwrite branch rebuilt `dst` (the incoming values, then the tagged
+    children kept) but not the spans beside it. Each span stayed at its old index, now
+    under another node.
+  - No caller combined the two yet: `#merge` fills missing keys, and Config merges keep no
+    spans. But write-back reads spans by index, so the first such caller would have
+    written into the wrong bytes.
+  - Now the tagged children's spans are set aside with them, and the incoming values take
+    their own spans from the map.
+- **An included file's nodes counted twice toward `max_nodes`.** The included file's
+  parser counted every node it made. The including parser then spliced the file's
+  top-level nodes in with `push`, which counted them again. A file of 10 nodes included
+  under `max_nodes = 10` failed. Splicing now passes `counted`.
+- **A source map read again kept the old text.** `record_text` kept the first text of a
+  file it had seen, so a map reused across reads of a changed file returned text that no
+  longer matched its spans. It now replaces it.
+- **Tests:** one each, and each fails against the previous code.

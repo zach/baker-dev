@@ -104,7 +104,11 @@ void SourceMap::record(const Ref<Array>& a, const SourceSpan& extent,
 
 void SourceMap::record_text(Symbol file, std::string_view text) {
     Tables& t = *t_;
-    if (!t.texts.emplace(file, Str(text, t.alloc)).second) return;
+    // A map read again keeps the text as it is now (D135).
+    if (auto [it, fresh] = t.texts.emplace(file, Str(text, t.alloc)); !fresh) {
+        it->second.assign(text);
+        return;
+    }
     // The file is read next: room for its spans and arrays up front, at config's typical
     // density (a node every 4 to 5 bytes, an array every 14), so the run is not regrown.
     t.run.reserve(t.run.size() + text.size() / 4);

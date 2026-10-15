@@ -6,6 +6,7 @@
 #include <baker/write.hpp>
 
 #include "alloc_counter.hpp"
+#include "merge.hpp"
 #include "temp_dir.hpp"
 
 #include <algorithm>
@@ -190,6 +191,41 @@ TEST_CASE("edit mode records where every node is written") {
     auto plain = read_string(text, "e.dta");
     REQUIRE(plain);
     CHECK(structurally_equal(**plain, **root));
+}
+
+TEST_CASE("an overwriting merge keeps spans with their nodes (D135)") {
+    const std::string base = "(a 1 (b 2))\n", over = "(a 3)\n";
+    LoadSession s;
+    SourceMap map;
+    s.source_map = &map;
+    auto rb = read_string(base, "base.dta", s);
+    auto ro = read_string(over, "over.dta", s);
+    REQUIRE(rb);
+    REQUIRE(ro);
+    const Array& a = *(**rb)[0].try_array();
+    const Array& o = *(**ro)[0].try_array();
+    Vec<Node> nodes(a.begin(), a.end());
+    const auto known = map.spans(a);
+    REQUIRE(known);
+    Vec<SourceSpan> spans(known->data(), known->data() + known->size());
+    detail::MergeScratch scratch;
+    REQUIRE(detail::merge_into(nodes, &spans, 1, o, 1, MergePolicy::Overwrite, &map, scratch));
+    REQUIRE(nodes.size() == 3);
+    REQUIRE(spans.size() == 3);
+    CHECK(nodes[1].try_int() == 3);
+    CHECK(spans[1].file == Symbol("over.dta"));
+    CHECK(over.substr(spans[1].begin, spans[1].end - spans[1].begin) == "3");
+    CHECK(spans[2].file == Symbol("base.dta"));
+    CHECK(base.substr(spans[2].begin, spans[2].end - spans[2].begin) == "(b 2)");
+}
+
+TEST_CASE("a source map read again keeps the text as it is now (D135)") {
+    LoadSession s;
+    SourceMap map;
+    s.source_map = &map;
+    REQUIRE(read_string("(a 1)\n", "f.dta", s));
+    REQUIRE(read_string("(a 22)\n", "f.dta", s));
+    CHECK(*map.text(Symbol("f.dta")) == "(a 22)\n");
 }
 
 TEST_CASE("edit mode follows #include and #merge") {

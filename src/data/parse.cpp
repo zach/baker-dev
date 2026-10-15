@@ -411,9 +411,10 @@ private:
         return {file_, t.begin, t.end, {}};
     }
 
-    // Edit mode keeps spans_ parallel to scratch_.
-    bool push(Node n, const SourceSpan& span = {}) {
-        if (++s_.st_->nodes > s_.limits.max_nodes)
+    // Edit mode keeps spans_ parallel to scratch_. An included file's nodes were counted by
+    // its own parser, so splicing them in does not count them again (D135).
+    bool push(Node n, const SourceSpan& span = {}, bool counted = false) {
+        if (!counted && ++s_.st_->nodes > s_.limits.max_nodes)
             return fail(ErrorCode::Limit,
                         "more than " + detail::decimal(static_cast<int64_t>(s_.limits.max_nodes)) +
                             " nodes",
@@ -723,7 +724,7 @@ private:
             }
             for (size_t i = 0; i < root->size(); ++i) {
                 const SourceSpan* sp = map_ ? map_->span(*root, i) : nullptr;
-                if (!push((*root)[i], sp ? *sp : SourceSpan{})) return false;
+                if (!push((*root)[i], sp ? *sp : SourceSpan{}, true)) return false;
             }
             return true;
         }

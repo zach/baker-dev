@@ -104,16 +104,32 @@ bool merge_into(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const 
     if (policy == MergePolicy::Overwrite && has_values(src, src_first)) {
         // The incoming values replace the existing ones; tagged children stay to merge. In
         // place: the tagged children are set aside in the level, which `dst` may not share
-        // an allocator with.
+        // an allocator with. Spans move with their nodes (D135).
         Vec<Node>& tagged = level.nodes;
+        Vec<SourceSpan>& tagged_spans = level.spans;
         tagged.clear();
+        tagged_spans.clear();
         for (size_t i = dst_first; i < dst.size(); ++i)
-            if (is_tagged(dst[i])) tagged.push_back(std::move(dst[i]));
+            if (is_tagged(dst[i])) {
+                tagged.push_back(std::move(dst[i]));
+                if (spans) tagged_spans.push_back((*spans)[i]);
+            }
         dst.resize(dst_first);
+        if (spans) spans->resize(dst_first);
         for (size_t j = src_first; j < src.size(); ++j)
-            if (!is_tagged(src[j])) dst.push_back(src[j]);
-        for (Node& n : tagged) dst.push_back(std::move(n));
+            if (!is_tagged(src[j])) {
+                dst.push_back(src[j]);
+                if (spans) {
+                    const SourceSpan* sp = map->span(src, j);
+                    spans->push_back(sp ? *sp : SourceSpan{});
+                }
+            }
+        for (size_t k = 0; k < tagged.size(); ++k) {
+            dst.push_back(std::move(tagged[k]));
+            if (spans) spans->push_back(tagged_spans[k]);
+        }
         tagged.clear();
+        tagged_spans.clear();
         changed = true;
     }
     // Each incoming key is found by scanning the existing ones, which is fastest for the
