@@ -64,6 +64,15 @@ bool Console::serve(Client& c) {
 }
 
 std::string Console::answer(const std::string& line) {
+    // A request, (ID {command}), gets one line of JSON (baker.reply/1) for a tool to read.
+    if (const size_t first = line.find_first_not_of(" \t");
+        first != std::string::npos && line[first] == '(') {
+        std::string json;
+        baker::eval_request(ctx_, line, baker::string_out(json));
+        json.pop_back();  // its newline: the empty line below ends every reply
+        return json;
+    }
+    // Anything else is for a person: "=> value", or the error with its script stack.
     auto r = ctx_.eval(line, "<console>");
     if (r) return "=> " + baker::to_string(*r);
     std::string error(baker::describe(r.error()));

@@ -383,6 +383,33 @@ the script stack. A console is that, fed from a text box or a socket:
   lists what they have already written calls to.
 - `examples/harness-imgui` has the same console as a panel.
 
+### Consoles for tools and agents
+
+A tool can drive the same console, but it should not have to parse text written for
+people. Two calls give it what it needs:
+
+- **`baker::eval_request(ctx, line, sink)`** answers a request, `(ID {command})`, with one
+  line of JSON. The JSON holds the ID, the result's text, a JSON projection of the result,
+  or the error with its script stack (`docs/reply-json.md`). `examples/remote-console`
+  answers lines that begin with `(` this way and every other line as before.
+- **`baker::bind_config_tools(ctx, cfg)`** registers the Config's tooling as script
+  functions, so a console, an editor or an agent can ask the running game directly:
+  - `{config.explain player.speed}`: every layer that sets the value, and which one wins;
+  - `{config.set player.speed 6}`, `{config.toggle experiment}` and
+    `{config.snapshot a}`: live edits and A/B;
+  - `{config.journal}` and `{config.unsaved}`: what was tuned, and what was not kept.
+
+  They are documented, so `reference` lists them and `check` checks calls to them. A
+  shipping build binds only the reading tools. `config.write_back` and `config.promote`
+  write files, so they are bound only with `{.allow_write = true}`.
+
+```
+> (1 {config.explain player.speed})
+{"schema":"baker.reply/1","id":1,"ok":true,"text":"...","value":[
+  {"layer":"default","value":4.5,"standing":"shadowed","file":"default.dta","line":3},
+  {"layer":"local","value":6,"standing":"wins","file":"local/me.dta","line":1}]}
+```
+
 ## Repro scripts
 
 A command is already a serialized, parseable, evaluable value, so a sequence of console

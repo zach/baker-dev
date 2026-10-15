@@ -48,6 +48,7 @@
 
 namespace baker {
 
+class Config;
 class Context;
 class Scheduler;
 class ObjectBase;
@@ -857,6 +858,27 @@ check_validator(const Context& ctx, const CheckOptions& options = {});
 void reference(const Context& ctx, TextSink out, const LoadSession* packs = nullptr);
 [[nodiscard]] Expected<void> write_reference(const Context& ctx, std::string_view path,
                                              const LoadSession* packs = nullptr);
+
+// Evaluates one line from a tool and writes one line of JSON (schema baker.reply/1,
+// docs/reply-json.md). A request is (ID {command}), its ID an int, symbol or string that
+// the reply echoes; any other line is evaluated whole, with a null id, as eval(text) would.
+// The reply holds the result's printed form ("text", the authority) and a JSON projection
+// of it ("value"), or the error with its script stack. Never fails: a line that does not
+// parse gets an error reply.
+void eval_request(Context& ctx, std::string_view line, TextSink reply);
+
+// The Config's tooling as script functions (config.get, config.source, config.explain,
+// config.layers, config.effect, config.diff; in development builds also config.set,
+// config.toggle, config.reload, config.unsaved, config.journal, config.loop, and
+// config.snapshot and config.restore by name), documented, so the reference lists them
+// and check() checks calls to them. config.write_back and config.promote write files, so
+// they are bound only when allowed. Results are data: through eval_request, a tool reads
+// them as JSON. `cfg` must outlive the Context's use of them.
+struct ConfigToolOptions {
+    bool allow_write = false;  // also bind config.write_back and config.promote
+};
+[[nodiscard]] Expected<void> bind_config_tools(Context& ctx, Config& cfg,
+                                               const ConfigToolOptions& options = {});
 
 // --- Template definitions. ---
 

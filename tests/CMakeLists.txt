@@ -49,7 +49,9 @@ if(BAKER_BUILD_SCRIPT)
     script/test_object.cpp
     script/test_script_tasks.cpp
     script/test_stats.cpp
-    script/test_tasks.cpp)
+    script/test_tasks.cpp
+    script/test_request.cpp
+    script/test_config_tools.cpp)
   target_link_libraries(baker_script_tests PRIVATE baker::script baker_doctest_main
                         baker_alloc_counter)
   target_compile_definitions(baker_script_tests PRIVATE

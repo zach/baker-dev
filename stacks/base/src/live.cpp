@@ -46,6 +46,10 @@ bool Live::open(const LiveOptions& options) {
         f->doc(
             "Edit-to-see and reload times per file and layer (Config::loop_stats), as text: "
             "the edits a person saved and the frame that showed each.");
+    // The Config's tools (config.explain, config.set, ...), for the console and the agent.
+    // Writing to files stays with the person at the panel: no config.write_back here.
+    if (auto r = baker::bind_config_tools(ctx_, cfg_); !r)
+        log(std::string(baker::to_string(r.error())));
     autorun();
     if (options.watch) {
         watching_ = watcher_.watch(data_dir_);

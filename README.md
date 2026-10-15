@@ -200,6 +200,7 @@ Android: CMake builds get C++20 from the targets; with `ndk-build`, add
 - [`docs/language.md`](docs/language.md): the language, from data to script.
 - [`docs/cookbook.md`](docs/cookbook.md): patterns, live ops among them.
 - [`docs/script-reference.md`](docs/script-reference.md): every built-in, generated.
+- [`docs/reply-json.md`](docs/reply-json.md): one-line JSON replies for tools and consoles.
 - [`CHANGELOG.md`](CHANGELOG.md): what each release changed.
 
 ## License

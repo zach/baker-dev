@@ -99,7 +99,7 @@ if(BAKER_BUILD_SCRIPT)
       ${CMAKE_CURRENT_SOURCE_DIR}/scripting/rules.dta)
     baker_example_test(baker_example_objects baker_example_objects "dash 3[}] +=> 3[.]0${nl}.*=> 100${nl}grunt[.]handle[(]HitMsg[{]20[}][)] +=> 80${nl}.*hit 5[}] +=> 75${nl}.*=> Boss${nl}boss[.]handle[(]HitMsg[{]50[}][)] +=> 499${nl}.*hit 50[}] +=> 25${nl}.*=> \"Over here!\"${nl}.*was removed [(]a stale handle[)]")
     baker_example_test(baker_example_tasks baker_example_tasks "t=1  door: unlocking${nl}.*t=2  one unit later.*t=3  door: open.*t=3  guard: walking in.*t=4  fade done.*t=4  guard: closing the door${nl}t=5  door: someone closed it${nl}tasks left: 0")
-    baker_example_test(baker_example_remote_console baker_example_remote_console "^> [{]set [$]speed [{][*] 2 4[.]5[}][}]${nl}=> 9[.]0${nl}${nl}> [{]boost 3[}]${nl}=> 27[.]0${nl}${nl}> [{]boost[}]${nl}baker: .boost. takes 1 argument, given 0  [(]<console>:1[)]${nl}  in [{]boost[}]"
+    baker_example_test(baker_example_remote_console baker_example_remote_console "^> [{]set [$]speed [{][*] 2 4[.]5[}][}]${nl}=> 9[.]0${nl}${nl}> [{]boost 3[}]${nl}=> 27[.]0${nl}${nl}> [{]boost[}]${nl}baker: .boost. takes 1 argument, given 0  [(]<console>:1[)]${nl}  in [{]boost[}].*> [(]4 [{]boost 1[}][)]${nl}[{]\"schema\":\"baker[.]reply/1\",\"id\":4,\"ok\":true,\"text\":\"27[.]0\",\"value\":27[.]0[}]"
       --test)
   endif()
 endif()

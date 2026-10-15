@@ -141,9 +141,11 @@ target_include_directories(baker_data SYSTEM PRIVATE ${PROJECT_SOURCE_DIR}/third
 if(BAKER_BUILD_SCRIPT)
   add_library(baker_script
     src/script/builtins.cpp
+    src/script/config_tools.cpp
     src/script/context.cpp
     src/script/object.cpp
     src/script/reference.cpp
+    src/script/request.cpp
     src/script/script_tasks.cpp
     src/script/task.cpp)
   add_library(baker::script ALIAS baker_script)

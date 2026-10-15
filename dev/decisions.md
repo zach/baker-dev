@@ -4705,3 +4705,95 @@ only, and `layer_effect` works one layer at a time.*
     refusals, a disabled layer and scratch, and the agreement with `source()` and `get`.
   - `baker_alloc_tests`: a Config answering `explain` through its own allocator.
 - **Core:** 11,989 → 12,085 lines.
+
+## D155. `eval_request` and the reply form `baker.reply/1`
+
+*E2a of the tool surface (`dev/tool-surface-plan.md` §3). Every tool that drove the
+console parsed `=> value` text and prose errors. The owner chose JSON for request-form
+lines with the human reply kept for bare ones, and keyed arrays projected to objects.*
+
+- **API.** `eval_request(ctx, line, sink)` in `baker::script` writes one JSON line and never
+  fails.
+  - A request is `(ID {command})`, with ID an int, symbol or string, echoed back.
+  - Any other line is evaluated whole, as `eval(text)` does, with a `null` id.
+  - A line that does not parse gets an error reply.
+  - The tree is built from the Context's allocator, as `eval(text)` builds it.
+- **The reply** (`docs/reply-json.md`):
+  - On success: `text`, the printed result and the authority, and `value`, a JSON
+    projection.
+  - On failure: `error` with `code`, `file`, `line`, `path`, `message`, and the script
+    `stack`.
+  - Baker reads no JSON. Requests are Baker text.
+- **The projection.**
+  - A keyed array, whose children after an optional leading symbol are all arrays headed by
+    distinct symbols, is an object. Its leading symbol is dropped, and keyed children nest.
+  - Floats use the printer's shortest form, which is valid JSON; a non-finite float is
+    `null`.
+  - The first version projected a keyed child's rest as an array, so
+    `(cfg (box (width 2)))` read as `{"box":[["width",2]]}`. The tests caught it: a child
+    that is itself keyed is now an object.
+- **The console.** `examples/remote-console` answers a line beginning with `(` through
+  `eval_request`, and any other line as before. Replies still end with an empty line, so
+  clients frame both alike. The stacks build this console, so their games answer requests
+  too.
+  - `stacks/tools/console.py` sends `(N {command})`, parses the JSON, prints `=> text` or
+    the error with its stack, and keeps its exit codes (1 for an error reply, 2 when nothing
+    listens).
+  - `--json` prints the raw replies.
+- **Not fuzzed.** The fuzz harness stays data-only. The parse is fuzzed already, and
+  fuzzing evaluation would run arbitrary script.
+- **Tests:**
+  - `tests/script/test_request.cpp`: ids of each kind, bare lines, every projection rule
+    (nesting, null rests, repeated tags, ordered lists), an error two script frames deep,
+    a parse error, and escaping onto one line.
+  - The remote-console example's CTest checks a JSON reply. A deliberately wrong id was
+    seen to fail it.
+- **Core:** 12,085 → 12,229 lines, the JSON move included.
+- **Also in this step:** the JSON writing helpers moved from `reference.cpp` to `data/text`,
+  shared by all three libraries. `check`'s bytes are unchanged.
+
+## D156. `bind_config_tools`: the Config's tooling as script functions
+
+*E2b of the tool surface (`dev/tool-surface-plan.md` §4). An agent or an editor talking
+to a running game needs the Config's answers (provenance, layers, live edits), not only
+`eval`. The owner chose read-only tools in shipping builds.*
+
+- **API.** `bind_config_tools(ctx, cfg, {.allow_write})` in `baker::script` returns
+  `Expected<void>`. Every function is documented, so `reference` lists it and `check`
+  checks calls to it. Results are data, which `eval_request` projects to JSON.
+  - **Every build:** `config.get`, `config.source`, `config.explain`, `config.layers`,
+    `config.effect`, `config.diff`.
+  - **Development builds:** `config.set`, `config.toggle`, `config.reload` (trigger
+    `console`), `config.unsaved`, `config.journal [since_ns]`, `config.loop`, and
+    `config.snapshot` and `config.restore` by name.
+  - **Only with `allow_write`:** `config.write_back` and `config.promote`, which return the
+    lines written and any refusals.
+- **Arguments.** Paths and layer names may be written as symbols or strings
+  (`box.width`, `"phase.2"`), through a file-local `Convert<Name>`. Binding them as
+  `string_view` refused symbols.
+- **Values** are packed as `explain` packs them: one value bare, several as an array.
+  - The journal's `before` and `after` first came out as one-element lists; they are now
+    packed the same way and left out when there is no value.
+  - `config.get` is the entry `explain` says wins, so it agrees with `get` (D154's test).
+    The code default does not count: an unset path is a located error.
+- **State.** Named snapshots live in one block (`Rc<Tools>`), allocated from the
+  Context's allocator and shared by the bound functions. It is freed with the last of
+  them. `baker_alloc_tests` binds the tools, evaluates `explain` and a snapshot, answers a
+  request, and checks that nothing reaches `operator new` and everything is freed.
+- **The stacks** bind the tools in `Live::open`, without `allow_write`, so the console and
+  `stacks/tools/console.py` can ask a running game `{config.explain p}`. Writing stays with
+  the person at the panel.
+- **Core:** 12,229 → 12,556 lines.
+- **Shipped as one step with D155** (E2). The matrix for E2a alone ran while E2b was
+  being written, so its results counted for neither, and the two went in together.
+- **A test race fixed.** `TempDir` named directories with an unseeded `rand()`, so every
+  test process chose the same names. Under `ctest -j`, the first script test to use one
+  could delete a data test's files: the matrix's release run failed once and passed on a
+  rerun. Names now carry a per-process tag from `std::random_device`.
+- **Tests.** `tests/script/test_config_tools.cpp`:
+  - every reading tool, against a two-layer Config on disk;
+  - the JSON reply for `explain`;
+  - `check` finding a wrong-arity call, and the reference listing the tools;
+  - the live tools: set, unsaved, the journal, toggles, snapshot and restore, reload, loop;
+  - the writers absent by default, and writing a one-line change with `allow_write`;
+  - a shipping build's reading tools only.

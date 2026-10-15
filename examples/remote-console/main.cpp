@@ -2,7 +2,7 @@
 // client (`nc 127.0.0.1 7000`) to evaluate commands in the running game.
 //
 //   baker_example_remote_console [--port 7000]   serve until interrupted
-//   baker_example_remote_console --test          connect over loopback, send three
+//   baker_example_remote_console --test          connect over loopback, send four
 //                                                commands, print the replies, and exit
 #include <baker/script.hpp>
 
@@ -32,7 +32,9 @@ void client(uint16_t port) {
         client_done = true;
         return;
     }
-    for (const char* command : {"{set $speed {* 2 4.5}}", "{boost 3}", "{boost}"}) {
+    // Two commands for a person, a mistake, and a request for a tool, answered in JSON.
+    for (const char* command :
+         {"{set $speed {* 2 4.5}}", "{boost 3}", "{boost}", "(4 {boost 1})"}) {
         const std::string line = std::string(command) + "\n";
         send(s, line.data(), static_cast<int>(line.size()), 0);
         std::string reply;  // up to the empty line that ends it

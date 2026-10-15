@@ -158,17 +158,19 @@ void eval_request(Context& ctx, std::string_view line, TextSink reply);
   - ints and floats become numbers, and a non-finite float becomes `null`;
   - symbols and strings become strings;
   - a variable becomes `"$name"`, a function its name, an object its name;
-  - **a keyed array becomes an object:** an array whose children are all arrays tagged
-    by distinct symbols becomes `{tag: rest}`, where a rest of one value is that value
-    and an empty rest is `null`;
+  - **a keyed array becomes an object:** an array whose children, after an optional
+    leading symbol, are all arrays tagged by distinct symbols becomes `{tag: rest}`. The
+    leading symbol is dropped. A child that is itself keyed is an object, a rest of one
+    value is that value, an empty rest is `null`, and several values are an array;
   - any other array becomes a JSON array, tag included.
 
   The keyed-array rule is what makes `(source (layer default) (line 3))` read as
   `{"layer":"default","line":3}` to a client. Lists whose order matters, such as
   `explain`'s entries, are written as arrays of keyed arrays, so their order survives as
   a JSON array.
-- **Malformed requests.** A request that does not parse replies `ok: false` with code
-  `Parse` and a null id. It never crashes, and the fuzz harness gains this entry point.
+- **Malformed requests.** A request that does not parse replies `ok: false` with a null id.
+  It never crashes. (The fuzz harness stays data-only. Parsing is fuzzed already, and
+  fuzzing evaluation would run arbitrary script.)
 
 ### Cost
 
