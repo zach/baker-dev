@@ -119,11 +119,11 @@ void Config::Impl::log_edit(ScratchEntry& owner, const Node* before, uint32_t be
 }
 
 Expected<Ref<Array>> Config::Impl::read_through_cache(std::string_view path, const Str& cache,
-                                                      LoadSession& session) const {
+                                                      LoadSession& session, bool from_disk) const {
     if constexpr (kShipping) {  // a cache for this session, else the text; writes none
-        return detail::read_shipped(path, cache, session);
+        return detail::read_shipped(path, cache, session, from_disk);
     } else {
-        if (Ref<Array> fresh = detail::read_fresh_cache(cache, session)) return fresh;
+        if (Ref<Array> fresh = detail::read_fresh_cache(cache, session, from_disk)) return fresh;
         session.record_for_cache = true;
         auto root = read_file(path, session);
         session.record_for_cache = false;
@@ -165,7 +165,8 @@ Expected<void> Config::Impl::read(LayerState& layer, const LoadSession& before,
     auto map = options.edit_mode ? Rc<SourceMap>::make(alloc, alloc) : nullptr;
     session->source_map = map.get();
     auto root = cache.empty() ? read_file(layer.path, *session)
-                              : read_through_cache(layer.path, cache, *session);
+                              : read_through_cache(layer.path, cache, *session,
+                                                   detail::SessionAccess::reads_disk(before));
     session->set_reader(reader);
     session->source_map = nullptr;
     // The one-way rule's warnings (D80) go to the warning handler.

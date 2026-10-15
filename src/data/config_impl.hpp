@@ -294,8 +294,10 @@ struct Config::Impl {
 
     // A fresh cache of `path`, or the text and a new cache, written through the writer: a
     // cache that cannot be written costs the next read a parse, not this one its tree.
+    // `from_disk`: the Config reads through the disk's reader, so the cache file is read
+    // straight into its arena rather than copied through the session's reader.
     Expected<Ref<Array>> read_through_cache(std::string_view path, const Str& cache,
-                                            LoadSession& session) const;
+                                            LoadSession& session, bool from_disk) const;
 
     // Reads a file layer, recording every file it reads (or looks for) for reload, and the
     // time spent reading them into `read_ns`.

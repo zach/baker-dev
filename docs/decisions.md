@@ -4509,3 +4509,42 @@ an immutable base cache.*
   - a 300-deep tree round-trips, past the loader's inline stack, checked without recursion
     (a 600-deep check overflowed MSVC's debug stack in its recursive helpers);
   - the existing tests of sharing, damage, and every corpus file loading as its text did.
+
+## D149. A Config reads a layer's cache straight into its arena
+
+*The owner's pick after D138: D148's benchmark showed a cached Config layer at 33–55 ms
+where `read_cache` took 8 ms on the same 22 MB cache.*
+
+- **Before.** A Config wraps its session's reader so that each layer records the text files
+  it read, for reload. The cache file went through that wrapper too, which made the cache
+  look like a reader's file rather than the disk's, so it was copied four times:
+  - `read_disk_file`'s 64 KB buffer;
+  - the Config's `scan` buffer;
+  - a fresh string in `open()`;
+  - the fresh arena.
+  The two fresh 22 MB buffers also took page faults, more so when glibc's mmap threshold
+  tipped them to new mappings (D148).
+- **Now.** When the Config's own reader is the disk's, `read_through_cache` passes
+  `from_disk`, and `open()` reads the cache file with `fopen` straight into its arena, as
+  `read_cache` does.
+  - The text files the freshness check reads still go through the wrapper, which records
+    them. The wrapper never recorded the cache file.
+  - A Config with a custom reader, such as a pack file system's, still reads the cache
+    through that reader.
+  - A cache read from disk is no longer timed as a read, so a reload outside edit mode
+    counts it in `ReloadRecord::parse_ns`.
+- **Benchmarks** (`bench_cache`, release, pinned to one core, three runs each, against
+  `main` on the same machine):
+
+  | Row | 1.2 MB text | 4.2 MB text |
+  |---|---:|---:|
+  | Config layer, fresh cache, before | 4.2–4.6 ms | 47–55 ms |
+  | Config layer, fresh cache, now | 2.6–3.1 ms | 11.6–14.4 ms |
+  | the same with `MALLOC_MMAP_THRESHOLD_` pinned high, before | 4.2–4.6 ms | 20.8–24.9 ms |
+  | the same, now | 2.6–3.1 ms | 11.1–14.3 ms |
+  | `read_cache` alone (unchanged) | 2.0–2.2 ms | 8.4–9.1 ms |
+
+  What remains above `read_cache` is the freshness check, which reads and hashes the
+  4.2 MB text, plus the layer's merge.
+- **Test:** a Config with a logging reader asks it for the cache once and the text once
+  (freshness). A Config with the disk's reader loads the same values from the cache.
