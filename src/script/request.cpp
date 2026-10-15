@@ -1,5 +1,5 @@
-// eval_request: one line of a tool's request, one line of JSON in reply (baker.reply/1,
-// docs/reply-json.md; dev/tool-surface-plan.md §3).
+// eval_request: one line of a tool's request, one line of JSON in reply: the schema
+// baker.reply/1, which docs/reply-json.md describes (dev/tool-surface-plan.md §3).
 
 #include <baker/parse.hpp>
 #include <baker/script.hpp>
