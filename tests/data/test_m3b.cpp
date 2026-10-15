@@ -200,6 +200,11 @@ TEST_CASE("a layer removes a key from the layers below with (key #remove) (D143)
 
 TEST_CASE("#remove is a key's only value, prints back, and #merge ignores it (D143)") {
     CHECK(to_string(*ok(read_string("(a (b #remove))", "r.dta"))) == "((a (b #remove)))");
+    // Elsewhere the symbol is quoted, so it reads back (found by the fuzzer).
+    for (const char* text : {"('#remove')", "(a '#remove' 1)", "{f '#remove'}", "'#remove'"}) {
+        auto tree = ok(read_string(text, "q.dta"));
+        CHECK(structurally_equal(*tree, *ok(read_string(to_dta(*tree), "back.dta"))));
+    }
     for (const char* bad : {"(a #remove 1)", "(a 1 #remove)", "(#remove)", "#remove", "{f #remove}",
                             "(a (b #remove) #remove)"}) {
         auto r = read_string(bad, "bad.dta");

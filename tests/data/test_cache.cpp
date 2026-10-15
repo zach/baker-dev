@@ -226,17 +226,27 @@ TEST_CASE("an edit changes the cache near it, for delta patches (D148)") {
 }
 
 TEST_CASE("a cache loads a tree deeper than the loader keeps on its stack (D148)") {
+    // 300 deep, past the loader's 256 inline frames; walked without recursion, which MSVC's
+    // debug stack would not take.
+    constexpr int kDepth = 300;
     Ref<Array> root = Array::make(1, "deep.dta", 1);
     Array* at = root.get();
-    for (int i = 0; i < 600; ++i) {
+    for (int i = 0; i < kDepth; ++i) {
         Ref<Array> child = Array::make(2, "deep.dta", i + 2);
         child->set(0, Node(Symbol("d")));
         at->set(at->size() - 1, Node(child));
         at = child.get();
     }
     at->set(1, Node(String::make("bottom")));
-    auto back = round_trip(*root);
-    CHECK(to_string(*back) == to_string(*root));
+    auto back = ok(read_cache_bytes(bytes_of(*root)));
+    const Array* walk = back.get();
+    for (int i = 0; i < kDepth; ++i) {
+        walk = (*walk)[walk->size() - 1].array();
+        REQUIRE(walk);
+        CHECK(walk->line() == i + 2);
+        CHECK(walk->tag() == Symbol("d"));
+    }
+    CHECK((*walk)[1].string()->view() == "bottom");
 }
 
 TEST_CASE("caches on disk, and through a session's reader") {

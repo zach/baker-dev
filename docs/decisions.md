@@ -4308,6 +4308,10 @@ array, as Module Manager's `!NODE` sits on the node.*
   - a bottom-layer marker and a marker inside a new key are absent from the tree;
   - a cache round trip keeps the flag and still removes;
   - the bad forms are errors, the marker prints back, and `#merge` ignores it.
+- **Fuzzer finding (PR #17).** A quoted `'#remove'` anywhere else is an ordinary symbol, but
+  `to_dta` printed it bare, which the reparse refused. Now `#remove` prints bare only as
+  a parenthesized array's second of two nodes after a symbol, where the parser takes it,
+  and quoted elsewhere. The input is `tests/fuzz_regressions/quoted_remove_symbol.bin`.
 
 ## D144. A layer can be placed below or above another
 
@@ -4498,5 +4502,6 @@ an immutable base cache.*
 - **Test:**
   - an edit's locality: inserting a section into 60 leaves 677 of 678 32-byte blocks of
     the old cache somewhere in the new one (format 5: 289 of 672);
-  - a 600-deep tree round-trips, past the loader's inline stack;
+  - a 300-deep tree round-trips, past the loader's inline stack, checked without recursion
+    (a 600-deep check overflowed MSVC's debug stack in its recursive helpers);
   - the existing tests of sharing, damage, and every corpus file loading as its text did.

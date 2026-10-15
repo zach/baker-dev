@@ -18,8 +18,9 @@ char close_of(Type t) noexcept {
     return t == Type::Command ? '}' : t == Type::Property ? ']' : ')';
 }
 
-void put_symbol(Str& out, std::string_view s) {
-    if (detail::is_bare_symbol(s) || s == detail::remove_marker().str()) {  // (key #remove)
+// `marker`: the slot is a key's only value, where #remove reads back bare (D143).
+void put_symbol(Str& out, std::string_view s, bool marker = false) {
+    if (detail::is_bare_symbol(s) || (marker && s == detail::remove_marker().str())) {
         out += s;
     } else {
         out += '\'';
@@ -28,7 +29,13 @@ void put_symbol(Str& out, std::string_view s) {
     }
 }
 
-void put_atom(Str& out, const Node& n) {
+// Whether `a[i]` is where the parser takes #remove: the second of two in a parenthesized
+// array whose first is a symbol.
+bool marker_slot(const Node& n, const Array& a, uint32_t i) noexcept {
+    return n.type() == Type::Array && a.size() == 2 && i == 1 && a[0].try_sym();
+}
+
+void put_atom(Str& out, const Node& n, bool marker = false) {
     char buf[64];
     switch (n.type()) {
         case Type::Int: {
@@ -43,7 +50,7 @@ void put_atom(Str& out, const Node& n) {
             if (text.find_first_of(".eEni") == Str::npos) out += ".0";
             break;
         }
-        case Type::Symbol: put_symbol(out, n.try_sym()->str()); break;
+        case Type::Symbol: put_symbol(out, n.try_sym()->str(), marker); break;
         case Type::String:
             out += '"';
             for (char c : n.string()->view()) {
@@ -74,32 +81,32 @@ void put_atom(Str& out, const Node& n) {
 }
 
 // Compact form; stops once `out` exceeds `limit` bytes. Returns false if it stopped.
-bool put_flat(Str& out, const Node& n, size_t limit) {
+bool put_flat(Str& out, const Node& n, size_t limit, bool marker = false) {
     if (!n.is_array_like()) {
-        put_atom(out, n);
+        put_atom(out, n, marker);
         return out.size() <= limit;
     }
     out += open_of(n.type());
-    bool first = true;
-    for (const Node& c : *n.array()) {
-        if (!first) out += ' ';
-        first = false;
-        if (!put_flat(out, c, limit)) return false;
+    const Array& a = *n.array();
+    for (uint32_t i = 0; i < a.size(); ++i) {
+        if (i > 0) out += ' ';
+        if (!put_flat(out, a[i], limit, marker_slot(n, a, i))) return false;
     }
     out += close_of(n.type());
     return out.size() <= limit;
 }
 
-void put_pretty(Str& out, const Node& n, size_t indent, const WriteOptions& o) {
+void put_pretty(Str& out, const Node& n, size_t indent, const WriteOptions& o,
+                bool marker = false) {
     if (!n.is_array_like()) {
-        put_atom(out, n);
+        put_atom(out, n, marker);
         return;
     }
     const size_t width = o.width > 0 ? static_cast<size_t>(o.width) : 0;
     const size_t budget = width > indent ? width - indent : 0;
     // The compact form if it fits, written once; else taken back.
     const size_t mark = out.size();
-    if (put_flat(out, n, mark + budget)) return;
+    if (put_flat(out, n, mark + budget, marker)) return;
     out.resize(mark);
     const size_t step = o.indent > 0 ? static_cast<size_t>(o.indent) : 0;
     const Array& a = *n.array();
@@ -109,7 +116,7 @@ void put_pretty(Str& out, const Node& n, size_t indent, const WriteOptions& o) {
             out += '\n';
             out.append(indent + step, ' ');
         }
-        put_pretty(out, a[i], indent + step, o);
+        put_pretty(out, a[i], indent + step, o, marker_slot(n, a, i));
     }
     out += close_of(n.type());
 }
