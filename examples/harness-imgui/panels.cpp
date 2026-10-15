@@ -372,10 +372,11 @@ void loop_panel(const baker::Config& cfg) {
         if constexpr (baker::kShipping) {
             ImGui::TextDisabled("Reload telemetry is compiled out of shipping builds.");
         } else {
-            static const ImU32 kColors[6] = {
-                IM_COL32(120, 120, 200, 255), IM_COL32(90, 170, 220, 255),
-                IM_COL32(90, 200, 140, 255),  IM_COL32(220, 200, 90, 255),
-                IM_COL32(230, 140, 80, 255),  IM_COL32(210, 90, 120, 255)};
+            static const ImU32 kColors[7] = {
+                IM_COL32(120, 120, 200, 255), IM_COL32(170, 120, 200, 255),
+                IM_COL32(90, 170, 220, 255),  IM_COL32(90, 200, 140, 255),
+                IM_COL32(220, 200, 90, 255),  IM_COL32(230, 140, 80, 255),
+                IM_COL32(210, 90, 120, 255)};
             // Per file and per layer: edit-to-see (from a saved edit to the frame showing it)
             // and reload time, median and worst of the last 32 (D92).
             const baker::LoopStats stats = cfg.loop_stats();
@@ -419,7 +420,7 @@ void loop_panel(const baker::Config& cfg) {
             }
             ImGui::TextDisabled("median / worst of the last 32 edits");
             ImGui::Separator();
-            ImGui::TextDisabled("scan read parse merge bind notify; newest first");
+            ImGui::TextDisabled("scan write read parse merge bind notify; newest first");
             // A host that polls for changes makes a record per check; show the changes.
             std::vector<const baker::ReloadRecord*> records;
             size_t unchanged = 0;
@@ -436,8 +437,8 @@ void loop_panel(const baker::Config& cfg) {
             for (auto it = records.rbegin(); it != records.rend() && it - records.rbegin() < 32;
                  ++it) {
                 const baker::ReloadRecord& r = **it;
-                const uint64_t stages[6] = {r.scan_ns,  r.read_ns, r.parse_ns,
-                                            r.merge_ns, r.bind_ns, r.notify_ns};
+                const uint64_t stages[7] = {r.scan_ns,  r.write_ns, r.read_ns,  r.parse_ns,
+                                            r.merge_ns, r.bind_ns,  r.notify_ns};
                 const char* outcome = r.outcome == baker::ReloadOutcome::ParseError
                                           ? " (parse error)"
                                       : r.outcome == baker::ReloadOutcome::Refused ? " (refused)"
@@ -448,7 +449,7 @@ void loop_panel(const baker::Config& cfg) {
                 ImVec2 at = ImGui::GetCursorScreenPos();
                 const float h = ImGui::GetTextLineHeight();
                 ImDrawList* draw = ImGui::GetWindowDrawList();
-                for (int s = 0; s < 6; ++s) {
+                for (int s = 0; s < 7; ++s) {
                     const float w = width * float(stages[s]) / float(longest);
                     draw->AddRectFilled(at, ImVec2(at.x + w, at.y + h), kColors[s]);
                     at.x += w;

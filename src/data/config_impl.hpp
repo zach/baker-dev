@@ -304,6 +304,17 @@ struct Config::Impl {
 
     bool changed(const LayerState& layer, Symbol& first) const;
 
+    // Re-reads `layers[from..]` as the read and parse stages of `rec`, from `t`, which it
+    // moves to their end; a failure marks the record a parse error (D132).
+    Expected<void> reread_stages(ReloadRecord& rec, size_t from, uint64_t& t) {
+        auto r = reread(layers, from, &rec.read_ns, &rec.files_reloaded);
+        const uint64_t parsed = now();
+        rec.parse_ns = parsed - t - rec.read_ns;
+        t = parsed;
+        if (!r) rec.outcome = ReloadOutcome::ParseError;
+        return r;
+    }
+
     // Re-reads `ls[from..]` in order (each sees the macros of the ones below), all or
     // nothing.
     Expected<void> reread(Vec<LayerState>& ls, size_t from, uint64_t* read_ns = nullptr,

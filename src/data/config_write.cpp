@@ -49,14 +49,17 @@ int32_t line_at(std::string_view text, uint32_t offset) {
     return 1 + static_cast<int32_t>(std::count(text.begin(), end, '\n'));
 }
 
+// Each tag's first child only, as lookup sees it: found by the tag run's scan in a small
+// array, and by a set past kIndexed children, so a wide layer is linear (D132).
 void collect_leaves(const Array& a, size_t first, const Str& prefix, Vec<Leaf>& out) {
-    Vec<Symbol> seen;
+    constexpr size_t kIndexed = 32;
+    HashMap<Symbol, char> seen;
+    const bool indexed = a.size() > kIndexed;
     for (size_t i = first; i < a.size(); ++i) {
         if (!is_tagged(a[i])) continue;
         const Array& child = *a[i].try_array();
         const Symbol tag = *child[0].try_sym();
-        if (std::find(seen.begin(), seen.end(), tag) != seen.end()) continue;
-        seen.push_back(tag);
+        if (indexed ? !seen.emplace(tag, 0).second : a.try_find(tag) != &child) continue;
         Str path = prefix;
         if (!path.empty()) path += '.';
         detail::append_path_name(path, tag.str());
@@ -69,6 +72,21 @@ Vec<Leaf> leaves_of(const Array& root) {
     Vec<Leaf> out;
     collect_leaves(root, 0, "", out);
     return out;
+}
+
+// Every tagged child's leaves, a repeated tag's included, each path once: all a layer
+// contributes, however its tags repeat (D134). Their values are the caller's to fill.
+void collect_paths(const Array& a, size_t first, const Str& prefix, HashMap<Str, char>& seen,
+                   Vec<Leaf>& out) {
+    for (size_t i = first; i < a.size(); ++i) {
+        if (!is_tagged(a[i])) continue;
+        const Array& child = *a[i].try_array();
+        Str path = prefix;
+        if (!path.empty()) path += '.';
+        detail::append_path_name(path, child[0].try_sym()->str());
+        if (has_values(child) && seen.emplace(path, 0).second) out.push_back({path, &child, {}});
+        collect_paths(child, 1, path, seen, out);
+    }
 }
 
 Str join(const Vec<Node>& values) {
@@ -316,12 +334,8 @@ Expected<WriteReport> Config::Impl::write_into(Config& c, size_t li, const Path&
             return Unexpected(
                 make_error(ErrorCode::Io, "cannot write '" + Str(p->file.str()) + "'", p->file));
         rec.first_file = p->file;
-        const uint64_t t0 = now();
-        auto r = reread(layers, li, &rec.read_ns, &rec.files_reloaded);
-        t = now();
-        rec.parse_ns = t - t0 - rec.read_ns;
-        if (!r) {
-            rec.outcome = ReloadOutcome::ParseError;
+        lap(rec.write_ns, t);
+        if (auto r = reread_stages(rec, li, t); !r) {
             finish(c, rec, t);
             return Unexpected(std::move(r).error());
         }
@@ -334,21 +348,22 @@ Expected<WriteReport> Config::Impl::write_into(Config& c, size_t li, const Path&
     if (it != scratch.end()) {
         written_edit.key = it->key;
         written_edit.edit = it->edit;
-        ScratchEntry kept = std::move(*it);
-        scratch.erase(it);
+        // The layer that now supplies the value, without a merge: overwrite merging means
+        // the highest enabled layer that has it won (D132).
+        const auto top = supplier(path, layers.size());
         Vec<Node> now_values;
-        if (!value_nodes(*merged(), path, now_values) || !same_nodes(now_values, values))
-            scratch.push_back(std::move(kept));
+        if (top && value_nodes(*layers[*top].root, path, now_values) &&
+            same_nodes(now_values, values))
+            scratch.erase(it);
     }
     commit(c, rec, t);
     finish(c, rec, t);
     WriteReport report;
+    const Source s = source_in(layers[li], path);
     if (p->changed) {
-        const Source s = source_in(layers[li], path);
         const WrittenLine line{s.file, s.line};
         report.written = List<WrittenLine>(std::span<const WrittenLine>(&line, 1));
     }
-    const Source s = source_in(layers[li], path);
     settle(written_edit, EditFate::Written, {s.file, s.line});
     return report;
 }
@@ -392,7 +407,24 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
             make_error(ErrorCode::NotFound, "no layer named '" + Str(ti ? from : to) + "'"));
     if (fi == ti) return Unexpected(refused("cannot promote a layer into itself"));
     const Ref<Array> tree = fi ? impl_->layers[*fi].root : impl_->scratch_root();
-    const Vec<Leaf> leaves = tree ? leaves_of(*tree) : Vec<Leaf>();
+    // Each path the source holds, valued as the Config reads it with the source on top:
+    // the enabled layers below, then the source, merged, so a repeated tag folds as a
+    // merge folds it rather than as find() would see it alone (D134).
+    Vec<Leaf> leaves;
+    if (tree) {
+        HashMap<Str, char> seen;
+        collect_paths(*tree, 0, "", seen, leaves);
+        Ref<Array> upto = Array::make(0);
+        const size_t below = fi ? *fi : impl_->layers.size();
+        for (size_t i = 0; i < below; ++i)
+            if (impl_->layers[i].options.enabled)
+                upto = detail::merge(*upto, *impl_->layers[i].root, MergePolicy::Overwrite,
+                                     impl_->merge_scratch);
+        upto = detail::merge(*upto, *tree, MergePolicy::Overwrite, impl_->merge_scratch);
+        for (Leaf& leaf : leaves)
+            if (!value_nodes(*upto, Path(leaf.path), leaf.values))
+                leaf.values = values_of(*leaf.holder);
+    }
 
     // Plan every entry against the target as each earlier one leaves it, in memory.
     HashMap<Str, Str> virt;
@@ -405,6 +437,10 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
         return disk(p, out);
     };
     LayerState target = impl_->layers[*ti];
+    // Each re-read starts from the same session below the target: one copy, not one a leaf
+    // (D132). read() copies what it is given, so this stays as it is.
+    LoadSession before = *impl_->session_below(impl_->layers, *ti);
+    before.set_reader(vread);
     Vec<Error> refusals;
     for (const Leaf& leaf : leaves) {
         auto p = impl_->plan(target, Path(leaf.path), leaf.values, true, vread);
@@ -414,8 +450,6 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
         }
         if (!p->changed) continue;
         virt[Str(p->file.str())] = std::move(p->text);
-        LoadSession before = *impl_->session_below(impl_->layers, *ti);
-        before.set_reader(vread);
         if (auto r = impl_->read(target, before); !r) refusals.push_back(std::move(r).error());
     }
     WriteReport report;
@@ -423,19 +457,15 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
         report.refused = List<Error>(refusals);
         return report;
     }
+    ReloadRecord rec = impl_->begin(trigger_name("write_back"));
+    uint64_t t = rec.start_ns;
     for (const auto& [file, text] : virt)
         if (!impl_->writer(file, text))
             return Unexpected(
                 make_error(ErrorCode::Io, "cannot write '" + file + "'", Symbol(file)));
-    ReloadRecord rec = impl_->begin(trigger_name("write_back"));
-    uint64_t t = rec.start_ns;
     if (!virt.empty()) {
-        const uint64_t t0 = impl_->now();
-        auto r = impl_->reread(impl_->layers, *ti, &rec.read_ns, &rec.files_reloaded);
-        t = impl_->now();
-        rec.parse_ns = t - t0 - rec.read_ns;
-        if (!r) {
-            rec.outcome = ReloadOutcome::ParseError;
+        impl_->lap(rec.write_ns, t);
+        if (auto r = impl_->reread_stages(rec, *ti, t); !r) {
             impl_->finish(*this, rec, t);
             return Unexpected(std::move(r).error());
         }

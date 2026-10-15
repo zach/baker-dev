@@ -516,6 +516,20 @@ Str harness_register(const LoadSession& session) {
     return out;
 }
 
+// A status as the reference prints it: empty for Normal, else its name, and a deprecated
+// entry's replacement. Functions and methods alike (D133).
+Str status_text(Status status, Symbol replacement) {
+    switch (status) {
+        case Status::Normal: return {};
+        case Status::Stub: return "stub";
+        case Status::Provisional: return "provisional";
+        case Status::Deprecated:
+            return replacement.empty() ? Str("deprecated")
+                                       : "deprecated: use `" + Str(replacement.str()) + "`";
+    }
+    return {};
+}
+
 Str reference_text(const Context& ctx, const LoadSession* packs) {
     const Context::Impl& impl = ctx.impl();
     Vec<const Function*> fs;
@@ -538,15 +552,7 @@ Str reference_text(const Context& ctx, const LoadSession* packs) {
         }
         out += "\n";
         out += f->tier == Tier::Native ? "*Native" : "*Script";
-        switch (f->status) {
-            case Status::Normal: break;
-            case Status::Stub: out += ", stub"; break;
-            case Status::Provisional: out += ", provisional"; break;
-            case Status::Deprecated:
-                out += ", deprecated";
-                if (!f->replacement.empty()) out += ": use `" + Str(f->replacement.str()) + "`";
-                break;
-        }
+        if (const Str st = status_text(f->status, f->replacement); !st.empty()) out += ", " + st;
         out += ".*";
         if (!f->doc.empty()) out += " " + f->doc;
         out += "\n";
@@ -584,7 +590,11 @@ Str reference_text(const Context& ctx, const LoadSession* packs) {
                     sig = sig.size() > 2 ? " " + sig.substr(1, sig.size() - 2) : "";
                     out += "- `{<" + t->name + "> " + Str(m->name.str()) + sig + "}` → " +
                            Str(o.result);
-                    if (&o == &m->overloads.front() && !m->doc.empty()) out += ": " + m->doc;
+                    if (&o == &m->overloads.front()) {
+                        if (const Str st = status_text(m->status, m->replacement); !st.empty())
+                            out += " *(" + st + ")*";
+                        if (!m->doc.empty()) out += ": " + m->doc;
+                    }
                     if (!m->message.empty()) out += " (message `" + Str(m->message) + "`)";
                     out += "\n";
                 }

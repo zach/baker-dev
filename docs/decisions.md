@@ -3893,3 +3893,106 @@ It also corrects D61's and D64's text, and documents `eval(text)`'s lifetime.*
   Context's allocator. A value kept from it, or a `{func}` the text defined, keeps that
   arena alive, so the allocator must outlive it as well as the Context. D61's contract
   already covered this; `script.hpp` now says so where `eval` is declared.
+
+## D132. The write-back batch: one merge a write, one session a promote, a write stage
+
+*Gaps 22–25, the owner's choice of batch. Adds `ReloadRecord::write_ns`, which deviates
+from spec §4's record; the owner chose a new stage over folding the write into another.*
+
+- **Gap 22: write-back merged twice.**
+  - To decide whether scratch should keep a written value, `write_into` merged the whole
+    stack, and then `commit` merged again.
+  - Now `supplier` names the layer whose values win, and that layer's own tree is compared
+    with the values written.
+    - Overwrite merging makes this the merged value: the highest enabled layer with values
+      at the path supplies them.
+    - Scratch's other entries cannot cover the path: the entry with the same key is the one
+      being decided.
+  - A kept entry now keeps its place in scratch rather than moving to the end.
+  - `source_in` is computed once.
+- **Gap 23: session copies.** `refresh_read`'s half was closed by D129. `promote` copied
+  the session below the target for every leaf; `read()` copies what it is given, so one
+  copy before the loop serves them all.
+- **Gap 24: the write's time.** `write_back` started its record before the writer ran, but
+  counted the write in no stage, so the stages did not tile the record as `finish()`
+  promises. `promote` wrote before starting its record.
+  - Both now start the record first and time the write as `write_ns`, between `scan_ns`
+    and `read_ns`.
+  - The reread, timing and parse-error block written three times (reload, `write_back`,
+    `promote`) is one helper, `reread_stages`.
+  - The ImGui harness's loop panel draws seven stages.
+- **Gap 25: quadratic leftovers.**
+  - `collect_leaves` kept a vector of seen tags per array and searched it for every child.
+    Now a child is skipped unless `find()` returns it, a scan of the tag run (D77); past 32
+    children, a set.
+  - `restore` searched the scratch for every journal entry. Now each scratch entry finds
+    its own edit, and the journal is checked against that sorted list.
+- **Measured.** A driver with four in-memory layers (edit mode): base 280 sections, mid
+  280, top 187, an empty local. Each section is six keys. Release, pinned, three
+  alternating runs. Before is D131.
+
+  | | before | after |
+  |---|---:|---:|
+  | `write_back` of one value in mid, best of 30 | 923–962 µs | 793–822 µs |
+  | its median | 1,080–1,089 µs | 864–892 µs |
+  | its default allocations | 151 | 143 |
+  | `promote` of 327 scratch leaves into local | 18.3–19.0 ms | 18.0–18.5 ms |
+  | its default allocations | 24,896 | 24,240 |
+
+  - Callgrind over the driver: `write_back` 341.6M → 307.3M instructions for 30 calls
+    (−10%), of which `merged()` 80.5M → 46.4M.
+  - `promote`'s instructions are unchanged (210.7M → 210.3M): it re-reads the target once
+    per leaf to plan the next, and that dominates. Planning every leaf against one read is
+    a larger change, and promote is a tool path.
+- **Tests.**
+  - A write-back's and a promote's stages tile their records, with `write_ns` timed.
+  - A promote takes each tag's first child, at 4 and at 40 children.
+  - The second test found gap 32: the Config reads a duplicated tag as the later child
+    (merge folds it in), but `promote` writes the first. That predates this entry, and
+    which meaning is right is the owner's call.
+
+## D133. The reference prints a method's status
+
+*Gap 29. The owner chose to print a method's status rather than drop its replacement.*
+
+- **Before.** `MethodRef::status` stored a method's `Status` and replacement, but the
+  reference printed status for functions only. A deprecated method looked like any other,
+  and its replacement was stored for nothing.
+- **Now.** One `status_text` gives a status as the reference shows it, for functions and
+  methods alike.
+  - A method's first overload line carries it in parentheses, before the doc. For
+    example: ``- `{<Robot> walk int32}` → int32 *(deprecated: use `stride`)*: Walks `n`
+    steps.``
+  - Functions print as before (`*Native, deprecated: use `jump`.*`).
+- **Checks are unchanged.** They demand only `Stub`, for functions and methods alike, as
+  D-entries before this one decided.
+- `docs/script-reference.md` is unchanged: no built-in method has a status. A test binds
+  a type with a stub, a provisional and a deprecated method.
+
+## D134. Promote writes what the Config reads
+
+*Gap 32, found writing D132's test. The owner chose the Config's reading over refusing
+duplicates or keeping `find()`'s.*
+
+- **The mismatch.** A layer can repeat a tag. Merge folds the repeat into the first child,
+  the later values winning, so the Config reads `(k 1) (k 9)` as 9. `promote` took each
+  tag's first child, as `find()` sees one array alone, and wrote 1. Worse, a repeated
+  section's own keys were never visited: `(sec (a 1)) (sec (b 2))` promoted `sec.a` and
+  lost `sec.b`.
+- **Now.**
+  - `promote` visits every tagged child, a repeated tag's included, and keeps each path
+    once (`collect_paths`).
+  - It reads each path's values from the stack as the Config would see it with the source
+    on top: the enabled layers below the source, then the source, merged. Scratch is
+    merged over every enabled layer.
+  - After a promote, the target alone reads as the stack did. The test disables the
+    source and checks this.
+- **Cost.** One merge of the layers up to the source per promote, a tool path; the merge
+  reuses the Config's scratch (D127). In D132's driver (327 scratch leaves into local),
+  release, pinned, three alternating runs:
+  - time: 17.5–17.8 ms before, 18.2–18.3 ms after (+2.5%);
+  - default allocations: 24,240 before, 24,577 after (+337: the merge's few, and one key
+    a path in the set of paths seen).
+- **Left as they are.** `layer_effect` and `diff` still list each tag's first child, as
+  `find()` does. They describe a layer's own text rather than move values, and nothing
+  reported a problem with them.

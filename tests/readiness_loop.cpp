@@ -74,6 +74,7 @@ TEST_CASE("readiness loop: edit, see, tune, save, experiment, and return") {
     CHECK(rec->merge_ns > 0);
     CHECK(rec->bind_ns > 0);
     CHECK(rec->notify_ns > 0);
+    CHECK(rec->write_ns == 0);  // a reload writes nothing
     CHECK(rec->scan_ns + rec->read_ns + rec->parse_ns + rec->merge_ns + rec->bind_ns +
               rec->notify_ns ==
           rec->end_ns - rec->start_ns);
