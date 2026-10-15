@@ -4203,3 +4203,29 @@ check.*
     error names the cache.
 
   The naming test fails against the previous code: two caches.
+
+## D141. A pack whose required pack is not loaded is warned about
+
+*Gap 41, as D138 decided.*
+
+- **Before.** `(pack expansion (level dlc) (requires season_pass))` was recorded and never
+  checked. A DLC whose prerequisite was not installed loaded silently (research
+  scenario 7).
+- **Now.** A pack's `requires` is checked once its file has been read, so the cookbook's
+  pattern of declaring a requirement and then `#require`-ing it on the next line is
+  satisfied.
+  - **What counts as loaded:** any pack the session has registered, from a layer below or
+    earlier in the read.
+  - **When one is missing:** a located warning, at the declaration's line, "pack
+    'expansion' requires 'season_pass', which is not loaded", goes to `warnings()`. A
+    Config forwards it to its warning handler, as it does the one-way rule's (D80). The
+    load still succeeds: the rule warns and never fails.
+  - **A cache load** replays its packs and then checks the new ones, at line 1, because a
+    cache keeps no lines.
+  - One helper, `SessionAccess::warn_missing_requires`, serves both paths.
+- **Test:**
+  - the cookbook pattern gives no warning;
+  - an unmet requirement warns at `expansion.dta:2`;
+  - both behave the same loaded from a cache.
+
+  It fails against the previous code, which never warned.

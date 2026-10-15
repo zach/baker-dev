@@ -567,6 +567,7 @@ bool fresh(const Array& meta, LoadSession& s) {
 
 // Leaves the session as the recorded load left it.
 void replay(const Array& meta, LoadSession& s) {
+    const size_t packs_before = s.packs().size();
     if (const Array* d = meta.try_find("define"))
         for (uint32_t i = 1; i + 1 < d->size(); i += 2) {
             const Symbol name = (*d)[i].try_sym().value_or(Symbol());
@@ -589,14 +590,19 @@ void replay(const Array& meta, LoadSession& s) {
                 if (const Array* d = (*p)[3 + k].array())
                     for (const Node& x : d->values())
                         if (const auto sym = x.try_sym()) lists[k].push_back(*sym);
-            SessionAccess::add_pack(
-                s, Pack{(*p)[0].try_sym().value_or(Symbol()), (*p)[1].try_sym().value_or(Symbol()),
-                        0, (*p)[2].try_sym().value_or(Symbol()),
-                        List<Symbol>({lists[0].data(), lists[0].size()}),
-                        List<Symbol>({lists[1].data(), lists[1].size()}),
-                        List<Symbol>({lists[2].data(), lists[2].size()}),
-                        (*p)[6].try_sym().value_or(Symbol())});
+            const Pack pack{(*p)[0].try_sym().value_or(Symbol()),
+                            (*p)[1].try_sym().value_or(Symbol()),
+                            0,
+                            (*p)[2].try_sym().value_or(Symbol()),
+                            List<Symbol>({lists[0].data(), lists[0].size()}),
+                            List<Symbol>({lists[1].data(), lists[1].size()}),
+                            List<Symbol>({lists[2].data(), lists[2].size()}),
+                            (*p)[6].try_sym().value_or(Symbol())};
+            SessionAccess::add_pack(s, pack);
         }
+    // Once every recorded pack is back, as the read checked once each file was read (D141).
+    for (const Pack& pack : s.packs().subspan(packs_before))
+        SessionAccess::warn_missing_requires(s, pack, 1);  // a cache keeps no lines
     if (const Array* os = meta.try_find("origins"))
         for (const Node& n : os->values()) {
             const Array* o = n.array();

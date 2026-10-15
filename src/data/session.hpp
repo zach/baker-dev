@@ -59,6 +59,9 @@ struct SessionAccess {
     // either way. The Parser and a cache's replay share it (D136). And attributes a macro
     // to the pack declared by `file`.
     static size_t add_pack(LoadSession& s, const Pack& pack);
+    // Warns, at `line` of the pack's file, of each pack `pack` requires that the session has
+    // not loaded: a required pack loads first, below or earlier (D141).
+    static void warn_missing_requires(LoadSession& s, const Pack& pack, int32_t line);
     static void set_macro_pack(LoadSession& s, Symbol macro, Symbol file);
     // Origins (D91): those the last recorded read declared; and one a cache recorded.
     [[nodiscard]] static std::span<const Origin> new_origins(const LoadSession& s) noexcept;
