@@ -4669,3 +4669,39 @@ plans are `dev/integration-plans.md`.*
   - Each integration lives in its own repository from `tools/integration-template/`,
     including the MIT-only ones (`INTEGRATIONS.md`, rule 2).
   - E2's reply form and `bind_config_tools` ship in the published library.
+
+## D154. `Config::explain`: a path's whole layer chain
+
+*E1 of the tool surface (`dev/tool-surface-plan.md` §1), the first step D153 chose. Tools,
+editors and agents needed every contributor to one value; `source()` names the winner
+only, and `layer_effect` works one layer at a time.*
+
+- **API.** `Config::explain(path)` returns `List<ExplainEntry>`, bottom to top. Each entry
+  has `layer`, `value` (packed as `layer_effect` packs it), `source` and `standing`:
+  - `Wins`: the value `get` returns;
+  - `Shadowed`: overridden or removed from above;
+  - `Removes`: `(key #remove)` at the path or an ancestor;
+  - `Disabled`: a disabled layer, or disabled scratch, that has the path.
+- **Rules.**
+  - The walk goes top down: scratch, the layers, then the code default. The first enabled
+    contributor with a value wins, or with a marker removes. Every enabled one below it
+    is shadowed.
+  - A layer's value is what `supplier()` already decides, so the winner is the layer
+    `source()` names. A test checks this, and the value against `get`, for every leaf of a
+    three-layer stack with a removal.
+  - An ancestor's marker is found by resolving the path's prefixes in each layer. The
+    marker's own line is its source.
+  - A tweak at the path adds a first entry, layer `code`, holding its default. It wins only
+    when nothing above sets the path. This needed `TweakBase::default_values(ValueList&)`,
+    a second virtual beside `values`; the tweak read is unchanged.
+  - A path that names arrays of arrays is refused ("holds arrays, not values: explain a
+    leaf"). A path nothing sets fails as `get` fails.
+  - The marker symbol prints quoted when it stands alone, `'#remove'`, as D143 has it.
+- **Cost.** Tool path. It allocates its result, and the work is one resolve per prefix per
+  layer. It is available in shipping builds, as `source()` is.
+- **Tests:**
+  - `tests/data/test_explain.cpp`: overrides, an index path, removals of a key and of an
+    ancestor, a key set again above a removal, a tweak's default alone and shadowed,
+    refusals, a disabled layer and scratch, and the agreement with `source()` and `get`.
+  - `baker_alloc_tests`: a Config answering `explain` through its own allocator.
+- **Core:** 11,989 → 12,085 lines.

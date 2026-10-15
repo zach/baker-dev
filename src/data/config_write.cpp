@@ -576,4 +576,90 @@ Expected<List<DiffEntry>> Config::diff(std::string_view a, std::string_view b) c
     return List<DiffEntry>(out);
 }
 
+Expected<List<ExplainEntry>> Config::explain(const Path& path) const {
+    if (!path.valid()) return Unexpected(detail::get_error(*root_, path, nullptr));
+    if (path.empty())
+        return Unexpected(refused("the whole config has no single value: explain a leaf"));
+
+    // What one tree holds at `path`: a value, a removal of it or of an ancestor, an array
+    // of arrays, or nothing.
+    struct Held {
+        Vec<Node> nodes;
+        const Array* marker = nullptr;
+        bool value = false, subtree = false;
+    };
+    auto held = [&](const Array& root) {
+        Held h;
+        detail::Resolved r;
+        for (size_t k = 1; k <= path.size(); ++k) {
+            if (path[k - 1].is_index) continue;
+            const Path prefix = k == path.size() ? path : Path(detail::text_of(path, k));
+            if (detail::resolve(root, prefix, r) != detail::ResolveStatus::Ok) return h;
+            if (r.array && detail::is_removal(*r.array)) {
+                h.marker = r.array;
+                return h;
+            }
+        }
+        if (detail::resolve(root, path, r) != detail::ResolveStatus::Ok) return h;
+        if (last_is_index(path) || (r.array && has_values(*r.array)))
+            h.value = value_nodes(root, path, h.nodes);
+        else
+            h.subtree = true;
+        return h;
+    };
+
+    // Top down: the first enabled contributor decides (it wins, or it removes); every
+    // enabled one below it is shadowed. Reversed at the end.
+    Vec<ExplainEntry> out;
+    bool decided = false, subtree = false;
+    auto add = [&](Symbol layer, const Held& h, const Source& source, bool enabled) {
+        subtree = subtree || h.subtree;
+        if (!h.value && !h.marker) return;
+        ExplainEntry e{layer, h.marker ? Node(detail::remove_marker()) : pack(h.nodes), source};
+        if (!enabled) {
+            e.standing = Standing::Disabled;
+        } else if (decided) {
+            e.standing = Standing::Shadowed;
+        } else {
+            e.standing = h.marker ? Standing::Removes : Standing::Wins;
+            decided = true;
+        }
+        out.push_back(std::move(e));
+    };
+
+    if (const Ref<Array> scratch = impl_->scratch_root())
+        add(scratch_name(), held(*scratch), Source{scratch_name()}, impl_->scratch_enabled);
+    for (size_t i = impl_->layers.size(); i-- > 0;) {
+        const LayerState& l = impl_->layers[i];
+        const Held h = held(*l.root);
+        const Source source = h.marker  ? Impl::located(l, *h.marker)
+                              : h.value ? impl_->source_in(l, path)
+                                        : Source{};
+        add(Symbol(l.name), h, source, l.options.enabled);
+    }
+    if (TweakRegistry* tweaks = impl_->options.tweaks) {
+        bool found = false;
+        tweaks->each([&](TweakBase& t) {
+            if (found || !(t.parsed() == path)) return;
+            found = true;
+            ValueList v;
+            t.default_values(v);
+            Held h;
+            const std::span<const Node> d = v.nodes();
+            h.nodes.assign(d.data(), d.data() + d.size());
+            h.value = !h.nodes.empty();
+            const Symbol code("code");
+            add(code, h, Source{code}, true);
+        });
+    }
+
+    if (out.empty()) {
+        if (subtree)
+            return Unexpected(refused(quoted(path) + " holds arrays, not values: explain a leaf"));
+        return Unexpected(detail::get_error(*root_, path, nullptr));
+    }
+    std::reverse(out.begin(), out.end());
+    return List<ExplainEntry>(out);
+}
+
 }  // namespace baker

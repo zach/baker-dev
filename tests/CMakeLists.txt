@@ -20,6 +20,7 @@ add_executable(baker_data_tests
   data/test_lookup.cpp
   data/test_m3b.cpp
   data/test_m10.cpp
+  data/test_explain.cpp
   data/test_parse.cpp
   data/test_preprocessor.cpp
   data/test_version.cpp

@@ -116,6 +116,8 @@ TEST_CASE("a Config allocates through its allocator, and nothing through operato
             ok = config.push_layer("base", "base.dta").has_value();
             ok = ok && config.push_layer("over", "over.dta").has_value();
             ok = ok && config.get<int>(baker::Path("window/width")).value_or(0) == 800;
+            ok = ok && config.explain(baker::Path("window/width")).has_value();
+            ok = ok && config.explain(baker::Path("speed")).has_value();  // the code default
             if constexpr (!baker::kShipping) {  // live edits are refused in shipping
                 ok = ok && config.set("window/height", baker::Node(int64_t{600})).has_value();
                 const baker::ConfigSnapshot snap = config.snapshot();

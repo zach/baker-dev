@@ -137,6 +137,23 @@ A disabled layer keeps its place and is skipped by merging, provenance, and writ
 Live tuning goes to the `scratch` layer, so "my tuning versus the files" is also a toggle:
 `cfg.toggle_layer("scratch")`.
 
+`source()` names the layer a value comes from; `cfg.explain(path)` names every layer that
+has a say, bottom to top. Each entry gives the layer, its value, its file and line, and how
+it stands:
+
+- `Wins`: it supplies the value `get` returns.
+- `Shadowed`: a layer above overrides it.
+- `Removes`: it holds `(key #remove)` for the key or an ancestor.
+- `Disabled`: a toggled-off layer that would bring the value back.
+
+A tweak at the path adds a first entry, `code`, holding its default.
+
+```
+default      shadowed  2    default.dta:2
+boss-faster  disabled  3    boss-faster.dta:1
+scratch      wins      2.5
+```
+
 `cfg.snapshot()` and `cfg.restore(s)` capture and return to an exact state (the layer
 stack, each layer's trees, and scratch) without reading files. Two snapshots make A/B
 comparison of two tuned states one call each.

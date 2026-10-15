@@ -202,6 +202,21 @@ struct DiffEntry {
     std::optional<Source> source_a, source_b;
 };
 
+// How one contributor to a path's value stands in the merged value (Config::explain).
+enum class Standing : uint8_t {
+    Wins,      // supplies the value get() returns
+    Shadowed,  // supplies a value that a higher contributor overrides or removes
+    Removes,   // (key #remove) at the path or an ancestor: below it, the key is gone
+    Disabled,  // a disabled layer (or scratch) that has the path: what enabling it would bring
+};
+
+struct ExplainEntry {
+    Symbol layer{};  // a layer's name, "scratch", or "code" for a tweak's default
+    Node value{};    // packed as LayerEffectEntry::value; the symbol #remove for Removes
+    Source source{};
+    Standing standing = Standing::Wins;
+};
+
 struct WrittenLine {
     Symbol file;
     int32_t line = 0;
@@ -395,6 +410,10 @@ public:
     [[nodiscard]] Expected<WriteReport> promote(std::string_view from, std::string_view to);
     [[nodiscard]] Expected<List<LayerEffectEntry>> layer_effect(std::string_view layer) const;
     [[nodiscard]] Expected<List<DiffEntry>> diff(std::string_view a, std::string_view b) const;
+    // Every contributor to `path`'s value, bottom to top: the code default of a tweak at the
+    // path, each layer that holds a value there or removes it, and scratch. The one that
+    // Wins is the one source() names. Refuses a path that holds arrays rather than values.
+    [[nodiscard]] Expected<List<ExplainEntry>> explain(const Path& path) const;
 
     [[nodiscard]] ConfigSnapshot snapshot() const;
     [[nodiscard]] Expected<void> restore(const ConfigSnapshot& snapshot);

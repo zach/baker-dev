@@ -88,6 +88,8 @@ public:
     // Appends the current value as data to `out`, for a generic tuning panel (nothing if T
     // cannot be written).
     virtual void values(ValueList& out) const = 0;
+    // Appends the code's default as data, as values() does the current value.
+    virtual void default_values(ValueList& out) const = 0;
     // Sets the value from data, as a panel would; see Tweak<T>::set.
     [[nodiscard]] Expected<void> set_values(std::span<const Node> values);
 
@@ -222,6 +224,12 @@ public:
                           Convert<T>::to(std::declval<const T&>(), std::declval<ValueList&>());
                       })
             Convert<T>::to(value(), out);
+    }
+    void default_values(ValueList& out) const override {
+        if constexpr (requires {
+                          Convert<T>::to(std::declval<const T&>(), std::declval<ValueList&>());
+                      })
+            Convert<T>::to(default_, out);
     }
 
 private:
