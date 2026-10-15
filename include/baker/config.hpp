@@ -127,6 +127,11 @@ struct ConfigOptions {
 struct LayerOptions {
     bool optional = false;  // a missing file is not an error; the layer exists, empty
     bool enabled = true;    // disabled layers keep their position but are skipped by merge
+    // Where push_layer places the layer: directly below or above the named layer, instead of
+    // on top (D144). A file layer placed under others re-reads them, as remove_layer does,
+    // because they read with the macros below them. Read at the push, never kept.
+    std::string_view below = {};
+    std::string_view above = {};
 };
 
 // --- Telemetry ---

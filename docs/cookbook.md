@@ -258,7 +258,9 @@ and one allocation each: a 6.2 MB tree in 2.3–2.5 ms (D79).
 How a game delivers content after it ships, from `docs/background/content-updates.md`:
 
 - **Each package is a layer:** the base game, then each DLC, then title updates, then live
-  ops. A DLC that may be absent is pushed with `LayerOptions::optional`. Code that reads
+  ops. A package installed later still goes in its place: `push_layer("pack3", path,
+  {.below = "tu1"})` puts a new DLC under the title updates, so their fixes to it win
+  (D144). A DLC that may be absent is pushed with `LayerOptions::optional`. Code that reads
   its content takes a fallback (`get(path, fallback)`), so a save that names an
   uninstalled DLC's content still loads.
 - **Anything packages extend is a keyed table.** Two layers that set one value list leave

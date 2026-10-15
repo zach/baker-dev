@@ -438,18 +438,40 @@ void Config::bind(TweakBase& t) {
 
 // --- Layers ---
 
+Expected<size_t> Config::Impl::placement(LayerOptions& opts) const {
+    const std::string_view anchor = opts.below.empty() ? opts.above : opts.below;
+    const bool below = !opts.below.empty();
+    if (below && !opts.above.empty())
+        return Unexpected(refused("a layer goes below one layer or above one, not both"));
+    opts.below = opts.above = {};  // the views are the caller's; a layer keeps neither
+    if (anchor.empty() || anchor == "scratch") return layers.size();
+    const auto at = find_layer(anchor);
+    if (!at)
+        return Unexpected(make_error(ErrorCode::NotFound, "no layer named '" + Str(anchor) + "'"));
+    return below ? *at : *at + 1;
+}
+
 Expected<void> Config::push_layer(std::string_view name, std::string_view path,
                                   LayerOptions options) {
     if (auto ok = impl_->may_change(*this); !ok) return ok;
     if (name == "scratch" || impl_->find_layer(name))
         return Unexpected(refused("there is already a layer named '" + Str(name) + "'"));
+    const auto at = impl_->placement(options);
+    if (!at) return Unexpected(at.error());
     LayerState layer(impl_->alloc);
     layer.name.assign(name);
     layer.path.assign(path);
     layer.options = options;
-    if (auto r = impl_->read(layer, *impl_->session_below(impl_->layers, impl_->layers.size())); !r)
-        return r;
-    impl_->layers.push_back(std::move(layer));
+    if (auto r = impl_->read(layer, *impl_->session_below(impl_->layers, *at)); !r) return r;
+    if (*at == impl_->layers.size()) {
+        impl_->layers.push_back(std::move(layer));
+    } else {
+        // The layers above read with the macros below them, now this one's too (D144).
+        Vec<LayerState> placed = impl_->layers;
+        placed.insert(placed.begin() + static_cast<ptrdiff_t>(*at), std::move(layer));
+        if (auto r = impl_->reread(placed, *at + 1); !r) return r;
+        impl_->layers = std::move(placed);
+    }
     impl_->change(*this, trigger_name("layer"));
     return {};
 }
@@ -461,12 +483,15 @@ Expected<void> Config::push_layer(std::string_view name, Ref<Array> overlay, Lay
             make_error(ErrorCode::NotFound, "null overlay for layer '" + Str(name) + "'"));
     if (name == "scratch" || impl_->find_layer(name))
         return Unexpected(refused("there is already a layer named '" + Str(name) + "'"));
+    const auto at = impl_->placement(options);
+    if (!at) return Unexpected(at.error());
     LayerState layer(impl_->alloc);
     layer.name.assign(name);
     layer.options = options;
     layer.root = std::move(overlay);
-    layer.after = impl_->session_below(impl_->layers, impl_->layers.size());
-    impl_->layers.push_back(std::move(layer));
+    // An overlay adds no macros, so the layers above need no re-read.
+    layer.after = impl_->session_below(impl_->layers, *at);
+    impl_->layers.insert(impl_->layers.begin() + static_cast<ptrdiff_t>(*at), std::move(layer));
     impl_->change(*this, trigger_name("layer"));
     return {};
 }

@@ -212,6 +212,42 @@ TEST_CASE("#remove is a key's only value, prints back, and #merge ignores it (D1
     CHECK(to_string(*ok(read_file(main))) == "((a (b 1) (c 2)))");
 }
 
+TEST_CASE("a layer can be placed below or above another (D144)") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer("base", dir.write("base.dta", "(songs (song_a (bpm 120)))\n")));
+    REQUIRE(cfg.push_layer("tu2", dir.write("tu2.dta", "(songs (song_c (bpm 141)))\n")));
+    // A DLC installed after the title update still goes below it, so the fix wins.
+    const std::string pack1 = dir.write("pack1.dta", "(songs (song_c (bpm 140) (title c)))\n");
+    REQUIRE(cfg.push_layer("pack1", pack1, {.below = "tu2"}));
+    CHECK(strings(cfg.layers()) == std::vector<std::string>{"base", "pack1", "tu2", "scratch"});
+    CHECK(cfg.get<int>("songs.song_c.bpm") == 141);
+    CHECK(cfg.get<Symbol>("songs.song_c.title") == Symbol("c"));
+
+    // A layer placed under others is read first, and they are read again with its macros.
+    REQUIRE(cfg.push_layer("top", dir.write("top.dta",
+                                            "#ifdef HARD\n(level hard)\n#else\n"
+                                            "(level easy)\n#endif\n")));
+    CHECK(cfg.get<Symbol>("level") == Symbol("easy"));
+    REQUIRE(cfg.push_layer("mode", dir.write("mode.dta", "#define HARD\n"), {.above = "pack1"}));
+    CHECK(strings(cfg.layers()) ==
+          std::vector<std::string>{"base", "pack1", "mode", "tu2", "top", "scratch"});
+    CHECK(cfg.get<Symbol>("level") == Symbol("hard"));
+
+    // An overlay can be placed too; "scratch" as the anchor is the top.
+    REQUIRE(cfg.push_layer("hotfix", ok(read_string("(songs (song_a (bpm 121)))", "h.dta")),
+                           {.below = "base"}));
+    CHECK(cfg.get<int>("songs.song_a.bpm") == 120);  // below base: base wins
+    REQUIRE(cfg.push_layer("live", ok(read_string("(songs (song_a (bpm 122)))", "l.dta")),
+                           {.below = "scratch"}));
+    CHECK(cfg.get<int>("songs.song_a.bpm") == 122);
+
+    CHECK(cfg.push_layer("x", pack1, {.below = "nope"}).error().code() == ErrorCode::NotFound);
+    CHECK(cfg.push_layer("y", pack1, {.below = "base", .above = "tu2"}).error().code() ==
+          ErrorCode::Refused);
+    CHECK(strings(cfg.layers()).size() == 8);  // neither refusal changed the stack
+}
+
 TEST_CASE("telemetry adds no allocation per reload once the history exists") {
     TempDir dir;
     Config cfg({.tweaks = nullptr});

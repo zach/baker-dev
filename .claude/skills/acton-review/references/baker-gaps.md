@@ -1,7 +1,7 @@
 # Baker under the data-oriented lens: known gaps
 
 **Status, 2026-10-15: gaps 1–32 are closed; 33–43, from the content-update research
-(`docs/background/content-updates.md`), are decided (D138) and built in its order: D139 closed 33, D140 40, D141 41, D142 36 and 43, D143 35.** D132 closed the
+(`docs/background/content-updates.md`), are decided (D138) and built in its order: D139 closed 33, D140 40, D141 41, D142 36 and 43, D143 35, D144 37.** D132 closed the
 write-back batch (22–25), D133 gap 29, D134 gap 32, D135 gap 27, D136 gap 28, D137 gap 30. D127 closed gap 31 (the owner's choice in `docs/allocation-review.md`), and
 D128–D131 the review's other findings: edit-mode source maps, sessions, script callables
 and handlers on their owner's allocator, and the first arena block and text copies. D124 closed the hot-path batch (13–18), D125 gap 26, D126 the load-path batch
@@ -60,7 +60,7 @@ before fixing (SKILL.md, step 5), and do not fix one without a cost that justifi
 | 34, `.datb` and delta patching | content | A cache is a memory image of offsets: any structural edit rewrites what follows, so a one-section append changed all ten 1 MB chunks (129 KB xdelta, text 260 B). It is 5.8× the text, 15× compressed. Text updates with on-device baking, an immutable base cache, or a delta-friendly layout are the options. | measured |
 | 35, no removal in layers | content | A layer cannot delete a key, a tagged child, or a list element: a patch cannot remove a debug flag or an exploit entry. RimWorld and Module Manager both have delete operations. | **closed**, D143: `(key #remove)` in a layer; markers never reach the merged tree; +1.1% parse instructions |
 | 36, value lists across packages | content | Two layers that each add to one value list leave only the last; keyed children compose. A convention to document, or an append marker. | **closed**, D142: keyed tables are the documented convention (cookbook, content packages) |
-| 37, layer order is push order | content | No insert at a position: a title update fixing DLC data loses when the DLC is pushed after it. | reproduced |
+| 37, layer order is push order | content | No insert at a position: a title update fixing DLC data loses when the DLC is pushed after it. | **closed**, D144: `LayerOptions::below`/`above`; layers above a placed file layer are re-read |
 | 38, packages loosen shapes | content | A layer that redeclares a shape with a wider range silences the base's check; the one-way rule (D80) suggests softer packs may extend, not loosen. | reproduced |
 | 39, script outlives its layer | content | Functions and handlers a layer's `#autorun` defined stay defined after the layer is removed. | reproduced |
 | 40, cache names hash the raw path | content | `./dlc/x.dta` and `dlc/x.dta` name different caches, and a DLC installed elsewhere than it was baked misses its cache; with no text the layer fails. | **closed**, D140: names hash the normalized path; shipping warns why it read the text |

@@ -4308,3 +4308,29 @@ array, as Module Manager's `!NODE` sits on the node.*
   - a bottom-layer marker and a marker inside a new key are absent from the tree;
   - a cache round trip keeps the flag and still removes;
   - the bad forms are errors, the marker prints back, and `#merge` ignores it.
+
+## D144. A layer can be placed below or above another
+
+*Gap 37, as D138 decided. The owner chose `LayerOptions` over a separate `insert_layer`.*
+
+- **Before.** `push_layer` always put the layer on top. A title update that fixes a DLC's
+  value lost when the DLC was installed, and so pushed, after it (research scenario 3:
+  140 instead of 141).
+- **Now.** `LayerOptions::below` and `::above` name the layer to place the new one under or
+  over.
+  - `"scratch"` as the anchor means the top, as does no anchor.
+  - An unknown anchor is `NotFound`. Both at once is refused.
+  - The views are read at the push and cleared before the options are kept (`placement`),
+    so a layer never holds the caller's strings.
+- **Re-reading.**
+  - A file layer placed under others is read with the session below its place. The layers
+    above are then read again, all or nothing, as `remove_layer` does, because they read
+    with the macros below them.
+  - An overlay adds no macros, so placing one re-reads nothing.
+- **Test:**
+  - scenario 3: a DLC pushed `below` the title update now reads 141, and keeps its other
+    keys;
+  - a layer placed `above` the DLC defines `HARD`, and the layer above it is re-read and
+    takes its `#ifdef HARD` branch;
+  - overlays placed below the base and below `scratch`;
+  - the two refusals leave the stack unchanged.
