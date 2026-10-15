@@ -315,34 +315,35 @@ TEST_CASE("a cache baked for other macros is not used, in shipping too (D139)") 
 }
 
 TEST_CASE("shipping says why it read the text instead of a cache (D140)") {
-    if constexpr (!kShipping) return;  // development rebuilds caches silently
-    test::TempDir dir;
-    const std::string text = dir.write("a.dta", "(a A)");
-    const std::string cache = dir.path("a.datb");
-    auto warned = [](const LoadSession& s, std::string_view what) {
-        for (const Error& w : s.warnings())
-            if (std::string(w.message()).find(what) != std::string::npos) return true;
-        return false;
-    };
-    LoadSession none;
-    CHECK(to_string(*ok(read_cached(text, cache, none))) == "((a A))");
-    CHECK(warned(none, "no usable cache"));
+    if constexpr (kShipping) {  // development rebuilds caches silently
+        test::TempDir dir;
+        const std::string text = dir.write("a.dta", "(a A)");
+        const std::string cache = dir.path("a.datb");
+        auto warned = [](const LoadSession& s, std::string_view what) {
+            for (const Error& w : s.warnings())
+                if (std::string(w.message()).find(what) != std::string::npos) return true;
+            return false;
+        };
+        LoadSession none;
+        CHECK(to_string(*ok(read_cached(text, cache, none))) == "((a A))");
+        CHECK(warned(none, "no usable cache"));
 
-    LoadSession bake;
-    bake.define("A", ok(read_string("1", "d.dta")));
-    bake.record_for_cache = true;
-    ok(write_cache(*ok(read_file(text, bake)), cache, &bake));
-    LoadSession other;
-    other.define("A", ok(read_string("2", "d.dta")));
-    CHECK(to_string(*ok(read_cached(text, cache, other))) == "((a 2))");
-    CHECK(warned(other, "was baked for other macros"));
+        LoadSession bake;
+        bake.define("A", ok(read_string("1", "d.dta")));
+        bake.record_for_cache = true;
+        ok(write_cache(*ok(read_file(text, bake)), cache, &bake));
+        LoadSession other;
+        other.define("A", ok(read_string("2", "d.dta")));
+        CHECK(to_string(*ok(read_cached(text, cache, other))) == "((a 2))");
+        CHECK(warned(other, "was baked for other macros"));
 
-    std::filesystem::remove(text);
-    std::filesystem::remove(cache);
-    LoadSession gone;
-    auto r = read_cached(text, cache, gone);
-    REQUIRE_FALSE(r);
-    CHECK(std::string(r.error().message()).find("no usable cache") != std::string::npos);
+        std::filesystem::remove(text);
+        std::filesystem::remove(cache);
+        LoadSession gone;
+        auto r = read_cached(text, cache, gone);
+        REQUIRE_FALSE(r);
+        CHECK(std::string(r.error().message()).find("no usable cache") != std::string::npos);
+    }
 }
 
 TEST_CASE("a text-only session refuses caches and reads the text (D142)") {
