@@ -74,6 +74,21 @@ Vec<Leaf> leaves_of(const Array& root) {
     return out;
 }
 
+// Every tagged child's leaves, a repeated tag's included, each path once: all a layer
+// contributes, however its tags repeat (D134). Their values are the caller's to fill.
+void collect_paths(const Array& a, size_t first, const Str& prefix, HashMap<Str, char>& seen,
+                   Vec<Leaf>& out) {
+    for (size_t i = first; i < a.size(); ++i) {
+        if (!is_tagged(a[i])) continue;
+        const Array& child = *a[i].try_array();
+        Str path = prefix;
+        if (!path.empty()) path += '.';
+        detail::append_path_name(path, child[0].try_sym()->str());
+        if (has_values(child) && seen.emplace(path, 0).second) out.push_back({path, &child, {}});
+        collect_paths(child, 1, path, seen, out);
+    }
+}
+
 Str join(const Vec<Node>& values) {
     Str out;
     for (const Node& n : values) {
@@ -392,7 +407,24 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
             make_error(ErrorCode::NotFound, "no layer named '" + Str(ti ? from : to) + "'"));
     if (fi == ti) return Unexpected(refused("cannot promote a layer into itself"));
     const Ref<Array> tree = fi ? impl_->layers[*fi].root : impl_->scratch_root();
-    const Vec<Leaf> leaves = tree ? leaves_of(*tree) : Vec<Leaf>();
+    // Each path the source holds, valued as the Config reads it with the source on top:
+    // the enabled layers below, then the source, merged, so a repeated tag folds as a
+    // merge folds it rather than as find() would see it alone (D134).
+    Vec<Leaf> leaves;
+    if (tree) {
+        HashMap<Str, char> seen;
+        collect_paths(*tree, 0, "", seen, leaves);
+        Ref<Array> upto = Array::make(0);
+        const size_t below = fi ? *fi : impl_->layers.size();
+        for (size_t i = 0; i < below; ++i)
+            if (impl_->layers[i].options.enabled)
+                upto = detail::merge(*upto, *impl_->layers[i].root, MergePolicy::Overwrite,
+                                     impl_->merge_scratch);
+        upto = detail::merge(*upto, *tree, MergePolicy::Overwrite, impl_->merge_scratch);
+        for (Leaf& leaf : leaves)
+            if (!value_nodes(*upto, Path(leaf.path), leaf.values))
+                leaf.values = values_of(*leaf.holder);
+    }
 
     // Plan every entry against the target as each earlier one leaves it, in memory.
     HashMap<Str, Str> virt;

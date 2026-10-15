@@ -3968,3 +3968,31 @@ from spec §4's record; the owner chose a new stage over folding the write into 
   D-entries before this one decided.
 - `docs/script-reference.md` is unchanged: no built-in method has a status. A test binds
   a type with a stub, a provisional and a deprecated method.
+
+## D134. Promote writes what the Config reads
+
+*Gap 32, found writing D132's test. The owner chose the Config's reading over refusing
+duplicates or keeping `find()`'s.*
+
+- **The mismatch.** A layer can repeat a tag. Merge folds the repeat into the first child,
+  the later values winning, so the Config reads `(k 1) (k 9)` as 9. `promote` took each
+  tag's first child, as `find()` sees one array alone, and wrote 1. Worse, a repeated
+  section's own keys were never visited: `(sec (a 1)) (sec (b 2))` promoted `sec.a` and
+  lost `sec.b`.
+- **Now.**
+  - `promote` visits every tagged child, a repeated tag's included, and keeps each path
+    once (`collect_paths`).
+  - It reads each path's values from the stack as the Config would see it with the source
+    on top: the enabled layers below the source, then the source, merged. Scratch is
+    merged over every enabled layer.
+  - After a promote, the target alone reads as the stack did. The test disables the
+    source and checks this.
+- **Cost.** One merge of the layers up to the source per promote, a tool path; the merge
+  reuses the Config's scratch (D127). In D132's driver (327 scratch leaves into local),
+  release, pinned, three alternating runs:
+  - time: 17.5–17.8 ms before, 18.2–18.3 ms after (+2.5%);
+  - default allocations: 24,240 before, 24,577 after (+337: the merge's few, and one key
+    a path in the set of paths seen).
+- **Left as they are.** `layer_effect` and `diff` still list each tag's first child, as
+  `find()` does. They describe a layer's own text rather than move values, and nothing
+  reported a problem with them.

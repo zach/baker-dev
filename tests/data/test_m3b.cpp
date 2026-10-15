@@ -114,7 +114,7 @@ TEST_CASE("a write-back's stages tile its record, its write included (D132)") {
     CHECK(dir.read("default.dta") == "(speed 3)\n");
 }
 
-TEST_CASE("promote takes each tag's first child, in a wide layer as in a narrow one (D132)") {
+TEST_CASE("promote writes what the Config reads, however the source repeats a tag (D134)") {
     TempDir dir;
     for (const int keys : {4, 40}) {
         Config cfg({.tweaks = nullptr});
@@ -122,12 +122,23 @@ TEST_CASE("promote takes each tag's first child, in a wide layer as in a narrow 
         std::string text;
         for (int i = 0; i < keys; ++i)
             text += "(k" + std::to_string(i) + " " + std::to_string(i * 10) + ")\n";
-        text += "(k1 99)\n";  // a duplicate: promote takes the first, as find() does (gap 32)
+        // A repeated key folds into the first, its values winning; a repeated section
+        // brings its own keys.
+        text += "(k1 99)\n(sec (a 1))\n(sec (b 2))\n";
         REQUIRE(cfg.push_layer("top", parse(text.c_str())));
+        REQUIRE(cfg.get<int>("k1").value_or(-1) == 99);
+        REQUIRE(cfg.get<int>("sec.b").value_or(-1) == 2);
         REQUIRE(cfg.promote("top", "default"));
         const std::string after = dir.read("default.dta");
-        CHECK(after.find("(k1 10)") != std::string::npos);
-        CHECK(after.find("99") == std::string::npos);
+        CHECK(after.find("(k1 99)") != std::string::npos);
+        CHECK(after.find("(k1 10)") == std::string::npos);
+        CHECK(after.find("(a 1)") != std::string::npos);
+        CHECK(after.find("(b 2)") != std::string::npos);
+        // The target alone now reads as the stack did.
+        REQUIRE(cfg.set_layer_enabled("top", false));
+        CHECK(cfg.get<int>("k1").value_or(-1) == 99);
+        CHECK(cfg.get<int>("sec.a").value_or(-1) == 1);
+        CHECK(cfg.get<int>("sec.b").value_or(-1) == 2);
     }
 }
 
