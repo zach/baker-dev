@@ -4593,3 +4593,36 @@ own. The process is `docs/releasing.md`.*
     `BAKER_PUBLISH_TOKEN` secret.
 - **Agents** start, prepare or publish a release only at the owner's explicit request
   (CLAUDE.md).
+
+## D151. Integrations stay outside Baker, and their needs cross as requirements
+
+*The owner plans to try Baker with copyleft engines, source-available systems such as
+SpacetimeDB, and commercial offerings, and asked how to do that without encumbering
+Baker's license or making it look derived from what motivates its features.*
+
+- **Policy: `INTEGRATIONS.md`,** at the top level. Its rules:
+  - dependencies point one way, from an integration to Baker;
+  - each integration lives in its own repository, licensed as its target requires, and
+    private when it touches confidential material;
+  - needs cross into Baker as requirement notes in Baker's terms, never as code;
+  - facts may cross, expression may not;
+  - confidential information stays in the integration's repository;
+  - Baker's record states its own general reasons;
+  - provenance is kept: a Developer Certificate of Origin sign-off for contributions from
+    anyone but the owner, and integration work in separate sessions from Baker work;
+  - names are used descriptively.
+- **Mechanisms: CLAUDE.md's "Integrations" section.**
+  - No dependency on a restrictive target here, even an optional one.
+  - Features are built from the requirement note alone, tested against a mock host.
+  - A Baker session that drifts into an integration's code or confidential material stops
+    and asks for the work to move.
+  - Records are written in Baker's terms.
+  - When in doubt, nothing crosses.
+- **Template: `tools/integration-template/`,** to start an integration repository. It holds
+  a README with a license notice and no-endorsement line, a CLAUDE.md for agents working
+  there, and `requirements/0000-template.md`, the requirement note. A note states the need,
+  the general use case, the constraints, the workaround today, and an affirmation that it
+  holds nothing from the target.
+- **Not published.** `INTEGRATIONS.md` and the template describe how baker-dev is worked on,
+  so the release manifest leaves them out, as it does CLAUDE.md. The owner chose no
+  forbidden-terms check in the release.
