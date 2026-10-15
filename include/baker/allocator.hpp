@@ -1,6 +1,6 @@
 #pragma once
 
-// Allocator: where Baker's memory comes from (docs/decisions.md D56, D61). A plain struct
+// Allocator: where Baker's memory comes from (dev/decisions.md D56, D61). A plain struct
 // of function pointers and a context: no virtual calls, nothing from the STL.
 //
 // Each Context and Config takes one at construction, and everything it keeps comes from

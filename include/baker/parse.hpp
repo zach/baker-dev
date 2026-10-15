@@ -12,7 +12,7 @@
 //   #require path        the same, once per session: later #requires of that file, from
 //                        any file the session reads, are no-ops (for packs, spec §1)
 //   #merge path          merge another file into the enclosing array, keeping existing
-//                        keys and adding missing ones (docs/decisions.md D1)
+//                        keys and adding missing ones (dev/decisions.md D1)
 //   #ifdef N / #ifndef N / #else / #endif
 //   #define N            define N (for #ifdef)
 //   #define N (body)     define N as a macro whose body is the array's contents (the
@@ -154,17 +154,17 @@ public:
     SourceMap* source_map = nullptr;
     // Set before a load that will be cached (write_cache): each top-level read then records
     // the files it read and the defines it began with, so the cache can tell when it is
-    // stale and replay the load's effects on a session (docs/decisions.md D72).
+    // stale and replay the load's effects on a session (dev/decisions.md D72).
     bool record_for_cache = false;
     // Enciphers the caches written with this session and deciphers those read (cache.hpp).
     const Cipher* cipher = nullptr;
     // Refuses every cache: reads through this session parse text, which no input can make
     // crash the reader. A cache is a memory image that a forged file can point anywhere, so a
     // loader of content from outside the game's own packages (mods, user files) sets this
-    // (docs/decisions.md D142).
+    // (dev/decisions.md D142).
     bool text_only = false;
     // Where the trees read through this session come from: each read is one arena from
-    // it (docs/decisions.md D64), which must outlive the tree. Null: the default allocator.
+    // it (dev/decisions.md D64), which must outlive the tree. Null: the default allocator.
     const Allocator* allocator = nullptr;
 
     struct State;  // defined in parse.cpp

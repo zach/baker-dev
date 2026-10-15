@@ -363,7 +363,7 @@ Write findings as a short list, most costly first. Each finding names:
 - the evidence or the missing evidence;
 - a concrete change, or "record a decision".
 
-Accepted deviations go into `docs/decisions.md` as a D-entry (spec §11: deviating is fine,
+Accepted deviations go into `dev/decisions.md` as a D-entry (spec §11: deviating is fine,
 deviating silently is not). Do not rewrite code to follow this lens without a finding that
 names its cost.
 

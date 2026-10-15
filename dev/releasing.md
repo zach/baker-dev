@@ -13,17 +13,17 @@ agent prepares or starts one only when the owner asks for it in so many words (C
 
 `tools/release/manifest.txt` lists it: the library (`include/`, `src/`, `third_party/`),
 `tests/` with its corpus and fuzz regressions, `fuzz/`, `examples/`, `bench/`, the tools the
-build and tests use, the user docs (`docs/language.md`, `cookbook.md`,
-`script-reference.md`, `check-json.md`), `README.md`, `CHANGELOG.md`, `LICENSE` and
-`THIRD_PARTY.md`. `tools/release/public/` is laid over it: the public repository's own CI
+build and tests use, all of `docs/` (the user documentation), `README.md`, `CHANGELOG.md`,
+`LICENSE` and `THIRD_PARTY.md`. The development documents are in `dev/`, which never ships
+(D152). `tools/release/public/` is laid over it: the public repository's own CI
 workflow and `.gitignore`.
 
 On the way out, `tools/release/publish.py` strips the citations of this repository's
 documents: a parenthetical such as `(D77)`, `(spec §5, D80)` or
-`(docs/decisions.md D55)` goes, and one that mixes citations with words keeps the words.
+`(dev/decisions.md D55)` goes, and one that mixes citations with words keeps the words.
 A citation that began a line hands its punctuation to the line before. It then refuses the
 release if anything published still names what the release leaves out: a decision number
-or spec section outside such a parenthetical, `decisions.md`, `spec.md`, `docs/background`,
+or spec section outside such a parenthetical, `decisions.md`, `spec.md`, `dev/background`,
 `stacks/`, `CLAUDE.md`, `baker-dev`, a gap number. Such a line is reworded here, not
 patched in the published copy. `publish.py check` runs that dry run, and CI's "release dry
 run" job and `tools/local_matrix.sh` run it on every change, so a sentence the release

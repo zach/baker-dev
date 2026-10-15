@@ -3,7 +3,7 @@
 // Opt-in interop with the C++ standard library, for hosts that use it.
 //
 // Baker's other public headers reach only language-support headers and the non-allocating
-// vocabulary types (string_view, span, optional, expected; docs/decisions.md D55), so an
+// vocabulary types (string_view, span, optional, expected; dev/decisions.md D55), so an
 // engine that bans the STL can include them. This header is the exception, by name: it
 // includes the standard containers, and nothing else in Baker includes it.
 

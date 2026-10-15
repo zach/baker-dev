@@ -238,7 +238,7 @@ Applied to `baker-spec.md`:
   command whose inputs are all tweaks is "constant until reload," and could be memoized on
   the reload epoch if its functions were marked pure. It's a real idea, but it adds a purity
   annotation to the binder and a cache to evaluation for a workload Baker doesn't have.
-  Record it in `docs/decisions.md` as a known extension point rather than building it.
+  Record it in `dev/decisions.md` as a known extension point rather than building it.
 - *Native vector types.* SeExpr's scalar-to-vector promotion is elegant for shading math.
   Baker values like `(clear_color 1 1 0)` are just arrays, and `Convert<Vec3>` is the right
   way to read them. A vector node type would cost node-size headroom for no lookup benefit.

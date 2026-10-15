@@ -1,6 +1,6 @@
 #pragma once
 
-// The repetition report (spec §5, docs/decisions.md D90 Q3, D94): subtrees that appear
+// The repetition report (spec §5, dev/decisions.md D90 Q3, D94): subtrees that appear
 // again and again across the trees given, which are candidates for a word of their own
 // (a macro, a script function, a shape): the harness tree's "third time" rule, computed
 // rather than noticed.

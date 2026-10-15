@@ -1,6 +1,6 @@
 ---
 name: stacks-agent
-description: Work on a game stack's data as its agent (stacks/, docs/background/game-stacks.md §3) - tune values, write scenarios and task packs, judge them with the headless simulation, and hand the result to a person. Use when asked to tune, balance, test, or extend a stack game's data (the cube, Duel, Ledger, ...), to write or run a scenario, or to explain why an objective fails.
+description: Work on a game stack's data as its agent (stacks/, dev/background/game-stacks.md §3) - tune values, write scenarios and task packs, judge them with the headless simulation, and hand the result to a person. Use when asked to tune, balance, test, or extend a stack game's data (the cube, Duel, Ledger, ...), to write or run a scenario, or to explain why an objective fails.
 ---
 
 # Working on a stack's data

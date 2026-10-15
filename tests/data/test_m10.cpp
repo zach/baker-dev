@@ -1,4 +1,4 @@
-// M10: harness instrumentation (spec §4, §10; docs/decisions.md D90): loop statistics and
+// M10: harness instrumentation (spec §4, §10; dev/decisions.md D90): loop statistics and
 // the edit journal, and the repetition report.
 #include <doctest.h>
 #include <baker/config.hpp>

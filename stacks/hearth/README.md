@@ -1,6 +1,6 @@
 # Hearth
 
-Characters with routines, in a household (`docs/background/game-stacks.md` §4.3). The
+Characters with routines, in a household (`dev/background/game-stacks.md` §4.3). The
 question it exists to answer: do the characters read as people, with routines,
 preferences, and reactions, without getting stuck, oscillating, or starving?
 
@@ -65,4 +65,4 @@ second `{class}`); animation beyond standing and lying down.
 
 ## Measured
 
-See `docs/decisions.md` D112.
+See `dev/decisions.md` D112.

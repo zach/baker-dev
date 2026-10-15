@@ -11,7 +11,7 @@
 // An error from a script also carries the script call stack it unwound through
 // (Error::stack); describe() renders it, one frame a line, innermost first.
 //
-// Baker never throws (docs/decisions.md D54): every fallible API returns Expected<T>, and the
+// Baker never throws (dev/decisions.md D54): every fallible API returns Expected<T>, and the
 // library is built with exceptions disabled.
 
 #include <baker/expected.hpp>
@@ -64,7 +64,7 @@ struct ErrorRecord;
 }
 
 // An error is a handle to a record allocated on the error path only, so Expected<T> costs
-// what T costs plus a pointer (docs/decisions.md D55). It copies like a value: a copy is
+// what T costs plus a pointer (dev/decisions.md D55). It copies like a value: a copy is
 // a separate record. A default-constructed Error is empty and means "no error".
 class Error {
 public:

@@ -32,7 +32,7 @@ Baker already holds what each test needs: reload stages, the layer stack, proven
 - No `iostream`. Errors are structured `baker::Error` values, and every throwing call has a non-throwing `try_` twin.
 - Tooling calls may allocate. Reload hot paths and tweak reads must not gain allocations; verify with the test allocation counter (spec §7).
 - Under `BAKER_SHIPPING`, layer mutation and write-back are inert. Telemetry compiles out, but its API stays and returns empty results, so hosts need no `#ifdef`s.
-- Record each deviation from the spec in `docs/decisions.md` (spec §11). Five are listed under "Decisions to record" below.
+- Record each deviation from the spec in `dev/decisions.md` (spec §11). Five are listed under "Decisions to record" below.
 - Report line counts against the 4,000-line core budget when the work lands, and flag an overrun rather than absorbing it (spec §0).
 
 **Milestone.** Add an M3b after M3 is green, holding Changes 1–3 and the headless test from Change 4. The example in Change 4 joins M9.
@@ -234,7 +234,7 @@ public:
 - **Layers:** the stack with enable toggles, each layer's effect, and a promote button that shows refusals in place.
 - **Snapshots:** capture A, capture B, and flip between them.
 
-## Decisions to record in `docs/decisions.md`
+## Decisions to record in `dev/decisions.md`
 
 1. Timing uses an injectable `TimeSource`, preserving "the library owns no clock" while defaulting to `steady_clock`.
 2. Tool edits go to a reserved in-memory `scratch` layer rather than mutating tweaks directly.

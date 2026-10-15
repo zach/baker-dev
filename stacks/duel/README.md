@@ -1,6 +1,6 @@
 # Duel
 
-Player versus computer fighting on frame data (`docs/background/game-stacks.md` §4.6). The
+Player versus computer fighting on frame data (`dev/background/game-stacks.md` §4.6). The
 question it exists to answer: does the fight feel good, with risk and reward on every move,
 and a CPU that is beatable, fair, and teaches?
 
@@ -67,4 +67,4 @@ with the Duel window: who plays each side, the frame table, and the combo search
 
 ## Measured
 
-See `docs/decisions.md` D109.
+See `dev/decisions.md` D109.

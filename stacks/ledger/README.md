@@ -1,6 +1,6 @@
 # Ledger
 
-A tycoon economy (`docs/background/game-stacks.md` §4.2). The question it exists to answer:
+A tycoon economy (`dev/background/game-stacks.md` §4.2). The question it exists to answer:
 does the economy produce interesting decisions from the first minute to the fortieth hour,
 with no dominant strategy, no dead ends, and the pace the designer intends?
 
@@ -65,4 +65,4 @@ specialist is the next bot to write.
 
 ## Measured
 
-See `docs/decisions.md` D109.
+See `dev/decisions.md` D109.

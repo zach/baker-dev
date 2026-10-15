@@ -1,5 +1,5 @@
 // M3b: reload telemetry, layer options and toggles, scratch, layer effect and diff,
-// write_back_to insertion, promote, and snapshots (spec §4, docs/decisions.md D42).
+// write_back_to insertion, promote, and snapshots (spec §4, dev/decisions.md D42).
 #include <doctest.h>
 #include <baker/cache.hpp>
 #include <baker/config.hpp>

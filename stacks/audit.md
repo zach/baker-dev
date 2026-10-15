@@ -1,7 +1,7 @@
 # Harness audit of the stacks, 2026-10-14
 
-The method of `docs/background/reading-a-studio.md` §7, run on the seven games in `stacks/`
-after every stack of `docs/background/game-stacks.md` §4 was built (D112, D113), as §6 of
+The method of `dev/background/reading-a-studio.md` §7, run on the seven games in `stacks/`
+after every stack of `dev/background/game-stacks.md` §4 was built (D112, D113), as §6 of
 that document asks at each step. The results are recorded in D114.
 
 **What this audit is not.** The method is for a studio: stopwatches on real work, and

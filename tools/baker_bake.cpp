@@ -1,4 +1,4 @@
-// Writes the binary cache of a DTA file, for a build step (docs/decisions.md D70, D72).
+// Writes the binary cache of a DTA file, for a build step (dev/decisions.md D70, D72).
 //
 //   baker_bake [-D NAME]... [-I DIR]... INPUT.dta OUTPUT.datb
 //

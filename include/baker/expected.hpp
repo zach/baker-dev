@@ -5,7 +5,7 @@
 //
 // Compiled Baker functions return Expected<T>, so the library and every translation unit
 // using it must make the same choice. CMake decides once, when configuring the library,
-// and exports BAKER_STD_EXPECTED=0/1 to consumers (docs/decisions.md D21). Without it,
+// and exports BAKER_STD_EXPECTED=0/1 to consumers (dev/decisions.md D21). Without it,
 // the choice follows the current translation unit.
 
 #include <version>

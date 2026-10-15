@@ -1,7 +1,7 @@
 # Decisions
 
-Deviations from and clarifications of `docs/spec.md`, with the reasoning. Short entries,
-newest last. Background documents live in `docs/background/`.
+Deviations from and clarifications of `dev/spec.md`, with the reasoning. Short entries,
+newest last. Background documents live in `dev/background/`.
 
 ---
 
@@ -99,7 +99,7 @@ spelling in the error. That check is on the error path only.
 ## D7. Background documents
 
 The spec's `reading-a-studio.md` was supplied as `harness-lens-on-development.md`; it is
-stored under the spec's name. All six companion documents are in `docs/background/`.
+stored under the spec's name. All six companion documents are in `dev/background/`.
 
 ## D8. Known extension point: epoch-cached pure commands
 
@@ -674,13 +674,13 @@ The request mentions "the two Baker-shaped rows of the environment slice". That 
 not defined in the spec or the background documents. M9's done-when therefore names what
 the run shows instead: edit-to-see time with Baker's share measured, and a tuned value
 written back as a one-line diff. If the slice is defined elsewhere, it should be added to
-`docs/background/` and M9 should cite it.
+`dev/background/` and M9 should cite it.
 
 ## D42. M3b, as specified by the readiness brief (supersedes D41)
 
 *Amends spec §1, §4, §10. Requested by the project owner, 2026-10-11, as a detailed brief
 replacing the earlier request D41 recorded. The brief is kept as
-`docs/background/m3b-environment-readiness.md`.*
+`dev/background/m3b-environment-readiness.md`.*
 
 A studio's readiness gate has four data-layer tests: edit-to-see time measured with
 Baker's share visible; values tuned in play saved as minimal diffs; experiments that do not
@@ -1149,7 +1149,7 @@ was written.*
   nothing.
 
 M6's remaining steps (messages, statistics, tracing) wait for the hygiene work in D54–D56
-(`docs/m5b-plan.md`), so they are built on the new API from the start.
+(`dev/m5b-plan.md`), so they are built on the new API from the start.
 
 ## D54. No exceptions, and no `try_` prefix
 
@@ -1615,7 +1615,7 @@ outlives its load keeps its tree alive), choosing D56's named fallback.*
 
 ## D65. M5b step 4 results: an arena per load
 
-*Recorded 2026-10-11. Implements D64. M5b is done, and `docs/m5b-plan.md` is deleted.*
+*Recorded 2026-10-11. Implements D64. M5b is done, and `dev/m5b-plan.md` is deleted.*
 
 - **What was built.**
   - **Owners.** An `Array` or `String` header keeps a 32-bit offset to its block where its
@@ -1677,7 +1677,7 @@ outlives its load keeps its tree alive), choosing D56's named fallback.*
 ## D66. M6 results: typed messages, call statistics, and the trace hook
 
 *Recorded 2026-10-11. Implements spec §5's typed messages and debugging aids, with D53's
-answers. The call stack was step 1 (D52). M6 is done, and `docs/m6-plan.md` is deleted.*
+answers. The call stack was step 1 (D52). M6 is done, and `dev/m6-plan.md` is deleted.*
 
 - **Typed messages.**
   - **What a message is.** An aggregate with `static constexpr auto name`.
@@ -1752,7 +1752,7 @@ answers. The call stack was step 1 (D52). M6 is done, and `docs/m6-plan.md` is d
 
 ## D67. M7: tasks, first answers
 
-*M7 plan (`docs/m7-plan.md`) Q1–Q7, answered by the project owner 2026-10-12.*
+*M7 plan (`dev/m7-plan.md`) Q1–Q7, answered by the project owner 2026-10-12.*
 
 - **Q1, time.** `Scheduler::tick(dt)` advances a `double` in units the host chooses. There
   is one timeline per Scheduler; a game with game time and UI time makes two.
@@ -1782,7 +1782,7 @@ answers. The call stack was step 1 (D52). M6 is done, and `docs/m6-plan.md` is d
 ## D68. M7 results: tasks
 
 *Recorded 2026-10-12. Implements spec §5's tasks with D58's pool and D67's answers. M7 is
-done, and `docs/m7-plan.md` is deleted.*
+done, and `dev/m7-plan.md` is deleted.*
 
 - **The C++ side** is `<baker/task.hpp>`: `Task`, `Scheduler`, `TaskHandle`, and the
   awaitables `delay(t)`, `until(predicate)`, and `next_tick()`.
@@ -1887,7 +1887,7 @@ lines. The spec and `tools/count_lines.py` say so. The rest of D2, D40, and D48 
 
 ## D70. M8: the binary cache, answers
 
-*M8 plan (`docs/m8-plan.md`) Q1–Q4, answered by the project owner 2026-10-12, each as
+*M8 plan (`dev/m8-plan.md`) Q1–Q4, answered by the project owner 2026-10-12, each as
 recommended.*
 
 - **Q1, D57's layout work.** Measure first.
@@ -1909,7 +1909,7 @@ recommended.*
 
 ## D71. M8.1: the cache writer and the in-place load
 
-*Results of M8.1 (`docs/m8-plan.md` §1–2).* `include/baker/cache.hpp`: `write_cache` (to a
+*Results of M8.1 (`dev/m8-plan.md` §1–2).* `include/baker/cache.hpp`: `write_cache` (to a
 path or a `TextSink`), `read_cache` (a path, through a session), and `read_cache_bytes`.
 
 - **The file is the arena block.** `Arena::create_holding` makes the arena, a block
@@ -1979,7 +1979,7 @@ them, so a cache load leaves the session as the text load did.
 
 ## D73. M8.2: staleness, replay, `read_cached`, the `Cipher`, `baker_bake`
 
-*Results of M8.2 (`docs/m8-plan.md` §3–4, D70, D72).*
+*Results of M8.2 (`dev/m8-plan.md` §3–4, D70, D72).*
 
 - **Recording a load.** `LoadSession::record_for_cache`, when set, makes each top-level
   read record every file it read (path, size, content hash), every include candidate it
@@ -2032,7 +2032,7 @@ them, so a cache load leaves the session as the text load did.
 
 ## D74. M8.3: Config's `cache_dir`
 
-*Results of M8.3 (`docs/m8-plan.md` §5, D70 Q4).*
+*Results of M8.3 (`dev/m8-plan.md` §5, D70 Q4).*
 
 - **`ConfigOptions::cache_dir`** (copied by the Config): outside edit mode, each file
   layer loads through `<cache_dir>/<hash of its path, hex>.datb`. A fresh cache gives the
@@ -2237,13 +2237,13 @@ structurally equal trees.*
   (D71).
 - **The core** is 9,850 lines of the 15,000 budget (D69), against the plan's ~9,690.
   `baker_bake` is in `tools/`, outside the core.
-- `docs/m8-plan.md` is deleted; its answers are D70 and D72.
+- `dev/m8-plan.md` is deleted; its answers are D70 and D72.
 - **Naming.** Commits called M8's steps M8a–M8d; this file calls them M8.1–M8.4, because
   the spec's milestone M8b is `baker::shape`, which is next.
 
 ## D80. M8b: shapes and packs, answers
 
-*`docs/m8b-plan.md` Q1–Q4, answered by the project owner 2026-10-12, each as recommended.*
+*`dev/m8b-plan.md` Q1–Q4, answered by the project owner 2026-10-12, each as recommended.*
 
 - **Q1, what a shape governs:** every array tagged with the shape's name, anywhere in the
   tree; `(at path)` in the declaration narrows it to arrays under a path.
@@ -2261,7 +2261,7 @@ structurally equal trees.*
 
 ## D81. M8b, step 1: `#require`
 
-*Results of `docs/m8b-plan.md` §1.*
+*Results of `dev/m8b-plan.md` §1.*
 
 - `#require path` resolves like `#include` and splices the file the first time a session
   sees it; afterwards, from any file and any later top-level read through that session,
@@ -2280,7 +2280,7 @@ structurally equal trees.*
 
 ## D82. M8b, step 2: packs and the one-way rule for macros
 
-*Results of `docs/m8b-plan.md` §2 (D80).*
+*Results of `dev/m8b-plan.md` §2 (D80).*
 
 - **Declaration.** A file whose first form is `(pack name (level L) (requires ...))` is a
   pack: the session records it (`packs()`, `pack_of(file)`; name, level, its rank among
@@ -2306,7 +2306,7 @@ structurally equal trees.*
 
 ## D83. M8b, step 3: the one-way rule for calls
 
-*Results of `docs/m8b-plan.md` §2, its last bullet (D80, Q4).*
+*Results of `dev/m8b-plan.md` §2, its last bullet (D80, Q4).*
 
 - `check(tree, ctx, report, &session)` takes, optionally, the session that loaded the
   tree. With it, a call in a pack's file to a script function defined in a softer pack's
@@ -2324,7 +2324,7 @@ structurally equal trees.*
 ## D84. M8b, step 4: shapes are declared in `(shapes ...)`
 
 *Answered by the project owner 2026-10-12, as recommended; with the design note for
-`baker::shape` (`docs/m8b-plan.md` §3, D80).*
+`baker::shape` (`dev/m8b-plan.md` §3, D80).*
 
 - **The deviation.** Spec §6 writes `(shape boss_phase (field ...) ...)` at the top level.
   Config merges layers by tag, so every such form would be tagged `shape`, and a second
@@ -2362,7 +2362,7 @@ structurally equal trees.*
 
 ## D85. M8b, step 4: `baker::shape`
 
-*Results of `docs/m8b-plan.md` §3 (D80, D84).*
+*Results of `dev/m8b-plan.md` §3 (D80, D84).*
 
 - **The library** is `baker_shape` (`include/baker/shape.hpp`, `src/shape/shape.cpp`):
   400 lines of spec §6's 600, outside the core, which `tools/count_lines.py` now reports
@@ -2408,11 +2408,11 @@ enumeration API) and `#require`.*
   (D85).
 - **Sizes:** the core is 10,103 lines (of 15,000; the plan estimated about 10,060), and
   `baker::shape` 400 (of 600, outside the core).
-- `docs/m8b-plan.md` is deleted; its answers are D80 and D84.
+- `dev/m8b-plan.md` is deleted; its answers are D80 and D84.
 
 ## D87. M9: the docs and examples, answers
 
-*`docs/m9-plan.md` Q1–Q4, answered by the project owner 2026-10-12, each as recommended.*
+*`dev/m9-plan.md` Q1–Q4, answered by the project owner 2026-10-12, each as recommended.*
 
 - **Q1, `harness-imgui`:** Dear ImGui fetched at a pinned release (as EASTL is), GLFW and
   OpenGL 3 for the window, behind `BAKER_BUILD_HARNESS` (off by default). The panels are
@@ -2498,11 +2498,11 @@ personal `local` layer by the convention in spec §4.*
 - **Not changed:** no benchmark row; the core changed only in `TweakBase::bind`, which
   runs per tweak on each merge. The core is 10,116 lines of 15,000 (10,103 before; D88),
   and `baker::shape` 400 of 600.
-- `docs/m9-plan.md` is deleted; its answers are D87.
+- `dev/m9-plan.md` is deleted; its answers are D87.
 
 ## D90. M10: harness instrumentation, answers
 
-*`docs/m10-plan.md` Q1–Q5, answered by the project owner 2026-10-12.*
+*`dev/m10-plan.md` Q1–Q5, answered by the project owner 2026-10-12.*
 
 - **Q1, loop statistics' samples (as recommended):** a fixed table allocated once, up to
   32 files and 16 layers, each with its last 32 edit-to-see and reload times (about 10 KB
@@ -2526,7 +2526,7 @@ personal `local` layer by the convention in spec §4.*
 
 ## D91. M10, step 1: pack harness metadata and `origin`
 
-*Results of `docs/m10-plan.md` §3 and §4 (D90).*
+*Results of `dev/m10-plan.md` §3 and §4 (D90).*
 
 - **Pack metadata.** `(owners ...)` and `(for ...)` list names, as strings or symbols;
   `(stage S)` is `genesis`, `custom`, `product`, or `commodity`, and anything else is a
@@ -2558,7 +2558,7 @@ personal `local` layer by the convention in spec §4.*
 
 ## D92. M10, step 2: loop statistics and `mark_visible`
 
-*Results of `docs/m10-plan.md` §1 (D90 Q1).*
+*Results of `dev/m10-plan.md` §1 (D90 Q1).*
 
 - **`ReloadRecord`** gains `layer` (the layer of the first changed file) and `visible_ns`,
   120 to 136 bytes.
@@ -2597,7 +2597,7 @@ personal `local` layer by the convention in spec §4.*
 
 ## D93. M10, step 3: the edit journal
 
-*Results of `docs/m10-plan.md` §2 (D90 Q2).*
+*Results of `dev/m10-plan.md` §2 (D90 Q2).*
 
 - **`JournalEntry`:** the path (as `unsaved()` names it), a time from the Config's time
   source, the old and new values (up to four nodes each, inline, with their true counts;
@@ -2637,7 +2637,7 @@ personal `local` layer by the convention in spec §4.*
 
 ## D94. M10, step 4: the repetition report and owner findings
 
-*Results of `docs/m10-plan.md` §5 and §6 (D90 Q3, Q4).*
+*Results of `dev/m10-plan.md` §5 and §6 (D90 Q3, Q4).*
 
 - **`baker::find_repeats(trees, options)`** (`<baker/repeats.hpp>`, baker::data, as Q3
   chose) returns a `List<Repeat>`: one occurrence as a node (`form`), its size in nodes
@@ -2675,7 +2675,7 @@ personal `local` layer by the convention in spec §4.*
 
 ## D95. M10, step 5: machine-readable check output, and the harness register
 
-*Results of `docs/m10-plan.md` §7, and the reference's part of §3 and §4 (D90).*
+*Results of `dev/m10-plan.md` §7, and the reference's part of §3 and §4 (D90).*
 
 - **`write_json(report, sink, &session)`**, and `to_json(report, &session)` in
   `<baker/std_script.hpp>`: one object, `"schema": "baker.check/1"`, then `errors`,
@@ -2741,7 +2741,7 @@ check output.*
 - **The harness** (step 6): its Loop panel shows `loop_stats()` per layer and per file
   above the reload bars, and a Journal panel lists the session's edits with their fates;
   the headless test checks both.
-- `docs/m10-plan.md` is deleted; its answers are D90. Every milestone of spec §10 is done.
+- `dev/m10-plan.md` is deleted; its answers are D90. Every milestone of spec §10 is done.
 
 ## D97. A C++ object destroyed during a tick leaves its Context at once
 
@@ -3003,7 +3003,7 @@ skipped.*
 
 ## D106. The game stacks' base
 
-*`docs/background/game-stacks.md` §2 and §6, step 1. Outside Baker: `stacks/` is a
+*`dev/background/game-stacks.md` §2 and §6, step 1. Outside Baker: `stacks/` is a
 separate CMake project over this repository's Baker, and nothing in `src/` changed.*
 
 - **What.** `stacks/base/`: `Live` (the Config, the layers `default`, `local`, `agent`,
@@ -3035,7 +3035,7 @@ separate CMake project over this repository's Baker, and nothing in `src/` chang
 
 ## D107. The agent harness, and `Config::autorun`
 
-*`docs/background/game-stacks.md` §3; `stacks/agent.md` is the design note. One addition
+*`dev/background/game-stacks.md` §3; `stacks/agent.md` is the design note. One addition
 to Baker's API; the rest is in `stacks/`.*
 
 - **`Config::autorun()`** (new). A Config reads each layer with a session of its own, so
@@ -3068,7 +3068,7 @@ to Baker's API; the rest is in `stacks/`.*
 
 ## D108. Keyed shapes
 
-*Revisits D85. Found building Duel (`docs/background/game-stacks.md` §4.6, D109): its
+*Revisits D85. Found building Duel (`dev/background/game-stacks.md` §4.6, D109): its
 shapes checked nothing.*
 
 - **The gap.** A shape governs arrays tagged with its name (D85). Keyed data, as
@@ -3092,7 +3092,7 @@ shapes checked nothing.*
 
 ## D109. Duel and Ledger
 
-*`docs/background/game-stacks.md` §6, step 2: the first two stacks, on the base (D106) and
+*`dev/background/game-stacks.md` §6, step 2: the first two stacks, on the base (D106) and
 the agent harness (D107). Each stack's README is its design note; nothing in `src/` beyond
 D108.*
 
@@ -3176,7 +3176,7 @@ D108.*
 
 ## D111. Jolt in the base; Contraption and Stuntline
 
-*`docs/background/game-stacks.md` §6, step 3, and §4.1, §4.5. Outside Baker: nothing in
+*`dev/background/game-stacks.md` §6, step 3, and §4.1, §4.5. Outside Baker: nothing in
 `src/` changed. Each stack's README is its design note.*
 
 - **Jolt Physics 5.5.0**, fetched at a pinned release, built with
@@ -3230,7 +3230,7 @@ D108.*
 
 ## D112. Recast/Detour in the base; Hearth and Wayfarer
 
-*`docs/background/game-stacks.md` §6, step 4, and §4.3, §4.4. Outside Baker: nothing in
+*`dev/background/game-stacks.md` §6, step 4, and §4.3, §4.4. Outside Baker: nothing in
 `src/` changed. Each stack's README is its design note. Every stack of §4 is now built.*
 
 - **Recast/Detour 1.6.0** in the base (`base::NavMesh`), the owner's choice over a grid of
@@ -3318,7 +3318,7 @@ merge.*
 
 ## D114. The harness audit of the stacks
 
-*`docs/background/reading-a-studio.md` §7, run on all seven games after step 4 of
+*`dev/background/reading-a-studio.md` §7, run on all seven games after step 4 of
 game-stacks.md §6, as §6 asks. The full audit is `stacks/audit.md`. Outside Baker: nothing
 in `src/` changed.*
 
@@ -3724,7 +3724,7 @@ callgrind and pinned timings in small drivers, against the previous build.*
 
 ## D127. Gap 31: fix merge, keep merged trees solo
 
-*The owner's decision (2026-10-14) on `docs/allocation-review.md`: option A, as
+*The owner's decision (2026-10-14) on `dev/allocation-review.md`: option A, as
 recommended. D64 stands: arrays built after a load are solo blocks.*
 
 - **Why not an arena.** The review measured where a merge's cost lay. About 7 of every 9
@@ -3765,7 +3765,7 @@ recommended. D64 stands: arrays built after a load are solo blocks.*
 
 ## D128. Source maps are flat, and a Config's are its own
 
-*The review's largest finding after merge (`docs/allocation-review.md`), the owner's
+*The review's largest finding after merge (`dev/allocation-review.md`), the owner's
 choice.*
 
 - **The cost.** Edit mode, the default outside shipping, records for every array where it
@@ -3796,7 +3796,7 @@ choice.*
 
 ## D129. A Config's sessions are its own, and a merge copies none it need not
 
-*From `docs/allocation-review.md`, the owner's choice.*
+*From `dev/allocation-review.md`, the owner's choice.*
 
 - **Every merge copied a session.** `refresh_read` copied the top file layer's whole
   `LoadSession` state into `read_session()`'s, at every commit: every define (a map node
@@ -3818,7 +3818,7 @@ choice.*
 
 ## D130. A Context's callables and handlers are its own
 
-*From `docs/allocation-review.md`, the owner's choice. Closes the review's D61
+*From `dev/allocation-review.md`, the owner's choice. Closes the review's D61
 inconsistency in baker::script.*
 
 - **The inconsistency.** D61 says function records and classes are the owner's. But a
@@ -3842,7 +3842,7 @@ inconsistency in baker::script.*
 
 ## D131. A load's first block is sized from its text, and a layer read copies its text once
 
-*From `docs/allocation-review.md`, the owner's choice ("arena sizing and text copies").
+*From `dev/allocation-review.md`, the owner's choice ("arena sizing and text copies").
 It also corrects D61's and D64's text, and documents `eval(text)`'s lifetime.*
 
 - **The first block.** A load's arena started with a block of four bytes per byte of
@@ -4080,7 +4080,7 @@ Behavior is unchanged and the existing tests cover each site.
 
 ## D138. Content updates: the owner's decisions on the research's findings
 
-*From `docs/background/content-updates.md`, which measured twelve scenarios of title
+*From `dev/background/content-updates.md`, which measured twelve scenarios of title
 updates, DLC, live ops and mods in development and shipping builds, and the delta cost of
 text against `.datb`. The owner decided each finding (gaps 33–43). Each item below becomes
 its own D-entry, with tests and numbers, when it is built.*
@@ -4133,7 +4133,7 @@ check.*
 - **The failure.** A title update that changes a base macro ships a new base cache, but a
   DLC's cache, baked against the old base, kept the old values in a shipping build:
   measured, the base's sword read 12 and the DLC's axe 10, with no warning
-  (`docs/background/content-updates.md`, scenario 11).
+  (`dev/background/content-updates.md`, scenario 11).
 - **Now.** `fresh()` is split in two.
   - **`begins_alike`** checks what the recorded load began with: the macros and flags
     (`before`), the pack levels, and the files `#require` had read. All of it is in
@@ -4556,13 +4556,13 @@ repository, tagged with semantic versions from 0.1.0, by an automatic process th
 when asked. Their choices: library, tests, examples and user docs ship; citations are
 stripped on publish; one commit per release; a hand-run GitHub Actions workflow; the
 LICENSE names Zach Baker; notes come from CHANGELOG.md; the public repository runs CI of its
-own. The process is `docs/releasing.md`.*
+own. The process is `dev/releasing.md`.*
 
 - **What ships** is `tools/release/manifest.txt`. It ships the library, `tests/`, `fuzz/`,
   `examples/`, `bench/`, the tools the build and tests run, and the four user docs, with
   `tools/release/public/` laid over it (a trimmed CI workflow, a `.gitignore`). It leaves
-  out `stacks/`, `.claude/`, `CLAUDE.md`, `docs/spec.md`, this file, `docs/background/`,
-  `docs/allocation-review.md`, `tools/release/` and the dev-only tools.
+  out `stacks/`, `.claude/`, `CLAUDE.md`, `dev/spec.md`, this file, `dev/background/`,
+  `dev/allocation-review.md`, `tools/release/` and the dev-only tools.
 - **Citations.** `publish.py` strips parentheticals made only of citations (decision
   numbers, spec sections, background notes, gap numbers) and keeps the words of mixed ones.
   A citation that began a line hands its punctuation to the line before, and a comment that
@@ -4626,3 +4626,24 @@ Baker's license or making it look derived from what motivates its features.*
 - **Not published.** `INTEGRATIONS.md` and the template describe how baker-dev is worked on,
   so the release manifest leaves them out, as it does CLAUDE.md. The owner chose no
   forbidden-terms check in the release.
+
+## D152. Documentation is split into docs/ for users and dev/ for development
+
+*The owner asked for user and development documentation in separate folders, so that a
+release ships the user side whole. They chose `dev/` at the top level for the development
+side.*
+
+- **`docs/`** holds the user documentation: `language.md`, `cookbook.md`,
+  `script-reference.md` and `check-json.md`. The release manifest ships `docs/**`, so a new
+  guide ships without a manifest change.
+- **`dev/`** holds the development documentation, which never ships:
+  - `decisions.md` (this file);
+  - `spec.md`;
+  - `background/`;
+  - `allocation-review.md`;
+  - `releasing.md`;
+  - any milestone plan.
+- Every reference to a moved document was rewritten, in code comments, CLAUDE.md, the
+  skills, the stacks' docs and the decision records themselves. The publisher's citation
+  patterns now read `dev/`. The release check refuses a published line that names `dev/`,
+  except a path such as `/dev/null`.

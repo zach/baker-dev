@@ -15,7 +15,7 @@
 // Parsing interns each name. Build a Path once (a static or a member) for lookups in a
 // hot loop; the string forms of get() parse on every call. A Path holds its segments
 // inline, so building one never allocates; a path deeper than kMaxSegments is invalid
-// (docs/decisions.md D60).
+// (dev/decisions.md D60).
 
 #include <baker/symbol.hpp>
 #include <baker/text.hpp>

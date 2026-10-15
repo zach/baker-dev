@@ -1,6 +1,6 @@
 #pragma once
 
-// Owners of arrays and strings (docs/decisions.md D64): solo blocks, and load arenas.
+// Owners of arrays and strings (dev/decisions.md D64): solo blocks, and load arenas.
 
 #include <baker/allocator.hpp>
 #include <baker/array.hpp>
