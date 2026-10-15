@@ -125,8 +125,11 @@ uint64_t hash_bytes(const char* p, size_t n) noexcept {
             std::memcpy(&w, p + i + 8 * static_cast<size_t>(l), 8);
             h[l] = std::rotl((h[l] ^ w) * k, 29);
         }
-    uint64_t r = n;
+    // The length goes in after the bytes: started from it, a first byte equal to it zeroed
+    // the state, so "" and "\x01" hashed alike (found by the fuzzer, as two symbols).
+    uint64_t r = k;
     for (; i < n; ++i) r = (r ^ static_cast<unsigned char>(p[i])) * k;
+    r = std::rotl((r ^ n) * k, 31);
     for (const uint64_t x : h) r = std::rotl((r ^ x) * k, 31);
     return r ^ (r >> 32);
 }

@@ -225,6 +225,16 @@ TEST_CASE("an edit changes the cache near it, for delta patches (D148)") {
     CHECK_MESSAGE(kept + 8 >= blocks, kept << " of " << blocks);
 }
 
+TEST_CASE("names that differ only by length and a first byte hash apart (D148)") {
+    // '' and '\x01' once hashed alike, and the write refused them (found by the fuzzer).
+    Ref<Array> root = Array::make(3, "names.dta", 1);
+    root->set(0, Node(Symbol("")));
+    root->set(1, Node(Symbol(std::string_view("\x01", 1))));
+    root->set(2, Node(Symbol(std::string_view("\x02\x00", 2))));
+    auto back = round_trip(*root);
+    CHECK(structurally_equal(*root, *back));
+}
+
 TEST_CASE("a cache loads a tree deeper than the loader keeps on its stack (D148)") {
     // 300 deep, past the loader's 256 inline frames; walked without recursion, which MSVC's
     // debug stack would not take.

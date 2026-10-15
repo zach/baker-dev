@@ -4502,6 +4502,10 @@ an immutable base cache.*
 - **Test:**
   - an edit's locality: inserting a section into 60 leaves 677 of 678 32-byte blocks of
     the old cache somewhere in the new one (format 5: 289 of 672);
+  - names that differ only by length and a first byte (`''`, `'\x01'`) hash apart. The
+    fuzzer found them colliding: the checksum started from the length, which a first byte
+    equal to it cancelled. It now folds the length in after the bytes, which also changes
+    `content_hash` (format 6 rebuilds every cache anyway);
   - a 300-deep tree round-trips, past the loader's inline stack, checked without recursion
     (a 600-deep check overflowed MSVC's debug stack in its recursive helpers);
   - the existing tests of sharing, damage, and every corpus file loading as its text did.
