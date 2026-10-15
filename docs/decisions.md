@@ -4124,3 +4124,53 @@ its own D-entry, with tests and numbers, when it is built.*
   3. Layer semantics: 35, 37, 38, 39.
   4. Versions: 42.
   5. The cache format redesign last, because it is the largest: 34.
+
+## D139. Shipping checks a cache against the session, and falls back to the text
+
+*Gap 33, as D138 decided. This changes D70 Q2 ("shipping trusts the cache") for this one
+check.*
+
+- **The failure.** A title update that changes a base macro ships a new base cache, but a
+  DLC's cache, baked against the old base, kept the old values in a shipping build:
+  measured, the base's sword read 12 and the DLC's axe 10, with no warning
+  (`docs/background/content-updates.md`, scenario 11).
+- **Now.** `fresh()` is split in two.
+  - **`begins_alike`** checks what the recorded load began with: the macros and flags
+    (`before`), the pack levels, and the files `#require` had read. All of it is in
+    memory, so no file is read.
+  - **The rest** of `fresh()` re-reads the recorded files.
+  - **Development** checks `begins_alike` first, so a session that differs no longer
+    re-reads every file to find out.
+  - **Shipping** (`read_cached`, and a Config's `cache_dir` reads) runs only
+    `begins_alike`, through `detail::read_shipped`:
+    - a cache for this session is used;
+    - otherwise the text is read;
+    - when a cache exists but was baked for another session and there is no text, the read
+      is refused (`ErrorCode::Refused`, located at the cache). The message names what to
+      check: macros, pack levels, or required files.
+  - Shipping still does not re-read the files a cache recorded: an edited text with
+    unchanged macros keeps its cache, as before. That is the decided scope (no I/O).
+  - A cache baked without a recorded load has nothing to check and is still trusted.
+- **Measured.**
+  - **The research's driver** (title update, then shipping): with the text shipped, the
+    DLC now reads 12. With caches only, the layer is refused with the located error.
+  - **Cost** (`read_cached` of a small file in an optimized shipping build, pinned, best
+    of 9 × 200 reads, three runs):
+
+    | | before | after |
+    |---|---:|---:|
+    | no macros | 2.88–2.96 µs | 3.04–3.13 µs |
+    | 200 macros | 8.63–8.72 µs | 18.27–18.64 µs |
+
+  - About 50 ns per macro per layer read. That is 0.2 ms for twenty layers over 200
+    macros, at load.
+  - The local matrix's `ship` configuration sets no build type and is unoptimized (about
+    10 times slower here). These numbers come from a Release shipping build made for the
+    purpose.
+- **Test:**
+  - a DLC cache baked with `DMG` 10 is read for a session where `DMG` is 12, and gives 12
+    in both builds;
+  - in shipping, the same read with the text deleted is refused, and with a matching
+    session it uses the cache.
+
+  It fails against the previous code: shipping returned 10.

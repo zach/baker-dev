@@ -26,6 +26,11 @@ bool read_with(const LoadSession::Reader& reader, std::string_view path, Str& te
 
 // The cache at `path`, replayed on the session, if it loads and is fresh; else null.
 [[nodiscard]] Ref<Array> read_fresh_cache(std::string_view path, LoadSession& session);
+// Shipping's read: the cache at `cache_path` if the session begins as its load did (macros,
+// pack levels, required files; no file is read), else the text, else a located refusal
+// when a cache exists but was baked for another session (D139).
+[[nodiscard]] Expected<Ref<Array>> read_shipped(std::string_view text_path,
+                                                std::string_view cache_path, LoadSession& session);
 
 struct SessionAccess {
     using Defines = HashMap<Symbol, Ref<Array>>;

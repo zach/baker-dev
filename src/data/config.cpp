@@ -120,9 +120,8 @@ void Config::Impl::log_edit(ScratchEntry& owner, const Node* before, uint32_t be
 
 Expected<Ref<Array>> Config::Impl::read_through_cache(std::string_view path, const Str& cache,
                                                       LoadSession& session) const {
-    if constexpr (kShipping) {  // shipping trusts the cache, and writes none
-        if (auto r = read_cache(cache, session)) return r;
-        return read_file(path, session);
+    if constexpr (kShipping) {  // a cache for this session, else the text; writes none
+        return detail::read_shipped(path, cache, session);
     } else {
         if (Ref<Array> fresh = detail::read_fresh_cache(cache, session)) return fresh;
         session.record_for_cache = true;

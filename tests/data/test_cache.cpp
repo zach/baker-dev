@@ -281,6 +281,39 @@ TEST_CASE("read_cached uses a fresh cache and rewrites a stale one") {
     CHECK_FALSE(cache_fresh(dir.path("bare.datb"), again));
 }
 
+TEST_CASE("a cache baked for other macros is not used, in shipping too (D139)") {
+    // A DLC baked against a base whose macro a title update then changed (gap 33).
+    test::TempDir dir;
+    const std::string dlc = dir.write("dlc/axe.dta", "(axe (damage DMG))");
+    const std::string cache = dir.path("axe.datb");
+    auto session_with = [](std::string_view dmg) {
+        LoadSession s;
+        s.define("DMG", ok(read_string(dmg, "base.dta")));
+        return s;
+    };
+    LoadSession bake = session_with("10");
+    bake.record_for_cache = true;
+    ok(write_cache(*ok(read_file(dlc, bake)), cache, &bake));
+
+    LoadSession same = session_with("10");
+    CHECK(to_string(*ok(read_cached(dlc, cache, same))) == "((axe (damage 10)))");
+    LoadSession patched = session_with("12");  // the title update's macro
+    CHECK(to_string(*ok(read_cached(dlc, cache, patched))) == "((axe (damage 12)))");
+
+    // Without the text, a cache for another session is refused rather than used.
+    if constexpr (kShipping) {  // development would have rewritten the cache above
+        std::filesystem::remove(dlc);
+        LoadSession again = session_with("12");
+        auto r = read_cached(dlc, cache, again);
+        REQUIRE_FALSE(r);
+        CHECK(r.error().code() == ErrorCode::Refused);
+        CHECK(std::string(r.error().message()).find("was baked for other macros") !=
+              std::string::npos);
+        LoadSession matching = session_with("10");
+        CHECK(to_string(*ok(read_cached(dlc, cache, matching))) == "((axe (damage 10)))");
+    }
+}
+
 TEST_CASE("a define's body decides freshness, by structure (gap 21)") {
     if constexpr (kShipping) return;  // freshness is development's
     test::TempDir dir;
