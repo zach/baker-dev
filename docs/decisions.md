@@ -4077,3 +4077,50 @@ Behavior is unchanged and the existing tests cover each site.
   - With more cores the longest step bounds it, and that step is 3.6 times shorter.
   - Splitting `bench_call` repeats its headers four times (about +2.4 s of CPU). The
     doctest and counter changes save more than that.
+
+## D138. Content updates: the owner's decisions on the research's findings
+
+*From `docs/background/content-updates.md`, which measured twelve scenarios of title
+updates, DLC, live ops and mods in development and shipping builds, and the delta cost of
+text against `.datb`. The owner decided each finding (gaps 33–43). Each item below becomes
+its own D-entry, with tests and numbers, when it is built.*
+
+- **Gap 33, stale caches in shipping: check, fall back to the text.**
+  - Shipping compares the hashes a cache recorded for the macros its load began with
+    (`before`, D72) against the session's. This needs no file I/O.
+  - On a mismatch it reads the text if present. Otherwise it refuses with a located error
+    naming the package.
+  - This changes D70 Q2 ("shipping trusts the cache") for this one check.
+- **Gap 34, delta patching: a delta-friendly cache format.**
+  - The `.datb` layout changes so that an edit stays local. Candidates are:
+    - source-order layout;
+    - offsets relative to the referencing node or the section;
+    - one table of contents and the symbol table at the end;
+    - no padding that moves.
+  - It is measured against this note's xdelta and 1 MB chunk tables.
+  - This is a format change (`kVersion` 5) and a design note before code (CLAUDE.md).
+- **Gap 35, removal: a delete marker.** A reserved form in a layer removes that key or tagged
+  child from the layers below during the Config merge, and shows in `diff` and
+  `layer_effect`. The spelling is decided in its design note.
+- **Gap 37, order: `insert_layer` before or after a named layer.** It re-reads the layers
+  above it, as `remove_layer` does.
+- **Gap 36, value lists: keyed tables are the convention.** The cookbook documents keyed
+  children for anything packages extend. There is no new syntax.
+- **Gap 38, shapes: harder packs' shapes hold.** A softer pack may add shapes and fields. A
+  range it widens, or a type it changes, on a harder pack's shape is reported, and the
+  harder declaration stays in force. This extends D80's one-way rule to D84's shapes.
+- **Gap 39, script lifecycle: script leaves with its layer.** The Context records which layer
+  defined each function and handler. Removing the layer removes them, and an earlier
+  definition (native, or a lower layer's) comes back.
+- **Gaps 40–43, all taken:**
+  - cache names from the normalized path, with "no cache for X" said on fallback;
+  - a located warning when a pack's `requires` is not loaded;
+  - versions in pack declarations and in what they require, checked like `requires`;
+  - a session option that refuses caches (text-only reads), plus a documented rule that
+    mod loaders accept text only.
+- **Order of work:**
+  1. Correctness first: gap 33.
+  2. The small API and convention items: 40, 41, 43, 36.
+  3. Layer semantics: 35, 37, 38, 39.
+  4. Versions: 42.
+  5. The cache format redesign last, because it is the largest: 34.

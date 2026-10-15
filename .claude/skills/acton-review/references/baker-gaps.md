@@ -1,6 +1,8 @@
 # Baker under the data-oriented lens: known gaps
 
-**Status, 2026-10-15, after D137: every gap below (1–32) is closed.** D132 closed the
+**Status, 2026-10-15: gaps 1–32 are closed; 33–43, from the content-update research
+(`docs/background/content-updates.md`), are open and decided (D138), to be built in its
+order.** D132 closed the
 write-back batch (22–25), D133 gap 29, D134 gap 32, D135 gap 27, D136 gap 28, D137 gap 30. D127 closed gap 31 (the owner's choice in `docs/allocation-review.md`), and
 D128–D131 the review's other findings: edit-mode source maps, sessions, script callables
 and handlers on their owner's allocator, and the first arena block and text copies. D124 closed the hot-path batch (13–18), D125 gap 26, D126 the load-path batch
@@ -55,6 +57,17 @@ before fixing (SKILL.md, step 5), and do not fix one without a cost that justifi
 | 30, build time | build | doctest's implementation is compiled twice (`doctest_main.cpp`, `tests/alloc/main.cpp`, about 6.5 s each at `-O3`), `alloc_counter.cpp` seven times, and `bench_call.cpp` takes 35 s (128 bound types). An OBJECT library for each, and a runtime method count in the bench, would cut them. | **closed**, D137: doctest and the counter compiled once; `bench_call`'s types in four parallel units (longest step 25 s → 7 s) |
 | 31, a Config's merged trees | load | Each merge builds the Config's tree as solo arrays from the default allocator (D61, D64): about 50 blocks in `baker_alloc_tests`' Config scenario, of 215 default allocations. A Config arena for its merged root would put them on the Config's own heap and free them in one go. That changes D64's ownership, so it needs the owner's decision. | **closed**, D127: merge shares identical arrays and reuses its scratch; 9,067 allocations a merge to 8, trees stay solo |
 | 32, promote and duplicate tags | correctness | A layer with two children of one tag reads, through the Config, as the later one (merge folds the duplicate in), but `promote` writes the first (`collect_leaves` keeps each tag's first child, as `find()` would). Promoting `(k 1) (k 9)` writes 1 where the Config read 9. Found writing D132's test; which meaning promote should take is the owner's call. | **closed**, D134: promote writes the stack's values, a repeated tag folded as merge folds it |
+| 33, stale DLC caches in shipping | content | A shipping build trusts a cache without checking the macros it was baked with, so after a title update changes a base macro, a DLC's cache keeps the old values (measured: base 12, DLC 10, no warning). The cache records them (`before`); checking needs no I/O. `docs/background/content-updates.md` | reproduced |
+| 34, `.datb` and delta patching | content | A cache is a memory image of offsets: any structural edit rewrites what follows, so a one-section append changed all ten 1 MB chunks (129 KB xdelta, text 260 B). It is 5.8× the text, 15× compressed. Text updates with on-device baking, an immutable base cache, or a delta-friendly layout are the options. | measured |
+| 35, no removal in layers | content | A layer cannot delete a key, a tagged child, or a list element: a patch cannot remove a debug flag or an exploit entry. RimWorld and Module Manager both have delete operations. | reproduced |
+| 36, value lists across packages | content | Two layers that each add to one value list leave only the last; keyed children compose. A convention to document, or an append marker. | reproduced |
+| 37, layer order is push order | content | No insert at a position: a title update fixing DLC data loses when the DLC is pushed after it. | reproduced |
+| 38, packages loosen shapes | content | A layer that redeclares a shape with a wider range silences the base's check; the one-way rule (D80) suggests softer packs may extend, not loosen. | reproduced |
+| 39, script outlives its layer | content | Functions and handlers a layer's `#autorun` defined stay defined after the layer is removed. | reproduced |
+| 40, cache names hash the raw path | content | `./dlc/x.dta` and `dlc/x.dta` name different caches, and a DLC installed elsewhere than it was baked misses its cache; with no text the layer fails. | reproduced |
+| 41, pack `requires` unchecked | content | Recorded, never checked: a DLC requiring an absent pack loads silently. | reproduced |
+| 42, no content version | content | Nothing lets a package say which base version it needs; a cache format change refuses every shipped DLC cache. | read |
+| 43, untrusted caches | content | A cache from an untrusted source can point a node anywhere (D71): a PC mod loader must accept text only. Stated limit; worth a guard or a documented rule. | read |
 
 ## Already aligned (keep it that way)
 
