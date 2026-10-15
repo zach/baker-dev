@@ -1,8 +1,7 @@
 # Baker under the data-oriented lens: known gaps
 
-**Status, 2026-10-15, after D136: gaps 1–29, 31 and 32 are closed; 30 below is open.**
-D132 closed the write-back batch (22–25), D133 gap 29, D134 gap 32, D135 gap 27, D136
-gap 28. D127 closed gap 31 (the owner's choice in `docs/allocation-review.md`), and
+**Status, 2026-10-15, after D137: every gap below (1–32) is closed.** D132 closed the
+write-back batch (22–25), D133 gap 29, D134 gap 32, D135 gap 27, D136 gap 28, D137 gap 30. D127 closed gap 31 (the owner's choice in `docs/allocation-review.md`), and
 D128–D131 the review's other findings: edit-mode source maps, sessions, script callables
 and handlers on their owner's allocator, and the first arena block and text copies. D124 closed the hot-path batch (13–18), D125 gap 26, D126 the load-path batch
 (19–21). A fresh review of the core (2026-10-14) fixed what it found that was a bug or a
@@ -53,7 +52,7 @@ before fixing (SKILL.md, step 5), and do not fix one without a cost that justifi
 | 27, latent desyncs | correctness | `merge_into`'s Overwrite branch rebuilds `dst` but not its spans (no caller combines them yet); an included file's nodes count twice toward `max_nodes`; `SourceMap::record_text` keeps the old text when a map is reused. | **closed**, D135: all three fixed, each with a test |
 | 28, duplicated code | code | `Path::parse` and `Path::matches` tokenize alike; `LoadSession`'s four special members copy the same five fields; origin and pack registration is written in both the Parser and `SessionAccess`; `format_double` and its fallback normalize the decimal point twice; the arity message is built five times in baker::script; `cache.cpp`'s `nodes_at` re-derives `Array::run_bytes`. | **closed**, D136: each written once (`next_segment`, `copy_options`, `add_pack`/`add_origin`, `print_g`, `arity_message`, `Array::nodes_offset`) |
 | 29, methods' status | tool | A method's `Status` and replacement are stored, but the reference prints only functions' status, and checks use only `Stub`. Print it, or drop the replacement. | **closed**, D133: printed, through one `status_text` for functions and methods |
-| 30, build time | build | doctest's implementation is compiled twice (`doctest_main.cpp`, `tests/alloc/main.cpp`, about 6.5 s each at `-O3`), `alloc_counter.cpp` seven times, and `bench_call.cpp` takes 35 s (128 bound types). An OBJECT library for each, and a runtime method count in the bench, would cut them. | reproduced (timed) |
+| 30, build time | build | doctest's implementation is compiled twice (`doctest_main.cpp`, `tests/alloc/main.cpp`, about 6.5 s each at `-O3`), `alloc_counter.cpp` seven times, and `bench_call.cpp` takes 35 s (128 bound types). An OBJECT library for each, and a runtime method count in the bench, would cut them. | **closed**, D137: doctest and the counter compiled once; `bench_call`'s types in four parallel units (longest step 25 s → 7 s) |
 | 31, a Config's merged trees | load | Each merge builds the Config's tree as solo arrays from the default allocator (D61, D64): about 50 blocks in `baker_alloc_tests`' Config scenario, of 215 default allocations. A Config arena for its merged root would put them on the Config's own heap and free them in one go. That changes D64's ownership, so it needs the owner's decision. | **closed**, D127: merge shares identical arrays and reuses its scratch; 9,067 allocations a merge to 8, trees stay solo |
 | 32, promote and duplicate tags | correctness | A layer with two children of one tag reads, through the Config, as the later one (merge folds the duplicate in), but `promote` writes the first (`collect_leaves` keeps each tag's first child, as `find()` would). Promoting `(k 1) (k 9)` writes 1 where the Config read 9. Found writing D132's test; which meaning promote should take is the owner's call. | **closed**, D134: promote writes the stack's values, a repeated tag folded as merge folds it |
 

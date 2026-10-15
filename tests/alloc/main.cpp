@@ -1,7 +1,5 @@
-// main for baker_alloc_tests, in its own file: DOCTEST_CONFIG_IMPLEMENT brings in
-// <windows.h> and its macros, which stay out of the file with the tests.
+// main for baker_alloc_tests: it installs the default allocator before doctest runs.
 
-#define DOCTEST_CONFIG_IMPLEMENT
 #include <doctest.h>
 
 #include <baker/allocator.hpp>

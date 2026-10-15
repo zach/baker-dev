@@ -4044,3 +4044,36 @@ Behavior is unchanged and the existing tests cover each site.
 - **An array's node offset.** The cache re-derived where an array's nodes start, which
   must match `Array`'s layout. It now uses the new `Array::nodes_offset`, which `bytes()`
   and `data()` share.
+
+## D137. Build time: doctest and the counter compiled once, bench_call in parts
+
+*Gap 30, from the 2026-10-14 review.*
+
+- **doctest's implementation** was compiled twice, about 5 s each at `-O3`: once in
+  `doctest_main.cpp` and once in `tests/alloc/main.cpp`, whose `main` installs the
+  allocator first.
+  - It is now compiled once, in `tests/doctest_impl.cpp` (the `baker_doctest` library).
+  - `doctest_main.cpp` and the allocation tests' main are mains only, about 0.4 s each.
+  - The stacks' doctest library builds both files.
+- **The allocation counter** was compiled into seven targets. It is now one OBJECT library,
+  `baker_alloc_counter`, which every test and benchmark links.
+- **`bench_call.cpp`** was one 23.9 s unit: binding a type costs the compiler about
+  0.17 s, and the benchmark binds 128 of them (64 types with 32 methods, 64 with one).
+  - Making the method count a run-time value would not have helped: the two sets still
+    need distinct types.
+  - The types now live in `bench_call_wide.hpp` and build as four generated units of 32,
+    in parallel, each about 5.7 s. `bench_call.cpp` itself takes 3.2 s.
+  - The objects are made in the same order as before, so the benchmark is unchanged.
+- **Measured.** Clean release builds with tests and benchmarks, against D136, on this
+  four-core machine:
+
+  | | before | after |
+  |---|---:|---:|
+  | longest single step | 22.5–25.5 s | 7.0 s |
+  | compile time summed over every step (from ninja's log, per build) | 194 s | 188 s |
+  | `ninja -j4`, wall | 49.8–50.8 s | 46.0–48.6 s |
+
+  - At four cores the build is bound by the total, so wall time moves little.
+  - With more cores the longest step bounds it, and that step is 3.6 times shorter.
+  - Splitting `bench_call` repeats its headers four times (about +2.4 s of CPU). The
+    doctest and counter changes save more than that.
