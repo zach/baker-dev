@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <optional>
@@ -874,6 +875,40 @@ TEST_CASE("cache_dir names a cache by the normalized path (D140)") {
     load(dir.path("./dlc/../dlc/axe.dta"));  // spelled otherwise: the same cache
     CHECK(writes == 1);
     CHECK(std::distance(fs::directory_iterator(cache_dir), fs::directory_iterator()) == 1);
+}
+
+TEST_CASE("cache_dir reads a cache through a custom reader, and from disk without one") {
+    if constexpr (kShipping) return;  // shipping writes no caches
+    TempDir dir;
+    fs::create_directories(dir.path("cache"));
+    const std::string text = dir.write("pak.dta", "(pak (size 7))");
+    const std::string cache_dir = dir.path("cache");
+    std::vector<std::string> asked;
+    auto load = [&](bool logged) {
+        Config cfg({.edit_mode = false, .tweaks = nullptr, .cache_dir = cache_dir});
+        cfg.set_writer([&](std::string_view p, std::string_view bytes) {
+            std::ofstream(std::string(p), std::ios::binary) << bytes;
+            return true;
+        });
+        // A pack file system's reader: every file, the cache too, must come through it.
+        if (logged)
+            cfg.session().set_reader([&](std::string_view p, TextSink out) {
+                asked.emplace_back(p);
+                std::ifstream f{std::string(p), std::ios::binary};
+                if (!f) return false;
+                const std::string bytes{std::istreambuf_iterator<char>(f), {}};
+                out(bytes);
+                return true;
+            });
+        REQUIRE(cfg.push_layer("pak", text));
+        CHECK(cfg.get<int>("pak.size") == 7);
+    };
+    load(false);  // writes the cache
+    load(false);  // the disk's reader: the cache is read straight into its arena
+    load(true);
+    const auto is_cache = [](const std::string& p) { return p.ends_with(".datb"); };
+    CHECK(std::count_if(asked.begin(), asked.end(), is_cache) == 1);
+    CHECK(std::count(asked.begin(), asked.end(), text) == 1);  // freshness reads the text
 }
 
 TEST_CASE("Config forwards the one-way rule's warnings") {

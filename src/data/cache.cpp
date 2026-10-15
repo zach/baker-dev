@@ -820,12 +820,13 @@ Expected<Ref<Array>> from_bytes(std::string_view bytes, std::string_view name,
 }
 
 // Loads the cache at `path` without replaying it.
-Expected<Ref<Array>> open(std::string_view path, const LoadSession& session, const Array*& meta) {
+Expected<Ref<Array>> open(std::string_view path, const LoadSession& session, const Array*& meta,
+                          bool from_disk = false) {
     if (session.text_only) return refused_text_only(path);
     auto cannot = [&] {
         return Unexpected(make_error(ErrorCode::Io, "cannot read '" + Str(path) + "'"));
     };
-    if (!SessionAccess::reads_disk(session)) {
+    if (!from_disk && !SessionAccess::reads_disk(session)) {
         const Str file = normalize_path(path);
         Str bytes;
         if (!session.reader()(file, str_out(bytes))) return cannot();
@@ -869,18 +870,18 @@ uint64_t detail::content_hash(std::string_view bytes) noexcept {
     return hash_bytes(bytes.data(), bytes.size());
 }
 
-Ref<Array> detail::read_fresh_cache(std::string_view path, LoadSession& session) {
+Ref<Array> detail::read_fresh_cache(std::string_view path, LoadSession& session, bool from_disk) {
     const Array* meta = nullptr;
-    auto r = open(path, session, meta);
+    auto r = open(path, session, meta, from_disk);
     if (!r || !meta || !fresh(*meta, session)) return nullptr;
     replay(*meta, session);
     return std::move(*r);
 }
 
 Expected<Ref<Array>> detail::read_shipped(std::string_view text_path, std::string_view cache_path,
-                                          LoadSession& session) {
+                                          LoadSession& session, bool from_disk) {
     const Array* meta = nullptr;
-    auto r = open(cache_path, session, meta);
+    auto r = open(cache_path, session, meta, from_disk);
     // A cache baked without a recorded load says nothing to check, and is trusted.
     if (r && (!meta || begins_alike(*meta, session))) return replayed(std::move(r), meta, session);
     // Why the cache was set aside, for a warning if the text reads and the error if not (D140).
