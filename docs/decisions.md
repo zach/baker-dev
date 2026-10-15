@@ -4433,3 +4433,70 @@ array, as Module Manager's `!NODE` sits on the node.*
   - a pack without a version warns;
   - four malformed declarations are errors;
   - a cache keeps the versions and checks them on replay.
+
+## D148. The cache is laid out for delta patches
+
+*Gap 34, as D138 decided: the owner chose a delta-friendly `.datb` over text-only updates or
+an immutable base cache.*
+
+- **Before.** A cache was a memory image of absolute offsets: arrays breadth first, then the
+  strings, then a symbol table indexed in order of first use. One new array, string or
+  symbol moved what followed it, and every offset or index that pointed past it changed.
+  An inserted section rewrote all ten 1 MB chunks of a 9.6 MB cache, a 135 KB xdelta
+  patch where the text's was 138 bytes (content-updates.md).
+- **Now: format version 6, in source order, with nothing absolute in it.**
+  - Each array's record (its header, tag run and nodes, as before) is followed by what its
+    nodes hold, in order: a string inline, a child array as its own record and what follows
+    it. The loader walks the records in the order they were written and points each array
+    or string node at the next record, so those nodes hold 0 in the file.
+  - A target the tree shares, written before, is the distance back to it from the walk's
+    point.
+  - A symbol, var or file is the 64-bit hash of its name. The table at the end is sorted
+    by home slot, then by hash, so the same names make the same table in any order, and a
+    new name moves only its own run of slots. Two names that hash alike refuse the write.
+  - A line is the difference from the line of the array before it. Block fields and tag
+    runs are 0; the loader sets them, the tag run from each child once it is whole.
+  - The loader keeps the arrays it is inside on a stack of 256 frames, which spills to the
+    session's allocator only for deeper trees.
+- **Patches** (`content-updates.md`'s file, 12,000 sections, every variant baked under one
+  path; `xdelta3 -9`, and 1 MB chunks that differ at the same offset):
+
+  | Change | Text | Format 5 | Format 6 | Format 5 chunks | Format 6 chunks |
+  |---|---:|---:|---:|---:|---:|
+  | one float value | 62 B | 214 B | 159 B | 3/10 | 3/10 |
+  | one longer string | 161 B | 2,841 B | 286 B | 6/10 | 7/10 |
+  | a key the file never had | 107 B | 85,634 B | 323 B | 10/10 | 7/10 |
+  | insert a section | 138 B | 134,918 B | 352 B | 10/10 | 10/10 |
+  | append a section | 260 B | 128,669 B | 339 B | 10/10 | 10/10 |
+  | remove a section | 61 B | 119,407 B | 291 B | 10/10 | 10/10 |
+
+  A chunked store that compares at fixed offsets still sees every chunk after an insert
+  move, as it does for the text. A store with content-defined chunks, or a binary diff,
+  sends about what the text's patch sends.
+- **Size.** 9,994,400 bytes against 9,566,304 (+4.5%: the symbol table's 16-byte slots at
+  half load). Compressed it is smaller, since offsets no longer make every payload unique:
+  gzip -9 469,444 against 1,047,693, xz -9 264,616 against 453,956.
+- **Load: 4–15% slower,** measured against D147's commit on the same machine with the same
+  files (release, pinned to one core):
+  - this file's cache, best of 3×15 loads: 3.47 against 3.71 ms; 81.5M against 97.3M
+    instructions for three loads (cachegrind);
+  - `bench_cache`, `read_cache` from a file: 2.00 against 2.10 ms (1.2 MB of text) and
+    7.4–7.9 against 8.2–8.6 ms (4.2 MB, whose sections are mostly symbols);
+  - the cost is the symbol lookup, a probe from the name's home slot where format 5 indexed
+    a table, and the walk's stack. A first version, which visited every node twice, was
+    +19% on this file; one pass and a hoisted mask brought it here.
+  - `write_cache`: 14.0 against 7.6 ms (1.2 MB), 44.1 against 50.5 ms (4.2 MB).
+  - `bench_cache`'s "Config layer, cache_dir, fresh cache" row read 33–38 against 56 ms at
+    4.2 MB, with the same instructions (callgrind, +1.7%) and the same simulated cache
+    misses. That is glibc's dynamic mmap threshold: the 22 MB buffers sit near it, and the
+    larger cache tips them to fresh mappings and page faults. With
+    `MALLOC_MMAP_THRESHOLD_` pinned high the row reads 21.0–24.1 against 20.5–21.4 ms, and
+    pinned low 69 against 74 ms.
+- **An update bakes under the base's path.** Every array names its file, by hash now, so a
+  cache baked from `d_value.dta` differs from one baked from `d_base.dta` in every array.
+  The cookbook says so.
+- **Test:**
+  - an edit's locality: inserting a section into 60 leaves 677 of 678 32-byte blocks of
+    the old cache somewhere in the new one (format 5: 289 of 672);
+  - a 600-deep tree round-trips, past the loader's inline stack;
+  - the existing tests of sharing, damage, and every corpus file loading as its text did.

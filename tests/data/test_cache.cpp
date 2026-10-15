@@ -203,6 +203,42 @@ TEST_CASE("a damaged or foreign cache is an error, never a crash") {
     fails(endian, ErrorCode::Refused, "endianness");
 }
 
+TEST_CASE("an edit changes the cache near it, for delta patches (D148)") {
+    // Sections whose symbols and strings all recur, so the insert below adds no name.
+    std::string before, after;
+    for (int i = 0; i < 60; ++i) {
+        const std::string section =
+            "(item (name \"sword\") (damage " + std::to_string(i) + ") (tags sharp heavy))\n";
+        before += section;
+        after += section;
+        if (i == 30) after += "(item (name \"sword\") (damage 99) (tags heavy))\n";
+    }
+    const std::string a = bytes_of(*ok(read_string(before, "items.dta")));
+    const std::string b = bytes_of(*ok(read_string(after, "items.dta")));
+    REQUIRE(b.size() > a.size());
+    // What a binary diff sees: nearly every 32 bytes of the old cache lie somewhere in the
+    // new one, shifted; the header and the edit's neighbours differ. (Format 5, with absolute
+    // offsets, kept 289 of 672.)
+    size_t blocks = 0, kept = 0;
+    for (size_t at = 64; at + 32 <= a.size(); at += 32, ++blocks)
+        if (b.find(a.substr(at, 32)) != std::string::npos) ++kept;
+    CHECK_MESSAGE(kept + 8 >= blocks, kept << " of " << blocks);
+}
+
+TEST_CASE("a cache loads a tree deeper than the loader keeps on its stack (D148)") {
+    Ref<Array> root = Array::make(1, "deep.dta", 1);
+    Array* at = root.get();
+    for (int i = 0; i < 600; ++i) {
+        Ref<Array> child = Array::make(2, "deep.dta", i + 2);
+        child->set(0, Node(Symbol("d")));
+        at->set(at->size() - 1, Node(child));
+        at = child.get();
+    }
+    at->set(1, Node(String::make("bottom")));
+    auto back = round_trip(*root);
+    CHECK(to_string(*back) == to_string(*root));
+}
+
 TEST_CASE("caches on disk, and through a session's reader") {
     test::TempDir dir;
     const std::string text = "(menu (bacon (price 12.75)))";

@@ -288,6 +288,11 @@ How a game delivers content after it ships, from `docs/background/content-update
 - **Declare what a package requires**, and at which version: `(pack expansion (level dlc)
   (version "1.0") (requires (base_game "1.2") season_pass))`. A requirement that is not loaded once the pack's file is read is a
   located warning, forwarded to the Config's warning handler (D141).
+- **A cache patches about as small as its text** (D148). It is laid out in source order,
+  with no absolute offsets, so an edit changes the cache's bytes near the edit and a binary
+  diff or a chunked store sends little more than the edit: inserting a section into a
+  10 MB cache is a 352-byte xdelta patch. Bake an update under the same path as the base
+  bake, since every array names its file.
 - **Mods and user files are text, never caches.** A cache is a memory image that a forged
   file can point anywhere. A loader of content from outside the game's own packages sets
   `LoadSession::text_only`, which refuses every cache and parses the text, which no input

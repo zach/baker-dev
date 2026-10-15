@@ -9,6 +9,7 @@
 #include "session.hpp"
 #include "text.hpp"
 
+#include <algorithm>
 #include <bit>
 #include <cstddef>
 #include <cstdio>
@@ -23,29 +24,52 @@ struct CacheLayout {
     static constexpr size_t kType = offsetof(Node, type_);
     static constexpr size_t kSize = offsetof(Array, size_);
     static constexpr size_t kFile = offsetof(Array, file_);
+    static constexpr size_t kBlock = offsetof(Array, block_);
+    static constexpr size_t kLine = offsetof(Array, line_);
     static const Node* slots(const Array& a) noexcept { return a.data(); }
-    static uint32_t key_of(Symbol s) noexcept { return Array::key_of(s); }
+    static uint32_t tag_key(const Node& n) noexcept { return Array::tag_key(n); }
 };
 
 namespace {
 
 using L = CacheLayout;
-static_assert(L::kValue == 0 && L::kType == 8 && L::kSize == 4 && L::kFile == 8);
+static_assert(L::kValue == 0 && L::kType == 8 && L::kBlock == 0 && L::kSize == 4 && L::kFile == 8 &&
+              L::kLine == 16);
 static_assert(sizeof(String) == 8 && sizeof(Symbol) == 8);
 
 constexpr char kMagic[10] = {'M', 'O', 'I', 'R', 'A', '.', 'D', 'A', 'T', 'B'};
 // 2: packs' harness metadata, origins (D91); 3: the header hashed (D119); 4: '' keys no tag
-// in the tag run (D125); 5: packs' versions, and the versions they require (D147).
-constexpr uint16_t kVersion = 5;
+// in the tag run (D125); 5: packs' versions, and the versions they require (D147); 6: the
+// source-order layout, for delta patches (D148).
+constexpr uint16_t kVersion = 6;
 constexpr uint32_t kEndian = 0x01020304;
 
-// Offsets count from the start of the file. The blob follows the header: arrays from the
-// root on, breadth first so that siblings lie together, then strings. The symbol section
-// is a zeroed 8-byte slot per symbol, which the loader fills with the interned Symbol,
-// then each name as a 32-bit length and its bytes.
+// The layout is made for delta patches (D148): an edit to the text changes the bytes of the
+// cache near the edit, and few others, so a binary diff or a chunked store sends little more
+// than the edit. Nothing in the file holds an absolute offset, and no index depends on
+// what came before it.
 //
-// A cache written from a recorded load has a second array, `meta`, laid out with the tree
-// (D72): the files the load read, the defines it began with, and its effects on the session.
+// The records follow the header in source order: each array is its memory image (header,
+// tag run, nodes), followed by what its nodes hold, in order. A string goes inline as
+// [block 0][size][bytes, 0, padded to 8]; a child array goes inline as its own record and
+// what follows it. The loader walks the records in the same order and makes each array or
+// string node point at the next record, so those nodes hold 0 in the file. A node whose
+// target was written before, which a tree shares, holds the distance back to it from the
+// point the walk has reached instead. A symbol or var node holds the hash of its name, an
+// array's file field the hash of the file's, and its line field the difference from the line
+// of the array before it; the block fields and the tag run hold 0. The loader fills them all.
+//
+// The symbols follow the records: a table of 16-byte slots (the hash; 0, which the loader
+// sets to the interned Symbol), and then the name of each used slot, in slot order, as a
+// 32-bit length and its bytes. A name's hash has its low bit set, so 0 marks a free slot. A
+// name's home slot is its hash's bits above the low one, modulo the table's 2^home_bits
+// home slots; each name lies at its home or after it, the table sorted by home slot and
+// then by hash, so it is the same for the same names whatever order they came in, and one
+// more name moves only the names of its run. Past the home slots, the table runs on as far
+// as the last run needs.
+//
+// A cache written from a recorded load has a second tree, `meta`, after the first (D72):
+// the files the load read, the defines it began with, and its effects on the session.
 //   (files ("path" size hash) ...)     size -1: looked for and absent
 //   (before NAME hash ...)             0 for a flag, else the hash of the macro's text
 //   (define NAME body-or-0 ...) (undefine NAME ...) (autorun {command} ...)
@@ -66,12 +90,12 @@ struct Header {
     uint16_t reserved;
     uint64_t hash;  // of the whole file, this field read as 0 (file_hash)
     uint32_t file_bytes;
-    uint32_t root;
-    uint32_t arrays_end;  // strings start here
-    uint32_t blob_end;
-    uint32_t symbols;
-    uint32_t symbol_count;
+    uint32_t root;  // the first record, just past the header
     uint32_t meta;  // 0: none
+    uint32_t symbols;
+    uint32_t symbol_slots;
+    uint32_t symbol_count;
+    uint32_t home_bits;
     uint32_t reserved2;
 };
 static_assert(sizeof(Header) == 64);
@@ -83,7 +107,12 @@ constexpr uint32_t round8(size_t n) noexcept {
 size_t array_bytes(uint32_t size) noexcept {
     return Array::bytes(size);
 }
-constexpr uint32_t kNoTag = UINT32_MAX;  // in the file; the process's is Array::kNoTag
+size_t string_bytes(uint32_t size) noexcept {
+    return round8(sizeof(String) + size_t{size} + 1);
+}
+bool holds_target(Type t) noexcept {
+    return t == Type::String || t == Type::Array || t == Type::Command || t == Type::Property;
+}
 
 // A checksum, not a cipher: four lanes of multiply and rotate, near memory speed.
 uint64_t hash_bytes(const char* p, size_t n) noexcept {
@@ -101,6 +130,12 @@ uint64_t hash_bytes(const char* p, size_t n) noexcept {
     for (const uint64_t x : h) r = std::rotl((r ^ x) * k, 31);
     return r ^ (r >> 32);
 }
+uint64_t name_hash(std::string_view name) noexcept {
+    return hash_bytes(name.data(), name.size()) | 1;
+}
+size_t home_of(uint64_t hash, uint32_t home_bits) noexcept {
+    return static_cast<size_t>((hash >> 1) & ((uint64_t{1} << home_bits) - 1));
+}
 
 // The header's bytes as they lie in the file, with its hash field zeroed, and the rest.
 uint64_t file_hash(const char* file, size_t bytes) noexcept {
@@ -116,19 +151,19 @@ void put(Str& out, size_t at, const T& v) noexcept {
     std::memcpy(out.data() + at, &v, sizeof v);
 }
 
-// The index each array and string of a tree was given, by address: open addressing over a
-// power-of-two table, with no allocation per entry.
+// The offset each array and string of a tree was written at, by address: open addressing
+// over a power-of-two table, with no allocation per entry.
 class Seen {
 public:
     static constexpr uint32_t kNone = UINT32_MAX;
-    // The index of `p`, or kNone after giving it `next`.
-    uint32_t find_or_add(const void* p, uint32_t next) {
+    // The offset of `p`, or kNone after giving it `at`.
+    uint32_t find_or_add(const void* p, uint32_t at) {
         if ((count_ + 1) * 2 > keys_.size()) grow();
         size_t i = slot(p);
         for (; keys_[i]; i = (i + 1) & (keys_.size() - 1))
             if (keys_[i] == p) return values_[i];
         keys_[i] = p;
-        values_[i] = next;
+        values_[i] = at;
         ++count_;
         return kNone;
     }
@@ -159,61 +194,42 @@ private:
 class Writer {
 public:
     Expected<void> run(const Array& root, const Array* meta, const Cipher* cipher, Str& out) {
-        // Lay out arrays breadth first, sharing what the tree shares; then strings. Each
-        // array or string node's target is noted in refs_, in the order write_array meets it.
-        uint32_t end = sizeof(Header);
-        if (!place(&root, end)) return limit();
-        const uint32_t meta_at = meta ? place(meta, end) : 0;
-        if (meta && !meta_at) return limit();
-        for (size_t i = 0; i < arrays_.size(); ++i) {  // place() appends as it goes
-            const Array& a = *arrays_[i];
-            for (const Node& n : a) {
-                if (n.type() == Type::Func || n.type() == Type::Object)
-                    return Unexpected(make_error(ErrorCode::Refused,
-                                                 "a cache holds data, and " + preview(n) +
-                                                     " is a " + Str(type_name(n.type())),
-                                                 a.file(), a.line()));
-                if (const Array* c = n.array()) {
-                    const uint32_t at = place(c, end);
-                    if (!at) return limit();
-                    refs_.push_back(at);
-                } else if (const String* s = n.string()) {
-                    auto index = static_cast<uint32_t>(strings_.size());
-                    if (const uint32_t known = seen_.find_or_add(s, index); known != Seen::kNone)
-                        index = known;
-                    else
-                        strings_.push_back(s);
-                    refs_.push_back(index);
-                }
-            }
-        }
-        const uint32_t arrays_end = end;
-        string_at_.reserve(strings_.size());
-        for (const String* s : strings_) {
-            string_at_.push_back(end);
-            if (end + size_t{round8(sizeof(String) + s->size() + 1)} > UINT32_MAX) return limit();
-            end += round8(sizeof(String) + s->size() + 1);
-        }
-
         out.clear();
-        out.resize(end);
-        const uint32_t* ref = refs_.data();
-        for (size_t i = 0; i < arrays_.size(); ++i)
-            write_array(*arrays_[i], array_at_[i], ref, out);
-        for (size_t i = 0; i < strings_.size(); ++i) {
-            const String& s = *strings_[i];
-            const uint32_t at = string_at_[i];
-            put(out, at, kBlock + at);
-            put(out, at + 4, s.size());
-            std::memcpy(out.data() + at + sizeof(String), s.data(), s.size());
+        out.resize(sizeof(Header));
+        if (auto r = tree(root, out); !r) return r;
+        const auto meta_at = static_cast<uint32_t>(meta ? out.size() : 0);
+        if (meta)
+            if (auto r = tree(*meta, out); !r) return r;
+        const auto symbols = static_cast<uint32_t>(out.size());
+
+        // The symbol table, sorted by home slot and then by hash; each name at its home or
+        // after the run before it.
+        uint32_t home_bits = 3;
+        while ((size_t{1} << home_bits) < symbols_.size() * 2) ++home_bits;
+        std::sort(symbols_.begin(), symbols_.end(), [&](const Name& a, const Name& b) {
+            const size_t ha = home_of(a.hash, home_bits), hb = home_of(b.hash, home_bits);
+            return ha != hb ? ha < hb : a.hash < b.hash;
+        });
+        size_t slots = 0;
+        for (size_t i = 0; i < symbols_.size(); ++i) {
+            if (i && symbols_[i].hash == symbols_[i - 1].hash)
+                return Unexpected(make_error(ErrorCode::Refused,
+                                             "the symbols '" + Str(symbols_[i - 1].sym.str()) +
+                                                 "' and '" + Str(symbols_[i].sym.str()) +
+                                                 "' hash alike; rename one"));
+            slots = std::max(slots, home_of(symbols_[i].hash, home_bits)) + 1;
         }
-        // The symbols.
-        const uint32_t symbols = end;
-        out.resize(symbols + symbols_.size() * 8);
-        for (const Symbol s : symbols_) {
-            const auto size = static_cast<uint32_t>(s.str().size());
+        slots = std::max(slots, size_t{1} << home_bits);
+        out.resize(symbols + slots * 16);
+        size_t next = 0;
+        for (const Name& n : symbols_) {
+            next = std::max(next, home_of(n.hash, home_bits));
+            put(out, symbols + next++ * 16, n.hash);
+        }
+        for (const Name& n : symbols_) {
+            const auto size = static_cast<uint32_t>(n.sym.str().size());
             out.append(std::string_view(reinterpret_cast<const char*>(&size), 4));
-            out.append(s.str());
+            out.append(n.sym.str());
         }
         out.resize(round8(out.size()));
         if (out.size() > UINT32_MAX) return limit();
@@ -225,11 +241,11 @@ public:
         h.pointer_bytes = sizeof(void*);
         h.file_bytes = static_cast<uint32_t>(out.size());
         h.root = sizeof(Header);
-        h.arrays_end = arrays_end;
-        h.blob_end = symbols;
-        h.symbols = symbols;
-        h.symbol_count = static_cast<uint32_t>(symbols_.size());
         h.meta = meta_at;
+        h.symbols = symbols;
+        h.symbol_slots = static_cast<uint32_t>(slots);
+        h.symbol_count = static_cast<uint32_t>(symbols_.size());
+        h.home_bits = home_bits;
         if (cipher) {
             h.flags = kEnciphered;
             cipher->encrypt(cipher->user,
@@ -242,38 +258,61 @@ public:
     }
 
 private:
-    static constexpr uint32_t kBlock = Arena::kBlockHeader;
     static constexpr uint32_t kNoSymbol = UINT32_MAX;
+    struct Frame {
+        const Array* array;
+        size_t at;
+        uint32_t next;
+    };
+    struct Name {
+        Symbol sym;
+        uint64_t hash;
+    };
 
     static Unexpected limit() {
         return Unexpected(make_error(ErrorCode::Limit, "a cache holds at most 4 GB"));
     }
-    // Where `a` goes, placing it at `end` if it is new; 0 past the 4 GB limit.
-    uint32_t place(const Array* a, uint32_t& end) {
-        if (const uint32_t known = seen_.find_or_add(a, static_cast<uint32_t>(arrays_.size()));
-            known != Seen::kNone)
-            return array_at_[known];
-        if (end + array_bytes(a->size()) > UINT32_MAX) return 0;
-        const uint32_t at = end;
-        end += static_cast<uint32_t>(array_bytes(a->size()));
-        arrays_.push_back(a);
-        array_at_.push_back(at);
-        return at;
-    }
-    uint64_t symbol(Symbol s) {
-        if (s.index() >= symbol_index_.size()) symbol_index_.resize(s.index() + 1, kNoSymbol);
-        uint32_t& i = symbol_index_[s.index()];
-        if (i == kNoSymbol) {
-            i = static_cast<uint32_t>(symbols_.size());
-            symbols_.push_back(s);
+    // The records of the tree from `root`, in source order.
+    Expected<void> tree(const Array& root, Str& out) {
+        if (auto r = record(root, out); !r) return r;
+        while (!stack_.empty()) {
+            Frame& f = stack_.back();
+            if (f.next == f.array->size()) {
+                stack_.pop_back();
+                continue;
+            }
+            const uint32_t i = f.next++;
+            const Node& n = L::slots(*f.array)[i];
+            const void* target = n.array();
+            if (!target) target = n.string();
+            if (!target) continue;
+            const size_t node = f.at + Array::nodes_offset(f.array->size()) + size_t{i} * 16;
+            if (out.size() >= UINT32_MAX) return limit();
+            const uint32_t known = seen_.find_or_add(target, static_cast<uint32_t>(out.size()));
+            if (known != Seen::kNone) {
+                put(out, node, uint64_t{out.size() - known});
+            } else if (const String* s = n.string()) {
+                const size_t at = out.size();
+                out.resize(at + string_bytes(s->size()));
+                put(out, at + 4, s->size());
+                std::memcpy(out.data() + at + sizeof(String), s->data(), s->size());
+            } else if (auto r = record(*n.array(), out); !r) {  // invalidates f
+                return r;
+            }
         }
-        return i;
+        return {};
     }
-    // `ref` walks refs_: the next array's offset, or the next string's index.
-    void write_array(const Array& a, uint32_t at, const uint32_t*& ref, Str& out) {
+    // The record of `a`; its targets follow it, from tree().
+    Expected<void> record(const Array& a, Str& out) {
+        const size_t at = out.size();
+        if (at + array_bytes(a.size()) > UINT32_MAX) return limit();
+        seen_.find_or_add(&a, static_cast<uint32_t>(at));
+        out.resize(at + array_bytes(a.size()));
         std::memcpy(out.data() + at, &a, sizeof(Array));
-        put(out, at, kBlock + at);
+        put(out, at + L::kBlock, uint32_t{0});
         put(out, at + L::kFile, symbol(a.file()));
+        put(out, at + L::kLine, static_cast<uint32_t>(a.line()) - line_);
+        line_ = static_cast<uint32_t>(a.line());
         const Node* nodes = L::slots(a);
         char* slots = out.data() + at + Array::nodes_offset(a.size());
         // An empty array's one slot holds Int 0, which needs nothing more.
@@ -284,33 +323,41 @@ private:
             // Node.
             // NOLINTNEXTLINE(bugprone-undefined-memory-manipulation)
             std::memcpy(p, &n, L::kType + 1);
-            uint64_t v;
+            uint64_t v = 0;
             switch (n.type()) {
+                case Type::Int:
+                case Type::Float: continue;
                 case Type::Symbol: v = symbol(*n.try_sym()); break;
                 case Type::Var: v = symbol(n.var_name()); break;
-                case Type::String: v = string_at_[*ref++]; break;
+                case Type::String:
                 case Type::Array:
                 case Type::Command:
-                case Type::Property: v = *ref++; break;
-                default: continue;
+                case Type::Property: break;
+                default:
+                    return Unexpected(make_error(ErrorCode::Refused,
+                                                 "a cache holds data, and " + preview(n) +
+                                                     " is a " + Str(type_name(n.type())),
+                                                 a.file(), a.line()));
             }
             std::memcpy(p, &v, sizeof v);
         }
-        // The tag run, as symbol indexes of this file (D77).
-        for (uint32_t i = 0; i < a.size(); ++i) {
-            const Symbol tag = detail::tag_of(nodes[i]);
-            const uint32_t key = tag.empty() ? kNoTag : static_cast<uint32_t>(symbol(tag));
-            put(out, at + sizeof(Array) + size_t{i} * 4, key);
+        stack_.push_back({&a, at, 0});
+        return {};
+    }
+    uint64_t symbol(Symbol s) {
+        if (s.index() >= symbol_index_.size()) symbol_index_.resize(s.index() + 1, kNoSymbol);
+        uint32_t& i = symbol_index_[s.index()];
+        if (i == kNoSymbol) {
+            i = static_cast<uint32_t>(symbols_.size());
+            symbols_.push_back({s, name_hash(s.str())});
         }
+        return symbols_[i].hash;
     }
 
     Seen seen_;
-    Vec<const Array*> arrays_;
-    Vec<uint32_t> array_at_;
-    Vec<const String*> strings_;
-    Vec<uint32_t> string_at_;
-    Vec<uint32_t> refs_;
-    Vec<Symbol> symbols_;
+    Vec<Frame> stack_;
+    uint32_t line_ = 0;  // of the record before
+    Vec<Name> symbols_;
     Vec<uint32_t> symbol_index_;  // by Symbol::index()
 };
 
@@ -318,10 +365,54 @@ Unexpected bad(std::string_view name, std::string_view why, ErrorCode code = Err
     return Unexpected(make_error(code, "'" + Str(name) + "' " + Str(why)));
 }
 
+const Allocator& allocator_of(const LoadSession& s) noexcept {
+    return s.allocator ? *s.allocator : default_allocator();
+}
+
+// The arrays a load is inside, deepest last: on the stack to the parser's default depth
+// limit, and from the session's allocator past it.
+class LoadStack {
+public:
+    struct Frame {
+        char* array;
+        uint32_t size;
+        uint32_t next;
+    };
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init): a frame is written as it is pushed
+    explicit LoadStack(const Allocator& a) noexcept : alloc_(a), data_(inline_) {}
+    LoadStack(const LoadStack&) = delete;
+    LoadStack& operator=(const LoadStack&) = delete;
+    ~LoadStack() {
+        if (data_ != inline_) detail::deallocate(alloc_, data_, cap_ * sizeof(Frame));
+    }
+    [[nodiscard]] bool empty() const noexcept { return size_ == 0; }
+    Frame& back() noexcept { return data_[size_ - 1]; }
+    void pop() noexcept { --size_; }
+    void push(Frame f) {
+        if (size_ == cap_) grow();
+        data_[size_++] = f;
+    }
+
+private:
+    static constexpr size_t kInline = 256;
+    void grow() {
+        auto* bigger =
+            static_cast<Frame*>(detail::allocate(alloc_, cap_ * 2 * sizeof(Frame), alignof(Frame)));
+        std::memcpy(bigger, data_, size_ * sizeof(Frame));
+        if (data_ != inline_) detail::deallocate(alloc_, data_, cap_ * sizeof(Frame));
+        data_ = bigger;
+        cap_ *= 2;
+    }
+    const Allocator& alloc_;
+    Frame inline_[kInline];
+    Frame* data_;
+    size_t size_ = 0, cap_ = kInline;
+};
+
 // Checks the cache at `file` and fixes it up in place, in the arena that holds it. `meta` is
 // set to the cache's record of its load, or null.
 Expected<Ref<Array>> load(char* file, size_t bytes, std::string_view name, const Cipher* cipher,
-                          const Array*& meta) {
+                          const Allocator& alloc, const Array*& meta) {
     Header h{};
     if (bytes < sizeof h) return bad(name, "is not a Baker cache");
     std::memcpy(&h, file, sizeof h);
@@ -336,13 +427,11 @@ Expected<Ref<Array>> load(char* file, size_t bytes, std::string_view name, const
                    ErrorCode::Refused);
     if ((h.flags & kEnciphered) && !cipher)
         return bad(name, "is enciphered, and the session has no Cipher", ErrorCode::Refused);
-    auto array_at = [&](uint32_t off) {
-        return off >= sizeof h && off < h.arrays_end && off % 8 == 0;
-    };
-    const bool fits = h.file_bytes == bytes && h.root == sizeof h &&
-                      (h.meta == 0 || array_at(h.meta)) && (h.flags & ~kEnciphered) == 0 &&
-                      h.arrays_end <= h.blob_end && h.blob_end <= h.symbols && h.symbols % 8 == 0 &&
-                      h.symbols <= bytes && h.symbol_count <= (bytes - h.symbols) / 8;
+    const bool fits = h.file_bytes == bytes && h.root == sizeof h && h.root < h.symbols &&
+                      (h.meta == 0 || (h.meta > h.root && h.meta < h.symbols)) &&
+                      (h.flags & ~kEnciphered) == 0 && h.symbols % 8 == 0 && h.symbols <= bytes &&
+                      h.symbol_slots <= (bytes - h.symbols) / 16 && h.home_bits < 32 &&
+                      (size_t{1} << h.home_bits) <= h.symbol_slots;
     if (!fits || h.hash != file_hash(file, bytes)) return bad(name, "is damaged");
     if (h.flags & kEnciphered)
         cipher->decrypt(cipher->user,
@@ -350,74 +439,140 @@ Expected<Ref<Array>> load(char* file, size_t bytes, std::string_view name, const
 
     // Intern the symbols into their slots.
     char* slots = file + h.symbols;
-    size_t p = h.symbols + size_t{h.symbol_count} * 8;
-    for (uint32_t i = 0; i < h.symbol_count; ++i) {
+    const char* slots_end = slots + size_t{h.symbol_slots} * 16;
+    size_t p = h.symbols + size_t{h.symbol_slots} * 16;
+    uint32_t count = 0;
+    for (char* s = slots; s < slots_end; s += 16) {
+        uint64_t hash;
+        std::memcpy(&hash, s, 8);
+        if (!hash) continue;
         uint32_t size;
         if (bytes - p < 4) return bad(name, "is damaged");
         std::memcpy(&size, file + p, 4);
         p += 4;
         if (bytes - p < size) return bad(name, "is damaged");
         const void* id = Symbol(std::string_view(file + p, size)).id();
-        std::memcpy(slots + size_t{i} * 8, &id, 8);
+        std::memcpy(s + 8, &id, 8);
         p += size;
+        ++count;
     }
+    if (count != h.symbol_count) return bad(name, "is damaged");
 
-    // One pass over the arrays: offsets become pointers, and indexes Symbols.
-    auto symbol = [&](char* at) {
-        uint64_t i;
-        std::memcpy(&i, at, 8);
-        if (i >= h.symbol_count) return false;
-        std::memcpy(at, slots + i * 8, 8);
-        return true;
-    };
-    auto pointer = [&](char* at, uint32_t from, uint32_t to) {
-        uint64_t off;
-        std::memcpy(&off, at, 8);
-        if (off < from || off >= to || off % 8 != 0) return false;
-        void* ptr = file + off;
-        std::memcpy(at, &ptr, 8);
-        return true;
-    };
-    for (size_t a = sizeof h; a < h.arrays_end;) {
-        uint32_t size;
-        std::memcpy(&size, file + a + L::kSize, 4);
-        const size_t end = a + array_bytes(size), run = a + sizeof(Array);
-        if (h.arrays_end - a < sizeof(Array) || end > h.arrays_end || !symbol(file + a + L::kFile))
-            return bad(name, "is damaged");
-        for (char* n = file + a + Array::nodes_offset(size); n < file + end; n += sizeof(Node)) {
-            bool ok = true;
-            switch (static_cast<Type>(n[L::kType])) {
-                case Type::Int:
-                case Type::Float: break;
-                case Type::Symbol:
-                case Type::Var: ok = symbol(n); break;
-                case Type::String: ok = pointer(n, h.arrays_end, h.blob_end); break;
-                case Type::Array:
-                case Type::Command:
-                case Type::Property: ok = pointer(n, sizeof h, h.arrays_end); break;
-                default: ok = false;
+    // A symbol node's or file field's hash becomes the Symbol, found from its home slot.
+    const uint64_t home_mask = (uint64_t{1} << h.home_bits) - 1;
+    auto symbol = [slots, slots_end, home_mask](char* at) {
+        uint64_t hash;
+        std::memcpy(&hash, at, 8);
+        if (!(hash & 1)) return false;
+        for (const char* s = slots + ((hash >> 1) & home_mask) * 16; s < slots_end; s += 16) {
+            uint64_t k;
+            std::memcpy(&k, s, 8);
+            if (k == hash) {
+                std::memcpy(at, s + 8, 8);
+                return true;
             }
-            if (!ok) return bad(name, "is damaged");
+            if (!k) return false;
         }
-        // The tag run: this file's symbol indexes become the process's (D77).
-        for (size_t i = 0; i < size; ++i) {
-            uint32_t key;
-            std::memcpy(&key, file + run + i * 4, 4);
-            if (key == kNoTag) {
-                key = 0;  // Array::kNoTag
-                std::memcpy(file + run + i * 4, &key, 4);
+        return false;
+    };
+    // The records, walked in the order they were written.
+    const size_t records_end = h.symbols;
+    size_t at = sizeof h;
+    uint32_t line = 0;
+    auto record = [&]() -> char* {
+        if (records_end - at < sizeof(Array)) return nullptr;
+        char* a = file + at;
+        uint32_t size, delta;
+        std::memcpy(&size, a + L::kSize, 4);
+        if (records_end - at < array_bytes(size) || !symbol(a + L::kFile)) return nullptr;
+        const auto block = static_cast<uint32_t>(Arena::kBlockHeader + at);
+        std::memcpy(a + L::kBlock, &block, 4);
+        std::memcpy(&delta, a + L::kLine, 4);
+        line += delta;
+        std::memcpy(a + L::kLine, &line, 4);
+        // The first node now, so that the parent can take the tag once this is placed; the
+        // rest as the walk reaches them. An empty array's one slot holds Int 0.
+        char* first = a + Array::nodes_offset(size);
+        const auto t = static_cast<Type>(first[L::kType]);
+        if ((t == Type::Symbol || t == Type::Var) ? !symbol(first) : size == 0 && t != Type::Int)
+            return nullptr;
+        at += array_bytes(size);
+        return a;
+    };
+    LoadStack stack(alloc);
+    auto tree = [&](uint32_t start) -> char* {
+        if (at != start) return nullptr;
+        char* root = record();
+        if (!root) return nullptr;
+        uint32_t root_size;
+        std::memcpy(&root_size, root + L::kSize, 4);
+        stack.push({root, root_size, 0});
+        while (!stack.empty()) {
+            LoadStack::Frame& f = stack.back();
+            char* parent = f.array;
+            char* nodes = parent + Array::nodes_offset(f.size);
+            char* child = nullptr;
+            uint32_t i = f.next;
+            while (i < f.size) {
+                char* n = nodes + size_t{i} * sizeof(Node);
+                const auto t = static_cast<Type>(n[L::kType]);
+                if (t == Type::Int || t == Type::Float) {
+                    ++i;
+                    continue;
+                }
+                if (t == Type::Symbol || t == Type::Var) {
+                    if (i && !symbol(n)) return nullptr;  // record() did the first
+                    ++i;
+                    continue;
+                }
+                if (!holds_target(t)) return nullptr;
+                uint64_t back;
+                std::memcpy(&back, n, 8);
+                char* target;
+                if (back) {  // shared: written before, and whole before the walk's point
+                    if (back > at - sizeof h || back % 8 != 0) return nullptr;
+                    target = file + (at - back);
+                    uint32_t size;
+                    std::memcpy(&size, target + 4, 4);
+                    const size_t span = t == Type::String ? string_bytes(size) : array_bytes(size);
+                    if (back < span) return nullptr;
+                } else if (t == Type::String) {
+                    if (records_end - at < sizeof(String)) return nullptr;
+                    target = file + at;
+                    uint32_t size;
+                    std::memcpy(&size, target + 4, 4);
+                    if (records_end - at < string_bytes(size)) return nullptr;
+                    const auto block = static_cast<uint32_t>(Arena::kBlockHeader + at);
+                    std::memcpy(target, &block, 4);
+                    at += string_bytes(size);
+                } else {
+                    target = child = record();
+                    if (!target) return nullptr;
+                }
+                std::memcpy(n, &target, 8);
+                if (t != Type::String) {  // the parent's tag run, now the child's tag is set
+                    const uint32_t key = L::tag_key(*reinterpret_cast<const Node*>(n));
+                    std::memcpy(parent + sizeof(Array) + size_t{i} * 4, &key, 4);
+                }
+                ++i;
+                if (child) break;
+            }
+            if (!child) {
+                stack.pop();
                 continue;
             }
-            if (key >= h.symbol_count) return bad(name, "is damaged");
-            const void* id;
-            std::memcpy(&id, slots + size_t{key} * 8, 8);
-            key = CacheLayout::key_of(Symbol::from_id(id));
-            std::memcpy(file + run + i * 4, &key, 4);
+            f.next = i;
+            uint32_t size;
+            std::memcpy(&size, child + L::kSize, 4);
+            stack.push({child, size, 0});  // invalidates f
         }
-        a = end;
-    }
-    meta = h.meta ? reinterpret_cast<const Array*>(file + h.meta) : nullptr;
-    return Ref<Array>(reinterpret_cast<Array*>(file + h.root));
+        return root;
+    };
+    char* root = tree(sizeof h);
+    char* meta_root = h.meta ? tree(h.meta) : nullptr;
+    if (!root || (h.meta && !meta_root) || at != records_end) return bad(name, "is damaged");
+    meta = reinterpret_cast<const Array*>(meta_root);
+    return Ref<Array>(reinterpret_cast<Array*>(root));
 }
 
 // --- The record of a load (D72). ---
@@ -640,10 +795,6 @@ void replay(const Array& meta, LoadSession& s) {
             if (const String* p = n.string()) SessionAccess::add_required(s, p->view());
 }
 
-const Allocator& allocator_of(const LoadSession& s) noexcept {
-    return s.allocator ? *s.allocator : default_allocator();
-}
-
 Expected<void> bytes_of(const Array& root, const LoadSession* session, Str& out) {
     Ref<Array> meta = session ? record_of(*session) : nullptr;
     return Writer().run(root, meta.get(), session ? session->cipher : nullptr, out);
@@ -662,7 +813,7 @@ Expected<Ref<Array>> from_bytes(std::string_view bytes, std::string_view name,
     char* file;
     const Arena::Handle arena(Arena::create_holding(allocator_of(session), bytes.size(), file));
     if (!bytes.empty()) std::memcpy(file, bytes.data(), bytes.size());
-    return load(file, bytes.size(), name, session.cipher, meta);
+    return load(file, bytes.size(), name, session.cipher, allocator_of(session), meta);
 }
 
 // Loads the cache at `path` without replaying it.
@@ -694,7 +845,7 @@ Expected<Ref<Array>> open(std::string_view path, const LoadSession& session, con
     const bool ok = std::fread(data, 1, bytes, f) == bytes;
     std::fclose(f);
     if (!ok) return cannot();
-    return load(data, bytes, path, session.cipher, meta);
+    return load(data, bytes, path, session.cipher, allocator_of(session), meta);
 }
 
 Expected<Ref<Array>> replayed(Expected<Ref<Array>> r, const Array* meta, LoadSession& session) {
