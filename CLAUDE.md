@@ -27,6 +27,31 @@ with its semantic version (`docs/releasing.md`, D150).
   way out; one in running text is not, and `publish.py check` (CI, the local matrix) fails
   until it is reworded.
 
+## Integrations
+
+Baker stays MIT and free of other parties' terms; `INTEGRATIONS.md` is the policy for trying
+it with copyleft, source-available, commercial or NDA platforms. In this repository:
+
+- **Add no dependency on a restrictively licensed target,** not even optional: no includes,
+  vendored code, CMake options, `FetchContent`, CI jobs or tests that reach one. An
+  integration is its own repository (`tools/integration-template/` starts one), and it
+  depends on Baker, never the reverse.
+- **Build a feature an integration motivates from its requirement note alone.** The owner
+  brings the note's text; design the feature as Baker's own, named and shaped for Baker's
+  users, and test it against a mock host in Baker's tests. Do not look up, quote or imitate
+  the target's code, headers or documentation to write it, and do not write Baker code from
+  memory of an integration's.
+- **Keep integration work out of Baker sessions.** If a conversation turns to working inside
+  an integration repository, or brings in a target's code or confidential material, stop and
+  ask the owner to move that work to a session in the integration's repository.
+- **Write Baker's record in Baker's terms.** A D-entry, changelog entry, comment, commit
+  message or PR gives the general motivation (for example, hosts that stream content). It
+  may name a public product as an example user. It never describes a target's internals or
+  anything an agreement keeps confidential, and never calls a Baker feature equivalent to,
+  or derived from, another product's.
+- **When in doubt whether something may cross into Baker, it does not.** Ask the owner with
+  AskUserQuestion.
+
 ## Rules
 
 - **Breaking changes are allowed and encouraged.** Do not keep backward-compatibility
