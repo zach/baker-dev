@@ -355,6 +355,26 @@ TEST_CASE("the reference lists types, their methods and properties, and script c
           std::string::npos);
 }
 
+struct Robot : Object<Robot> {
+    static void bind(Binder<Robot>& b) {
+        b.method("walk", [](Robot&, int n) { return n; })
+            .doc("Walks `n` steps.")
+            .status(Status::Deprecated, "stride");
+        b.method("stride", [](Robot&, int n) { return n; }).status(Status::Provisional);
+        b.method("fly", [](Robot&) {}).status(Status::Stub);
+    }
+};
+
+TEST_CASE("the reference shows a method's status as it does a function's (D133)") {
+    Context ctx;
+    ctx.add_type<Robot>();
+    const std::string ref = reference(ctx);
+    CHECK(ref.find("- `{<Robot> fly}` → nothing *(stub)*\n"
+                   "- `{<Robot> stride int32}` → int32 *(provisional)*\n"
+                   "- `{<Robot> walk int32}` → int32 *(deprecated: use `stride`)*: Walks `n` "
+                   "steps.\n") != std::string::npos);
+}
+
 TEST_CASE("an object deleted during a call stays until the host's eval returns") {
     Context ctx;
     ctx.add_type<Person>();

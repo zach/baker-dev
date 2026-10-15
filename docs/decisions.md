@@ -3950,3 +3950,21 @@ from spec §4's record; the owner chose a new stage over folding the write into 
   - The second test found gap 32: the Config reads a duplicated tag as the later child
     (merge folds it in), but `promote` writes the first. That predates this entry, and
     which meaning is right is the owner's call.
+
+## D133. The reference prints a method's status
+
+*Gap 29. The owner chose to print a method's status rather than drop its replacement.*
+
+- **Before.** `MethodRef::status` stored a method's `Status` and replacement, but the
+  reference printed status for functions only. A deprecated method looked like any other,
+  and its replacement was stored for nothing.
+- **Now.** One `status_text` gives a status as the reference shows it, for functions and
+  methods alike.
+  - A method's first overload line carries it in parentheses, before the doc. For
+    example: ``- `{<Robot> walk int32}` → int32 *(deprecated: use `stride`)*: Walks `n`
+    steps.``
+  - Functions print as before (`*Native, deprecated: use `jump`.*`).
+- **Checks are unchanged.** They demand only `Stub`, for functions and methods alike, as
+  D-entries before this one decided.
+- `docs/script-reference.md` is unchanged: no built-in method has a status. A test binds
+  a type with a stub, a provisional and a deprecated method.
