@@ -4174,3 +4174,32 @@ check.*
     session it uses the cache.
 
   It fails against the previous code: shipping returned 10.
+
+## D140. A cache is named by the normalized path, and a shipping fallback says why
+
+*Gap 40, as D138 decided.*
+
+- **Names.** A Config named a layer's cache by the hash of its path string as written, so
+  `dlc/axe.dta`, `./dlc/axe.dta` and `dlc/../dlc/axe.dta` were three caches. The bake
+  machine and the game had to agree byte for byte, and a DLC installed under a
+  differently spelled path missed its cache (research scenario 12). The name now hashes
+  the normalized path.
+  - Every existing cache name changes once. Development rebuilds; shipped caches must be
+    re-baked (breaking changes are allowed).
+- **Saying why.** When shipping reads the text instead of a cache, it now adds a warning to
+  the session, located at the cache:
+  - "no usable cache for X: <reason>" when the cache is missing, damaged, or of another
+    format;
+  - "... was baked for other macros, pack levels, or required files" when D139 set it
+    aside.
+
+  A Config forwards session warnings to its warning handler, as it does the one-way rule's
+  (D80). When the text cannot be read either, the error carries both reasons.
+  - New: `SessionAccess::add_warning`.
+  - Development stays silent: it rebuilds caches as part of its work.
+- **Tests:**
+  - in development, a layer loaded under two spellings of its path writes one cache;
+  - in shipping, the missing-cache and stale-cache fallbacks warn, and with no text the
+    error names the cache.
+
+  The naming test fails against the previous code: two caches.

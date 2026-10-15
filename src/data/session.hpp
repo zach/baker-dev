@@ -43,6 +43,8 @@ struct SessionAccess {
     // The #autorun commands the last top-level read added.
     [[nodiscard]] static std::span<const Node> new_autorun(const LoadSession& s) noexcept;
     static void add_autorun(LoadSession& s, Node command);
+    // A warning for warnings(), as the one-way rule's are (a shipping cache set aside, D140).
+    static void add_warning(LoadSession& s, Error warning);
     // The files #require has read, in order; the first required_before() were read before
     // the last recorded top-level read began.
     [[nodiscard]] static std::span<const Str> required(const LoadSession& s) noexcept;

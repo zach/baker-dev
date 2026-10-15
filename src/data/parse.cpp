@@ -952,6 +952,9 @@ std::span<const Node> SessionAccess::new_autorun(const LoadSession& s) noexcept 
 void SessionAccess::add_autorun(LoadSession& s, Node command) {
     s.st_->autorun.push_back(std::move(command));
 }
+void SessionAccess::add_warning(LoadSession& s, Error warning) {
+    s.st_->warnings.push_back(std::move(warning));
+}
 std::span<const Str> SessionAccess::required(const LoadSession& s) noexcept {
     return {s.st_->required.data(), s.st_->required.size()};
 }

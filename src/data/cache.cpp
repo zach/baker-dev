@@ -694,15 +694,21 @@ Expected<Ref<Array>> detail::read_shipped(std::string_view text_path, std::strin
     auto r = open(cache_path, session, meta);
     // A cache baked without a recorded load says nothing to check, and is trusted.
     if (r && (!meta || begins_alike(*meta, session))) return replayed(std::move(r), meta, session);
+    // Why the cache was set aside, for a warning if the text reads and the error if not (D140).
+    const Str why = r ? "'" + Str(cache_path) +
+                            "' was baked for other macros, pack levels, or required files than "
+                            "this session has"
+                      : "no usable cache for '" + Str(text_path) + "': " + r.error().message();
     auto text = read_file(text_path, session);
-    if (text || !r) return text;
-    return Unexpected(make_error(
-        ErrorCode::Refused,
-        "'" + Str(cache_path) +
-            "' was baked for other macros, pack levels, or required files than this session has, "
-            "and its text cannot be read: " +
-            Str(text.error().message()),
-        Symbol(cache_path)));
+    if (text) {
+        SessionAccess::add_warning(session,
+                                   make_error(r ? ErrorCode::Refused : ErrorCode::Io,
+                                              why + "; read the text instead", Symbol(cache_path)));
+        return text;
+    }
+    return Unexpected(make_error(r ? ErrorCode::Refused : text.error().code(),
+                                 why + ", and the text cannot be read: " + text.error().message(),
+                                 Symbol(cache_path)));
 }
 
 Expected<void> write_cache(const Array& root, TextSink out, const LoadSession* session) {
