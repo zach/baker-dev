@@ -606,12 +606,7 @@ Expected<bool> Config::reload(const ReloadRequest& request) {
         return false;
     }
     rec.layer = Symbol(ls[from].name);
-    auto r = impl_->reread(ls, from, &rec.read_ns, &rec.files_reloaded);
-    const uint64_t parsed = impl_->now();
-    rec.parse_ns = parsed - t - rec.read_ns;
-    t = parsed;
-    if (!r) {
-        rec.outcome = ReloadOutcome::ParseError;
+    if (auto r = impl_->reread_stages(rec, from, t); !r) {
         impl_->feed(*this, rec, impl_->finish(*this, rec, t));
         return Unexpected(std::move(r).error());
     }
@@ -745,14 +740,16 @@ Expected<void> Config::restore(const ConfigSnapshot& snapshot) {
     if (snapshot.empty()) return Unexpected(make_error(ErrorCode::NotFound, "empty snapshot"));
     impl_->layers = snapshot.state_->layers;
     impl_->scratch = copy_scratch(snapshot.state_->scratch);
-    // Unsaved edits the restored scratch does not hold are gone (D93).
-    for (JournalEntry& j : impl_->journal) {
-        if (j.fate != EditFate::Unsaved) continue;
-        const bool kept = std::any_of(
-            impl_->scratch.begin(), impl_->scratch.end(),
-            [&](const ScratchEntry& e) { return impl_->journal_entry(e.edit, e.key) == &j; });
-        if (!kept) j.fate = EditFate::Reverted;
-    }
+    // Unsaved edits the restored scratch does not hold are gone (D93). Each scratch entry
+    // finds its own edit, so this is linear in the journal and the scratch (D132).
+    Vec<const JournalEntry*> kept;
+    kept.reserve(impl_->scratch.size());
+    for (const ScratchEntry& e : impl_->scratch)
+        if (const JournalEntry* j = impl_->journal_entry(e.edit, e.key)) kept.push_back(j);
+    std::sort(kept.begin(), kept.end());
+    for (JournalEntry& j : impl_->journal)
+        if (j.fate == EditFate::Unsaved && !std::binary_search(kept.begin(), kept.end(), &j))
+            j.fate = EditFate::Reverted;
     impl_->scratch_enabled = snapshot.state_->scratch_enabled;
     impl_->change(*this, trigger_name("restore"));
     return {};

@@ -3893,3 +3893,60 @@ It also corrects D61's and D64's text, and documents `eval(text)`'s lifetime.*
   Context's allocator. A value kept from it, or a `{func}` the text defined, keeps that
   arena alive, so the allocator must outlive it as well as the Context. D61's contract
   already covered this; `script.hpp` now says so where `eval` is declared.
+
+## D132. The write-back batch: one merge a write, one session a promote, a write stage
+
+*Gaps 22–25, the owner's choice of batch. Adds `ReloadRecord::write_ns`, which deviates
+from spec §4's record; the owner chose a new stage over folding the write into another.*
+
+- **Gap 22: write-back merged twice.**
+  - To decide whether scratch should keep a written value, `write_into` merged the whole
+    stack, and then `commit` merged again.
+  - Now `supplier` names the layer whose values win, and that layer's own tree is compared
+    with the values written.
+    - Overwrite merging makes this the merged value: the highest enabled layer with values
+      at the path supplies them.
+    - Scratch's other entries cannot cover the path: the entry with the same key is the one
+      being decided.
+  - A kept entry now keeps its place in scratch rather than moving to the end.
+  - `source_in` is computed once.
+- **Gap 23: session copies.** `refresh_read`'s half was closed by D129. `promote` copied
+  the session below the target for every leaf; `read()` copies what it is given, so one
+  copy before the loop serves them all.
+- **Gap 24: the write's time.** `write_back` started its record before the writer ran, but
+  counted the write in no stage, so the stages did not tile the record as `finish()`
+  promises. `promote` wrote before starting its record.
+  - Both now start the record first and time the write as `write_ns`, between `scan_ns`
+    and `read_ns`.
+  - The reread, timing and parse-error block written three times (reload, `write_back`,
+    `promote`) is one helper, `reread_stages`.
+  - The ImGui harness's loop panel draws seven stages.
+- **Gap 25: quadratic leftovers.**
+  - `collect_leaves` kept a vector of seen tags per array and searched it for every child.
+    Now a child is skipped unless `find()` returns it, a scan of the tag run (D77); past 32
+    children, a set.
+  - `restore` searched the scratch for every journal entry. Now each scratch entry finds
+    its own edit, and the journal is checked against that sorted list.
+- **Measured.** A driver with four in-memory layers (edit mode): base 280 sections, mid
+  280, top 187, an empty local. Each section is six keys. Release, pinned, three
+  alternating runs. Before is D131.
+
+  | | before | after |
+  |---|---:|---:|
+  | `write_back` of one value in mid, best of 30 | 923–962 µs | 793–822 µs |
+  | its median | 1,080–1,089 µs | 864–892 µs |
+  | its default allocations | 151 | 143 |
+  | `promote` of 327 scratch leaves into local | 18.3–19.0 ms | 18.0–18.5 ms |
+  | its default allocations | 24,896 | 24,240 |
+
+  - Callgrind over the driver: `write_back` 341.6M → 307.3M instructions for 30 calls
+    (−10%), of which `merged()` 80.5M → 46.4M.
+  - `promote`'s instructions are unchanged (210.7M → 210.3M): it re-reads the target once
+    per leaf to plan the next, and that dominates. Planning every leaf against one read is
+    a larger change, and promote is a tool path.
+- **Tests.**
+  - A write-back's and a promote's stages tile their records, with `write_ns` timed.
+  - A promote takes each tag's first child, at 4 and at 40 children.
+  - The second test found gap 32: the Config reads a duplicated tag as the later child
+    (merge folds it in), but `promote` writes the first. That predates this entry, and
+    which meaning is right is the owner's call.

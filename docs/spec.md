@@ -439,7 +439,7 @@ struct ReloadRecord {
     std::uint64_t epoch;          // epoch after this reload (unchanged if nothing changed)
     Symbol        trigger;
     std::uint64_t origin_ns, start_ns, end_ns;
-    std::uint64_t scan_ns, read_ns, parse_ns, merge_ns, bind_ns, notify_ns;
+    std::uint64_t scan_ns, write_ns, read_ns, parse_ns, merge_ns, bind_ns, notify_ns;  // write_ns: D132
     std::uint32_t files_reloaded, tweaks_changed;
     std::uint32_t migrated, punted;  // reload-callback outcomes
     Symbol        first_file;        // first changed file, for display

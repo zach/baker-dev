@@ -49,14 +49,17 @@ int32_t line_at(std::string_view text, uint32_t offset) {
     return 1 + static_cast<int32_t>(std::count(text.begin(), end, '\n'));
 }
 
+// Each tag's first child only, as lookup sees it: found by the tag run's scan in a small
+// array, and by a set past kIndexed children, so a wide layer is linear (D132).
 void collect_leaves(const Array& a, size_t first, const Str& prefix, Vec<Leaf>& out) {
-    Vec<Symbol> seen;
+    constexpr size_t kIndexed = 32;
+    HashMap<Symbol, char> seen;
+    const bool indexed = a.size() > kIndexed;
     for (size_t i = first; i < a.size(); ++i) {
         if (!is_tagged(a[i])) continue;
         const Array& child = *a[i].try_array();
         const Symbol tag = *child[0].try_sym();
-        if (std::find(seen.begin(), seen.end(), tag) != seen.end()) continue;
-        seen.push_back(tag);
+        if (indexed ? !seen.emplace(tag, 0).second : a.try_find(tag) != &child) continue;
         Str path = prefix;
         if (!path.empty()) path += '.';
         detail::append_path_name(path, tag.str());
@@ -316,12 +319,8 @@ Expected<WriteReport> Config::Impl::write_into(Config& c, size_t li, const Path&
             return Unexpected(
                 make_error(ErrorCode::Io, "cannot write '" + Str(p->file.str()) + "'", p->file));
         rec.first_file = p->file;
-        const uint64_t t0 = now();
-        auto r = reread(layers, li, &rec.read_ns, &rec.files_reloaded);
-        t = now();
-        rec.parse_ns = t - t0 - rec.read_ns;
-        if (!r) {
-            rec.outcome = ReloadOutcome::ParseError;
+        lap(rec.write_ns, t);
+        if (auto r = reread_stages(rec, li, t); !r) {
             finish(c, rec, t);
             return Unexpected(std::move(r).error());
         }
@@ -334,21 +333,22 @@ Expected<WriteReport> Config::Impl::write_into(Config& c, size_t li, const Path&
     if (it != scratch.end()) {
         written_edit.key = it->key;
         written_edit.edit = it->edit;
-        ScratchEntry kept = std::move(*it);
-        scratch.erase(it);
+        // The layer that now supplies the value, without a merge: overwrite merging means
+        // the highest enabled layer that has it won (D132).
+        const auto top = supplier(path, layers.size());
         Vec<Node> now_values;
-        if (!value_nodes(*merged(), path, now_values) || !same_nodes(now_values, values))
-            scratch.push_back(std::move(kept));
+        if (top && value_nodes(*layers[*top].root, path, now_values) &&
+            same_nodes(now_values, values))
+            scratch.erase(it);
     }
     commit(c, rec, t);
     finish(c, rec, t);
     WriteReport report;
+    const Source s = source_in(layers[li], path);
     if (p->changed) {
-        const Source s = source_in(layers[li], path);
         const WrittenLine line{s.file, s.line};
         report.written = List<WrittenLine>(std::span<const WrittenLine>(&line, 1));
     }
-    const Source s = source_in(layers[li], path);
     settle(written_edit, EditFate::Written, {s.file, s.line});
     return report;
 }
@@ -405,6 +405,10 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
         return disk(p, out);
     };
     LayerState target = impl_->layers[*ti];
+    // Each re-read starts from the same session below the target: one copy, not one a leaf
+    // (D132). read() copies what it is given, so this stays as it is.
+    LoadSession before = *impl_->session_below(impl_->layers, *ti);
+    before.set_reader(vread);
     Vec<Error> refusals;
     for (const Leaf& leaf : leaves) {
         auto p = impl_->plan(target, Path(leaf.path), leaf.values, true, vread);
@@ -414,8 +418,6 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
         }
         if (!p->changed) continue;
         virt[Str(p->file.str())] = std::move(p->text);
-        LoadSession before = *impl_->session_below(impl_->layers, *ti);
-        before.set_reader(vread);
         if (auto r = impl_->read(target, before); !r) refusals.push_back(std::move(r).error());
     }
     WriteReport report;
@@ -423,19 +425,15 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
         report.refused = List<Error>(refusals);
         return report;
     }
+    ReloadRecord rec = impl_->begin(trigger_name("write_back"));
+    uint64_t t = rec.start_ns;
     for (const auto& [file, text] : virt)
         if (!impl_->writer(file, text))
             return Unexpected(
                 make_error(ErrorCode::Io, "cannot write '" + file + "'", Symbol(file)));
-    ReloadRecord rec = impl_->begin(trigger_name("write_back"));
-    uint64_t t = rec.start_ns;
     if (!virt.empty()) {
-        const uint64_t t0 = impl_->now();
-        auto r = impl_->reread(impl_->layers, *ti, &rec.read_ns, &rec.files_reloaded);
-        t = impl_->now();
-        rec.parse_ns = t - t0 - rec.read_ns;
-        if (!r) {
-            rec.outcome = ReloadOutcome::ParseError;
+        impl_->lap(rec.write_ns, t);
+        if (auto r = impl_->reread_stages(rec, *ti, t); !r) {
             impl_->finish(*this, rec, t);
             return Unexpected(std::move(r).error());
         }

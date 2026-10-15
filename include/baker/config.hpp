@@ -142,7 +142,10 @@ struct ReloadRecord {
     uint64_t epoch = 0;  // epoch after this change (unchanged if nothing changed)
     Symbol trigger{};    // the request's, or "reload", "layer", "restore", "write_back"
     uint64_t origin_ns = 0, start_ns = 0, end_ns = 0;
-    uint64_t scan_ns = 0, read_ns = 0, parse_ns = 0, merge_ns = 0, bind_ns = 0, notify_ns = 0;
+    // The stages, in order, tile start_ns to end_ns. write_ns is write-back's own write of the
+    // files it changed, before it reads them back (D132); a reload writes nothing.
+    uint64_t scan_ns = 0, write_ns = 0, read_ns = 0, parse_ns = 0;
+    uint64_t merge_ns = 0, bind_ns = 0, notify_ns = 0;
     uint32_t files_reloaded = 0, tweaks_changed = 0;
     uint32_t migrated = 0, punted = 0;  // reload-callback outcomes
     Symbol first_file{};                // the first changed file, for display
