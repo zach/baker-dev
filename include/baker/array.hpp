@@ -499,6 +499,9 @@ public:
     [[nodiscard]] bool sorted_for_lookup() const noexcept {
         return (flags_ & kSortedForLookup) != 0;
     }
+    // Whether this array, or one below it, is a `(key #remove)`: a Config layer's removal,
+    // which a merge strips from what it adds to the stack (docs/decisions.md D143).
+    [[nodiscard]] bool has_removal() const noexcept { return (flags_ & kHasRemoval) != 0; }
 
     [[nodiscard]] Symbol file() const noexcept { return file_; }
     [[nodiscard]] int32_t line() const noexcept { return line_; }
@@ -531,6 +534,7 @@ public:
 
 private:
     static constexpr uint16_t kSortedForLookup = 1;
+    static constexpr uint16_t kHasRemoval = 2;
 
     Array(uint32_t block, uint32_t size, Symbol file, int32_t line) noexcept
         : block_(block), size_(size), file_(file), line_(line) {}
@@ -585,7 +589,7 @@ private:
     Symbol file_;
     int32_t line_;
     uint16_t height_ = 1;
-    uint16_t flags_ = 0;  // kSortedForLookup
+    uint16_t flags_ = 0;  // kSortedForLookup, kHasRemoval
     // uint32_t tags[size_], padded to 8, follows (D77), then Node nodes[size_].
 };
 

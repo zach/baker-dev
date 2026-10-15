@@ -127,6 +127,11 @@ struct ConfigOptions {
 struct LayerOptions {
     bool optional = false;  // a missing file is not an error; the layer exists, empty
     bool enabled = true;    // disabled layers keep their position but are skipped by merge
+    // Where push_layer places the layer: directly below or above the named layer, instead of
+    // on top (D144). A file layer placed under others re-reads them, as remove_layer does,
+    // because they read with the macros below them. Read at the push, never kept.
+    std::string_view below = {};
+    std::string_view above = {};
 };
 
 // --- Telemetry ---
@@ -271,13 +276,18 @@ public:
     // The #autorun commands of the enabled file layers, bottom to top, as their last reads
     // collected them (D107). Each layer is read with a session of its own, so they are not
     // in session().autorun(); a host runs them after a push, reload, or toggle, so that a
-    // data file can define script functions. Allocates its result.
+    // data file can define script functions, with Context::run_autorun, which also undoes
+    // what a removed layer's commands defined (D146). Allocates its result.
     [[nodiscard]] List<Node> autorun() const;
     [[nodiscard]] Expected<void> set_layer_enabled(std::string_view name, bool enabled);
     // Returns the new state.
     [[nodiscard]] Expected<bool> toggle_layer(std::string_view name);
     // False for an unknown layer.
     [[nodiscard]] bool layer_enabled(std::string_view name) const;
+    // The layer's own tree, as read, before any merge; null for an unknown layer and for
+    // scratch. For tools such as shape::validator, which read it (D145); changing it changes
+    // nothing until the next merge, and is not supported.
+    [[nodiscard]] Ref<Array> layer_root(std::string_view name) const;
 
     // --- Reading. ---
     // The merged tree, including scratch as of the last full merge. Holding the Ref keeps

@@ -4259,3 +4259,253 @@ check.*
   The cache section now describes D139's shipping check and D140's names.
 - **Test** (text-only): `read_cache` and `read_cache_bytes` are refused, `read_cached`
   reads the text, and a copy of the session refuses too.
+
+## D143. A layer removes a key with `(key #remove)`
+
+*Gap 35, as D138 decided. The owner chose the spelling: the marker sits in the key's own
+array, as Module Manager's `!NODE` sits on the node.*
+
+- **Syntax.**
+  - `#remove` is a directive the parser accepts only as a tagged array's one value:
+    `(enemies (exploit_boss #remove))`.
+  - It is stored as the reserved symbol `#remove`.
+  - `(a #remove 1)`, `(a 1 #remove)`, `(#remove)`, a bare `#remove` and `{f #remove}`
+    are located errors: "#remove is written as a key's only value: (key #remove)".
+  - The printer writes the symbol back as `#remove`, so text round-trips.
+- **Semantics** (Config layers only):
+  - In an Overwrite merge, an incoming `(key #remove)` removes every child tagged `key`
+    from the layers below, with its spans. Removals are applied after the rest of the
+    level is merged, so the tag index stays valid.
+  - A key the layers below lack removes nothing.
+  - FillMissing (`#merge`) ignores the marker.
+  - What a layer adds to the stack never carries a marker. An appended subtree holding one
+    is copied without it (`without_removals`), so a bottom layer's markers, or one inside
+    a key new to the stack, never reach the merged tree.
+  - Removing the layer brings the key back. A layer above may set it again.
+- **`Array::has_removal()`**: a flag set by `finish()` when an array is a marker or holds
+  one at any depth. The merge copies a subtree only when the flag says it must, so data
+  without markers pays one flag test per appended subtree. The flag is in the array
+  header, so caches keep it (no format change).
+- **Tools.**
+  - `layer_effect` and `diff` list a removal with the value `#remove`, and `below` shows
+    what it removed.
+  - `promote` refuses a removal leaf with a located message, because writing
+    `(key #remove)` beside a key's children would not parse.
+  - Write-back never produces a marker.
+- **Cost.**
+  - `bench_parse` (4.2 MB corpus, callgrind): 4,131.2M → 4,177.3M instructions (+1.1%),
+    29.5M of them in `finish()`.
+    - A first version tested each child separately and cost +4.0%.
+    - The flag is now ORed in the pass that already reads each child's height.
+  - Pinned wall-clock runs read 101–126 MB/s for both builds, so noise exceeds the
+    difference.
+  - The merge benchmark is unchanged in kind: one flag test per appended subtree.
+- **Tests:**
+  - research scenario 5: the debug menu flag, the exploit boss and a whole `cheats`
+    section are removed;
+  - `layer_effect` shows a removal and what it removed;
+  - a DLC above sets a removed key again, and removing the layer restores the keys;
+  - a bottom-layer marker and a marker inside a new key are absent from the tree;
+  - a cache round trip keeps the flag and still removes;
+  - the bad forms are errors, the marker prints back, and `#merge` ignores it.
+- **Fuzzer finding (PR #17).** A quoted `'#remove'` anywhere else is an ordinary symbol, but
+  `to_dta` printed it bare, which the reparse refused. Now `#remove` prints bare only as
+  a parenthesized array's second of two nodes after a symbol, where the parser takes it,
+  and quoted elsewhere. The input is `tests/fuzz_regressions/quoted_remove_symbol.bin`.
+
+## D144. A layer can be placed below or above another
+
+*Gap 37, as D138 decided. The owner chose `LayerOptions` over a separate `insert_layer`.*
+
+- **Before.** `push_layer` always put the layer on top. A title update that fixes a DLC's
+  value lost when the DLC was installed, and so pushed, after it (research scenario 3:
+  140 instead of 141).
+- **Now.** `LayerOptions::below` and `::above` name the layer to place the new one under or
+  over.
+  - `"scratch"` as the anchor means the top, as does no anchor.
+  - An unknown anchor is `NotFound`. Both at once is refused.
+  - The views are read at the push and cleared before the options are kept (`placement`),
+    so a layer never holds the caller's strings.
+- **Re-reading.**
+  - A file layer placed under others is read with the session below its place. The layers
+    above are then read again, all or nothing, as `remove_layer` does, because they read
+    with the macros below them.
+  - An overlay adds no macros, so placing one re-reads nothing.
+- **Test:**
+  - scenario 3: a DLC pushed `below` the title update now reads 141, and keeps its other
+    keys;
+  - a layer placed `above` the DLC defines `HARD`, and the layer above it is re-read and
+    takes its `#ifdef HARD` branch;
+  - overlays placed below the base and below `scratch`;
+  - the two refusals leave the stack unchanged.
+
+## D145. A softer pack may narrow a harder pack's shape, not loosen it
+
+*Gap 38, as D138 decided. This extends D80's one-way rule to D84's shapes.*
+
+- **Before.** Shapes merge as data (D84), so any later layer could retune them. A mod that
+  redeclared `(speed int (range 1 1000))` silenced the base game's range check (research
+  scenario 9).
+- **Now.**
+  - **`Set::add(tree, report, packs)`.** With a session's packs, a field declared again by
+    a softer pack (a higher rank) than the one that declared it is held to the harder
+    declaration.
+    - It may narrow a range or add metadata.
+    - Widening or dropping a range, changing the type (or list element, or shape), or
+      making a required field optional is a located warning. The harder declaration stays
+      in force.
+    - A harder pack above a softer one may change anything.
+    - Files that declare no pack are unconstrained, as the one-way rule leaves them.
+  - **`shape::validator(cfg)`** replaces `validator()`. It reads the shapes of each
+    enabled layer bottom to top, with the Config's read session (D110), and checks the
+    merged root against them. Before, it read the merged root's shapes, where a
+    declaration a later layer overrode was already gone.
+  - All callers (stacks, the ImGui harness, tests, `language.md`) pass the Config.
+- **`Config::layer_root(name)`**: a layer's own tree, before any merge; null for an
+  unknown layer and for scratch. The validator reads it.
+- **Test** (packs `game` over `mod`):
+  - a mod widening `speed`'s range and making `name` optional is refused twice, and its
+    `speed 900` is still out of the base's range;
+  - a mod narrowing the range takes effect;
+  - a type change is refused;
+  - unpacked files behave as before.
+
+## D146. Script a removed layer defined goes with it
+
+*Gap 39, as D138 decided.*
+
+- **Before.** A host ran each layer's `#autorun` commands on its Context after a stack
+  change. A function or handler a removed layer had defined stayed defined: an uninstalled
+  DLC's `{dlc_bonus}` still ran (research scenario 8), and a native it had
+  `{override}`-n stayed replaced.
+- **Now: `Context::run_autorun(commands)`.**
+  - It first restores everything the previous `run_autorun`'s commands defined or
+    replaced, newest first, then runs `commands` in order.
+  - So after a stack change, the script state autorun made is exactly what the current
+    stack's autorun makes:
+    - a removed layer's functions and handlers are gone;
+    - a native they overrode comes back;
+    - a lower layer's definition of the same name, re-run, is the one in force.
+  - A failing command does not stop the rest; the failures are returned as a list (empty
+    on success).
+- **How.**
+  - While `run_autorun` runs, `{func}`/`{override}`, `{class}` and `{extend}` record the
+    name's state before its first change: a function's overloads, tier, status and doc,
+    or a class's handlers (`note_function`, `note_class`).
+  - The next run restores them through `retire()`, so a body still running finishes on its
+    own definition (D117's rule for redefinitions).
+  - Definitions made outside `run_autorun`, such as a console's `eval` or the host's
+    natives, are not recorded. If autorun later redefines one of those names, the next run
+    restores it to what it was before autorun touched it.
+  - Variables and objects that autorun commands made are not undone. The decision covered
+    functions and handlers.
+- **No Config change.** The stacks' `Live::autorun` now calls `run_autorun`. The cookbook
+  and `Config::autorun()`'s comment say to.
+- **Test:**
+  - base and DLC autorun, then base alone: the DLC's function is gone, the overridden
+    native is back, the base's `greet` is back, and the class's handlers are restored,
+    with the DLC's added handler gone;
+  - a console function is untouched;
+  - an empty run undoes everything autorun defined;
+  - a failing command is reported while the next still runs.
+
+## D147. Packs declare versions, and a required version is checked
+
+*Gap 42, as D138 decided.*
+
+- **Syntax.**
+  - `(version "1.2")` in a pack declaration.
+  - A `requires` entry may be `(name "version")`, meaning that pack at that version or
+    later: `(requires (base_game "1.2") season_pass)`.
+  - A version is dot-separated integers, written as a string, a symbol, or a non-negative
+    integer. A float is refused with "write a version as a string", because `1.10` would
+    read as `1.1`. Anything else is a located error.
+  - Versions compare part by part, numerically, with a missing part counting as 0. So
+    `"1.10"` is after `"1.2"`, and `"2"` equals `"2.0"`.
+- **The check** is D141's, once the pack's file is read and after a cache replay. A required
+  pack that is older, or declares no version, is a located warning ("... requires 'base'
+  "1.10" or later, which is "1.2""). The load goes on.
+- **`Pack`** gains `version` and `requires_versions`, parallel to `requires_packs` (empty:
+  any version).
+- **Caches record both.** A versioned requirement is stored as `(name "version")`, and the
+  pack entry gains its version. That changes the recorded load's layout, so the cache
+  format is now version 5: older caches are refused, and development rebuilds them.
+- **Test:**
+  - a met requirement gives no warning;
+  - `"1.10"` against `"1.2"` warns, part by part;
+  - an integer version satisfies `"1.9.3"`;
+  - a pack without a version warns;
+  - four malformed declarations are errors;
+  - a cache keeps the versions and checks them on replay.
+
+## D148. The cache is laid out for delta patches
+
+*Gap 34, as D138 decided: the owner chose a delta-friendly `.datb` over text-only updates or
+an immutable base cache.*
+
+- **Before.** A cache was a memory image of absolute offsets: arrays breadth first, then the
+  strings, then a symbol table indexed in order of first use. One new array, string or
+  symbol moved what followed it, and every offset or index that pointed past it changed.
+  An inserted section rewrote all ten 1 MB chunks of a 9.6 MB cache, a 135 KB xdelta
+  patch where the text's was 138 bytes (content-updates.md).
+- **Now: format version 6, in source order, with nothing absolute in it.**
+  - Each array's record (its header, tag run and nodes, as before) is followed by what its
+    nodes hold, in order: a string inline, a child array as its own record and what follows
+    it. The loader walks the records in the order they were written and points each array
+    or string node at the next record, so those nodes hold 0 in the file.
+  - A target the tree shares, written before, is the distance back to it from the walk's
+    point.
+  - A symbol, var or file is the 64-bit hash of its name. The table at the end is sorted
+    by home slot, then by hash, so the same names make the same table in any order, and a
+    new name moves only its own run of slots. Two names that hash alike refuse the write.
+  - A line is the difference from the line of the array before it. Block fields and tag
+    runs are 0; the loader sets them, the tag run from each child once it is whole.
+  - The loader keeps the arrays it is inside on a stack of 256 frames, which spills to the
+    session's allocator only for deeper trees.
+- **Patches** (`content-updates.md`'s file, 12,000 sections, every variant baked under one
+  path; `xdelta3 -9`, and 1 MB chunks that differ at the same offset):
+
+  | Change | Text | Format 5 | Format 6 | Format 5 chunks | Format 6 chunks |
+  |---|---:|---:|---:|---:|---:|
+  | one float value | 62 B | 214 B | 159 B | 3/10 | 3/10 |
+  | one longer string | 161 B | 2,841 B | 286 B | 6/10 | 7/10 |
+  | a key the file never had | 107 B | 85,634 B | 323 B | 10/10 | 7/10 |
+  | insert a section | 138 B | 134,918 B | 352 B | 10/10 | 10/10 |
+  | append a section | 260 B | 128,669 B | 339 B | 10/10 | 10/10 |
+  | remove a section | 61 B | 119,407 B | 291 B | 10/10 | 10/10 |
+
+  A chunked store that compares at fixed offsets still sees every chunk after an insert
+  move, as it does for the text. A store with content-defined chunks, or a binary diff,
+  sends about what the text's patch sends.
+- **Size.** 9,994,400 bytes against 9,566,304 (+4.5%: the symbol table's 16-byte slots at
+  half load). Compressed it is smaller, since offsets no longer make every payload unique:
+  gzip -9 469,444 against 1,047,693, xz -9 264,616 against 453,956.
+- **Load: 4–15% slower,** measured against D147's commit on the same machine with the same
+  files (release, pinned to one core):
+  - this file's cache, best of 3×15 loads: 3.47 against 3.71 ms; 81.5M against 97.3M
+    instructions for three loads (cachegrind);
+  - `bench_cache`, `read_cache` from a file: 2.00 against 2.10 ms (1.2 MB of text) and
+    7.4–7.9 against 8.2–8.6 ms (4.2 MB, whose sections are mostly symbols);
+  - the cost is the symbol lookup, a probe from the name's home slot where format 5 indexed
+    a table, and the walk's stack. A first version, which visited every node twice, was
+    +19% on this file; one pass and a hoisted mask brought it here.
+  - `write_cache`: 14.0 against 7.6 ms (1.2 MB), 44.1 against 50.5 ms (4.2 MB).
+  - `bench_cache`'s "Config layer, cache_dir, fresh cache" row read 33–38 against 56 ms at
+    4.2 MB, with the same instructions (callgrind, +1.7%) and the same simulated cache
+    misses. That is glibc's dynamic mmap threshold: the 22 MB buffers sit near it, and the
+    larger cache tips them to fresh mappings and page faults. With
+    `MALLOC_MMAP_THRESHOLD_` pinned high the row reads 21.0–24.1 against 20.5–21.4 ms, and
+    pinned low 69 against 74 ms.
+- **An update bakes under the base's path.** Every array names its file, by hash now, so a
+  cache baked from `d_value.dta` differs from one baked from `d_base.dta` in every array.
+  The cookbook says so.
+- **Test:**
+  - an edit's locality: inserting a section into 60 leaves 677 of 678 32-byte blocks of
+    the old cache somewhere in the new one (format 5: 289 of 672);
+  - names that differ only by length and a first byte (`''`, `'\x01'`) hash apart. The
+    fuzzer found them colliding: the checksum started from the length, which a first byte
+    equal to it cancelled. It now folds the length in after the bytes, which also changes
+    `content_hash` (format 6 rebuilds every cache anyway);
+  - a 300-deep tree round-trips, past the loader's inline stack, checked without recursion
+    (a 600-deep check overflowed MSVC's debug stack in its recursive helpers);
+  - the existing tests of sharing, damage, and every corpus file loading as its text did.

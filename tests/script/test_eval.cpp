@@ -9,6 +9,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <vector>
 #include "ok.hpp"
 
 using namespace baker;
@@ -300,4 +301,46 @@ TEST_CASE("a function redefined while it runs finishes its old body") {
     REQUIRE(ctx.eval("{func h () {func h () 1} 4}"));
     CHECK(*ctx.eval("{h}")->try_int() == 4);
     CHECK(*ctx.eval("{h}")->try_int() == 1);
+}
+
+TEST_CASE("run_autorun restores what the last run's commands defined (D146)") {
+    Context ctx;
+    REQUIRE(ctx.func("add", [](int64_t a, int64_t b) { return a + b; }));
+    ok(ctx.eval("{func console_fn () 7}"));  // the host's own, outside autorun
+    auto commands = [](const char* text) {
+        auto root = ok(read_string(text, "layer.dta"));
+        return std::vector<Node>(root->begin(), root->end());
+    };
+    const auto base = commands("{func greet () hello} {class Shop (sell () base)}");
+    const auto dlc = commands(
+        "{func greet () dlc_hello} {func dlc_bonus ($x) {* $x 2}} {override add ($a $b) 0}"
+        "{extend Shop (sell () dlc) (haggle () yes)}");
+    std::vector<Node> both = base;
+    both.insert(both.end(), dlc.begin(), dlc.end());
+
+    CHECK(ctx.run_autorun(both).empty());
+    CHECK(ok(ctx.eval("{dlc_bonus 4}")).try_int() == 8);
+    CHECK(ok(ctx.eval("{add 2 3}")).try_int() == 0);
+    CHECK(to_string(ok(ctx.eval("{greet}"))) == "dlc_hello");
+    ok(ctx.eval("{new Shop s}"));
+    CHECK(to_string(ok(ctx.eval("{s sell}"))) == "dlc");
+
+    // The DLC is uninstalled: its commands are no longer in the stack's autorun.
+    CHECK(ctx.run_autorun(base).empty());
+    CHECK_FALSE(ctx.eval("{dlc_bonus 4}"));                // gone
+    CHECK(ok(ctx.eval("{add 2 3}")).try_int() == 5);       // the native is back
+    CHECK(to_string(ok(ctx.eval("{greet}"))) == "hello");  // the lower layer's
+    CHECK(to_string(ok(ctx.eval("{s sell}"))) == "base");  // the class's handlers
+    CHECK_FALSE(ctx.eval("{s haggle}"));
+    CHECK(ok(ctx.eval("{console_fn}")).try_int() == 7);  // never autorun's
+
+    // Nothing left: everything autorun defined is undone.
+    CHECK(ctx.run_autorun({}).empty());
+    CHECK_FALSE(ctx.eval("{greet}"));
+
+    // A failing command is reported, and the rest still run.
+    const auto mixed = commands("{nope} {func after () 1}");
+    const List<Error> failed = ctx.run_autorun(mixed);
+    REQUIRE(failed.size() == 1);
+    CHECK(ok(ctx.eval("{after}")).try_int() == 1);
 }

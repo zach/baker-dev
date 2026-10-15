@@ -59,13 +59,21 @@ Ref<Array> Array::make_copy(std::span<const Node> nodes, Symbol file, int32_t li
 
 void Array::finish() noexcept {
     uint16_t h = 0;
+    uint16_t below = 0;  // the children's flags, for kHasRemoval (D143)
     uint32_t* tags = tag_run();
     for (uint32_t i = 0; i < size_; ++i) {
-        const uint16_t c = child_height(data()[i]);
-        if (c > h) h = c;
+        if (const Array* a = data()[i].array()) {
+            if (a->height_ > h) h = a->height_;
+            below = static_cast<uint16_t>(below | a->flags_);
+        }
         tags[i] = tag_key(data()[i]);
     }
     height_ = above(h);
+    if (size_ == 2 && data()[1].type() == Type::Symbol) {
+        static const Symbol marker("#remove");
+        if (data()[1].is(marker)) below = kHasRemoval;
+    }
+    flags_ = static_cast<uint16_t>(flags_ | (below & kHasRemoval));
 }
 
 void Array::set(size_t i, Node node) noexcept {
@@ -73,6 +81,8 @@ void Array::set(size_t i, Node node) noexcept {
     const uint16_t h = above(child_height(node));
     if (h > height_) height_ = h;
     flags_ = static_cast<uint16_t>(flags_ & ~kSortedForLookup);
+    if (const Array* a = node.array())
+        flags_ = static_cast<uint16_t>(flags_ | (a->flags_ & kHasRemoval));
     tag_run()[i] = tag_key(node);
     detail::Owner& owner = detail::owner_of(this);
     if (owner.kind != detail::kArena) {

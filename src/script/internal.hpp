@@ -248,6 +248,12 @@ struct Context::Impl {
     void retire(Vec<ScriptClass::Handler>& handlers);
     // Called when the host's outermost eval or run has returned, if `unsettled`.
     void settle();
+    // While run_autorun runs a layer's commands: records a function's or a class's state
+    // before its first change, so that the next run_autorun can restore it (D146).
+    void note_function(Symbol name);
+    void note_class(Symbol name);
+    // Restores what the last run_autorun's commands changed, newest first.
+    void retract_autorun();
     // Deletes an object {new} made: its type knows its size.
     void destroy_owned(ObjectBase* object) noexcept { object->type().destroy(alloc, object); }
     [[nodiscard]] Expected<Node> send(ObjectHandle target, const Array& command,
@@ -319,6 +325,26 @@ struct Context::Impl {
     Vec<Vec<detail::Overload>> retired_overloads{alloc};
     Vec<Vec<ScriptClass::Handler>> retired_handlers{alloc};
     bool unsettled = false;
+
+    // What run_autorun's commands replaced, to restore when they run again (D146).
+    struct SavedFunction {
+        Symbol name;
+        bool existed = false;  // false: undefined before, so undefined after
+        Tier tier = Tier::Native;
+        Status status = Status::Normal;
+        Symbol replacement;
+        Str doc;
+        Vec<detail::Overload> overloads;
+        Symbol file;
+        int32_t line = 0;
+    };
+    struct SavedClass {
+        Symbol name;
+        Vec<ScriptClass::Handler> handlers;
+    };
+    Vec<SavedFunction> autorun_functions{alloc};
+    Vec<SavedClass> autorun_classes{alloc};
+    bool in_autorun = false;
 
     // Context::call's commands, {object method args...}, one per size below kCallSizes,
     // reused while nothing else holds them: a C++ call into script allocates nothing.

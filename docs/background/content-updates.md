@@ -9,7 +9,8 @@ Decisions go in D-entries.*
 **Decided (D138):** the owner's choices on every finding are recorded in D138, with the
 order of work. In short:
 - shipping checks a cache's recorded macros and falls back to the text;
-- the cache format becomes delta-friendly;
+- the cache format becomes delta-friendly (done: D148, where an inserted section is a
+  352-byte patch);
 - layers gain a delete marker and `insert_layer`;
 - keyed tables become the documented convention;
 - harder packs' shapes hold;

@@ -684,6 +684,12 @@ public:
     // result, or a {func} the text defined, keeps that arena, so the allocator must outlive
     // it as well as the Context (D61, D131).
     [[nodiscard]] Expected<Node> eval(std::string_view text, std::string_view name = "<eval>");
+    // Runs a Config's #autorun commands (Config::autorun()) after a stack change: first it
+    // restores every function and class handler the previous run_autorun's commands
+    // defined or replaced, then it runs `commands` in order. So script a removed layer
+    // defined is gone, and what it replaced (a native, a lower layer's, or nothing) is back
+    // (D146). A command that fails does not stop the rest; the failures are returned.
+    [[nodiscard]] List<Error> run_autorun(std::span<const Node> commands);
 
     // --- Tasks (task.hpp). ---
 
