@@ -262,6 +262,16 @@ TEST_CASE("#autorun collects commands") {
     CHECK(error("#autorun (x)").message() == "#autorun needs a {command}");
 }
 
+TEST_CASE("an included file's nodes count once toward max_nodes (D135)") {
+    Files fs;
+    fs.files["inc.dta"] = "1 2 3 4 5 6 7 8 9 10\n";  // 10 nodes
+    fs.files["main.dta"] = "#include inc.dta\n";
+    fs.session.limits.max_nodes = 10;
+    CHECK(fs.load("main.dta") == "(1 2 3 4 5 6 7 8 9 10)");
+    fs.session.limits.max_nodes = 9;
+    CHECK(fs.fail("main.dta").code() == ErrorCode::Limit);
+}
+
 TEST_CASE("size limits stop macro blow-ups") {
     LoadSession s;
     s.limits.max_nodes = 10000;

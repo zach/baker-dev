@@ -114,21 +114,40 @@ void append_path_name(Str& out, std::string_view name) {
     if (!bare) out += '\'';
 }
 
+namespace {
+
+// `v` printed as "%.*g" at `precision` into `out`, with '.' for the C locale's decimal
+// point, which %g follows; its length, or 0 if it did not fit. The two %g searches below
+// print through it (D136).
+size_t print_g(double v, int precision, char (&out)[64]) noexcept {
+    char buf[64];
+    const int n = std::snprintf(buf, sizeof buf, "%.*g", precision, v);
+    if (n <= 0 || static_cast<size_t>(n) >= sizeof buf) return 0;
+    const char* point = std::localeconv()->decimal_point;
+    const std::string_view decimal = point && *point ? point : ".";
+    const std::string_view text(buf, static_cast<size_t>(n));
+    size_t len = 0;
+    for (size_t i = 0; i < text.size(); ++i) {
+        if (text.substr(i, decimal.size()) == decimal) {
+            out[len++] = '.';
+            i += decimal.size() - 1;
+        } else {
+            out[len++] = text[i];
+        }
+    }
+    return len;
+}
+
+}  // namespace
+
 Str format_double_fallback(double v) {
     if (std::isnan(v)) return "nan";
     if (std::isinf(v)) return v < 0 ? "-inf" : "inf";
-    // The shortest %g precision that reads back exactly. %g follows the C locale's decimal
-    // point, so normalize it.
-    const char* point = std::localeconv()->decimal_point;
-    const std::string_view decimal = point && *point ? point : ".";
+    // The shortest %g precision that reads back exactly.
     Str text;
     for (int precision = 1; precision <= 17; ++precision) {
         char buf[64];
-        const int n = std::snprintf(buf, sizeof buf, "%.*g", precision, v);
-        text.assign(std::string_view(buf, n > 0 ? static_cast<size_t>(n) : 0));
-        if (decimal != ".")
-            for (size_t at = text.find(decimal); at != Str::npos; at = text.find(decimal, at + 1))
-                text.replace(at, decimal.size(), ".");
+        text.assign(std::string_view(buf, print_g(v, precision, buf)));
         std::string_view digits = text;
         const bool neg = !digits.empty() && digits[0] == '-';
         if (neg) digits.remove_prefix(1);
@@ -251,24 +270,11 @@ double float_to_decimal_double(float f) noexcept {
             if (static_cast<float>(r) == f) return r;
         }
     }
-    const char* point = std::localeconv()->decimal_point;
-    const std::string_view decimal = point && *point ? point : ".";
     // The shortest %g that reads back as the same float, then that text read as a double.
     for (int precision = 1; precision <= 9; ++precision) {
-        char buf[64];
-        const int n = std::snprintf(buf, sizeof buf, "%.*g", precision, static_cast<double>(f));
-        if (n <= 0 || static_cast<size_t>(n) >= sizeof buf) break;
-        std::string_view text(buf, static_cast<size_t>(n));
         char norm[64];
-        size_t len = 0;
-        for (size_t i = 0; i < text.size(); ++i) {
-            if (text.substr(i, decimal.size()) == decimal) {
-                norm[len++] = '.';
-                i += decimal.size() - 1;
-            } else {
-                norm[len++] = text[i];
-            }
-        }
+        const size_t len = print_g(static_cast<double>(f), precision, norm);
+        if (len == 0) break;
         float back = 0;
         double wide = 0;
         const char* end = norm + len;

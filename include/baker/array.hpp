@@ -510,7 +510,12 @@ public:
     // The bytes an array of `size` nodes takes: the header, the run of its children's tags,
     // padded to 8 (D77), and the nodes (one, Int 0, when empty).
     [[nodiscard]] static constexpr size_t bytes(uint32_t size) noexcept {
-        return sizeof(Array) + run_bytes(size) + size_t{size ? size : 1u} * sizeof(Node);
+        return nodes_offset(size) + size_t{size ? size : 1u} * sizeof(Node);
+    }
+    // Where an array of `size` nodes keeps them, from its start: after the header and the
+    // tag run. The binary cache lays arrays out alike (D136).
+    [[nodiscard]] static constexpr size_t nodes_offset(uint32_t size) noexcept {
+        return sizeof(Array) + run_bytes(size);
     }
 
     void ref() const noexcept { detail::retain_payload(this); }

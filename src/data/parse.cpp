@@ -411,9 +411,10 @@ private:
         return {file_, t.begin, t.end, {}};
     }
 
-    // Edit mode keeps spans_ parallel to scratch_.
-    bool push(Node n, const SourceSpan& span = {}) {
-        if (++s_.st_->nodes > s_.limits.max_nodes)
+    // Edit mode keeps spans_ parallel to scratch_. An included file's nodes were counted by
+    // its own parser, so splicing them in does not count them again (D135).
+    bool push(Node n, const SourceSpan& span = {}, bool counted = false) {
+        if (!counted && ++s_.st_->nodes > s_.limits.max_nodes)
             return fail(ErrorCode::Limit,
                         "more than " + detail::decimal(static_cast<int64_t>(s_.limits.max_nodes)) +
                             " nodes",
@@ -569,13 +570,7 @@ private:
                 return fail(ErrorCode::Syntax, "write (origin \"source\" (tool name))", t->line());
             tool = *x;
         }
-        const Origin o{file_, Symbol(*decl[1].try_str()), tool};
-        for (Origin& e : s_.st_->origins)
-            if (e.file == file_) {  // read again
-                e = o;
-                return true;
-            }
-        s_.st_->origins.push_back(o);
+        SessionAccess::add_origin(s_, {file_, Symbol(*decl[1].try_str()), tool});
         return true;
     }
 
@@ -615,16 +610,10 @@ private:
                             s->line());
             stage = *x;
         }
-        for (size_t i = 0; i < st.packs.size(); ++i)
-            if (st.packs[i].file == file_) {  // read again
-                pack_ = static_cast<int32_t>(i);
-                return true;
-            }
-        pack_ = static_cast<int32_t>(st.packs.size());
-        st.packs.push_back(Pack{*name, *l, static_cast<uint32_t>(rank - st.pack_levels.begin()),
-                                file_, List<Symbol>({needs.data(), needs.size()}),
-                                List<Symbol>({owners.data(), owners.size()}),
-                                List<Symbol>({audience.data(), audience.size()}), stage});
+        pack_ = static_cast<int32_t>(SessionAccess::add_pack(
+            s_, Pack{*name, *l, 0, file_, List<Symbol>({needs.data(), needs.size()}),
+                     List<Symbol>({owners.data(), owners.size()}),
+                     List<Symbol>({audience.data(), audience.size()}), stage}));
         return true;
     }
 
@@ -723,7 +712,7 @@ private:
             }
             for (size_t i = 0; i < root->size(); ++i) {
                 const SourceSpan* sp = map_ ? map_->span(*root, i) : nullptr;
-                if (!push((*root)[i], sp ? *sp : SourceSpan{})) return false;
+                if (!push((*root)[i], sp ? *sp : SourceSpan{}, true)) return false;
             }
             return true;
         }
@@ -841,20 +830,19 @@ private:
 // its own (D61, D129).
 LoadSession::LoadSession() : LoadSession(default_allocator()) {}
 LoadSession::LoadSession(const Allocator& alloc) : st_(detail::create<State>(alloc, alloc)) {}
+void LoadSession::copy_options(const LoadSession& o) noexcept {
+    limits = o.limits;
+    source_map = o.source_map;
+    record_for_cache = o.record_for_cache;
+    cipher = o.cipher;
+    allocator = o.allocator;
+}
 LoadSession::LoadSession(const LoadSession& o)
-    : limits(o.limits),
-      source_map(o.source_map),
-      record_for_cache(o.record_for_cache),
-      cipher(o.cipher),
-      allocator(o.allocator),
-      st_(detail::create<State>(*o.st_->alloc, *o.st_, *o.st_->alloc)) {}
-LoadSession::LoadSession(LoadSession&& o) noexcept
-    : limits(o.limits),
-      source_map(o.source_map),
-      record_for_cache(o.record_for_cache),
-      cipher(o.cipher),
-      allocator(o.allocator),
-      st_(o.st_) {
+    : st_(detail::create<State>(*o.st_->alloc, *o.st_, *o.st_->alloc)) {
+    copy_options(o);
+}
+LoadSession::LoadSession(LoadSession&& o) noexcept : st_(o.st_) {
+    copy_options(o);
     // The moved-from session stays usable, and empty, on its allocator.
     o.st_ = detail::create<State>(*st_->alloc, *st_->alloc);
 }
@@ -864,21 +852,13 @@ LoadSession& LoadSession::operator=(const LoadSession& o) {
         State* st = detail::create<State>(a, *o.st_, a);
         detail::destroy(a, st_);
         st_ = st;
-        limits = o.limits;
-        source_map = o.source_map;
-        record_for_cache = o.record_for_cache;
-        cipher = o.cipher;
-        allocator = o.allocator;
+        copy_options(o);
     }
     return *this;
 }
 LoadSession& LoadSession::operator=(LoadSession&& o) noexcept {
     std::swap(st_, o.st_);
-    limits = o.limits;
-    source_map = o.source_map;
-    record_for_cache = o.record_for_cache;
-    cipher = o.cipher;
-    allocator = o.allocator;
+    copy_options(o);
     return *this;
 }
 LoadSession::~LoadSession() {
@@ -989,13 +969,16 @@ const Pack* SessionAccess::macro_pack(const LoadSession& s, Symbol macro) noexce
     const auto it = s.st_->macro_pack.find(macro);
     return it == s.st_->macro_pack.end() ? nullptr : &s.st_->packs[it->second];
 }
-void SessionAccess::add_pack(LoadSession& s, const Pack& pack) {
-    if (s.pack_of(pack.file)) return;
+size_t SessionAccess::add_pack(LoadSession& s, const Pack& pack) {
+    auto& packs = s.st_->packs;
+    for (size_t i = 0; i < packs.size(); ++i)
+        if (packs[i].file == pack.file) return i;  // read again
     Pack p = pack;
     const auto& levels = s.st_->pack_levels;
     p.rank =
         static_cast<uint32_t>(std::find(levels.begin(), levels.end(), p.level) - levels.begin());
-    s.st_->packs.push_back(std::move(p));
+    packs.push_back(std::move(p));
+    return packs.size() - 1;
 }
 std::span<const Origin> SessionAccess::new_origins(const LoadSession& s) noexcept {
     const auto& o = s.st_->origins;

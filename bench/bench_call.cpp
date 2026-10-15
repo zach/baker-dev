@@ -15,6 +15,7 @@
 #include <baker/std_interop.hpp>
 
 #include "alloc_counter.hpp"
+#include "bench_call_types.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -54,11 +55,6 @@ double ns_per_call(F&& f) {
 
 }  // namespace
 
-struct HitMsg {
-    static constexpr auto name = "hit";
-    int points;
-};
-
 struct Person : baker::Object<Person> {
     float height = 6.0f;
     int hp = 1'000'000;
@@ -75,27 +71,12 @@ struct Scripted : baker::Object<Scripted> {
     static void bind(baker::Binder<Scripted>&) {}
 };
 
-// One of 64 types with M methods, m0 to m(M-1), each a float argument, and a HitMsg handler.
-template <int N, int M>
-struct Wide : baker::Object<Wide<N, M>> {
-    float v = 0;
-    int hp = 1'000'000;
-    int on_hit(const HitMsg& m) { return hp -= m.points; }
-    static void bind(baker::Binder<Wide>& b) {
-        b.name((M == 1 ? "Narrow" : "Wide") + std::to_string(N));
-        for (int k = 0; k < M; ++k)
-            b.method(baker::Symbol("m" + std::to_string(k)),
-                     [](Wide& w, float a) { return w.v += a; });
-        b.template on<HitMsg>(&Wide::on_hit);
-    }
-};
+constexpr int kPerType = 32;
 
-constexpr int kTypes = 64, kPerType = 32;
-
-template <int M, int... N>
-void make_objects(std::vector<std::unique_ptr<baker::ObjectBase>>& out,
-                  std::integer_sequence<int, N...>) {
-    for (int i = 0; i < kPerType; ++i) (out.push_back(std::make_unique<Wide<N, M>>()), ...);
+// kPerType objects of each type, interleaved by type as type 0, 1, ..., 63, 0, 1, ...
+template <int... P>
+void make_objects(int methods, Objects& out, std::integer_sequence<int, P...>) {
+    for (int i = 0; i < kPerType; ++i) (push_part<P>(methods, out), ...);
 }
 
 int main() {
@@ -276,9 +257,9 @@ int main() {
     }
     {
         // Objects interleaved by type, named w0... (32 methods) and n0... (one method).
-        std::vector<std::unique_ptr<baker::ObjectBase>> wide, narrow;
-        make_objects<32>(wide, std::make_integer_sequence<int, kTypes>());
-        make_objects<1>(narrow, std::make_integer_sequence<int, kTypes>());
+        Objects wide, narrow;
+        make_objects(32, wide, std::make_integer_sequence<int, kParts>());
+        make_objects(1, narrow, std::make_integer_sequence<int, kParts>());
         std::mt19937 rng(7);
         std::string text;
         for (size_t i = 0; i < wide.size(); ++i) {

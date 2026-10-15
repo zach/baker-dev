@@ -1,11 +1,15 @@
-add_library(baker_doctest_main STATIC doctest_main.cpp)
-target_include_directories(baker_doctest_main SYSTEM PUBLIC ${PROJECT_SOURCE_DIR}/third_party/doctest)
-target_compile_features(baker_doctest_main PUBLIC cxx_std_20)
+# doctest's implementation, once for every test binary (D137); baker_doctest_main adds a
+# main to it.
+add_library(baker_doctest STATIC doctest_impl.cpp)
+target_include_directories(baker_doctest SYSTEM PUBLIC ${PROJECT_SOURCE_DIR}/third_party/doctest)
+target_compile_features(baker_doctest PUBLIC cxx_std_20)
 # doctest 2.4.11 forward-declares std::basic_ostream, which newer MSVC STLs (14.44+)
 # reject; include the real standard headers instead.
-target_compile_definitions(baker_doctest_main PUBLIC DOCTEST_CONFIG_USE_STD_HEADERS)
+target_compile_definitions(baker_doctest PUBLIC DOCTEST_CONFIG_USE_STD_HEADERS)
 # Built without exceptions (D54): REQUIRE terminates instead of throwing.
-target_compile_definitions(baker_doctest_main PUBLIC DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS)
+target_compile_definitions(baker_doctest PUBLIC DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS)
+add_library(baker_doctest_main STATIC doctest_main.cpp)
+target_link_libraries(baker_doctest_main PUBLIC baker_doctest)
 
 add_executable(baker_data_tests
   data/test_arena.cpp
@@ -20,9 +24,9 @@ add_executable(baker_data_tests
   data/test_preprocessor.cpp
   data/test_version.cpp
   data/test_write.cpp
-  readiness_loop.cpp
-  support/alloc_counter.cpp)
-target_link_libraries(baker_data_tests PRIVATE baker::data baker_parse_harness baker_doctest_main)
+  readiness_loop.cpp)
+target_link_libraries(baker_data_tests PRIVATE baker::data baker_parse_harness baker_doctest_main
+                      baker_alloc_counter)
 # White-box tests of internal helpers (text.hpp).
 target_include_directories(baker_data_tests PRIVATE ${PROJECT_SOURCE_DIR}/src ${PROJECT_SOURCE_DIR}/src/data support)
 if(BAKER_USE_EASTL)  # the white-box tests include src/data/text.hpp
@@ -44,10 +48,9 @@ if(BAKER_BUILD_SCRIPT)
     script/test_object.cpp
     script/test_script_tasks.cpp
     script/test_stats.cpp
-    script/test_tasks.cpp
-    support/alloc_counter.cpp)
-  target_link_libraries(baker_script_tests PRIVATE baker::script baker_doctest_main)
-  target_include_directories(baker_script_tests PRIVATE support)
+    script/test_tasks.cpp)
+  target_link_libraries(baker_script_tests PRIVATE baker::script baker_doctest_main
+                        baker_alloc_counter)
   target_compile_definitions(baker_script_tests PRIVATE
     BAKER_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
     BAKER_CORPUS_DIR="${PROJECT_SOURCE_DIR}/tests/corpus")
@@ -55,21 +58,17 @@ if(BAKER_BUILD_SCRIPT)
 endif()
 
 if(BAKER_BUILD_SHAPE)
-  add_executable(baker_shape_tests shape/test_shape.cpp support/alloc_counter.cpp)
-  target_link_libraries(baker_shape_tests PRIVATE baker::shape baker_doctest_main)
-  target_include_directories(baker_shape_tests PRIVATE support)
+  add_executable(baker_shape_tests shape/test_shape.cpp)
+  target_link_libraries(baker_shape_tests PRIVATE baker::shape baker_doctest_main
+                        baker_alloc_counter)
   target_compile_definitions(baker_shape_tests PRIVATE BAKER_SHAPE_DIR="${PROJECT_SOURCE_DIR}/tests/shape")
   add_test(NAME baker_shape_tests COMMAND baker_shape_tests)
 endif()
 
 if(BAKER_BUILD_SCRIPT)
   # D61: its own binary, because main installs the default allocator before anything runs.
-  add_executable(baker_alloc_tests alloc/main.cpp alloc/test_allocators.cpp support/alloc_counter.cpp)
-  target_link_libraries(baker_alloc_tests PRIVATE baker::script)
-  target_include_directories(baker_alloc_tests PRIVATE support)
-  target_include_directories(baker_alloc_tests SYSTEM PRIVATE ${PROJECT_SOURCE_DIR}/third_party/doctest)
-  target_compile_definitions(baker_alloc_tests PRIVATE DOCTEST_CONFIG_USE_STD_HEADERS
-                             DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS)
+  add_executable(baker_alloc_tests alloc/main.cpp alloc/test_allocators.cpp)
+  target_link_libraries(baker_alloc_tests PRIVATE baker::script baker_doctest baker_alloc_counter)
   add_test(NAME baker_alloc_tests COMMAND baker_alloc_tests)
 endif()
 

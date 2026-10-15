@@ -3996,3 +3996,84 @@ duplicates or keeping `find()`'s.*
 - **Left as they are.** `layer_effect` and `diff` still list each tag's first child, as
   `find()` does. They describe a layer's own text rather than move values, and nothing
   reported a problem with them.
+
+## D135. Three latent desyncs
+
+*Gap 27, from the 2026-10-14 review (D116–D122).*
+
+- **An overwriting merge left spans behind.**
+  - `merge_into`'s Overwrite branch rebuilt `dst` (the incoming values, then the tagged
+    children kept) but not the spans beside it. Each span stayed at its old index, now
+    under another node.
+  - No caller combined the two yet: `#merge` fills missing keys, and Config merges keep no
+    spans. But write-back reads spans by index, so the first such caller would have
+    written into the wrong bytes.
+  - Now the tagged children's spans are set aside with them, and the incoming values take
+    their own spans from the map.
+- **An included file's nodes counted twice toward `max_nodes`.** The included file's
+  parser counted every node it made. The including parser then spliced the file's
+  top-level nodes in with `push`, which counted them again. A file of 10 nodes included
+  under `max_nodes = 10` failed. Splicing now passes `counted`.
+- **A source map read again kept the old text.** `record_text` kept the first text of a
+  file it had seen, so a map reused across reads of a changed file returned text that no
+  longer matched its spans. It now replaces it.
+- **Tests:** one each, and each fails against the previous code.
+
+## D136. Six duplications, each now written once
+
+*Gap 28, from the 2026-10-14 review.*
+
+Each pair below did the same thing in two places, so a fix in one could miss the other.
+Behavior is unchanged and the existing tests cover each site.
+
+- **Path tokenizing.** `Path::parse` and `Path::matches` read a path's segments alike:
+  quotes, separators, a trailing separator, and an all-digits name as an index. Both now
+  read through `next_segment` and `is_index`.
+- **`LoadSession`'s options.** Its copy and move constructors and assignments each copied
+  the same five public fields. They now call `copy_options`, so a sixth option is added
+  in one place.
+- **Pack and origin registration.** The Parser registered a pack or an origin its own way,
+  and a cache's replay did it through `SessionAccess`. Both now use
+  `SessionAccess::add_pack` and `add_origin`; `add_pack` returns the pack's index, which
+  the Parser keeps.
+- **Locale-neutral `%g`.** `format_double_fallback` and `float_to_decimal_double` each
+  printed with `%g` and replaced the C locale's decimal point by hand. Both now print
+  through `print_g`.
+- **The arity message.** "`'f' takes 2 arguments, given 3`" was assembled at five sites:
+  calls, script handlers, `get` and `set`, and two checks. `arity_message` builds it.
+- **An array's node offset.** The cache re-derived where an array's nodes start, which
+  must match `Array`'s layout. It now uses the new `Array::nodes_offset`, which `bytes()`
+  and `data()` share.
+
+## D137. Build time: doctest and the counter compiled once, bench_call in parts
+
+*Gap 30, from the 2026-10-14 review.*
+
+- **doctest's implementation** was compiled twice, about 5 s each at `-O3`: once in
+  `doctest_main.cpp` and once in `tests/alloc/main.cpp`, whose `main` installs the
+  allocator first.
+  - It is now compiled once, in `tests/doctest_impl.cpp` (the `baker_doctest` library).
+  - `doctest_main.cpp` and the allocation tests' main are mains only, about 0.4 s each.
+  - The stacks' doctest library builds both files.
+- **The allocation counter** was compiled into seven targets. It is now one OBJECT library,
+  `baker_alloc_counter`, which every test and benchmark links.
+- **`bench_call.cpp`** was one 23.9 s unit: binding a type costs the compiler about
+  0.17 s, and the benchmark binds 128 of them (64 types with 32 methods, 64 with one).
+  - Making the method count a run-time value would not have helped: the two sets still
+    need distinct types.
+  - The types now live in `bench_call_wide.hpp` and build as four generated units of 32,
+    in parallel, each about 5.7 s. `bench_call.cpp` itself takes 3.2 s.
+  - The objects are made in the same order as before, so the benchmark is unchanged.
+- **Measured.** Clean release builds with tests and benchmarks, against D136, on this
+  four-core machine:
+
+  | | before | after |
+  |---|---:|---:|
+  | longest single step | 22.5–25.5 s | 7.0 s |
+  | compile time summed over every step (from ninja's log, per build) | 194 s | 188 s |
+  | `ninja -j4`, wall | 49.8–50.8 s | 46.0–48.6 s |
+
+  - At four cores the build is bound by the total, so wall time moves little.
+  - With more cores the longest step bounds it, and that step is 3.6 times shorter.
+  - Splitting `bench_call` repeats its headers four times (about +2.4 s of CPU). The
+    doctest and counter changes save more than that.

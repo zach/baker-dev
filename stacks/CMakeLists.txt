@@ -39,7 +39,8 @@ endfunction()
 
 if(STACKS_BUILD_TESTS)
   enable_testing()
-  add_library(stacks_doctest_main STATIC ${BAKER_ROOT}/tests/doctest_main.cpp)
+  add_library(stacks_doctest_main STATIC ${BAKER_ROOT}/tests/doctest_impl.cpp
+              ${BAKER_ROOT}/tests/doctest_main.cpp)
   target_include_directories(stacks_doctest_main SYSTEM PUBLIC ${BAKER_ROOT}/third_party/doctest)
   target_compile_definitions(stacks_doctest_main PUBLIC DOCTEST_CONFIG_USE_STD_HEADERS
                              DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS)

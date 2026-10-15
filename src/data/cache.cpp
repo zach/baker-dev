@@ -82,10 +82,6 @@ constexpr uint32_t round8(size_t n) noexcept {
 size_t array_bytes(uint32_t size) noexcept {
     return Array::bytes(size);
 }
-// Where an array's nodes start, from the array: after its header and tag run (D77).
-size_t nodes_at(uint32_t size) noexcept {
-    return sizeof(Array) + ((size_t{size} * 4 + 7) & ~size_t{7});
-}
 constexpr uint32_t kNoTag = UINT32_MAX;  // in the file; the process's is Array::kNoTag
 
 // A checksum, not a cipher: four lanes of multiply and rotate, near memory speed.
@@ -278,7 +274,7 @@ private:
         put(out, at, kBlock + at);
         put(out, at + L::kFile, symbol(a.file()));
         const Node* nodes = L::slots(a);
-        char* slots = out.data() + at + nodes_at(a.size());
+        char* slots = out.data() + at + Array::nodes_offset(a.size());
         // An empty array's one slot holds Int 0, which needs nothing more.
         for (uint32_t i = 0; i < (a.size() ? a.size() : 1); ++i) {
             const Node& n = nodes[i];
@@ -387,7 +383,7 @@ Expected<Ref<Array>> load(char* file, size_t bytes, std::string_view name, const
         const size_t end = a + array_bytes(size), run = a + sizeof(Array);
         if (h.arrays_end - a < sizeof(Array) || end > h.arrays_end || !symbol(file + a + L::kFile))
             return bad(name, "is damaged");
-        for (char* n = file + a + nodes_at(size); n < file + end; n += sizeof(Node)) {
+        for (char* n = file + a + Array::nodes_offset(size); n < file + end; n += sizeof(Node)) {
             bool ok = true;
             switch (static_cast<Type>(n[L::kType])) {
                 case Type::Int:

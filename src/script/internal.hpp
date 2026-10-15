@@ -145,6 +145,8 @@ struct Global {
 [[nodiscard]] Str signature_text(const detail::Overload& o);
 // "2 arguments", "1 to 2 arguments", "at least 1 argument".
 [[nodiscard]] Str arity_text(uint32_t min, uint32_t max);
+// "'name' takes 2 arguments, given 3": every arity error, at a call or in a check (D136).
+[[nodiscard]] Str arity_message(Symbol name, uint32_t min, uint32_t max, size_t given);
 using detail::quoted;
 
 // Errors are built out of line, so the evaluator's frames, which nest once per script call,
