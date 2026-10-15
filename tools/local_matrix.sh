@@ -40,7 +40,7 @@ if command -v run-clang-tidy-18 >/dev/null; then
 else
   echo "tidy: run-clang-tidy-18 not installed; skipped"
 fi
-# The release dry run: the tree as tools/release/publish.py would publish it (docs/releasing.md).
+# The release dry run: the tree as tools/release/publish.py would publish it (dev/releasing.md).
 if out=$(python3 tools/release/publish.py check 2>&1); then
   echo "release: $(echo "$out" | tail -1)"
 else

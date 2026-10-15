@@ -174,7 +174,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: The tree as a release would publish it (docs/releasing.md)
+      - name: The tree as a release would publish it (dev/releasing.md)
         run: python3 tools/release/publish.py check
 
   tidy:

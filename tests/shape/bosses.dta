@@ -1,4 +1,4 @@
-; Corpus-style boss data with its shapes (docs/decisions.md D84). A layer above it,
+; Corpus-style boss data with its shapes (dev/decisions.md D84). A layer above it,
 ; bosses_patch.dta, adds a field and retunes a range; the test loads both through Config.
 (shapes
    (boss_phase (at bosses boss phases)

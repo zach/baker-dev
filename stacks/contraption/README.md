@@ -1,6 +1,6 @@
 # Contraption
 
-Physics puzzles, side on (`docs/background/game-stacks.md` §4.1). The question it exists to
+Physics puzzles, side on (`dev/background/game-stacks.md` §4.1). The question it exists to
 answer: is this level solvable, solvable only the intended way, and does solving it feel
 clever rather than fiddly?
 
@@ -65,4 +65,4 @@ gamepad (§4.1's "gamepad cursor" robustness); generation of level variants.
 
 ## Measured
 
-See `docs/decisions.md` D111.
+See `dev/decisions.md` D111.

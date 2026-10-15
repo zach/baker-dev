@@ -16,7 +16,7 @@
 //   ctx.add(bob, "bob");                 // {bob grow 10} now works from script
 //   ctx.call(bob, "grow", 10);           // and the same dispatch from C++
 //
-// A Context refers to an object by a salted handle (docs/decisions.md D4, D19), so a
+// A Context refers to an object by a salted handle (dev/decisions.md D4, D19), so a
 // script holding a reference to a destroyed object gets a clean error, never a dangling
 // pointer. An object removes itself from its Context when destroyed; a copy of an object
 // is not in any Context.
@@ -39,7 +39,7 @@
 //
 // on<M> also binds a method named M::name whose parameters are M's fields, in order, so
 // {bob hit 20} reaches the same handler, and handle() reaches a script handler (hit ($points)
-// ...) first, as a command would (docs/decisions.md D53).
+// ...) first, as a command would (dev/decisions.md D53).
 
 #include <baker/script.hpp>
 

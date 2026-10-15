@@ -1,6 +1,6 @@
 #pragma once
 
-// The container alias layer (docs/decisions.md D55, D61). Code in src/ uses Vec, Str, and
+// The container alias layer (dev/decisions.md D55, D61). Code in src/ uses Vec, Str, and
 // HashMap, never std::vector, std::string, or std::unordered_map. They are the STL's by
 // default, or EASTL's with BAKER_USE_EASTL=ON, and always allocate through a Baker
 // Allocator: the default allocator unless the owner passes its own.

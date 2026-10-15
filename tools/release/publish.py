@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Builds and publishes a release of Baker's core library to github.com/zach/baker.
 
-The release process is docs/releasing.md. In short:
+The release process is dev/releasing.md. In short:
 
   publish.py bump 0.2.0
       Sets the version in CMakeLists.txt, include/baker/version.hpp and
@@ -55,11 +55,11 @@ TEXT_NAMES = {"CMakeLists.txt", ".clang-format", ".clang-tidy", ".gitattributes"
 _D = r"D\d{1,3}(?:\s*(?:–|-)\s*D\d{1,3})?(?:\s+Q\d+)?"
 CITATION_ITEM = re.compile(
     r"^(?:"
-    r"(?:docs/)?decisions\.md(?:\s+" + _D + r")?"  # docs/decisions.md D55
+    r"(?:dev/)?decisions\.md(?:\s+" + _D + r")?"  # dev/decisions.md D55
     r"|" + _D +  # D77, D90 Q3, D61–D64
-    r"|(?:docs/)?spec(?:\.md)?\s+§\s*[\d.]+(?:\s*(?:,|and)\s*§\s*[\d.]+)*"  # spec §5, §10
-    r"|(?:docs/)?(?:background/)?[a-z][\w-]*(?:\.md)?\s+§\s*[\d.]+"  # reading-a-studio §7
-    r"|(?:docs/)?(?:background/[\w-]+|spec|allocation-review)\.md"  # a document of baker-dev's
+    r"|(?:dev/)?spec(?:\.md)?\s+§\s*[\d.]+(?:\s*(?:,|and)\s*§\s*[\d.]+)*"  # spec §5, §10
+    r"|(?:dev/)?(?:background/)?[a-z][\w-]*(?:\.md)?\s+§\s*[\d.]+"  # reading-a-studio §7
+    r"|(?:dev/)?(?:background/[\w-]+|spec|allocation-review|releasing)\.md"  # a document of baker-dev's
     r"|gaps?\s+\d+\w*(?:\s*(?:,|and)\s*\d+\w*)*"  # gap 31, gaps 2m and 6
     r")$"
 )
@@ -142,10 +142,11 @@ def strip_file(name, text):
 FORBIDDEN = [
     (re.compile(r"(?<![\w/.-])D\d{1,3}\b(?![\w.])"), "a decision number"),
     (re.compile(r"\bspec(?:\.md)?\s+§"), "a spec section"),
-    (re.compile(r"\bdecisions\.md\b"), "docs/decisions.md"),
-    (re.compile(r"\bdocs/spec\.md\b|\(spec\.md\)|\bspec\.md\b"), "docs/spec.md"),
-    (re.compile(r"\bdocs/background\b|\bbackground/[\w-]+\.md"), "docs/background/"),
-    (re.compile(r"\ballocation-review\b"), "docs/allocation-review.md"),
+    (re.compile(r"\bdecisions\.md\b"), "dev/decisions.md"),
+    (re.compile(r"\bdev/spec\.md\b|\(spec\.md\)|\bspec\.md\b"), "dev/spec.md"),
+    (re.compile(r"\bdev/background\b|\bbackground/[\w-]+\.md"), "dev/background/"),
+    (re.compile(r"\ballocation-review\b"), "dev/allocation-review.md"),
+    (re.compile(r"(?<![/\w.])dev/[\w<]"), "the development documents in dev/"),
     (re.compile(r"\bCLAUDE\.md\b|\.claude/"), "the agents' files"),
     (re.compile(r"\bstacks/"), "stacks/"),
     (re.compile(r"\bbaker-dev\b"), "the development repository"),

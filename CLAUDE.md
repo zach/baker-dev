@@ -1,22 +1,28 @@
 # Working on Baker
 
-Read `docs/spec.md` for what Baker is (§10 lists the milestones), `docs/decisions.md` for
+Documentation is in two places (D152): `docs/` is the user documentation, which every
+release ships whole, and `dev/` is the development documentation (decisions, spec,
+background research, assessments, the release process), which never ships. A new guide for
+users of the library goes in `docs/`; a plan, assessment, review or status note goes in
+`dev/`.
+
+Read `dev/spec.md` for what Baker is (§10 lists the milestones), `dev/decisions.md` for
 every deviation from it and the results of each step, and the current milestone plan
-(`docs/m<N>-plan.md`) if one exists. M10, the harness instrumentation, is done (D96):
+(`dev/m<N>-plan.md`) if one exists. M10, the harness instrumentation, is done (D96):
 every milestone of spec §10 is. The core's soft line budget is 15,000 (D69);
 `tools/count_lines.py` reports it, and `baker::shape` apart. CI also checks
 `clang-format-18 --dry-run --Werror` over every source file, and runs clang-tidy over `src/`
 with `.clang-tidy`, where every finding is an error (D103).
 
 `stacks/` is a separate CMake project over this Baker: the game stacks of
-`docs/background/game-stacks.md`, for Windows PC (`stacks/README.md`, D106). The rules
+`dev/background/game-stacks.md`, for Windows PC (`stacks/README.md`, D106). The rules
 below are for Baker; the stacks keep Baker's no-exceptions rule and formatting, build with
 warnings as errors, and have their own CI job.
 
 ## Releases
 
 The core library is published to github.com/zach/baker, one commit per release, tagged
-with its semantic version (`docs/releasing.md`, D150).
+with its semantic version (`dev/releasing.md`, D150).
 
 - **Never start, prepare, or publish a release on your own initiative.** Run the Release
   workflow, `publish.py bump`, or `publish.py commit` only when the owner asks for that
@@ -59,7 +65,7 @@ it with copyleft, source-available, commercial or NDA platforms. In this reposit
   every caller in the repository and delete the old form. There are no downstream users
   to protect. (Script-level `Status::Deprecated` is a feature for script authors, not a
   compatibility layer.)
-- Record each deviation from `docs/spec.md` in `docs/decisions.md` (spec §11). Results of
+- Record each deviation from `dev/spec.md` in `dev/decisions.md` (spec §11). Results of
   a step go in a D-entry too, with benchmark numbers.
 - Hold designs and hot-path changes to `.claude/skills/acton-review/` (the skill and its
   `references/baker-gaps.md` status table). Write a short design note before a step that

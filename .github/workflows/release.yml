@@ -1,6 +1,6 @@
 name: Release
 
-# Publishes Baker's core library to github.com/zach/baker (docs/releasing.md). Run by hand
+# Publishes Baker's core library to github.com/zach/baker (dev/releasing.md). Run by hand
 # from the Actions tab, on main, by the owner or at the owner's request; never on a push.
 # Without `publish`, it builds and tests the release and stops, leaving the tree as an
 # artifact to read.

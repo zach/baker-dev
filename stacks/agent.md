@@ -1,6 +1,6 @@
 # The agent harness: design note
 
-`docs/background/game-stacks.md` §3, built on the base (`base/README.md`). What an agent
+`dev/background/game-stacks.md` §3, built on the base (`base/README.md`). What an agent
 needs to work on a stack's data the way a technical designer would: run the game without a
 window, judge a run by written objectives, check its own edits, and hand them to a person
 to keep or drop.

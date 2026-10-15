@@ -1,4 +1,4 @@
-# What a release of Baker ships to github.com/zach/baker (docs/releasing.md).
+# What a release of Baker ships to github.com/zach/baker (dev/releasing.md).
 # One glob per line, relative to the repository root; `**` matches any depth.
 # A line starting with `!` removes what earlier lines matched. Files under
 # tools/release/public/ are laid over the result afterwards (the public CI, .gitignore).
@@ -25,10 +25,8 @@ tools/parse_corpus.cpp
 tools/check_headers.py
 tools/check_readme.py
 
-docs/language.md
-docs/cookbook.md
-docs/script-reference.md
-docs/check-json.md
+# The user documentation, all of it; the development documents are in dev/, which never ships.
+docs/**
 
 # The harness's local scratch data, should any be committed.
 !examples/harness-imgui/data/local/**

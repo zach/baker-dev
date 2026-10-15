@@ -1,6 +1,6 @@
 # Stuntline
 
-Stunt races on tracks laid from a kit of pieces (`docs/background/game-stacks.md` §4.5). The
+Stunt races on tracks laid from a kit of pieces (`dev/background/game-stacks.md` §4.5). The
 question it exists to answer: is the track fun to drive, fast, readable, with jumps that land
 and moments of airtime, built quickly from a kit?
 
@@ -68,4 +68,4 @@ the first run. The canyon's gap is 8 m now, and the switchback's 18 m; over seed
 
 ## Measured
 
-See `docs/decisions.md` D111.
+See `dev/decisions.md` D111.

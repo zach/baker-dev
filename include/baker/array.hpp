@@ -21,7 +21,7 @@
 // find() scans the direct children's tags, which each array keeps in a run of 4-byte keys
 // beside its nodes, so a scan reads only the array's own memory (D77). That is the right
 // default for the small arrays config is made of; sort_for_lookup() switches an array to
-// binary search. Only Symbol tags match (docs/decisions.md D6). A child's tag is captured
+// binary search. Only Symbol tags match (dev/decisions.md D6). A child's tag is captured
 // when the child is placed: after re-tagging a child in place (child.set(0, ...)), its
 // parent's lookups may find it under neither tag until the parent sets it again.
 //
@@ -42,7 +42,7 @@
 // return the child array, or null when it is absent, and build no error. Forms taking a
 // fallback return it only when the key is absent; a value that is present but the wrong
 // type is an error, because silently ignoring a mistyped value is the failure located
-// errors exist to prevent (docs/decisions.md D25).
+// errors exist to prevent (dev/decisions.md D25).
 
 #include <baker/allocator.hpp>
 #include <baker/node.hpp>
@@ -213,7 +213,7 @@ private:
 // float is written as its shortest decimal (0.7f as 0.7, not 0.699999988).
 //
 // A class template rather than an ADL function, so a type you do not own (glm::vec3) can
-// be given a converter without adding names to its namespace (docs/decisions.md D26).
+// be given a converter without adding names to its namespace (dev/decisions.md D26).
 template <class T>
 struct Convert;
 
@@ -500,7 +500,7 @@ public:
         return (flags_ & kSortedForLookup) != 0;
     }
     // Whether this array, or one below it, is a `(key #remove)`: a Config layer's removal,
-    // which a merge strips from what it adds to the stack (docs/decisions.md D143).
+    // which a merge strips from what it adds to the stack (dev/decisions.md D143).
     [[nodiscard]] bool has_removal() const noexcept { return (flags_ & kHasRemoval) != 0; }
 
     [[nodiscard]] Symbol file() const noexcept { return file_; }

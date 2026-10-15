@@ -62,7 +62,7 @@ const char* const kApp =
 }  // namespace
 
 TEST_CASE("overwrite merge: leaves win, tagged arrays recurse") {
-    // The slide's example, with the leaves winning (docs/decisions.md D1).
+    // The slide's example, with the leaves winning (dev/decisions.md D1).
     auto r = merge(*parse("(a (b 1))"), *parse("(a (b 2) (c 2))"));
     CHECK(str_of(*r) == "((a (b 2) (c 2)))");
     // Values replace values; children are kept and merged.

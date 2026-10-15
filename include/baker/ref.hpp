@@ -5,10 +5,10 @@
 // Refcounts are atomic by default, so Nodes and Refs may be copied and dropped on any
 // thread; mutation is still single-threaded. Define BAKER_ATOMIC_REFCOUNT=0 (CMake:
 // -DBAKER_ATOMIC_REFCOUNT=OFF) for plain counters in single-threaded programs
-// (docs/decisions.md D20). Every translation unit must agree on the setting.
+// (dev/decisions.md D20). Every translation unit must agree on the setting.
 //
 // Arrays and strings are not counted one by one: each belongs to an owner, a load's arena or
-// a solo block of one, and a reference counts the owner (docs/decisions.md D64). A Ref<T>
+// a solo block of one, and a reference counts the owner (dev/decisions.md D64). A Ref<T>
 // calls T's ref() / unref() members.
 
 #include <cstdint>

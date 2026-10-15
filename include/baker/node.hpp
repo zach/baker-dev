@@ -15,7 +15,7 @@
 //   Object    -                   64-bit salted object handle (baker::script)
 //
 // Numbers are stored at 64 bits, which costs nothing: the payload is 8 bytes anyway
-// because it holds pointers (docs/decisions.md D18). as<int32_t>(), as<float>() and other
+// because it holds pointers (dev/decisions.md D18). as<int32_t>(), as<float>() and other
 // narrower reads are range-checked.
 //
 // Typed accessors (as_int, as_float, ...) return Expected: a mismatch is an Error naming
@@ -57,7 +57,7 @@ enum class Type : uint8_t {
 [[nodiscard]] std::string_view type_name(Type type) noexcept;
 
 // Reference to an object owned by a baker::script Context: 32 bits of table index and 32
-// bits of salt, the layout of Unreal's FWeakObjectPtr (docs/decisions.md D19). Opaque to
+// bits of salt, the layout of Unreal's FWeakObjectPtr (dev/decisions.md D19). Opaque to
 // baker::data, which can store, copy, and compare it but never resolve it.
 struct ObjectHandle {
     uint64_t bits = 0;

@@ -1,6 +1,6 @@
 # Wayfarer
 
-Exploration missions in a free-roaming world (`docs/background/game-stacks.md` §4.4). The
+Exploration missions in a free-roaming world (`dev/background/game-stacks.md` §4.4). The
 question it exists to answer: does exploring lead somewhere? Are missions discoverable,
 reachable, paced, and impossible to break?
 
@@ -76,4 +76,4 @@ played scenarios cover two routes); streaming a cell's navigation tile off the m
 
 ## Measured
 
-See `docs/decisions.md` D112.
+See `dev/decisions.md` D112.

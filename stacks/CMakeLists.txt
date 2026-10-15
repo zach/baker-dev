@@ -1,4 +1,4 @@
-# The game stacks (docs/background/game-stacks.md): Windows PC prototypes on Baker. One
+# The game stacks (dev/background/game-stacks.md): Windows PC prototypes on Baker. One
 # build holds Baker, the shared base (base/), and every stack's game.
 #
 #   cmake -S stacks -B build-stacks -G Ninja && cmake --build build-stacks

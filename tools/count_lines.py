@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Counts non-blank, non-comment C++ lines per library against the soft budget.
 
-See docs/decisions.md D2 and D40. Informational; always exits 0. Understands //, /* */, string,
+See dev/decisions.md D2 and D40. Informational; always exits 0. Understands //, /* */, string,
 character, and raw-string literals, so comment markers inside literals are not comments.
 """
 import pathlib
@@ -10,7 +10,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCRIPT_HEADERS = ("script", "object", "task")
-BUDGET = 15000  # docs/decisions.md D2; raised from the spec's 4,000 by D40, D48, then D69
+BUDGET = 15000  # dev/decisions.md D2; raised from the spec's 4,000 by D40, D48, then D69
 
 
 def code_lines(text: str) -> int:

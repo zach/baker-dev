@@ -13,7 +13,7 @@
 //   auto h = ctx.scheduler().spawn(blink(ctx.scheduler(), light), "blink");
 //   ctx.scheduler().tick(dt);   // once a frame, in the host's units
 //
-// A task's frame comes from its Scheduler's pool, never the heap (docs/decisions.md D58):
+// A task's frame comes from its Scheduler's pool, never the heap (dev/decisions.md D58):
 // a coroutine must take a Scheduler& or a Context& (its default Scheduler) among its
 // parameters, or it does not compile. A frame larger than the pool's budget makes spawn()
 // fail with a Limit error. A spawned task starts at the next tick. The library owns no

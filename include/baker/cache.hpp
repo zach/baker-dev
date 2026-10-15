@@ -1,6 +1,6 @@
 #pragma once
 
-// The binary cache (spec §9, docs/decisions.md D70): a tree written as it lies in memory,
+// The binary cache (spec §9, dev/decisions.md D70): a tree written as it lies in memory,
 // and loaded with one read into one allocation and one pass that turns offsets into
 // pointers.
 //

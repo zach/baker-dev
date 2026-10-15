@@ -3,7 +3,7 @@
 Evidence gathered in October 2026 to check Baker's core-type decisions (Node layout,
 numeric width, symbols, strings, arrays, refcounting, object handles, error handling,
 toolchains) against commercial PC, console and mobile C++ practice. It led to decisions
-D18–D23 in `docs/decisions.md`.
+D18–D23 in `dev/decisions.md`.
 
 Two passes produced it:
 

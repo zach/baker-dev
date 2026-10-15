@@ -1,8 +1,8 @@
 # Baker under the data-oriented lens: known gaps
 
 **Status, 2026-10-15: gaps 1–32 are closed; 33–43, from the content-update research
-(`docs/background/content-updates.md`), are decided (D138) and built in its order: D139 closed 33, D140 40, D141 41, D142 36 and 43, D143 35, D144 37, D145 38, D146 39, D147 42, D148 34. Every gap is closed.** D132 closed the
-write-back batch (22–25), D133 gap 29, D134 gap 32, D135 gap 27, D136 gap 28, D137 gap 30. D127 closed gap 31 (the owner's choice in `docs/allocation-review.md`), and
+(`dev/background/content-updates.md`), are decided (D138) and built in its order: D139 closed 33, D140 40, D141 41, D142 36 and 43, D143 35, D144 37, D145 38, D146 39, D147 42, D148 34. Every gap is closed.** D132 closed the
+write-back batch (22–25), D133 gap 29, D134 gap 32, D135 gap 27, D136 gap 28, D137 gap 30. D127 closed gap 31 (the owner's choice in `dev/allocation-review.md`), and
 D128–D131 the review's other findings: edit-mode source maps, sessions, script callables
 and handlers on their owner's allocator, and the first arena block and text copies. D124 closed the hot-path batch (13–18), D125 gap 26, D126 the load-path batch
 (19–21). A fresh review of the core (2026-10-14) fixed what it found that was a bug or a
@@ -11,7 +11,7 @@ predictable branch per host `eval`, none per call. Before that, **2026-10-13, af
 no open gaps.** First audited 2026-10-11 at M6 step 1 (`23f4142`); the audit's reasoning
 for each closed gap is in its D-entries. Sizes are GCC 13 on x86-64. Each gap names its
 path class (SKILL.md, review step 1). When one is fixed, or accepted as a deviation, record
-it in `docs/decisions.md` and update this file.
+it in `dev/decisions.md` and update this file.
 
 | Gap | Decision | When |
 |---|---|---|
@@ -56,7 +56,7 @@ before fixing (SKILL.md, step 5), and do not fix one without a cost that justifi
 | 30, build time | build | doctest's implementation is compiled twice (`doctest_main.cpp`, `tests/alloc/main.cpp`, about 6.5 s each at `-O3`), `alloc_counter.cpp` seven times, and `bench_call.cpp` takes 35 s (128 bound types). An OBJECT library for each, and a runtime method count in the bench, would cut them. | **closed**, D137: doctest and the counter compiled once; `bench_call`'s types in four parallel units (longest step 25 s → 7 s) |
 | 31, a Config's merged trees | load | Each merge builds the Config's tree as solo arrays from the default allocator (D61, D64): about 50 blocks in `baker_alloc_tests`' Config scenario, of 215 default allocations. A Config arena for its merged root would put them on the Config's own heap and free them in one go. That changes D64's ownership, so it needs the owner's decision. | **closed**, D127: merge shares identical arrays and reuses its scratch; 9,067 allocations a merge to 8, trees stay solo |
 | 32, promote and duplicate tags | correctness | A layer with two children of one tag reads, through the Config, as the later one (merge folds the duplicate in), but `promote` writes the first (`collect_leaves` keeps each tag's first child, as `find()` would). Promoting `(k 1) (k 9)` writes 1 where the Config read 9. Found writing D132's test; which meaning promote should take is the owner's call. | **closed**, D134: promote writes the stack's values, a repeated tag folded as merge folds it |
-| 33, stale DLC caches in shipping | content | A shipping build trusts a cache without checking the macros it was baked with, so after a title update changes a base macro, a DLC's cache keeps the old values (measured: base 12, DLC 10, no warning). The cache records them (`before`); checking needs no I/O. `docs/background/content-updates.md` | **closed**, D139: shipping checks the recorded macros, levels and required files (no I/O) and falls back to the text, or refuses |
+| 33, stale DLC caches in shipping | content | A shipping build trusts a cache without checking the macros it was baked with, so after a title update changes a base macro, a DLC's cache keeps the old values (measured: base 12, DLC 10, no warning). The cache records them (`before`); checking needs no I/O. `dev/background/content-updates.md` | **closed**, D139: shipping checks the recorded macros, levels and required files (no I/O) and falls back to the text, or refuses |
 | 34, `.datb` and delta patching | content | A cache is a memory image of offsets: any structural edit rewrites what follows, so a one-section append changed all ten 1 MB chunks (129 KB xdelta, text 260 B). It is 5.8× the text, 15× compressed. Text updates with on-device baking, an immutable base cache, or a delta-friendly layout are the options. | **closed**, D148: source order, nothing absolute; an inserted section is a 352-byte xdelta patch (135 KB before), loads 4–15% slower |
 | 35, no removal in layers | content | A layer cannot delete a key, a tagged child, or a list element: a patch cannot remove a debug flag or an exploit entry. RimWorld and Module Manager both have delete operations. | **closed**, D143: `(key #remove)` in a layer; markers never reach the merged tree; +1.1% parse instructions |
 | 36, value lists across packages | content | Two layers that each add to one value list leave only the last; keyed children compose. A convention to document, or an append marker. | **closed**, D142: keyed tables are the documented convention (cookbook, content packages) |

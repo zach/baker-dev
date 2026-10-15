@@ -1,6 +1,6 @@
 # The base
 
-What every stack shares (`docs/background/game-stacks.md` §2): Baker's live data loop, a
+What every stack shares (`dev/background/game-stacks.md` §2): Baker's live data loop, a
 window, a renderer, Baker's tuning panels and console, and a fixed-step frame loop that
 drives a game. A game is one class:
 

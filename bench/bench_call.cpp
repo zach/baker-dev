@@ -3,7 +3,7 @@
 //
 // Each row evaluates a parsed command node with Context::eval, as a game evaluating
 // its data would. The last rows compare the per-Context table that resolves a function
-// name (docs/decisions.md D44) with a hash map, the lookup an in-node cache would save (D5).
+// name (dev/decisions.md D44) with a hash map, the lookup an in-node cache would save (D5).
 //
 // Cold rows (D57, D70): 20,000 native functions, and 2,000 named objects, each called in a
 // shuffled order, so the commands, function records, and objects are not in cache. Gaps 2m

@@ -1,6 +1,6 @@
 #pragma once
 
-// baker::shape (spec §6, docs/decisions.md D84): the expected structure of a data domain,
+// baker::shape (spec §6, dev/decisions.md D84): the expected structure of a data domain,
 // declared in data, by whichever layer owns the vocabulary.
 //
 //   (shapes

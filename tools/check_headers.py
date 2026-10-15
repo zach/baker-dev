@@ -47,7 +47,7 @@ def main():
             print(f"{header.name}: <{inc}> via {chain}")
             failures += 1
     if failures:
-        print(f"{failures} disallowed standard headers (docs/decisions.md D55)")
+        print(f"{failures} disallowed standard headers (dev/decisions.md D55)")
     return 1 if failures else 0
 
 
