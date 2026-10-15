@@ -24,7 +24,7 @@ bool Live::open(const LiveOptions& options) {
     baker::LoadSession& session = cfg_.session();
     session.set_pack_levels({"engine", "game", "task"});
     session.add_include_dir(data_dir_);
-    cfg_.add_validator(baker::shape::validator());
+    cfg_.add_validator(baker::shape::validator(cfg_));
     cfg_.add_validator(baker::check_validator(ctx_, {.packs = &cfg_.read_session()}));
 
     struct Layer {
@@ -69,8 +69,9 @@ void Live::begin_frame() {
 
 void Live::autorun() {
     stack_changed_ = false;
-    for (const baker::Node& command : cfg_.autorun())
-        if (auto r = ctx_.eval(command); !r) log(std::string(baker::describe(r.error())));
+    // What a removed layer defined goes with it (D146).
+    for (const baker::Error& e : ctx_.run_autorun(cfg_.autorun().items()))
+        log(std::string(baker::describe(e)));
     if (changed_) changed_(cfg_);
 }
 

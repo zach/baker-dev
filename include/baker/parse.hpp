@@ -79,6 +79,11 @@ struct Pack {
     uint32_t rank = 0;  // the level's place in the session's pack levels; 0 is the hardest
     Symbol file;
     List<Symbol> requires_packs;
+    // The version each required pack must be at least, parallel to requires_packs: empty for
+    // any (D147). From (requires (base "1.2") other).
+    List<Symbol> requires_versions;
+    // (version "1.2"): dot-separated integers, compared part by part; empty when undeclared.
+    Symbol version;
     // Harness metadata (spec §1): who keeps the pack, whom it is for, and how far it has
     // evolved. Empty when not declared.
     List<Symbol> owners;    // (owners "td-encounter" "td-combat")

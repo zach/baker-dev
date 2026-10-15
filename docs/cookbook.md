@@ -258,7 +258,9 @@ and one allocation each: a 6.2 MB tree in 2.3–2.5 ms (D79).
 How a game delivers content after it ships, from `docs/background/content-updates.md`:
 
 - **Each package is a layer:** the base game, then each DLC, then title updates, then live
-  ops. A DLC that may be absent is pushed with `LayerOptions::optional`. Code that reads
+  ops. A package installed later still goes in its place: `push_layer("pack3", path,
+  {.below = "tu1"})` puts a new DLC under the title updates, so their fixes to it win
+  (D144). A DLC that may be absent is pushed with `LayerOptions::optional`. Code that reads
   its content takes a fallback (`get(path, fallback)`), so a save that names an
   uninstalled DLC's content still loads.
 - **Anything packages extend is a keyed table.** Two layers that set one value list leave
@@ -275,12 +277,22 @@ How a game delivers content after it ships, from `docs/background/content-update
 
   A value list such as `(setlist song_a song_b)` is right for something one package owns.
   `layer_effect` shows a layer that replaces another's list.
+- **A title update removes with `(key #remove)`**, a debug menu or an exploit's entry, and
+  the key stays gone until the layer is removed (D143).
 - **A title update changes values, not the macros below it.** A layer reads with the macros
   of the layers below it. A macro a title update redefines reaches only the layers above
   it, never the base that already expanded it.
-- **Declare what a package requires.** `(pack expansion (level dlc) (requires
-  season_pass))`. A requirement that is not loaded once the pack's file is read is a
+- **Run autorun with `Context::run_autorun(cfg.autorun().items())`** after every stack
+  change. Script an uninstalled DLC defined goes with it, and what it replaced comes back
+  (D146).
+- **Declare what a package requires**, and at which version: `(pack expansion (level dlc)
+  (version "1.0") (requires (base_game "1.2") season_pass))`. A requirement that is not loaded once the pack's file is read is a
   located warning, forwarded to the Config's warning handler (D141).
+- **A cache patches about as small as its text** (D148). It is laid out in source order,
+  with no absolute offsets, so an edit changes the cache's bytes near the edit and a binary
+  diff or a chunked store sends little more than the edit: inserting a section into a
+  10 MB cache is a 352-byte xdelta patch. Bake an update under the same path as the base
+  bake, since every array names its file.
 - **Mods and user files are text, never caches.** A cache is a memory image that a forged
   file can point anywhere. A loader of content from outside the game's own packages sets
   `LoadSession::text_only`, which refuses every cache and parses the text, which no input

@@ -366,6 +366,73 @@ TEST_CASE("a pack whose required pack is not loaded is warned about (D141)") {
     }
 }
 
+TEST_CASE("packs declare versions, and a required version is checked (D147)") {
+    auto warnings_of = [](const LoadSession& s) {
+        std::vector<std::string> out;
+        for (const Error& w : s.warnings()) out.emplace_back(w.message());
+        return out;
+    };
+    auto session = [](Files& fs) { fs.session.set_pack_levels({"game", "dlc"}); };
+    {
+        Files fs;
+        session(fs);
+        fs.files["base.dta"] = "(pack base (level game) (version \"1.2\"))\n(a 1)";
+        fs.files["ok.dta"] =
+            "(pack ok_dlc (level dlc) (requires (base \"1.2\")))\n#require base.dta";
+        fs.files["new.dta"] = "(pack new_dlc (level dlc) (requires (base \"1.10\")))\n";
+        fs.load("ok.dta");
+        CHECK(warnings_of(fs.session).empty());
+        REQUIRE(fs.session.packs().size() == 2);
+        CHECK(fs.session.packs()[0].requires_versions[0] == Symbol("1.2"));  // ok_dlc, first
+        CHECK(fs.session.packs()[1].version == Symbol("1.2"));               // base, required
+        fs.load("new.dta");  // 1.10 is after 1.2: part by part, not as text
+        const auto w = warnings_of(fs.session);
+        REQUIRE(w.size() == 1);
+        CHECK(w[0] == "pack 'new_dlc' requires 'base' \"1.10\" or later, which is \"1.2\"");
+    }
+    {
+        Files fs;
+        session(fs);
+        fs.files["base.dta"] = "(pack base (level game) (version 2))";  // an int is a version
+        fs.files["plain.dta"] = "(pack plain (level game))";
+        fs.files["dlc.dta"] =
+            "(pack dlc (level dlc) (requires (base \"1.9.3\") (plain \"1\")))\n"
+            "#require base.dta\n#require plain.dta";
+        fs.load("dlc.dta");
+        const auto w = warnings_of(fs.session);
+        REQUIRE(w.size() == 1);
+        CHECK(w[0] == "pack 'dlc' requires 'plain' \"1\" or later, which declares no version");
+    }
+    for (const char* bad :
+         {"(pack p (level game) (version 1.10))", "(pack p (level game) (version \"1.x\"))",
+          "(pack p (level game) (requires (base 1.5)))",
+          "(pack p (level game) (requires (\"1.2\")))"}) {
+        Files fs;
+        session(fs);
+        fs.files["bad.dta"] = bad;
+        fs.fail("bad.dta");
+    }
+    // A cache keeps the versions and checks them on replay.
+    Files fs;
+    session(fs);
+    fs.files["new.dta"] = "(pack new_dlc (level dlc) (version \"3\") (requires (base \"1.10\")))";
+    LoadSession bake;
+    bake.set_pack_levels({"game", "dlc"});
+    bake.set_reader(fs.session.reader());
+    bake.record_for_cache = true;
+    auto root = read_file("new.dta", bake);
+    REQUIRE(root);
+    std::string bytes;
+    REQUIRE(write_cache(**root, string_out(bytes), &bake));
+    LoadSession game;
+    game.set_pack_levels({"game", "dlc"});
+    REQUIRE(read_cache_bytes(bytes, "new.datb", game));
+    REQUIRE(game.packs().size() == 1);
+    CHECK(game.packs()[0].version == Symbol("3"));
+    CHECK(game.packs()[0].requires_versions[0] == Symbol("1.10"));
+    CHECK(warnings_of(game).size() == 1);  // base is not loaded
+}
+
 TEST_CASE("packs declare a level, and the one-way rule warns on softer macros (D80)") {
     Files fs;
     fs.session.set_pack_levels({"engine", "game", "task"});

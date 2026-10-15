@@ -6,6 +6,7 @@
 #include "data/text.hpp"
 
 #include <algorithm>
+#include <optional>
 
 namespace baker::shape {
 
@@ -145,8 +146,25 @@ bool read_field(const Array& a, Field& f, Vec<Error>& errors) {
 
 }  // namespace
 
-void Set::add(const Array& tree, Report& report) {
+namespace {
+// Whether `next`, a field declared again, loosens `held`: another type, a range widened or
+// dropped, or a required field made optional (D145).
+bool loosens(const Field& held, const Field& next) noexcept {
+    if (next.type != held.type || next.element != held.element || next.shape != held.shape)
+        return true;
+    if (next.optional && !held.optional) return true;
+    return held.ranged && (!next.ranged || next.min < held.min || next.max > held.max);
+}
+// The rank of the pack `file` declares, or none: a file without a pack is unconstrained.
+std::optional<uint32_t> rank_of(const LoadSession* packs, baker::Symbol file) noexcept {
+    const Pack* p = packs ? packs->pack_of(file) : nullptr;
+    return p ? std::optional<uint32_t>(p->rank) : std::nullopt;
+}
+}  // namespace
+
+void Set::add(const Array& tree, Report& report, const LoadSession* packs) {
     Vec<Error> errors(report.errors.begin(), report.errors.end());
+    Vec<Error> warnings(report.warnings.begin(), report.warnings.end());
     const Names& n = names();
     for (const Node& top : tree) {
         const Array* decls = top.try_array();
@@ -209,10 +227,22 @@ void Set::add(const Array& tree, Report& report) {
                                         [&](const Field& x) { return x.name == *tag; });
                 Field field = old != fs.end() ? *old : Field{};
                 if (!read_field(*f, field, errors)) continue;
-                if (old != fs.end())
+                if (old != fs.end()) {
+                    const auto held = rank_of(packs, old->file);
+                    const auto next = rank_of(packs, field.file);
+                    if (held && next && *next > *held && loosens(*old, field)) {
+                        warnings.push_back(make_error(
+                            ErrorCode::Refused,
+                            "shape " + quoted(*name) + ": " + quoted(field.name) +
+                                " is declared by a harder pack; a softer one may narrow it, "
+                                "not loosen it, so that declaration holds",
+                            field.file, field.line));
+                        continue;
+                    }
                     *old = field;
-                else
+                } else {
                     fs.push_back(field);
+                }
             }
         }
     }
@@ -226,6 +256,7 @@ void Set::add(const Array& tree, Report& report) {
                 s.file, s.line));
     }
     report.errors = List<Error>({errors.data(), errors.size()});
+    report.warnings = List<Error>({warnings.data(), warnings.size()});
 }
 
 namespace {
@@ -409,11 +440,14 @@ void check(const Array& tree, const Set& shapes, Report& report) {
     report.warnings = List<Error>({warnings.data(), warnings.size()});
 }
 
-Config::Validator validator() {
-    return [](const Array& root, const Callback<void(const Error&)>& warn) {
+Config::Validator validator(const Config& cfg) {
+    return [&cfg](const Array& root, const Callback<void(const Error&)>& warn) {
         Set set;
         Report report;
-        set.add(root, report);
+        for (const baker::Symbol name : cfg.layers())
+            if (cfg.layer_enabled(name.str()))
+                if (const Ref<Array> tree = cfg.layer_root(name.str()))
+                    set.add(*tree, report, &cfg.read_session());
         check(root, set, report);
         if (!warn) return;
         for (const Error& e : report.errors) warn(e);

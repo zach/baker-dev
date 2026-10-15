@@ -55,6 +55,7 @@ Expected<Node> define(Args a, bool override) {
             break;
         }
     }
+    impl.note_function(name);  // run_autorun restores what this replaces (D146)
     Function& f = impl.function(name);
     if (f.tier == Tier::Native && !f.overloads.empty()) {
         if (!override)

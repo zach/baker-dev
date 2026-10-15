@@ -37,6 +37,23 @@ bool same_nodes(const Vec<Node>& merged, const Array& src) noexcept {
     return true;
 }
 
+// `a` without its (key #remove) children, at any depth: what a layer adds to the stack keeps
+// none (D143). Only an array with has_removal() needs it.
+Ref<Array> without_removals(const Array& a, Arena* arena) {
+    Vec<Node> kept;
+    kept.reserve(a.size());
+    for (const Node& n : a) {
+        const Array* c = n.type() == Type::Array ? n.array() : nullptr;
+        if (c && is_removal(*c)) continue;
+        if (c && c->has_removal())
+            kept.emplace_back(without_removals(*c, arena));
+        else
+            kept.push_back(n);
+    }
+    return arena ? arena->make_array(kept, a.file(), a.line())
+                 : Array::make_from(kept, a.file(), a.line());
+}
+
 // The index of a wide array's tags, in a level's tables: the first child with each tag.
 struct Index {
     Vec<const void*>& keys;
@@ -144,11 +161,16 @@ bool merge_into(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const 
             if (const Array* da = dst[i].try_array())
                 if (const Symbol t = da->tag(); !t.empty()) index.add(t, i);
     }
+    bool removes = false;  // a (key #remove) child: applied after the merge, below (D143)
     for (size_t j = src_first; j < src.size(); ++j) {
         const Array* sa = src[j].try_array();
         if (!sa) continue;
         const Symbol tag = sa->tag();
         if (tag.empty() && policy == MergePolicy::Overwrite) continue;  // a value, handled above
+        if (is_removal(*sa)) {  // #merge fills in; only a layer removes
+            removes = removes || policy == MergePolicy::Overwrite;
+            continue;
+        }
         size_t found = dst.size();
         if (!tag.empty() && indexed) {
             found = index.find(tag, dst.size());
@@ -163,7 +185,10 @@ bool merge_into(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const 
         }
         if (found == dst.size()) {
             if (!tag.empty() && indexed) index.add(tag, dst.size());
-            dst.push_back(src[j]);
+            if (policy == MergePolicy::Overwrite && sa->has_removal())
+                dst.emplace_back(without_removals(*sa, arena));
+            else
+                dst.push_back(src[j]);
             if (spans) {
                 const SourceSpan* sp = map->span(src, j);
                 spans->push_back(sp ? *sp : SourceSpan{});
@@ -204,6 +229,32 @@ bool merge_into(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const 
         }
         merged.clear();
         changed = true;
+    }
+    if (removes) {
+        // Each removed key's children leave dst, with their spans; after the loop, so the
+        // index above stayed valid. A key the layers below lack removes nothing.
+        size_t out = dst_first;
+        for (size_t i = dst_first; i < dst.size(); ++i) {
+            const Array* da = dst[i].try_array();
+            const Symbol t = da ? da->tag() : Symbol();
+            bool gone = false;
+            if (!t.empty())
+                for (size_t j = src_first; j < src.size() && !gone; ++j) {
+                    const Array* sa = src[j].try_array();
+                    gone = sa && is_removal(*sa) && sa->tag() == t;
+                }
+            if (gone) {
+                changed = true;
+                continue;
+            }
+            if (out != i) {
+                dst[out] = std::move(dst[i]);
+                if (spans) (*spans)[out] = (*spans)[i];
+            }
+            ++out;
+        }
+        dst.resize(out);
+        if (spans) spans->resize(out);
     }
     return changed;
 }

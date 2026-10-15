@@ -320,6 +320,10 @@ struct Config::Impl {
     Expected<void> reread(Vec<LayerState>& ls, size_t from, uint64_t* read_ns = nullptr,
                           uint32_t* files = nullptr) const;
 
+    // Where push_layer puts a layer: its index in the stack, from opts.below or .above, which
+    // it clears (D144).
+    [[nodiscard]] Expected<size_t> placement(LayerOptions& opts) const;
+
     [[nodiscard]] std::optional<size_t> find_layer(std::string_view name) const {
         for (size_t i = 0; i < layers.size(); ++i)
             if (layers[i].name == name) return i;

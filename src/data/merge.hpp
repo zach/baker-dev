@@ -35,6 +35,16 @@ private:
     size_t depth_ = 0;
 };
 
+// The value of `(key #remove)`: in a Config layer, removes `key` from the layers below
+// (D143). The parser writes it only as a tagged array's one value.
+[[nodiscard]] inline const Symbol& remove_marker() {
+    static const Symbol s("#remove");
+    return s;
+}
+[[nodiscard]] inline bool is_removal(const Array& a) noexcept {
+    return a.size() == 2 && a[1].is(remove_marker());
+}
+
 // Merges the nodes of `src` from `src_first` into `dst` from `dst_first` under `policy`
 // (see baker::merge). Arrays along the way are rebuilt, never mutated, because they may be
 // shared. With a `map`, `spans` runs parallel to `dst` and is kept in step, and rebuilt
