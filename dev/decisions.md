@@ -4956,6 +4956,11 @@ Baker's, so Baker's code is unchanged.*
   - `sim --json` equal to `results.json`, byte-stable, and sorted;
   - `compare` moving nothing for identical runs, and naming the broken runs after a
     weaker fighter (exit 1);
-  - `--patch` writing nothing, and its application equal to `--write` where a `patch`
-    tool exists.
+  - `--patch` writing nothing, and its application equal to `--write`.
+- **CI found a Windows case.** A Windows checkout gives the data CRLF lines, so the patch
+  carries `\r` bytes in its content lines. That is still exact: applied with `git apply`,
+  it equals `--write` byte for byte, also tried by converting a copy of Duel's data to
+  CRLF. But the old GNU `patch` (2.5.9) a Windows runner carries asserted on it. The test
+  now applies with `git apply` and falls back to `patch` only where git is absent, and the
+  command's message suggests `git apply` first.
 - **One commit, not three.** The three changes share `tools.cpp`.

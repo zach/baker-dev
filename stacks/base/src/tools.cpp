@@ -521,8 +521,10 @@ int promote(Game& game, const Options& o) {
             std::fprintf(stderr, "cannot write %s\n", o.patch.c_str());
             return kError;
         }
-        std::printf("wrote %s: %zu files would change; apply it from %s with patch -p1\n",
-                    o.patch.c_str(), report->ok() ? captured.size() : size_t{0}, o.data.c_str());
+        std::printf(
+            "wrote %s: %zu files would change;\n"
+            "apply it from %s with git apply -p1 (or patch -p1)\n",
+            o.patch.c_str(), report->ok() ? captured.size() : size_t{0}, o.data.c_str());
         return report->ok() ? 0 : kFailed;
     }
     if (!o.write) {

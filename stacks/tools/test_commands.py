@@ -123,18 +123,23 @@ def promote_patch(s):
     patch = (s.dir / "p.diff").read_text()
     expect(patch.startswith("--- a/default.dta\n+++ b/default.dta\n@@ "),
            "promote --patch: a unified diff, relative to the data directory")
-    tool = shutil.which("patch")
-    if tool:
+    # git apply takes the bytes as they are, CRLF lines included (a Windows checkout's); the
+    # patch tool some Windows runners carry (2.5.9) cannot, so it is only the fallback.
+    git, patch_tool = shutil.which("git"), shutil.which("patch")
+    if git or patch_tool:
         applied = Path(s.tmp.name) / "applied"
         shutil.copytree(s.dir, applied)
-        subprocess.run([tool, "-p1", "-s", "-i", str(s.dir / "p.diff")], cwd=applied / "data",
-                       check=True)
+        if git:
+            apply = [git, "apply", "-p1", "--whitespace=nowarn", str(s.dir / "p.diff")]
+        else:
+            apply = [patch_tool, "-p1", "-s", "-i", str(s.dir / "p.diff")]
+        subprocess.run(apply, cwd=applied / "data", check=True)
         code, _, _ = s.run("promote", "--write")
         expect(code == 0 and (applied / "data" / "default.dta").read_bytes() ==
                (data / "default.dta").read_bytes(),
                "promote --patch applies to exactly what --write writes")
     else:
-        print("skipped: no patch tool to apply the diff")
+        print("skipped: neither git nor patch to apply the diff")
 
 
 def main():
