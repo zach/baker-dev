@@ -66,7 +66,8 @@
 // write-back, and promote() are always inert.
 //
 // Not thread-safe: change a Config from one thread. Readers on other threads should take
-// root() (a Ref) and read that.
+// root() (a Ref) and read that; checks of a candidate layer on another thread take a
+// LayerChecker (checker()).
 
 #include <baker/array.hpp>
 #include <baker/clock.hpp>
@@ -267,10 +268,12 @@ struct ExplainEntry {
 class CheckStamp {
 private:
     friend class Config;
+    friend class LayerChecker;
     const void* config_ = nullptr;
     uint64_t generation_ = 0;
     uint64_t subject_ = 0;  // the layer's name with its text, or with its tree's address
     uint64_t policy_ = 0;
+    bool left_out_ = false;  // by a LayerChecker: validators not any_thread did not run
 };
 
 // Config::check_layer: a candidate layer's effect, and the verdicts on it, before it takes
@@ -327,6 +330,36 @@ public:
 private:
     friend class Config;
     struct State;  // refcounted; defined in config.cpp
+    State* state_ = nullptr;
+};
+
+// A fixed state of a Config to check candidate layers against, on any thread
+// (Config::checker). It shares the Config's trees and copies the rest, and never touches the
+// Config after it is made: the Config may change, or be destroyed, meanwhile. Its checks
+// report as Config::check_layer and check_layer_text do, against the state it was made
+// from, and run only the validators added with ValidatorOptions::any_thread; a push with
+// such a report, if it still holds (LayerOptions::checked), runs the others first, on the
+// Config's thread. Copyable; copies share one state, and checks with it may run on several
+// threads at once. Needs atomic reference counts (the default; D20) to be used off the
+// Config's thread. The Config's allocator must outlive it, as for a snapshot.
+class LayerChecker {
+public:
+    LayerChecker() noexcept = default;
+    LayerChecker(const LayerChecker& other) noexcept;
+    LayerChecker& operator=(const LayerChecker& other) noexcept;
+    ~LayerChecker();
+    [[nodiscard]] bool empty() const noexcept { return !state_; }
+
+    [[nodiscard]] Expected<LayerReport> check(std::string_view name, const Ref<Array>& root,
+                                              const LayerPolicy& policy = {}) const;
+    [[nodiscard]] Expected<LayerReport> check_text(std::string_view name, std::string_view text,
+                                                   const LayerPolicy& policy = {}) const;
+
+    struct State;  // refcounted; defined in config_check.cpp
+
+private:
+    friend class Config;
+    void stamp(LayerReport& report, uint64_t subject, const LayerPolicy& policy) const noexcept;
     State* state_ = nullptr;
 };
 
@@ -503,6 +536,11 @@ public:
                                                          std::string_view text,
                                                          const LayerPolicy& policy = {}) const;
 
+    // A LayerChecker of the stack as it stands, for checks on another thread. What it keeps,
+    // and each of its checks' temporaries and candidate trees, come from `allocator`, which
+    // must outlive it and its reports. Allocates.
+    [[nodiscard]] LayerChecker checker(const Allocator& allocator = default_allocator()) const;
+
     [[nodiscard]] ConfigSnapshot snapshot() const;
     [[nodiscard]] Expected<void> restore(const ConfigSnapshot& snapshot);
 
@@ -514,8 +552,9 @@ private:
     // LayerOptions::checked: stamps a report on the layer `subject` names, and tells whether
     // one still holds for a push of it on top.
     void stamp(LayerReport& report, uint64_t subject, const LayerPolicy& policy) const noexcept;
-    [[nodiscard]] bool holds(const LayerOptions& options, uint64_t subject,
-                             bool on_top) const noexcept;
+    enum class Holding : uint8_t { No, Yes, LeftOut };  // LeftOut: and validators left to run
+    [[nodiscard]] Holding holds(const LayerOptions& options, uint64_t subject,
+                                bool on_top) const noexcept;
     // The scratch values `path` names (exactly, or one element of them): none, found, or
     // an element past the end of a scratch value, which hides the layers' longer one.
     enum class ScratchHit : uint8_t { None, Found, PastEnd };

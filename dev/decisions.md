@@ -5259,3 +5259,73 @@ layer's tree and the read session through the Config it held.*
 - **Test.** A validator sees the enabled layers bottom to top, skipping a disabled one, and
   the merged root. In a check it sees the candidate last, and the root with the candidate
   merged.
+
+## D167. Checking a layer off the Config's thread: `LayerChecker`
+
+*Requirement note 0003 from the live-ops integration, step 5 of
+`dev/received-layers-plan.md`. A host receiving a layer on any frame wants the check
+(parse, merge over the stack, validators) off that frame. The owning thread applies the
+layer later, at a boundary (D165). The owner chose a checker value, and validators that
+opt in to other threads (D166).*
+
+- **API** (`config.hpp`).
+  - **`Config::checker(allocator)`**, on the owning thread, returns a `LayerChecker`.
+  - **`LayerChecker::check(name, tree, policy)` and `check_text(name, text, policy)`**
+    report as `check_layer` and `check_layer_text` do, against the state the checker was
+    made from. They read text the same way: text only, no includes.
+  - **The checker is copyable;** copies share one refcounted state, and checks may run on
+    several threads at once.
+- **What the checker keeps.** One block on the host's allocator:
+  - the merged root and the enabled layers' trees, shared;
+  - the layers' names;
+  - a copy of `read_session()`, whose origins name each value's source;
+  - copies of the validators added with `any_thread`, and whether others were left out;
+  - the Config's address and generation, for the stamp.
+
+  It never touches the Config again, and outlives it: a test destroys the Config and
+  checks again.
+- **The check is one function of a *basis*** (`config_check.cpp`): the root, the layers
+  and their names, the session, the validators, a merge scratch, and an allocator. The
+  Config passes its own, with its shared merge scratch; a checker passes its copy, with a
+  merge scratch and validator list per check. So checks on several threads share nothing
+  they write. The value below a changed one is located through the session's origins,
+  which hold every layer's.
+- **Allocation.** The checker's state, each check's temporaries, and a candidate text's
+  tree come from the allocator given. The stack's trees stay the Config's, so the Config's
+  allocator must outlive its checkers, as it must its snapshots.
+- **A push with a checker's report.** It holds as any report does (D165). If the checker
+  left validators out, the push runs them first, on the owning thread, over the stack
+  merged with the candidate. Under `warnings_refuse` their warnings refuse, changing
+  nothing.
+- **Threads.** A checker needs atomic reference counts, the default (D20); the header
+  says so.
+- **Cost** (`bench/bench_layers.cpp`, shipping, release; the 9.8 KB overlay):
+
+  | Row | Time |
+  |---|---|
+  | `checker()`, the owning thread's part | 0.2 µs |
+  | `LayerChecker::check_text`, on any thread | 278–354 µs, as `check_layer_text` (385–388 µs) |
+  | Push with the checker's report | 119–149 µs, as a held report from the Config |
+
+  With `shape::validator`, which runs in the checker, the check is 364–466 µs and the
+  push 202–259 µs.
+- **Note 0003's constraints.**
+  - The worker changes nothing the owner reads and takes no lock the owner takes.
+  - Validators say whether they may run there.
+  - Allocations come from the host's allocator, but for the stack's own trees, which are
+    shared.
+- **Tests** (`tests/data/test_layer_checker.cpp`):
+  - a checker's reports equal the Config's, by text and by tree, including sources, origins
+    and refusals;
+  - it refuses includes;
+  - it keeps the state it was made from after the Config changes, and after the Config is
+    destroyed;
+  - a worker checks 20 or more times while the owner pushes, sets and removes 50 layers,
+    every report equal to the first;
+  - a push with a holding report runs only the left-out validator, and refuses on its
+    warning, changing nothing;
+  - a report from a checker made before a change does not hold.
+
+  Locally, GCC's ThreadSanitizer finds no race in the data tests; CI's TSan job runs them
+  too. `baker_alloc_tests` checks that a checker allocates through its allocator, returns
+  all of it, and reaches no `operator new`.

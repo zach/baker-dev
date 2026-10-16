@@ -495,6 +495,19 @@ Expected<size_t> Config::Impl::placement(LayerOptions& opts) const {
     return below ? *at : *at + 1;
 }
 
+Expected<void> Config::Impl::admit(const Config& c, const LayerOptions& opts, std::string_view name,
+                                   const Ref<Array>& tree, uint64_t subject, bool on_top,
+                                   std::span<const Node> commands, const LoadSession& session,
+                                   std::span<const Error> read_warnings) const {
+    switch (subject ? c.holds(opts, subject, on_top) : Holding::No) {
+        case Holding::Yes: return refuse_unless(*opts.checked);  // its verdict (D165)
+        case Holding::LeftOut: return refuse_unless(check_left_out(c, tree, session, *opts.policy));
+        case Holding::No: break;
+    }
+    return refuse_unless(
+        check_candidate(c, name, tree, commands, session, *opts.policy, read_warnings));
+}
+
 Expected<void> Config::Impl::push_read(Config& c, LayerState&& layer, LayerOptions opts) {
     if (auto ok = may_change(c); !ok) return ok;
     if (layer.name == "scratch" || find_layer(layer.name))
@@ -506,13 +519,10 @@ Expected<void> Config::Impl::push_read(Config& c, LayerState&& layer, LayerOptio
     Vec<Error> read_warnings(alloc);
     if (auto r = read(layer, *below, nullptr, &read_warnings); !r) return r;
     if (opts.policy) {
-        // A report on this text that still holds is the verdict (D165); a file has none.
-        const bool held = layer.text && c.holds(opts, text_subject(layer.name, *layer.text),
-                                                *at == layers.size());
-        if (auto r = refuse_unless(held ? *opts.checked
-                                        : check_candidate(c, layer.name, layer.root,
-                                                          layer.after->autorun(), *layer.after,
-                                                          *opts.policy, read_warnings));
+        // A file has no report that holds: no check reads by path.
+        const uint64_t subject = layer.text ? text_subject(layer.name, *layer.text) : 0;
+        if (auto r = admit(c, opts, layer.name, layer.root, subject, *at == layers.size(),
+                           layer.after->autorun(), *layer.after, read_warnings);
             !r)
             return r;
     }
@@ -555,16 +565,11 @@ Expected<void> Config::push_layer(std::string_view name, Ref<Array> overlay, Lay
         return Unexpected(refused("there is already a layer named '" + Str(name) + "'"));
     const auto at = impl_->placement(options);
     if (!at) return Unexpected(at.error());
-    if (options.policy) {
-        const bool held =
-            holds(options, tree_subject(name, overlay.get()), *at == impl_->layers.size());
-        if (auto r =
-                refuse_unless(held ? *options.checked
-                                   : impl_->check_candidate(*this, name, overlay, {},
-                                                            impl_->as_read, *options.policy, {}));
+    if (options.policy)
+        if (auto r = impl_->admit(*this, options, name, overlay, tree_subject(name, overlay.get()),
+                                  *at == impl_->layers.size(), {}, impl_->as_read, {});
             !r)
             return r;
-    }
     LayerState layer(impl_->alloc);
     layer.name.assign(name);
     layer.options = options;

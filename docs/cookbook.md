@@ -300,7 +300,12 @@ which base it needs:
    with a content hash and a signature checked before Baker sees any bytes. Baker's
    `Cipher` hides a cache's contents; it is not a signature.
 2. **Stage.** `cfg.check_layer_text(name, text, policy)` checks it at once, changing
-   nothing; log or show the report.
+   nothing; log or show the report, and keep it.
+   - To keep the check off the frame, take `cfg.checker()` on the game's thread, which
+     costs well under a microsecond, and call its `check_text` on a worker.
+   - The checker shares the stack's trees and never touches the Config again.
+   - It runs the validators added with `{.any_thread = true}`, such as
+     `shape::validator()`. The push runs the rest on the game's thread.
 3. **Apply at a boundary.** Push it at a moment the game chooses: a session's start, a
    lobby, never mid-match. Push it with `push_layer_text`, the same policy, and the
    staged report: `{.policy = &policy, .checked = &report}`.

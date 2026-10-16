@@ -332,6 +332,14 @@ struct Config::Impl {
     // The read's warnings go to the warning handler, and to `warnings` if given.
     Expected<void> read(LayerState& layer, const LoadSession& before, uint64_t* read_ns = nullptr,
                         Vec<Error>* warnings = nullptr) const;
+    // A layer pushed under a policy: the verdict of the report it brings if that still holds
+    // (`subject` names it; 0 for a file), with the validators a LayerChecker left out run
+    // now; else of a check.
+    [[nodiscard]] Expected<void> admit(const Config& c, const LayerOptions& opts,
+                                       std::string_view name, const Ref<Array>& tree,
+                                       uint64_t subject, bool on_top,
+                                       std::span<const Node> commands, const LoadSession& session,
+                                       std::span<const Error> read_warnings) const;
     // push_layer by path or text, once the layer is named.
     Expected<void> push_read(Config& c, LayerState&& layer, LayerOptions opts);
 
@@ -451,6 +459,12 @@ struct Config::Impl {
                                               std::span<const Node> commands,
                                               const LoadSession& session, const LayerPolicy& policy,
                                               std::span<const Error> read_warnings) const;
+    // A held report from a LayerChecker: the validators it left out (not any_thread), over
+    // the stack with `candidate` on top, read with `session`; their warnings refuse under
+    // the policy's warnings_refuse.
+    [[nodiscard]] LayerReport check_left_out(const Config& c, const Ref<Array>& candidate,
+                                             const LoadSession& session,
+                                             const LayerPolicy& policy) const;
     // Fills enabled_roots: the enabled layers' trees, then `candidate` if given.
     std::span<const Ref<Array>> stack_layers(const Ref<Array>& candidate = nullptr) const;
 

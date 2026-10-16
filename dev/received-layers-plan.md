@@ -12,6 +12,9 @@ dedicated server applying one between rounds, a mod loader, and a tool applying 
 change. Each separates *it arrived* from *it takes effect*. Results go into
 `dev/decisions.md`.
 
+**Status: built.** D163 (received text), D164 (the cheaper check), D165 (reports that
+hold), D166 (validators judge a stack), D167 (`LayerChecker`).
+
 ---
 
 ## 1. Today

@@ -122,6 +122,19 @@ int main() {
             return cfg.push_layer_text("overlay", overlay, {.policy = &policy, .checked = &report})
                 .has_value();
         });
+    // Off the Config's thread (D167): taking a checker is the owning thread's part.
+    row("checker()", best_us(kRuns, [&] { ok = ok && !cfg.checker().empty(); }));
+    const baker::LayerChecker checker = cfg.checker();
+    row("LayerChecker::check_text", best_us(kRuns, [&] {
+            ok = ok && checker.check_text("overlay", overlay, policy).has_value();
+        }));
+    held(
+        "push_layer_text, policy, checker's report",
+        [&] { return cfg.checker().check_text("overlay", overlay, policy); },
+        [&] {
+            return cfg.push_layer_text("overlay", overlay, {.policy = &policy, .checked = &report})
+                .has_value();
+        });
     if (!ok) std::printf("FAILED\n");
     return ok ? 0 : 1;
 }
