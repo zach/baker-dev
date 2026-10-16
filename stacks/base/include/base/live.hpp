@@ -70,6 +70,11 @@ public:
     // Moves the warnings, validator findings, and reload errors logged since the last call
     // to the end of `out`, oldest first; false if there were none.
     bool take_log(std::vector<std::string>& out);
+    // The located problems the last load reported, which the game reports too: a layer that
+    // did not read or parse, and each #autorun command that failed. For the check gate.
+    [[nodiscard]] const std::vector<baker::Error>& load_errors() const noexcept {
+        return load_errors_;
+    }
 
 private:
     void log(std::string line);
@@ -87,6 +92,7 @@ private:
     std::string data_dir_;
     std::function<void(const baker::Config&)> changed_;
     std::vector<std::string> log_;
+    std::vector<baker::Error> load_errors_;
 };
 
 }  // namespace base

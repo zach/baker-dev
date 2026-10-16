@@ -26,7 +26,7 @@ Then, with `G=build-stacks/bin/stacks_<game>`:
 | Command | What it tells you |
 |---|---|
 | `$G reference` | Every script function, global, shape, and pack: the words you may use. Read it first. `--json` gives the same, plus every tweak, as JSON. |
-| `$G check` | Errors and calls to undefined functions in data, scenarios, and metrics, as JSON. Exit 1 means fix before anything else. |
+| `$G check` | Errors, load problems, shape errors, and calls to undefined functions in data (its `#autorun` script too), scenarios, and metrics, as JSON. `passed` and exit 1 mean fix before anything else; the lists say what. |
 | `$G sim [--scenario NAME] [--seeds 1-20] [--out DIR]` | Runs scenarios headless and judges them by the objectives. Exit 0: all passed; 1: an objective failed; 2: something could not run. |
 | `$G eval "{cmd}"...` | Commands on the data and the reset game, headless: a frame table, a search, a report. |
 | `$G diff` | Exactly what `agent.dta` changes: path, old value, new value. |

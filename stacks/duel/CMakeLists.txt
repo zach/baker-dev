@@ -20,4 +20,11 @@ if(STACKS_BUILD_TESTS)
            COMMAND stacks_duel --headless --frames 120 --console-port 0 --no-vsync)
   add_test(NAME stacks_duel_sim COMMAND stacks_duel sim --seeds 1-3)
   add_test(NAME stacks_duel_check COMMAND stacks_duel check)
+  # The commands' JSON, against a copy of the data (stacks/tools/test_commands.py).
+  find_package(Python3 COMPONENTS Interpreter)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME stacks_duel_commands
+             COMMAND Python3::Interpreter -I ${CMAKE_SOURCE_DIR}/tools/test_commands.py
+                     $<TARGET_FILE:stacks_duel> ${CMAKE_CURRENT_SOURCE_DIR})
+  endif()
 endif()

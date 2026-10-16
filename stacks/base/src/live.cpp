@@ -38,6 +38,7 @@ bool Live::open(const LiveOptions& options) {
         if (auto r = cfg_.push_layer(l.name, data_dir_ + "/" + l.file, {.optional = l.optional});
             !r) {
             log(std::string(baker::to_string(r.error())));
+            load_errors_.push_back(r.error());
             return false;
         }
     }
@@ -73,9 +74,12 @@ void Live::begin_frame() {
 
 void Live::autorun() {
     stack_changed_ = false;
+    load_errors_.clear();
     // What a removed layer defined goes with it (D146).
-    for (const baker::Error& e : ctx_.run_autorun(cfg_.autorun().items()))
+    for (const baker::Error& e : ctx_.run_autorun(cfg_.autorun().items())) {
         log(std::string(baker::describe(e)));
+        load_errors_.push_back(e);
+    }
     if (changed_) changed_(cfg_);
 }
 

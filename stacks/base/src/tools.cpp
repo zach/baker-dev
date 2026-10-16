@@ -38,8 +38,8 @@ struct Options {
         "%s\n"
         "commands:\n"
         "  sim [--scenario NAME]... [--seeds A-B] [--out DIR] [--step-hz N]\n"
-        "  check                          errors, demand, repeats as JSON; exit 1 on an error,\n"
-        "                                 a shape error, or a call to an undefined function\n"
+        "  check                          baker.check/1.1 JSON; exit 1 on an error, a load\n"
+        "                                 problem, a shape error, or an undefined function\n"
         "  reference [--json]             the game's script vocabulary, as Markdown; --json:\n"
         "                                 {reference, tweaks, shapes} as Baker's JSON\n"
         "  diff                           what agent.dta changes\n"
@@ -212,16 +212,39 @@ int sim(Game& game, const Options& o) {
                : kFailed;
 }
 
+// Prints check's JSON (baker.check/1.1) with the load problems, and returns the exit status.
+int report_check(baker::CheckReport& report, const Loaded& l, const baker::LoadSession* packs) {
+    const auto& load = l.live.load_errors();
+    report.load =
+        baker::List<baker::Error>(std::span<const baker::Error>(load.data(), load.size()));
+    std::printf("%s\n", baker::to_json(report, packs).c_str());
+    return report.ok() ? 0 : kFailed;
+}
+
 int check(Game& game, const Options& o) {
     Loaded l;
-    if (!load(game, l, o)) return kError;
-    // The merged data, every scenario, and every objective: the agent writes all three.
-    std::vector<baker::Ref<baker::Array>> trees{l.live.config().root()};
+    baker::CheckReport report;
+    // A call to a function nobody defined is demand to Baker: a word the data asks for. In
+    // an agent's edit it is nearly always a typo, so it fails the check unless declared a
+    // stub ({func name () (status stub) ...}), which is how a push-up is written.
+    report.unresolved_fails = true;
+    // Data that does not load is still a report: the JSON says why, and the exit status
+    // stays "could not load".
+    if (!load(game, l, o)) {
+        report_check(report, l, nullptr);
+        return kError;
+    }
+    const baker::Config& cfg = l.live.config();
+    // The merged data and its #autorun script, every scenario, and every objective: the
+    // agent writes all of them.
+    std::vector<baker::Ref<baker::Array>> trees;
     std::vector<fs::path> files;
     scenario_files(o, files);
     for (const fs::path& f : files) {
         auto t = baker::read_file(f.string());
         if (!t) {
+            report.load = baker::List<baker::Error>(std::span<const baker::Error>(&t.error(), 1));
+            std::printf("%s\n", baker::to_json(report, &cfg.read_session()).c_str());
             std::fprintf(stderr, "%s\n", std::string(baker::describe(t.error())).c_str());
             return kError;
         }
@@ -233,18 +256,10 @@ int check(Game& game, const Options& o) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return kError;
     }
-    std::vector<const baker::Array*> raw;
-    for (const auto& t : trees) raw.push_back(t.get());
-    baker::CheckReport report;
-    baker::check(std::span<const baker::Array* const>(raw.data(), raw.size()), l.ctx, report,
-                 {.packs = &l.live.config().read_session()});
-    std::printf("%s\n", baker::to_json(report, &l.live.config().read_session()).c_str());
-    // A call to a function nobody defined is demand to Baker: a word the data asks for. In
-    // an agent's edit it is nearly always a typo, so it fails the check unless declared a
-    // stub ({func name () (status stub) ...}), which is how a push-up is written.
-    const bool unresolved =
-        std::any_of(report.demand.begin(), report.demand.end(),
-                    [](const baker::CheckReport::Demand& d) { return !d.stub; });
+    std::vector<const baker::Array*> extra;
+    for (const auto& t : trees) extra.push_back(t.get());
+    baker::check(cfg, l.ctx, report, {.unresolved_fails = true},
+                 std::span<const baker::Array* const>(extra.data(), extra.size()));
     for (const baker::CheckReport::Demand& d : report.demand)
         if (!d.stub)
             std::fprintf(stderr, "check: '%s' is not defined (%s:%d)\n", d.name.c_str(),
@@ -254,13 +269,15 @@ int check(Game& game, const Options& o) {
     // check; a field no shape declares is reported, as demand for a word, and passes.
     baker::shape::Set shapes;
     baker::shape::Report shaped;
-    shapes.add(*l.live.config().root(), shaped);
-    baker::shape::check(*l.live.config().root(), shapes, shaped);
+    shapes.add(*cfg.root(), shaped);
+    baker::shape::check(*cfg.root(), shapes, shaped);
     for (const baker::Error& e : shaped.errors)
         std::fprintf(stderr, "shape: %s\n", std::string(baker::to_string(e)).c_str());
     for (const baker::Error& e : shaped.warnings)
         std::fprintf(stderr, "shape warning: %s\n", std::string(baker::to_string(e)).c_str());
-    return report.ok() && !unresolved && shaped.ok() ? 0 : kFailed;
+    report.shape_errors = baker::List<baker::Error>(shaped.errors.items());
+    report.shape_warnings = baker::List<baker::Error>(shaped.warnings.items());
+    return report_check(report, l, &cfg.read_session());
 }
 
 // Commands over the game's data and its reset state, as a console would run them, without

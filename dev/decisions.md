@@ -4846,3 +4846,55 @@ as data. The reference was Markdown only.*
   - `tests/shape/test_shape.cpp`: a keyed shape's fields.
   - Python parsed all three documents as JSON.
 - **Core:** 12,556 → 12,829 lines. `baker::shape`: 466 → 513 of its 600.
+
+## D158. The check gate: report 1.1, a Config's `#autorun` script, and the stacks' `check`
+
+*Requirement notes 0004 and 0005 from the agent-bridge integration (`baker-mcp`), which
+the owner brought here and chose to take up. The design is `dev/check-gate-plan.md`.
+`check` is the gate an edit must pass in the stacks' skill, in hooks and in CI. It passed
+data that failed to load, missed calls inside script that `#autorun` defines, and kept
+shape errors and parse errors out of its JSON.*
+
+- **The cause of the missed calls.** `check` already finds an undefined call inside a
+  `{func}` body in the trees it is given. The commands `#autorun` runs are not in the
+  merged tree (D107), so checking `cfg.root()` never saw them.
+- **Baker.**
+  - **The Config form.** `check(cfg, ctx, report, options, extra)` checks the merged tree
+    and a tree built from `cfg.autorun()`, each node keeping its file and line. It uses the
+    read session as `packs` unless the options give one, and checks any `extra` trees
+    alongside.
+  - **New fields.** `CheckReport` gains `load`, `shape_errors` and `shape_warnings`, which
+    the host fills: `baker::script` does not depend on `baker::shape`, and the load is the
+    host's. It also gains `unresolved_fails`, from the new `CheckOptions::unresolved_fails`.
+  - **`ok()`.** It now means no errors, no load problems, no shape errors, and, under the
+    rule, no unresolved demand. Every caller in the repository still holds: the meaning
+    widens only when a host fills the new lists.
+  - **The JSON is `baker.check/1.1`.**
+    - `passed` comes after `schema`, so a reader need not re-derive the rule.
+    - `load`, `shape_errors` and `shape_warnings` take the problem form, after `findings`.
+    - The pinned example changed only by these additions.
+    - The text form prints them as `load:`, `shape:` and `shape warning:` lines.
+- **The stacks.**
+  - **`Live`** keeps the located errors of its last load: a layer that did not read, and
+    each failed `#autorun` command.
+  - **`check`:**
+    - It uses the Config form, with scenarios and metrics as `extra`.
+    - It fills `load` from `Live` and the shape lists from `shape::check`, and sets
+      `unresolved_fails`.
+    - Its exit status is `report.ok() ? 0 : 1`.
+    - Data that does not load still prints the JSON, with `passed: false` and the error
+      in `load`. The exit status stays 2, "could not load", as the note's constraint asks.
+    - Standard error keeps its text for people.
+  - **Validator warnings stay out of `load`.** They are the shape and call checks again,
+    and are reported in their own lists.
+- **Tests.**
+  - `tests/script/test_check.cpp`:
+    - the Config form finds demand inside an `#autorun` function that the merged tree
+      alone misses;
+    - the demand rule;
+    - each new list's effect on `ok()` and its place in the JSON.
+  - `stacks/tools/test_commands.py`, run by CTest for Duel where Python is found, on a
+    copy of the data. It covers clean data, a failing `#autorun` command, a typo inside an
+    `#autorun` function, a value out of range, and a parse error (exit 2 with JSON).
+  - Every stack's own data still passes `check`.
+- **Core:** 12,829 → 12,867 lines.

@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 #include "ok.hpp"
+#include "temp_dir.hpp"
 
 using namespace baker;
 using baker::test::ok;
@@ -303,8 +304,10 @@ TEST_CASE("check's JSON is versioned, sorted, and the same bytes on every run (D
 
     // Without the session, the packs list is empty; an empty report is still a whole one.
     CHECK(to_json(CheckReport{}) ==
-          "{\n  \"schema\": \"baker.check/1\",\n  \"errors\": [],\n  \"warnings\": [],\n"
-          "  \"demand\": [],\n  \"repeats\": [],\n  \"findings\": [],\n  \"packs\": []\n}\n");
+          "{\n  \"schema\": \"baker.check/1.1\",\n  \"passed\": true,\n  \"errors\": [],\n"
+          "  \"warnings\": [],\n  \"demand\": [],\n  \"repeats\": [],\n  \"findings\": [],\n"
+          "  \"load\": [],\n  \"shape_errors\": [],\n  \"shape_warnings\": [],\n"
+          "  \"packs\": []\n}\n");
 }
 
 TEST_CASE("the reference lists the session's packs and origins: the harness register (D95)") {
@@ -369,4 +372,54 @@ TEST_CASE("a Config's read_session has every layer's packs and origins (D110)") 
     REQUIRE(cfg.remove_layer("agent"));
     CHECK_FALSE(cfg.read_session().origin_of(Symbol("agent.dta")));
     CHECK(cfg.read_session().packs().size() == 2);
+}
+
+// --- The gate (dev/check-gate-plan.md §1): a Config's #autorun script, host-filled problems,
+// and a rule for unresolved calls. ---
+
+TEST_CASE("checking a Config sees the script its #autorun commands define") {
+    baker::test::TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer(
+        "default",
+        dir.write("default.dta",
+                  "#autorun {func helper () {nosuch 1}}\n(level (on_enter {helper}))\n")));
+    Context ctx;
+    REQUIRE(ctx.run_autorun(cfg.autorun().items()).empty());  // defines helper, as a host does
+    // The merged tree alone does not hold the #autorun commands.
+    CHECK(check(*cfg.root(), ctx).demand.empty());
+    CheckReport report;
+    check(cfg, ctx, report);
+    REQUIRE(report.demand.size() == 1);
+    CHECK(report.demand[0].name == Symbol("nosuch"));
+    REQUIRE(report.demand[0].sites.size() == 1);
+    CHECK(report.demand[0].sites[0].line == 1);
+    CHECK(report.ok());  // unresolved calls fail only when asked
+
+    CheckReport strict;
+    check(cfg, ctx, strict, {.unresolved_fails = true});
+    CHECK_FALSE(strict.ok());
+    CHECK(to_json(strict).find("\"passed\": false") != std::string::npos);
+}
+
+TEST_CASE("problems the host found fail the check and are in its JSON") {
+    CheckReport report;
+    CHECK(report.ok());
+    const Error shape(ErrorCode::Range, "speed 12 is out of range 0..10", Symbol("d.dta"), 3);
+    report.shape_warnings = List<Error>(std::span<const Error>(&shape, 1));
+    CHECK(report.ok());  // a warning never fails
+    report.shape_errors = List<Error>(std::span<const Error>(&shape, 1));
+    CHECK_FALSE(report.ok());
+    const std::string json = to_json(report);
+    CHECK(json.find("\"passed\": false") != std::string::npos);
+    CHECK(json.find(
+              "\"shape_errors\": [\n    {\"code\": \"range\", \"file\": \"d.dta\", "
+              "\"line\": 3, \"path\": \"\", \"message\": \"speed 12 is out of range 0..10\"}") !=
+          std::string::npos);
+
+    CheckReport loaded;
+    const Error failed(ErrorCode::NotFound, "'spawnn' is not a function", Symbol("d.dta"), 1);
+    loaded.load = List<Error>(std::span<const Error>(&failed, 1));
+    CHECK_FALSE(loaded.ok());
+    CHECK(to_string(loaded).rfind("load: ", 0) == 0);
 }

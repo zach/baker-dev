@@ -13,8 +13,10 @@ game plays as before:
 ```
 stacks_cube                                   play (the base's app)
 stacks_cube sim [--scenario NAME]... [--seeds A-B] [--out DIR]
-stacks_cube check                             baker::check over data, scenarios, metrics; JSON;
-                                              exit 1 on an error or an undefined, unstubbed call
+stacks_cube check                             baker::check over data, its #autorun script,
+                                              scenarios, metrics; baker.check/1.1 JSON with
+                                              passed, load and shape problems; exit 1 on any,
+                                              or an undefined, unstubbed call; 2 if no load
 stacks_cube reference [--json]                the vocabulary: functions, shapes, packs (Markdown);
                                               --json: Baker's reference, tweaks and shapes JSON
 stacks_cube diff                              what agent.dta changes, value by value
