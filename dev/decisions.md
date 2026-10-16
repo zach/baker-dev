@@ -5552,3 +5552,62 @@ reject.*
       finds its shape error);
     - a project file with an unknown key is a located load problem.
 - **Core:** 13,518 → 13,664 lines.
+
+## D173. The project file for tools: positions, every problem, `find_project`, the reference
+
+*The editor session's requirement notes 0004–0007, after using D172's project file in its
+server on every stack. Each asked for something every tool that shows or checks a project
+would otherwise write for itself, slightly differently.*
+
+- **Positions (note 0004).** Every entry `read_project` returns keeps where it is written,
+  as Baker's errors give it: a 1-based line and a column in code points, a byte-order mark
+  aside.
+  - **Types.** `ProjectPosition {line, column}`, zero for a `Project` built in code.
+    `pack_levels`, `include_dirs` and `defines` become `List<ProjectEntry>` (`value` and
+    `at`). `ProjectLayer` gains `name_at` and `path_at`.
+  - **How.** `read_project` reads with a `SourceMap`, which records each node's byte span
+    and the file's text, and counts lines and code points up to a span's start. It is a
+    load-time cost on a file of a few lines; nothing is kept per frame.
+  - **Errors.** The format's own errors now carry a column too, at the form that is wrong.
+- **Every problem (note 0005).** `ProjectOptions::go_on` pushes every layer that reads, and
+  `open_project` returns a `List<ProjectProblem>` (the layer's name and its error) for the
+  rest. It returns `Expected<List<ProjectProblem>>` in both modes:
+  - without `go_on` (the game's default), the first error is the `Expected`'s error, as
+    before;
+  - with it, the problems are the value, empty when every layer read.
+  - A layer that fails is absent, as a failed `push_layer` leaves it, and the layers above
+    read with the macros and defines below. The problems' table is a `Vec` that allocates
+    only for a problem.
+  - `skip` now has a default member initializer, `std::initializer_list<...>()`, which is
+    not list-initialization. Without one, GCC's `-Wmissing-field-initializers` flagged
+    `{.go_on = true}`. A braced `{}` is what MSVC refuses (C2797).
+- **`find_project(path, reader)` (note 0006).** It returns the nearest `baker-project.dta`
+  (`kProjectFileName`) in `path` or a directory above it, or an empty `Symbol`.
+  - **The search is lexical.** It tries `path` itself first, so a file or a directory may
+    be given. It goes up to the top of `path` as written: the root for an absolute path,
+    the directory it is relative to otherwise. It stops at `/` and at a drive root
+    (`C:/`'s parent, `C:`, is relative).
+  - **Existence.** Each candidate is tried through `reader` when given, with its text
+    discarded, else with an `fopen`. That is the host's own check, so content that is not
+    on the disk is found too.
+- **The reference (note 0007).** `(reference "path")` is optional. It is joined with the
+  project file's directory, and returned as `Project::reference` with `reference_at`.
+  - Nothing reads the reference or asks that it exist: it is a build output, and the tool
+    that reads it reports a stale or missing reference in its own terms.
+  - `open_project` ignores it, as a game does.
+  - D172 left it out of the format until a note asked.
+- **The stacks.** `Live::open` names the file `kProjectFileName`. Its built-in `Project`
+  uses `ProjectEntry` and designated initializers.
+- **Docs.** The cookbook's project-file section gains the reference, positions, `go_on`
+  and `find_project`.
+- **Tests** (`tests/data/test_project.cpp`):
+  - every entry's line and column, and characters counted after a BOM and before multibyte
+    names;
+  - `go_on`: a layer that does not parse and one that is missing are both reported, by
+    name, the layer above them reads a macro from the one below, and a clean project
+    returns no problems;
+  - `find_project`: a file, a directory, a parent's project, through a reader, and none
+    found for a relative or an absolute path;
+  - the reference is joined and need not exist, and `(reference a b)` is a located error;
+  - every format error has a column.
+- **Core:** 13,667 → 13,765 lines.

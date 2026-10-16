@@ -108,6 +108,7 @@ and the game and every tool read it.
    (pack_levels engine game task)     ; hardest first
    (include_dirs "data")              ; searched after an including file's directory
    (defines PC)                       ; flags, as #ifdef sees them
+   (reference "build/reference.json") ; for tools: where the build writes the reference
    (layers                            ; bottom to top
       (default "data/default.dta")
       (local "data/local.dta" optional)
@@ -126,8 +127,22 @@ if (auto r = baker::open_project(cfg, *project); !r) return report(r.error());
   in the stack, skipped by the merge, for a panel to toggle.
 - **Leaving layers out:** `open_project(cfg, project, {.skip = {"local"}})` leaves out one
   person's own tuning, so a simulation or a check gives the same results on every machine.
-- **Mistakes are located.** A key the format does not know is an error with its file and
-  line, so a typo is found rather than ignored.
+- **Mistakes are located.** A key the format does not know is an error with its file,
+  line and column, so a typo is found rather than ignored.
+- **Every entry keeps where it is written:** each layer's name and path (`name_at`,
+  `path_at`), each pack level, include directory and define (`at`), and the reference, as
+  a line and a column in characters. A tool can underline a layer whose file is missing.
+- **Every problem at once:** `open_project(cfg, project, {.go_on = true})` pushes every
+  layer that reads and returns a `ProjectProblem` (the layer's name and its error) for each
+  one that does not. A layer that does not read is left out, and the layers above it read
+  over the ones below. Without `go_on`, as a game opens it, the first error stops it.
+- **The reference** names where the game's build writes `write_reference_json`, for tools
+  that check data without the game. `read_project` returns the path in `Project::reference`
+  and does not ask that it exist; a game ignores it.
+- **Finding the project:** `find_project(path)` returns the nearest `baker-project.dta`
+  in `path` or a directory above it, or nothing, so an editor opened on a folder holding
+  several games finds each file's project. Give it a reader to look through the editor's
+  files instead of the disk.
 - **The project file reaches no other file:** an `#include` in it is refused.
 - **An editor's unsaved buffer** reaches `read_project` through a reader, as it reaches the
   layers through `cfg.session().set_reader(...)`; set the reader before `open_project`.
