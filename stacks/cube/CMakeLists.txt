@@ -3,6 +3,7 @@ add_executable(stacks_cube main.cpp)
 target_link_libraries(stacks_cube PRIVATE stacks_app)
 target_compile_definitions(stacks_cube PRIVATE CUBE_DATA="${CMAKE_CURRENT_SOURCE_DIR}/data")
 stacks_target(stacks_cube)
+stacks_reference(stacks_cube)
 if(WIN32)
   set_target_properties(stacks_cube PROPERTIES WIN32_EXECUTABLE OFF)  # keep the console
 endif()

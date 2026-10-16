@@ -10,6 +10,7 @@ add_executable(stacks_ledger main.cpp)
 target_link_libraries(stacks_ledger PRIVATE stacks_ledger_economy stacks_app)
 target_compile_definitions(stacks_ledger PRIVATE LEDGER_DATA="${CMAKE_CURRENT_SOURCE_DIR}/data")
 stacks_target(stacks_ledger)
+stacks_reference(stacks_ledger)
 
 if(STACKS_BUILD_TESTS)
   add_executable(stacks_ledger_tests tests/test_economy.cpp)

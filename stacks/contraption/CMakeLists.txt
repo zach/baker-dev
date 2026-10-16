@@ -12,6 +12,7 @@ target_link_libraries(stacks_contraption PRIVATE stacks_contraption_puzzle stack
 target_compile_definitions(stacks_contraption PRIVATE
                            CONTRAPTION_DATA="${CMAKE_CURRENT_SOURCE_DIR}/data")
 stacks_target(stacks_contraption)
+stacks_reference(stacks_contraption)
 stacks_deterministic(stacks_contraption)
 
 if(STACKS_BUILD_TESTS)

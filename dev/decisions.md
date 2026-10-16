@@ -5712,3 +5712,38 @@ which loses the check.*
   - The stacks' project files name no reference yet. Writing one is the stacks' build's
     job, and is left to the owner.
 - **Core:** 13,922 → 13,926 lines.
+
+## D177. Each stack's build writes its reference where its project file names it
+
+*The editor session's requirement note 0009. After D176 the owner chose a build step for
+the stacks' reference. The editor's server took one `--reference FILE` for every project
+it checked, so a workspace holding several stacks checked calls in at most one.*
+
+- **The build step.** `stacks_reference(game)` (`stacks/CMakeLists.txt`) adds a
+  `POST_BUILD` command to each of the seven games. The command runs
+  `stacks/cmake/write_reference.cmake`.
+  - It runs `<game> reference --json` and writes the output to
+    `<stack>/build/reference.json`, beside the project file and ignored by git.
+  - The path is relative to the project file, not the build directory: the build directory
+    is the developer's choice, and a tool knows only the project file.
+  - Two build directories write the same vocabulary from the same source.
+- **A game whose data does not load writes no reference.** The stale file is removed, so a
+  tool reports the reference missing rather than checking against an old vocabulary, and
+  the build goes on with a warning.
+  - The command loads the data because script functions defined by `#autorun` are part of
+    the vocabulary.
+- **Rewrites.** The file is rewritten only when its text changes, so a tool watching it
+  reloads only for a new vocabulary.
+- **The file's shape** is the command's output: `{"reference": ..., "tweaks": ...,
+  "shapes": ...}`, Baker's three documents in one object, as `--reference` was given it
+  before.
+- **Every stack's `baker-project.dta`** names `(reference "build/reference.json")`. The game
+  ignores it (D173).
+- **Tests.** `stacks/tools/test_commands.py`, `built_reference`:
+  - the project file names the reference;
+  - the build wrote it;
+  - it is `baker.reference/1.1`, and lists the same functions as `reference --json` run
+    now.
+  - The failure path was tried by hand: a game that exits 1 removes the file and warns, and
+    an unchanged reference keeps its modification time.
+- **Docs.** `stacks/README.md`'s `--data` row.
