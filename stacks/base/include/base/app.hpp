@@ -30,7 +30,13 @@ struct AppOptions {
     int width = 1280, height = 720;
     RendererKind renderer = RendererKind::Auto;
     bool vsync = true;
-    double step_hz = 60;           // the simulation's fixed rate
+    double step_hz = 60;  // the simulation's fixed rate
+    // Frames a second at most: the loop sleeps out the rest of each frame. Pacing changes
+    // when frames run, never the simulation's steps. Negative: the default, which paces a
+    // headless game run without --frames (one serving its console) to step_hz, so that an
+    // idle one costs next to nothing, and leaves every other run unpaced (a window presents
+    // at vsync). 0: unpaced.
+    double frame_hz = -1;
     uint32_t frames = 0;           // exit after this many frames; 0: run until closed
     bool headless = false;         // no window (SDL's dummy video driver) and the Noop renderer
     uint16_t console_port = 4555;  // the remote console on 127.0.0.1; 0: none
@@ -41,8 +47,8 @@ struct AppOptions {
 // A `data` directory beside the executable, if it holds default.dta, replaces the default
 // data_dir: that is how a packaged game finds its data. Then reads --data DIR, --renderer NAME,
 // --frames N, --headless, --console-port N, --no-vsync,
-// --step-hz N, --no-tools, and --screenshot PATH over `defaults`. Prints usage and exits on a bad
-// argument.
+// --step-hz N, --frame-hz N, --no-tools, and --screenshot PATH over `defaults`. Prints usage and
+// exits on a bad argument.
 [[nodiscard]] AppOptions parse_args(int argc, char** argv, AppOptions defaults);
 
 class App {

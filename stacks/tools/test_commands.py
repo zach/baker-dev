@@ -7,10 +7,13 @@ CTest runs it for Duel (stacks/duel/CMakeLists.txt). Each case writes data/agent
 fresh copy of the stack, so the stack's own files are never touched. Exits 1 on a failure.
 """
 import json
+import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 FAILURES = []
@@ -142,6 +145,46 @@ def promote_patch(s):
         print("skipped: neither git nor patch to apply the diff")
 
 
+def headless_idle(s):
+    """A headless game serving its console paces its frames: it idles, and still answers."""
+    with socket.socket() as probe:  # a free port
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    game = subprocess.Popen([s.game, "--data", "data", "--headless", "--console-port", str(port)],
+                            cwd=s.dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        conn = None
+        for _ in range(100):
+            try:
+                conn = socket.create_connection(("127.0.0.1", port), timeout=5)
+                break
+            except OSError:
+                time.sleep(0.1)
+        expect(conn is not None, "the headless game's console accepts a connection")
+        if conn is None:
+            return
+        with conn, conn.makefile("rwb") as f:
+            f.write(b"(1 {+ 1 2})\n")
+            f.flush()
+            reply = json.loads(f.readline())
+            expect(reply.get("value") == 3, "the headless game answers a request")
+        stat = Path(f"/proc/{game.pid}/stat")
+        if not stat.exists():
+            print("skipped: no /proc to measure the idle game's CPU")
+            return
+        def cpu():  # seconds of CPU so far: utime and stime, after the command's parentheses
+            fields = stat.read_text().rsplit(")", 1)[1].split()
+            return (int(fields[11]) + int(fields[12])) / os.sysconf("SC_CLK_TCK")
+        before, t0 = cpu(), time.monotonic()
+        time.sleep(3)
+        share = (cpu() - before) / (time.monotonic() - t0)
+        print(f"an idle headless game: {share:.0%} of a core")
+        expect(share < 0.5, f"an idle headless game uses under half a core ({share:.0%})")
+    finally:
+        game.terminate()
+        game.wait(timeout=30)
+
+
 def main():
     if len(sys.argv) != 3:
         print(__doc__)
@@ -150,6 +193,7 @@ def main():
     check_gate(s)
     eval_json(s)
     sim_json(s)
+    headless_idle(s)
     promote_patch(s)  # last: --write changes the copy's default.dta
     print(f"{len(FAILURES)} failures" if FAILURES else "all passed")
     return 1 if FAILURES else 0
