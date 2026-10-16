@@ -245,14 +245,18 @@ declares.
 
 **The check.** `cfg.check_layer_text(name, text, policy)` checks text received from
 outside, changing nothing:
-- it reads the text as text only, never a cache;
+- it reads the text as text only, never a cache, and refuses an `#include` or `#merge`
+  in it, so the overlay reaches no file of the game's;
 - it reads it against the stack's packs, so an overlay whose `requires` names a newer base
   version is warned about;
 - it runs the validators over the stack with the overlay;
 - it reports the overlay's effect, refusals and warnings.
 
-**The push.** `push_layer` with `{.policy = &policy}` runs the same check and refuses,
-changing nothing, if the policy refuses.
+**The push.** `push_layer_text(name, text, {.policy = &policy})` reads the text as the
+check does, runs the same check, and refuses, changing nothing, if the policy refuses. The
+layer is read as a file layer is, so its pack and `origin` are recorded, and the Config
+keeps the text to read again when a layer below it changes. `push_layer` takes a policy too,
+by path or with a tree.
 
 ```cpp
 const baker::Path tunable[] = {baker::Path("economy"), baker::Path("events")};
@@ -260,10 +264,7 @@ const baker::LayerPolicy hotfix{.data_only = true, .scalars_only = true,
                                 .existing_only = true, .warnings_refuse = true,
                                 .allow = tunable};
 auto report = cfg.check_layer_text("hotfix_0412", downloaded, hotfix);  // show it, log it
-baker::LoadSession untrusted;
-untrusted.text_only = true;  // never a cache from outside
-auto tree = baker::read_string(downloaded, "hotfix_0412", untrusted);
-cfg.push_layer("hotfix_0412", *tree, {.policy = &hotfix});  // refused: nothing changed
+cfg.push_layer_text("hotfix_0412", downloaded, {.policy = &hotfix});  // refused: nothing changed
 ```
 
 ### Published overlays
@@ -301,11 +302,9 @@ which base it needs:
 2. **Stage.** `cfg.check_layer_text(name, text, policy)` checks it at once, changing
    nothing; log or show the report.
 3. **Apply at a boundary.** Push it at a moment the game chooses: a session's start, a
-   lobby, never mid-match. Push it with the same policy, which checks again in case the
-   stack moved.
-   - Push by path, or through a `LoadSession` reader that serves the fetched text by name,
-     so the pack's `requires` and its `origin` are read with it. A tree read separately
-     and pushed directly carries neither.
+   lobby, never mid-match. Push it with `push_layer_text` and the same policy, which
+   checks again in case the stack moved. The pack's `requires` and its `origin` are read
+   with it; a tree read separately and pushed directly carries neither.
    - Dedicated servers apply the same overlay at the same boundary, so a client and its
      server never disagree.
 4. **Keep the last good one.** Store each applied overlay's text, and re-stage it at the
@@ -405,6 +404,9 @@ How a game delivers content after it ships (dev/background/content-updates.md):
   file can point anywhere. A loader of content from outside the game's own packages sets
   `LoadSession::text_only`, which refuses every cache and parses the text, which no input
   can make crash the reader (D142). The game's own packages are signed by their platform.
+  Content that arrives as text, such as a live overlay, also sets
+  `LoadSession::refuse_includes`, so it cannot `#include` the game's files;
+  `Config::push_layer_text` sets both (D163).
 
 ## Linking a shipped game
 

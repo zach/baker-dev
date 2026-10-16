@@ -144,7 +144,8 @@ struct LayerOptions {
     std::string_view below = {};
     std::string_view above = {};
     // If given, the layer is checked first (Config::check_layer) and refused, changing
-    // nothing, if the policy refuses it. A file layer's #autorun commands count too.
+    // nothing, if the policy refuses it. A file or text layer's #autorun commands, and the
+    // warnings its read adds (a pack's unmet requires), count too.
     const LayerPolicy* policy = nullptr;
 };
 
@@ -304,6 +305,14 @@ public:
                                             LayerOptions options = {});
     [[nodiscard]] Expected<void> push_layer(std::string_view name, Ref<Array> overlay,
                                             LayerOptions options = {});
+    // A layer from text the host received (over the network, from a mod store): read as a
+    // file layer is, against the session below it, so its packs, origin, and #autorun are
+    // recorded; but from `text` alone, never through a cache, and an #include or #merge in
+    // it is refused. `name` is also the file its sources name, such as
+    // "received/balance@3.dta". The Config keeps the text, to read it again when a layer
+    // below changes; reload() never does. Write-back refuses its values: it has no file.
+    [[nodiscard]] Expected<void> push_layer_text(std::string_view name, std::string_view text,
+                                                 LayerOptions options = {});
     [[nodiscard]] Expected<void> remove_layer(std::string_view name);
     // Removes the topmost layer below scratch.
     [[nodiscard]] Expected<void> pop_layer();
@@ -442,9 +451,10 @@ public:
     // Available in shipping builds: it is what makes live_layers safe there.
     [[nodiscard]] Expected<LayerReport> check_layer(std::string_view name, const Ref<Array>& root,
                                                     const LayerPolicy& policy = {}) const;
-    // The same for text a host received: read as text only (never a cache), with the session
-    // the stack's layers read with, so its packs' requires and versions are checked against
-    // the stack's packs; the read's warnings join the report's.
+    // The same for text a host received, read as push_layer_text reads it (never a cache,
+    // and no #include), with the session the stack's layers read with, so its packs'
+    // requires and versions are checked against the stack's packs; the read's warnings join
+    // the report's.
     [[nodiscard]] Expected<LayerReport> check_layer_text(std::string_view name,
                                                          std::string_view text,
                                                          const LayerPolicy& policy = {}) const;

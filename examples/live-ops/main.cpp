@@ -4,8 +4,9 @@
 //
 //   baker_example_live_ops path/to/examples/live-ops
 //
-// The overlays are files here, standing in for the storage a game fetches them from. An
-// overlay is a pack: it names itself, its version, and the base it was made for.
+// The overlays are files here, standing in for the storage a game fetches them from; the
+// game reads each as text it received, and names the layer after it. An overlay is a pack:
+// it names itself, its version, and the base it was made for.
 #include <baker/config.hpp>
 #include <baker/shape.hpp>
 #include <baker/std_interop.hpp>
@@ -58,11 +59,12 @@ bool stage(const baker::Config& cfg, const std::string& name) {
     return true;
 }
 
-// Apply: at a boundary the game chooses (a session's start, a lobby), push it under the same
-// policy. push_layer checks again and refuses, changing nothing, if the stack moved since.
+// Apply: at a boundary the game chooses (a session's start, a lobby), push the text under
+// the same policy. It checks again and refuses, changing nothing, if the stack moved since.
 bool apply(baker::Config& cfg, const std::string& name) {
     std::printf("apply %s\n", name.c_str());
-    if (auto r = cfg.push_layer(name, "overlays/" + name + ".dta", {.policy = &kLive}); !r)
+    const std::string file = "overlays/" + name + ".dta";
+    if (auto r = cfg.push_layer_text(file, text_of(file), {.policy = &kLive}); !r)
         return std::printf("  %s\n", baker::to_string(r.error()).data()), false;
     return true;
 }
@@ -100,7 +102,7 @@ int main(int argc, char** argv) {
 
     // Rollback: the layer goes, and the values below it return. Nothing is left behind.
     std::printf("roll back %s\n", xp.c_str());
-    if (!cfg.remove_layer(xp)) return 1;
+    if (!cfg.remove_layer("overlays/" + xp + ".dta")) return 1;
     status(cfg);
     std::printf("layers:");
     for (const std::string& name : baker::strings(cfg.layers())) std::printf(" %s", name.c_str());

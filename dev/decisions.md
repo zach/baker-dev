@@ -5084,3 +5084,59 @@ that runs it on the policy check (D161).*
   by path, or through a `LoadSession` reader that serves the fetched text by name.
 - **Test.** The example's CTest pins the effect, the provenance line, each refusal and the
   rollback. Changing one expected detail was seen to fail it.
+
+## D163. Received text as a layer: `push_layer_text`, and text that reaches no file
+
+*Requirement note 0001 from the live-ops integration, brought by the owner. The design is
+`dev/received-layers-plan.md` §3.1. A host that receives a layer's text (a live overlay,
+a mod, a proposed change) had two routes, and each lost something.*
+- *By path through a reader that serves the text: a Config with `cache_dir` read it through
+  the cache, writing one in development and looking for one in shipping, against D142.*
+- *As a tree read separately: no pack, no origin, and a policy that never saw the read's
+  warnings.*
+
+- **`Config::push_layer_text(name, text, options)`.**
+  - **The read.** It reads the text as a file layer is read: with a copy of the session
+    below, so its pack, `origin` and `#autorun` are recorded, and `read_session()` and
+    `source()` show them.
+  - **Text only.** It never uses a cache, written or read, whatever `cache_dir` and the
+    build say.
+  - **The name.** `name` is the layer's name and the file its sources name.
+  - **Re-reads.** The Config keeps the text, shared by snapshots, and reads it again when
+    a layer below is pushed or removed.
+  - **What refuses it.** `reload()` never sees it change. Write-back refuses its values:
+    "pushed as text and has no file".
+- **`LoadSession::refuse_includes`** (the owner's choice). It refuses `#include`,
+  `#include_opt`, `#require` and `#merge` with a located error: the text may include no
+  files. A layer from outside never reaches the game's disk.
+  - `push_layer_text` and `check_layer_text` both set it, so a verdict and a push read
+    the same way.
+  - A host reading untrusted text with `read_string` can set it too.
+- **A fix: a push with a policy now sees its read's warnings.**
+  - **The bug.** `read()` handed the read's warnings to the warning handler and cleared
+    them. Only then did `push_layer` by path ask for them, so it saw none, and a pack's
+    unmet `requires` never refused under `warnings_refuse`.
+  - **The fix.** `read()` now collects them for the check. A test covers both the path
+    and the text push.
+- **The live-ops example and the cookbook** now push received text with `push_layer_text`.
+  The reader route, and its limit, are gone from "Published overlays".
+- **Cost** (shipping, release, this container). The new `bench/bench_layers.cpp` measures
+  a 9.8 KB overlay changing 400 prices of a 2,000-item table (122 KB):
+
+  | Row | Time |
+  |---|---|
+  | `read_string` | 58–65 µs |
+  | `push_layer` (tree), no policy | 80 µs |
+  | `push_layer_text`, no policy | 145 µs: the read plus the push, as the note asked |
+  | `check_layer_text` | 808–824 µs |
+  | `push_layer_text` with the policy | 722–898 µs |
+
+  With `shape::validator`, the pushes without a policy are 186 and 251 µs.
+- **Tests** (`tests/data/test_received_layers.cpp`):
+  - the pack and origin are recorded, and gone after removal;
+  - nothing is written to `cache_dir`, and a cache planted under the same name is not read;
+  - each include directive is refused, located, by the push and the check;
+  - a re-read after a layer is placed below it, and after that layer is removed;
+  - write-back refuses;
+  - the read's warnings refuse under the policy, by text and by path;
+  - the frozen live-layers path.

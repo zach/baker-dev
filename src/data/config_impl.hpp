@@ -41,8 +41,9 @@ struct LayerState {
     explicit LayerState(const Allocator& a) : name(a), path(a), file(a), deps(a) {}
 
     Str name;
-    Str path;  // as given; empty for an overlay
-    Str file;  // the main file, normalized; empty for an overlay
+    Str path;      // as given; empty for an overlay; the name, for text
+    Str file;      // the main file, normalized; empty for an overlay
+    Rc<Str> text;  // pushed as text (push_layer_text): read from this, never a file; shared
     LayerOptions options;
     Ref<Array> root;
     Rc<SourceMap> map;  // edit mode; shared with snapshots, read-only once built
@@ -300,9 +301,12 @@ struct Config::Impl {
                                             LoadSession& session, bool from_disk) const;
 
     // Reads a file layer, recording every file it reads (or looks for) for reload, and the
-    // time spent reading them into `read_ns`.
-    Expected<void> read(LayerState& layer, const LoadSession& before,
-                        uint64_t* read_ns = nullptr) const;
+    // time spent reading them into `read_ns`; or a layer pushed as text, from its text only.
+    // The read's warnings go to the warning handler, and to `warnings` if given.
+    Expected<void> read(LayerState& layer, const LoadSession& before, uint64_t* read_ns = nullptr,
+                        Vec<Error>* warnings = nullptr) const;
+    // push_layer by path or text, once the layer is named.
+    Expected<void> push_read(Config& c, LayerState&& layer, LayerOptions opts);
 
     bool changed(const LayerState& layer, Symbol& first) const;
 

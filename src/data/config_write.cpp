@@ -148,6 +148,9 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
     if (layer.path.empty())
         return Unexpected(refused(quoted(path) + " comes from layer '" + layer.name +
                                   "', which has no source file"));
+    if (layer.text)
+        return Unexpected(refused(quoted(path) + " comes from layer '" + layer.name +
+                                  "', which was pushed as text and has no file"));
     if (!layer.map)
         return Unexpected(refused("layer '" + layer.name +
                                   "' was not read in edit mode, so it cannot be written"));
@@ -788,10 +791,10 @@ Expected<LayerReport> Config::check_layer(std::string_view name, const Ref<Array
 
 Expected<LayerReport> Config::check_layer_text(std::string_view name, std::string_view text,
                                                const LayerPolicy& policy) const {
-    // The stack's session, so the candidate's packs meet the stack's; text only, as a layer
-    // from outside must be (D142).
+    // The stack's session, so the candidate's packs meet the stack's; text only and reaching
+    // no other file, as a layer from outside must be (D142), and as push_layer_text reads.
     LoadSession session = impl_->as_read;
-    session.text_only = true;
+    session.text_only = session.refuse_includes = true;
     session.clear_autorun();
     const size_t known = session.warnings().size();
     auto tree = read_string(text, name, session);
