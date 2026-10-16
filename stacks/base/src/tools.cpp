@@ -40,10 +40,10 @@ struct Options {
         "%s\n"
         "commands:\n"
         "  sim [--scenario NAME]... [--seeds A-B] [--out DIR] [--step-hz N] [--json]\n"
-        "                                 --out also gets results.json (stacks.sim/1);\n"
+        "                                 --out also gets results.json (stacks.sim/1.1);\n"
         "                                 --json prints it instead of the text\n"
         "  compare BEFORE_DIR AFTER_DIR   which objectives moved between two --out\n"
-        "                                 directories (stacks.compare/1); exit 1 if one broke\n"
+        "                                 directories (stacks.compare/1.1); exit 1 if one broke\n"
         "  check                          baker.check/1.1 JSON; exit 1 on an error, a load\n"
         "                                 problem, a shape error, or an undefined function\n"
         "  reference [--json]             the game's script vocabulary, as Markdown; --json:\n"
@@ -220,15 +220,21 @@ int sim(Game& game, const Options& o) {
             }
             runs.push_back(std::move(r));
         }
-    const std::string summary = summary_dta(runs);
-    const std::string json = results_json(runs);
+    // An objective (over median) is judged once per scenario, by its median over the seeds.
+    const std::vector<MedianResult> medians = judge_medians(l.ctx, objectives, runs);
+    if (!o.json)
+        for (const MedianResult& m : medians)
+            std::printf("%s median of %d seeds: %s  %s %g%s\n", m.scenario.c_str(), m.seeds,
+                        m.pass ? "passed" : "FAILED", m.objective.c_str(), m.value,
+                        m.error.empty() ? "" : ("  " + m.error).c_str());
+    const std::string summary = summary_dta(runs, medians);
+    const std::string json = results_json(runs, medians);
     std::printf("%s", (o.json ? json : summary).c_str());
     if (!o.out.empty() && (!write_file(fs::path(o.out) / "summary.dta", summary) ||
+                           !write_file(fs::path(o.out) / "medians.dta", medians_dta(medians)) ||
                            !write_file(fs::path(o.out) / "results.json", json)))
         return kError;
-    return std::all_of(runs.begin(), runs.end(), [](const RunResult& r) { return r.passed(); })
-               ? 0
-               : kFailed;
+    return all_passed(runs, medians) ? 0 : kFailed;
 }
 
 // Prints check's JSON (baker.check/1.1) with the load problems, and returns the exit status.
@@ -386,13 +392,15 @@ int print_effect(baker::Config& cfg, const char* heading) {
 int compare(const Options& o) {
     if (o.commands.size() != 2) usage("compare needs two result directories: compare BEFORE AFTER");
     std::vector<RunResult> before, after;
+    std::vector<MedianResult> medians_before, medians_after;
     std::string error;
-    if (!read_runs(o.commands[0], before, error) || !read_runs(o.commands[1], after, error)) {
+    if (!read_runs(o.commands[0], before, medians_before, error) ||
+        !read_runs(o.commands[1], after, medians_after, error)) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return kError;
     }
     bool broke = false;
-    std::printf("%s", compare_json(before, after, broke).c_str());
+    std::printf("%s", compare_json(before, medians_before, after, medians_after, broke).c_str());
     return broke ? kFailed : 0;
 }
 

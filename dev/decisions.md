@@ -5366,3 +5366,51 @@ four such games filled a four-core machine.*
   then measures the idle game's CPU over 3 s from `/proc` and expects under half a core.
   It measured 5%. Where there is no `/proc` (Windows), the CPU part is skipped.
 - **Docs:** the flags table in `stacks/README.md`.
+
+## D170. Plan A's outcome, and objectives judged by their median
+
+*Plan A of `dev/integration-plans.md` (an agent bridge over Baker's tool surface, in its
+own repository) was evaluated in two rounds: 252 runs, two agent clients, headless and
+live tasks on every stack. The owner brought the summary.*
+
+- **Plan A is parked, as its kill criterion says.**
+  - **Calls.** The bridge took 2 to 3 times the tool calls of the command line and skill
+    in every group of runs: each client, headless and live tasks.
+  - **Success.** It never did better on success beyond noise.
+  - **What stays.** E1–E3 (D154–D157) stand alone and are kept. The command line, the
+    skill and the loopback console serve the same agents.
+- **Every failure, in every arm and client, was a Duel task.** All the other stacks'
+  tasks passed every run. The failures were of one kind: the fix moved a Duel win rate out
+  of its band on one seed of three.
+- **Why.** Duel's win rates move from seed to seed. On clean data, `normal_vs_combo` runs
+  from 0.28 to 0.49 over seeds 1–10, against a band ending at 0.5.
+  - **The skill and `sim` disagreed.** The skill said one seed outside a band is noise and
+    a shifted median is a finding. `sim` and `compare` failed on any seed.
+  - **The evaluation's judge sided with `sim`.** It took `sim`'s exit status over seeds
+    1–3, and agents split on which rule to follow.
+- **The fix** (the owner's choice: judge win rates by their median).
+  - **The form.** An objective may say `(over median)`. It is judged once per scenario,
+    by its `pass` on the median of its values over the seeds run. That verdict decides
+    `sim`'s exit status. Each run still records its own value and pass, for information.
+  - **The record.** `sim` prints each median's verdict, adds `(median ...)` to the
+    summary, and writes `medians.dta` beside the runs with `--out`. The JSON gains
+    `medians`, and each objective result says `over`, so the schema is `stacks.sim/1.1`.
+  - **`compare`** (`stacks.compare/1.1`) calls such an objective broken only when a
+    scenario's median verdict went from pass to fail.
+  - **Duel.** Its seven win-rate objectives say `(over median)`. The frame-data and
+    reaction objectives stay judged per seed. Clean data passes on seeds 1–3, with
+    `normal_vs_combo`'s median at 0.36.
+  - **The skill** says `sim`'s exit status is the verdict, to be taken as it is, and that
+    a median near a band's edge is a risk to report.
+- **What the evaluation also found.**
+  - **The headless CPU core** is D168.
+  - **The journal's negative times** are D160.
+  - **The skill's old loop** said only "`sim` over the same seeds", with neither every
+    scenario nor `compare` (D159 added both after the evaluation's pinned commit). Its
+    effect on success is not measured.
+- **Tests.**
+  - `stacks/base/tests/test_sim.cpp`: values one to five on five seeds, judged by an
+    objective whose median passes and one whose median fails. A seed out of band does not
+    fail its run. The verdicts read back from `medians.dta`, and `compare` reports a broken
+    median verdict and ignores seeds moving.
+  - The stacks' command test checks the new schema names.
