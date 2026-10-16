@@ -74,4 +74,18 @@ struct RunResult {
 [[nodiscard]] std::string to_dta(const RunResult& run);
 [[nodiscard]] std::string summary_dta(const std::vector<RunResult>& runs);
 
+// The same results as one JSON document, schema stacks.sim/1 (stacks/agent.md): every run,
+// sorted by scenario then seed, its objectives by name; the summary per objective; and the
+// status the exit code means. A value that is not finite is null, its reason in `error`.
+[[nodiscard]] std::string results_json(std::vector<RunResult> runs);
+// Reads the run-*.dta files `sim --out` wrote into `dir`; false, with `error`, if it cannot.
+[[nodiscard]] bool read_runs(const std::filesystem::path& dir, std::vector<RunResult>& out,
+                             std::string& error);
+// What moved between two sets of runs, schema stacks.compare/1: per objective, whether it
+// broke (passed on a scenario and seed, now fails), was fixed, stayed the same, or is new
+// or gone; each side's tally; the median's change; and the runs whose pass changed.
+// `broke` is set when anything broke.
+[[nodiscard]] std::string compare_json(const std::vector<RunResult>& before,
+                                       const std::vector<RunResult>& after, bool& broke);
+
 }  // namespace base

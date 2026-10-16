@@ -4898,3 +4898,64 @@ shape errors and parse errors out of its JSON.*
     `#autorun` function, a value out of range, and a parse error (exit 2 with JSON).
   - Every stack's own data still passes `check`.
 - **Core:** 12,829 → 12,867 lines.
+
+## D159. The stacks' commands for tools: `eval --json`, `sim` as JSON with `compare`, `promote --patch`
+
+*Requirement notes 0001, 0002 and 0003 from the agent-bridge integration, which the owner
+chose to take up (`dev/check-gate-plan.md` §3–5). They are the stacks' commands, not
+Baker's, so Baker's code is unchanged.*
+
+- **`eval --json`** (0001).
+  - Each command is answered with one `baker.reply/1` line through `eval_request`, as a
+    running game's console answers, with ids counting from 1.
+  - Exit 0 when every command ran, 1 when a reply carries an error, 2 when the data does
+    not load.
+  - A tool now reads a headless game and a live one the same way.
+- **`sim` as JSON, and `compare`** (0002).
+  - **`stacks.sim/1`.** `sim --out DIR` also writes `results.json`, and `--json` prints it
+    instead of the text. It holds:
+    - each run (scenario, seed, steps, passed, errors, objectives), sorted by scenario,
+      then seed, with objectives by name;
+    - a tally per objective (passed, failed, min, median, max);
+    - `status`.
+
+    Numbers are printed as the `.dta` results print them, and a value that is not finite is
+    `null` with its reason. Two runs give the same bytes.
+  - **`compare BEFORE AFTER`.** It reads the `run-*.dta` files two `--out` directories
+    hold, so the stacks need no JSON parser and no rerun. It prints `stacks.compare/1`.
+    Per objective:
+    - `moved`: `broke` (passed on a scenario and seed, now fails), `fixed`, `same`, `new` or
+      `gone`;
+    - each side's tally and the median's change;
+    - the runs whose pass changed.
+
+    Exit 1 when anything broke.
+  - **The agent skill now uses them.** The loop saves the baseline with `--out
+    runs/before` and the change with `--out runs/after`, over every scenario, then
+    compares. In the bridge's evaluation, every failed run, in both arms, was a fix that
+    broke another objective on one seed. `/stacks/*/runs/` is ignored.
+- **`promote --patch FILE`** (0003).
+  - **The promotion is real; only the write is captured.** The Config's writer captures
+    each file instead of writing it (D132's hook), so nothing on disk is written, created
+    or locked.
+  - **The patch.** Each captured file becomes a unified diff against the file on disk,
+    with paths relative to the data directory, for `patch -p1` or `git apply`.
+    - Promotion is all or nothing, so on a refusal the patch is empty and the exit is 1.
+    - The diff is about 90 lines in the stacks' tools: the common head and tail are cut,
+      then the middle is compared line by line, then grouped into hunks with three lines
+      of context.
+    - A last line without a newline is marked as `diff -u` marks it.
+  - **Checked.** On Duel's data:
+    - the patch applies with `patch -p1` and `git apply`;
+    - the patched files equal what `--write` writes, byte for byte, also when the target
+      has no final newline;
+    - the data directory is unchanged after `--patch`.
+- **Tests.** `stacks/tools/test_commands.py` gains each case:
+  - one reply line per command, the `explain` chain as JSON, an error reply, and the exit
+    codes;
+  - `sim --json` equal to `results.json`, byte-stable, and sorted;
+  - `compare` moving nothing for identical runs, and naming the broken runs after a
+    weaker fighter (exit 1);
+  - `--patch` writing nothing, and its application equal to `--write` where a `patch`
+    tool exists.
+- **One commit, not three.** The three changes share `tools.cpp`.

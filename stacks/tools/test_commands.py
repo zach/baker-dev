@@ -66,12 +66,86 @@ def check_gate(s):
     s.run("check", agent="")
 
 
+def eval_json(s):
+    code, out, _ = s.run("eval", "--json", "{config.explain fighters.kestrel.width}",
+                         "{nosuch}", agent="")
+    lines = [json.loads(l) for l in out.splitlines()]
+    expect(code == 1 and len(lines) == 2, "eval --json: one reply a command; exit 1 on an error")
+    first = lines[0]
+    expect(first["schema"] == "baker.reply/1" and first["id"] == 1 and first["ok"],
+           "eval --json: the reply form, with its id")
+    expect(first["value"][-1]["standing"] == "wins" and first["value"][-1]["layer"] == "default",
+           "eval --json: explain's layer chain as JSON")
+    expect(not lines[1]["ok"] and lines[1]["id"] == 2 and lines[1]["error"]["message"],
+           "eval --json: an error reply")
+    code, out, _ = s.run("eval", "--json", "{+ 1 2}")
+    expect(code == 0 and json.loads(out)["value"] == 3, "eval --json: exit 0 when all ran")
+
+
+def sim_json(s):
+    def sim(out, agent):
+        code, text, _ = s.run("sim", "--seeds", "1-1", "--out", out, "--json", agent=agent)
+        return code, text
+
+    code, first = sim("before", "")
+    r = json.loads(first)
+    expect(code == 0 and r["schema"] == "stacks.sim/1" and r["status"] == "passed",
+           "sim --json: the results, passed")
+    expect((s.dir / "before" / "results.json").read_text() == first,
+           "sim --out writes the same JSON to results.json")
+    expect(sim("again", "")[1] == first, "sim --json: the same data gives the same bytes")
+    keys = [(run["scenario"], run["seed"]) for run in r["runs"]]
+    expect(keys == sorted(keys), "sim --json: runs sorted by scenario, then seed")
+
+    code, out, _ = s.run("compare", str(s.dir / "before"), str(s.dir / "again"))
+    expect(code == 0 and json.loads(out)["broke"] == 0, "compare: identical runs move nothing")
+
+    sim("after", "(fighters (kestrel (health 50)))\n")
+    code, out, _ = s.run("compare", str(s.dir / "before"), str(s.dir / "after"))
+    c = json.loads(out)
+    broke = [o["name"] for o in c["objectives"] if o["moved"] == "broke"]
+    expect(code == 1 and c["schema"] == "stacks.compare/1" and c["broke"] == len(broke) > 0,
+           "compare: a weaker fighter breaks objectives, and exits 1")
+    first_broken = next(o for o in c["objectives"] if o["moved"] == "broke")
+    expect(first_broken["changed"] and first_broken["changed"][0]["before"]
+           and not first_broken["changed"][0]["after"], "compare: names the run that broke")
+    s.run("check", agent="")
+
+
+def promote_patch(s):
+    agent = "(fighters (kestrel (health 1100) (walk_back 1.7)))\n(cpu (easy (reaction 26)))\n"
+    data = s.dir / "data"
+    (data / "agent.dta").write_text(agent)
+    before = {p.name: p.read_bytes() for p in data.iterdir()}
+    code, _, _ = s.run("promote", "--patch", str(s.dir / "p.diff"))
+    after = {p.name: p.read_bytes() for p in data.iterdir()}
+    expect(code == 0 and before == after, "promote --patch writes nothing in data/")
+    patch = (s.dir / "p.diff").read_text()
+    expect(patch.startswith("--- a/default.dta\n+++ b/default.dta\n@@ "),
+           "promote --patch: a unified diff, relative to the data directory")
+    tool = shutil.which("patch")
+    if tool:
+        applied = Path(s.tmp.name) / "applied"
+        shutil.copytree(s.dir, applied)
+        subprocess.run([tool, "-p1", "-s", "-i", str(s.dir / "p.diff")], cwd=applied / "data",
+                       check=True)
+        code, _, _ = s.run("promote", "--write")
+        expect(code == 0 and (applied / "data" / "default.dta").read_bytes() ==
+               (data / "default.dta").read_bytes(),
+               "promote --patch applies to exactly what --write writes")
+    else:
+        print("skipped: no patch tool to apply the diff")
+
+
 def main():
     if len(sys.argv) != 3:
         print(__doc__)
         return 2
     s = Stack(sys.argv[1], sys.argv[2])
     check_gate(s)
+    eval_json(s)
+    sim_json(s)
+    promote_patch(s)  # last: --write changes the copy's default.dta
     print(f"{len(FAILURES)} failures" if FAILURES else "all passed")
     return 1 if FAILURES else 0
 
