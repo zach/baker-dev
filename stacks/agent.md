@@ -17,7 +17,7 @@ stacks_cube sim [--scenario NAME]... [--seeds A-B] [--out DIR] [--json]
 stacks_cube compare BEFORE_DIR AFTER_DIR      which objectives moved between two --out
                                               directories, as JSON; exit 1 if one broke
 stacks_cube check                             baker::check over data, its #autorun script,
-                                              scenarios, metrics; baker.check/1.1 JSON with
+                                              scenarios, metrics; baker.check/1.2 JSON with
                                               passed, load and shape problems; exit 1 on any,
                                               or an undefined, unstubbed call; 2 if no load
 stacks_cube reference [--json]                the vocabulary: functions, shapes, packs (Markdown);
@@ -27,7 +27,7 @@ stacks_cube promote --to default [--write]    agent.dta into default.dta; --writ
 stacks_cube promote --patch FILE              the same change as a unified diff; writes nothing
 stacks_cube eval [--seed N] "{command}"...     commands on the data and the reset game: a frame
                                               table, a search, a report; --json: one
-                                              baker.reply/1 line each, as the console answers
+                                              baker.reply/1.1 line each, as the console answers
 ```
 
 The design called this a tool server. A command-line tool is the same surface with less

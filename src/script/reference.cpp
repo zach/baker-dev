@@ -359,13 +359,14 @@ void json_sites(Str& out, Vec<CheckReport::Site> sites) {
     out += ']';
 }
 
-// Errors, warnings, and findings: sorted by file, line, then message.
+// Errors, warnings, and findings: sorted by file, line, column, then message.
 void json_errors(Str& out, const char* key, const List<Error>& errors) {
     Vec<const Error*> sorted;
     for (const Error& e : errors) sorted.push_back(&e);
     std::sort(sorted.begin(), sorted.end(), [](const Error* a, const Error* b) {
         if (const int c = a->file().str().compare(b->file().str()); c != 0) return c < 0;
         if (a->line() != b->line()) return a->line() < b->line();
+        if (a->column() != b->column()) return a->column() < b->column();
         return a->message() < b->message();
     });
     out += "  \"" + Str(key) + "\": [";
@@ -376,7 +377,8 @@ void json_errors(Str& out, const char* key, const List<Error>& errors) {
         json_string(out, error_code_name(e.code()));
         out += ", \"file\": ";
         json_string(out, e.file().str());
-        out += ", \"line\": " + detail::decimal(e.line()) + ", \"path\": ";
+        out += ", \"line\": " + detail::decimal(e.line()) +
+               ", \"column\": " + detail::decimal(e.column()) + ", \"path\": ";
         json_string(out, e.path());
         out += ", \"message\": ";
         json_string(out, e.message());
@@ -388,7 +390,7 @@ void json_errors(Str& out, const char* key, const List<Error>& errors) {
 }  // namespace
 
 void write_json(const CheckReport& report, TextSink text, const LoadSession* packs) {
-    Str out = "{\n  \"schema\": \"baker.check/1.1\",\n";
+    Str out = "{\n  \"schema\": \"baker.check/1.2\",\n";
     out += Str("  \"passed\": ") + (report.ok() ? "true" : "false") + ",\n";
     json_errors(out, "errors", report.errors);
     out += ",\n";

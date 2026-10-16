@@ -13,6 +13,7 @@ struct ErrorRecord {
     Str message;
     Symbol file;
     int32_t line = 0;
+    int32_t column = 0;
     Str path;
     Vec<StackEntry> stack;
     // The formatted forms, made on first request and cleared by any change.
@@ -93,6 +94,9 @@ Symbol Error::file() const noexcept {
 int32_t Error::line() const noexcept {
     return r_ ? r_->line : 0;
 }
+int32_t Error::column() const noexcept {
+    return r_ ? r_->column : 0;
+}
 std::string_view Error::path() const noexcept {
     return r_ ? std::string_view(r_->path) : std::string_view();
 }
@@ -116,6 +120,10 @@ void Error::set_location(Symbol file, int32_t line) {
     detail::ErrorRecord& r = edit(r_);
     r.file = file;
     r.line = line;
+    r.column = 0;
+}
+void Error::set_column(int32_t column) {
+    edit(r_).column = column;
 }
 void Error::set_path(std::string_view path) {
     edit(r_).path = path;
@@ -144,6 +152,10 @@ std::string_view to_string(const Error& e) {
             if (r.line > 0) {
                 out += ':';
                 out += detail::decimal(r.line);
+                if (r.column > 0) {
+                    out += ':';
+                    out += detail::decimal(r.column);
+                }
             }
         }
         if (has_path) {

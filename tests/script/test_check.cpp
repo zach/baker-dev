@@ -306,7 +306,7 @@ TEST_CASE("check's JSON is versioned, sorted, and the same bytes on every run (D
 
     // Without the session, the packs list is empty; an empty report is still a whole one.
     CHECK(to_json(CheckReport{}) ==
-          "{\n  \"schema\": \"baker.check/1.1\",\n  \"passed\": true,\n  \"errors\": [],\n"
+          "{\n  \"schema\": \"baker.check/1.2\",\n  \"passed\": true,\n  \"errors\": [],\n"
           "  \"warnings\": [],\n  \"demand\": [],\n  \"repeats\": [],\n  \"findings\": [],\n"
           "  \"load\": [],\n  \"shape_errors\": [],\n  \"shape_warnings\": [],\n"
           "  \"packs\": []\n}\n");
@@ -416,7 +416,7 @@ TEST_CASE("problems the host found fail the check and are in its JSON") {
     CHECK(json.find("\"passed\": false") != std::string::npos);
     CHECK(json.find(
               "\"shape_errors\": [\n    {\"code\": \"range\", \"file\": \"d.dta\", "
-              "\"line\": 3, \"path\": \"\", \"message\": \"speed 12 is out of range 0..10\"}") !=
+              "\"line\": 3, \"column\": 0, \"path\": \"\", \"message\": \"speed 12 is out of range 0..10\"}") !=
           std::string::npos);
 
     CheckReport loaded;

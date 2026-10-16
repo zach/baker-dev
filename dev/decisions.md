@@ -5366,3 +5366,60 @@ four such games filled a four-core machine.*
   then measures the idle game's CPU over 3 s from `/proc` and expects under half a core.
   It measured 5%. Where there is no `/proc` (Windows), the CPU part is skipped.
 - **Docs:** the flags table in `stacks/README.md`.
+
+## D169. Columns on errors (E4)
+
+*E4 of `dev/integration-plans.md`, the first step of plan B, which the owner started. An
+editor underlines a span, not a line, and an agent fixing a long line needs the column
+too.*
+
+- **API** (`error.hpp`).
+  - `Error::column()` is 1-based, in characters (code points) from the line's start, and
+    0 when unknown.
+  - `set_column()` sets it, and `set_location()` clears it, since a relocated error has a
+    new line.
+  - The record lives on the error path only (D55), so `Expected<T>` does not grow.
+- **The printed form** (the owner's choice) is `file:line:column` when there is a column,
+  the compiler convention that terminals and editors make clickable:
+  `baker: unterminated string  (t.dta:2:6)`. Errors without one print `file:line` as
+  before.
+- **The unit** (the owner's choice) is characters, as people count and compilers report:
+  a UTF-8 continuation byte does not count, and a byte-order mark is not a character. The
+  editor server converts to the LSP's UTF-16 units itself.
+- **Where columns come from.** A column is computed only when an error is made, from a byte
+  offset already at hand:
+  - **The lexer's errors** use the offset of the string, quoted symbol, comment, `$` or
+    number they reject.
+  - **The parser's errors** use the token's, the open bracket's (`is never closed`, `is
+    closed by`, nesting too deep, `#remove` misused), or the directive's (unknown
+    directives, `#else` and `#endif` without `#ifdef`, `#include` failures).
+  - **Errors located by an array's line** have no column: a pack or origin declaration
+    misread, a lookup, a shape error, a script call. That was E4's design. The editor
+    widens these to the line's first token from edit-mode spans.
+- **The plan's Acton note held.** A first version also stored the current token's offset
+  per token, for the few sites that took only a line. It cost 5.3% of `Parser::run`'s
+  instructions on `bench_parse` (cachegrind: 706.7M → 744.0M). Those sites now take an
+  explicit offset, and nothing is tracked per token.
+- **JSON.**
+  - `baker.check/1.2` adds `column` to every problem; problems sort by file, line,
+    column, then message.
+  - `baker.reply/1.1` adds `column` to an error.
+  - Both are minor versions, which old readers can ignore. Every writer, test, example
+    regex and stack tool moved to the new names.
+- **Cost** (`bench_parse`, release, this container, against a worktree of `main`, five
+  runs each):
+
+  | | Before | After |
+  |---|---|---|
+  | Throughput | 125.7–133.7 MB/s | 129.5–134.5 MB/s |
+  | Instructions in `Parser::run` + `lex_token` | 1,413.2M | 1,405.4M |
+  | Instructions, whole benchmark | 4,256.5M | 4,270.6M (+0.33%) |
+
+  The whole benchmark's rise is outside the parser's hot functions.
+- **Tests** (`tests/data/test_parse.cpp`):
+  - each lexer error and parser error kind gives its line and column;
+  - two-byte characters count once, and a byte-order mark does not count;
+  - the printed form shows the column;
+  - a lookup error and a pack declaration's error have none.
+
+  The existing expectations moved to the new form and schema names.
