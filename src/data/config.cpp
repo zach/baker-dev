@@ -367,6 +367,7 @@ void Config::Impl::refresh_read() {
 }
 
 void Config::Impl::commit(Config& c, ReloadRecord& rec, uint64_t& t) {
+    ++generation;
     const Ref<Array> before = std::move(c.root_);
     c.root_ = merged();
     c.scratch_dirty_ = false;
@@ -413,6 +414,8 @@ Expected<void> Config::Impl::may_change(const Config& c) const {
 
 Config::Config(ConfigOptions options, const Allocator& allocator)
     : root_(Array::make(0)), impl_(detail::create<Impl>(allocator, allocator)) {
+    static std::atomic<uint64_t> configs{0};
+    impl_->generation = configs.fetch_add(1, std::memory_order_relaxed) << 32;
     impl_->options = options;
     impl_->cache_dir.assign(options.cache_dir);
     impl_->options.cache_dir = impl_->cache_dir;
@@ -432,6 +435,7 @@ Config::~Config() {
 }
 
 LoadSession& Config::session() noexcept {
+    ++impl_->generation;  // the caller may change what a check reads with
     return impl_->base;
 }
 
@@ -450,6 +454,7 @@ void Config::set_warning_handler(Callback<void(const Error&)> handler) {
 Config::ValidatorId Config::add_validator(Validator validator) {
     const ValidatorId id = impl_->next_id++;
     impl_->validators.push_back({id, std::move(validator)});
+    ++impl_->generation;
     return id;
 }
 
@@ -457,6 +462,7 @@ void Config::remove_validator(ValidatorId id) {
     auto& v = impl_->validators;
     v.erase(std::remove_if(v.begin(), v.end(), [id](const auto& x) { return x.id == id; }),
             v.end());
+    ++impl_->generation;
 }
 
 void Config::bind(TweakBase& t) {
@@ -488,11 +494,17 @@ Expected<void> Config::Impl::push_read(Config& c, LayerState&& layer, LayerOptio
     const Rc<LoadSession> below = session_below(layers, *at);
     Vec<Error> read_warnings(alloc);
     if (auto r = read(layer, *below, nullptr, &read_warnings); !r) return r;
-    if (opts.policy)
-        if (auto r = refuse_unless(check_candidate(
-                c, layer.name, *layer.root, layer.after->autorun(), *opts.policy, read_warnings));
+    if (opts.policy) {
+        // A report on this text that still holds is the verdict (D165); a file has none.
+        const bool held = layer.text && c.holds(opts, text_subject(layer.name, *layer.text),
+                                                *at == layers.size());
+        if (auto r = refuse_unless(held ? *opts.checked
+                                        : check_candidate(c, layer.name, *layer.root,
+                                                          layer.after->autorun(), *opts.policy,
+                                                          read_warnings));
             !r)
             return r;
+    }
     if (*at == layers.size()) {
         layers.push_back(std::move(layer));
     } else {
@@ -532,11 +544,15 @@ Expected<void> Config::push_layer(std::string_view name, Ref<Array> overlay, Lay
         return Unexpected(refused("there is already a layer named '" + Str(name) + "'"));
     const auto at = impl_->placement(options);
     if (!at) return Unexpected(at.error());
-    if (options.policy)
+    if (options.policy) {
+        const bool held =
+            holds(options, tree_subject(name, overlay.get()), *at == impl_->layers.size());
         if (auto r = refuse_unless(
-                impl_->check_candidate(*this, name, *overlay, {}, *options.policy, {}));
+                held ? *options.checked
+                     : impl_->check_candidate(*this, name, *overlay, {}, *options.policy, {}));
             !r)
             return r;
+    }
     LayerState layer(impl_->alloc);
     layer.name.assign(name);
     layer.options = options;
@@ -724,6 +740,7 @@ void Config::remove_on_reload(ReloadId id) {
 Expected<void> Config::set(const Path& path, std::span<const Node> values) {
     if constexpr (kShipping) return Unexpected(shipping("set()"));
     if (auto ok = impl_->may_change(*this); !ok) return ok;
+    ++impl_->generation;
     if (!path.valid()) return Unexpected(detail::get_error(*root_, path, nullptr));
     if (path.empty()) return Unexpected(refused("cannot set the whole config"));
     for (size_t i = 0; i + 1 < path.size(); ++i)
@@ -758,6 +775,7 @@ Expected<void> Config::set(std::string_view path, const Node& value) {
             impl_->log_edit(e, &before, 1, std::span<const Node>(&value, 1),
                             Source{scratch_name()});
             scratch_dirty_ = true;
+            ++impl_->generation;
             impl_->retune(e);
             return {};
         }

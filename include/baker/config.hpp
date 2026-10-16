@@ -135,6 +135,8 @@ struct LayerPolicy {
     std::span<const Path> allow{};  // if not empty, every changed path lies under one of these
 };
 
+struct LayerReport;
+
 struct LayerOptions {
     bool optional = false;  // a missing file is not an error; the layer exists, empty
     bool enabled = true;    // disabled layers keep their position but are skipped by merge
@@ -147,6 +149,15 @@ struct LayerOptions {
     // nothing, if the policy refuses it. A file or text layer's #autorun commands, and the
     // warnings its read adds (a pack's unmet requires), count too.
     const LayerPolicy* policy = nullptr;
+    // With `policy`: a report on this layer from check_layer or check_layer_text, under the
+    // same policy. If it still holds, the push takes its verdict instead of checking again:
+    // that is, if the Config has not changed since the check (no layer change, reload,
+    // set(), validator added or removed, or call of session()), and the push puts the same
+    // name with the same text, or the same tree, on top. Otherwise the push checks, as
+    // without it. A tree must not change between the check and the push. A validator that
+    // reads something outside the Config (check_validator's Context) is trusted not to have
+    // changed its verdict meanwhile.
+    const LayerReport* checked = nullptr;
 };
 
 // --- Telemetry ---
@@ -232,12 +243,24 @@ struct ExplainEntry {
     Standing standing = Standing::Wins;
 };
 
+// What a LayerReport was made against, so that a push can tell whether it still holds
+// (LayerOptions::checked). Opaque.
+class CheckStamp {
+private:
+    friend class Config;
+    const void* config_ = nullptr;
+    uint64_t generation_ = 0;
+    uint64_t subject_ = 0;  // the layer's name with its text, or with its tree's address
+    uint64_t policy_ = 0;
+};
+
 // Config::check_layer: a candidate layer's effect, and the verdicts on it, before it takes
 // effect.
 struct LayerReport {
     List<LayerEffectEntry> effect;  // what it would change, as layer_effect reports it
     List<Error> refusals;           // the policy's, located; any refuses the layer
     List<Error> warnings;           // the validators' over the stack with it, and the read's
+    CheckStamp stamp;
     [[nodiscard]] bool ok() const noexcept { return refusals.empty(); }
 };
 
@@ -467,6 +490,11 @@ private:
     friend class TweakBase;
 
     void bind(TweakBase& t);
+    // LayerOptions::checked: stamps a report on the layer `subject` names, and tells whether
+    // one still holds for a push of it on top.
+    void stamp(LayerReport& report, uint64_t subject, const LayerPolicy& policy) const noexcept;
+    [[nodiscard]] bool holds(const LayerOptions& options, uint64_t subject,
+                             bool on_top) const noexcept;
     // The scratch values `path` names (exactly, or one element of them): none, found, or
     // an element past the end of a scratch value, which hides the layers' longer one.
     enum class ScratchHit : uint8_t { None, Found, PastEnd };

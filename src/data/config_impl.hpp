@@ -127,6 +127,12 @@ struct Leaf {
     Vec<Node> values;
 };
 
+// What a check was made against (CheckStamp): a layer's name with its text, or with its
+// tree's address; and a policy's rules.
+[[nodiscard]] uint64_t text_subject(std::string_view name, std::string_view text) noexcept;
+[[nodiscard]] uint64_t tree_subject(std::string_view name, const Array* tree) noexcept;
+[[nodiscard]] uint64_t policy_hash(const LayerPolicy& policy) noexcept;
+
 // A tag array's values: its children that are not tagged arrays.
 Vec<Node> values_of(const Array& a);
 // Each tag's first child only, as lookup sees it, depth first.
@@ -223,6 +229,10 @@ struct Config::Impl {
     Vec<Subscriber> subscribers{alloc};
     Vec<Completion> completions{alloc};
     ReloadId next_id = 1;
+    // Incremented on every change that can change a check's verdict (CheckStamp): a merge, a
+    // validator added or removed, a set(), a call of session(). Each Config starts its own
+    // range, so a report never holds for another Config at the same address.
+    uint64_t generation = 0;
 
     TimeSource clock = steady_now;
     void* clock_user = nullptr;

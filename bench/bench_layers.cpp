@@ -97,6 +97,31 @@ int main() {
     pushes("push_layer_text, policy", [&] {
         return cfg.push_layer_text("overlay", overlay, {.policy = &policy}).has_value();
     });
+    // With a report from a check just before (untimed), which still holds (D165).
+    baker::LayerReport report;
+    auto held = [&](const char* name, auto&& check, auto&& push) {
+        double best = 1e30;
+        for (int i = 0; i < kRuns; ++i) {
+            report = *check();
+            best = std::min(best, best_us(1, [&] { ok = ok && push(); }));
+            ok = ok && cfg.remove_layer("overlay").has_value();
+        }
+        row(name, best);
+    };
+    held(
+        "push_layer (tree), policy, report held",
+        [&] { return cfg.check_layer("overlay", tree, policy); },
+        [&] {
+            return cfg.push_layer("overlay", tree, {.policy = &policy, .checked = &report})
+                .has_value();
+        });
+    held(
+        "push_layer_text, policy, report held",
+        [&] { return cfg.check_layer_text("overlay", overlay, policy); },
+        [&] {
+            return cfg.push_layer_text("overlay", overlay, {.policy = &policy, .checked = &report})
+                .has_value();
+        });
     if (!ok) std::printf("FAILED\n");
     return ok ? 0 : 1;
 }

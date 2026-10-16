@@ -302,9 +302,14 @@ which base it needs:
 2. **Stage.** `cfg.check_layer_text(name, text, policy)` checks it at once, changing
    nothing; log or show the report.
 3. **Apply at a boundary.** Push it at a moment the game chooses: a session's start, a
-   lobby, never mid-match. Push it with `push_layer_text` and the same policy, which
-   checks again in case the stack moved. The pack's `requires` and its `origin` are read
-   with it; a tree read separately and pushed directly carries neither.
+   lobby, never mid-match. Push it with `push_layer_text`, the same policy, and the
+   staged report: `{.policy = &policy, .checked = &report}`.
+   - If nothing in the Config changed since the stage, the push takes the report's verdict
+     and costs what an unchecked push costs.
+   - If the stack moved, the push checks again, and refuses, changing nothing, if the
+     policy does. A stale report is never used.
+   - The pack's `requires` and its `origin` are read with the text. A tree read separately
+     and pushed directly carries neither.
    - Dedicated servers apply the same overlay at the same boundary, so a client and its
      server never disagree.
 4. **Keep the last good one.** Store each applied overlay's text, and re-stage it at the

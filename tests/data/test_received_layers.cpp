@@ -171,3 +171,101 @@ TEST_CASE("a frozen game with live layers takes received text") {
     REQUIRE(cfg.remove_layer("double_xp"));
     CHECK(cfg.get<int>("event.xp") == 1);
 }
+
+TEST_CASE("a push takes a report that still holds, and checks again when it does not (D165)") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    cfg.session().set_pack_levels({"game", "live"});
+    REQUIRE(cfg.push_layer("default", dir.write("default.dta", kBase)));
+    int runs = 0;  // a validator runs once per check, and once after every merge
+    cfg.add_validator([&runs](const Array&, const Callback<void(const Error&)>&) { ++runs; });
+    const LayerPolicy policy{.data_only = true, .warnings_refuse = true};
+    const LayerPolicy other{.data_only = true};
+
+    // Each push's cost in validator runs: 1 is the merge alone, 2 a check as well.
+    auto cost = [&](auto&& push) {
+        const int before = runs;
+        REQUIRE(push());
+        REQUIRE(cfg.remove_layer("double_xp"));
+        return runs - before - 1;  // less the removal's merge
+    };
+    auto checked = [&] { return ok(cfg.check_layer_text("double_xp", kOverlay, policy)); };
+    auto push = [&](const LayerReport& r, const LayerPolicy& p = {}, std::string_view text = {},
+                    LayerOptions o = {}) {
+        o.policy = p.data_only ? &p : &policy;
+        o.checked = &r;
+        return cfg.push_layer_text("double_xp", text.empty() ? kOverlay : text, o).has_value();
+    };
+
+    LayerReport r = checked();
+    CHECK(cost([&] { return push(r); }) == 1);  // held: no second check
+    CHECK(cost([&] { return push(r); }) == 2);  // the push and removal changed the stack
+
+    auto stale_after = [&](auto&& change) {
+        const LayerReport report = checked();
+        change();
+        return cost([&] { return push(report); }) == 2;
+    };
+    CHECK(stale_after(
+        [&] { REQUIRE(cfg.push_layer("x", dir.write("x.dta", "(event (drops 6))\n"))); }));
+    CHECK(stale_after([&] { REQUIRE(cfg.remove_layer("x")); }));
+    CHECK(stale_after([&] { REQUIRE(cfg.toggle_layer("default")); }));
+    REQUIRE(cfg.toggle_layer("default"));
+    CHECK(stale_after([&] { cfg.remove_validator(cfg.add_validator(nullptr)); }));
+    CHECK(stale_after([&] { (void)cfg.session(); }));
+    if constexpr (!kShipping) {
+        REQUIRE(cfg.set("event.drops", Node(int64_t{6})));  // the next is the fast path
+        CHECK(stale_after([&] { REQUIRE(cfg.set("event.drops", Node(int64_t{7}))); }));
+        REQUIRE(cfg.clear_scratch());
+    }
+    // Another text, policy, or place; another Config's report.
+    r = checked();
+    CHECK(cost([&] { return push(r, {}, "(event (xp 3))\n"); }) == 2);
+    r = checked();
+    CHECK(cost([&] { return push(r, other); }) == 2);
+    // Below the base, its pack's requires is unmet, which `other` lets pass.
+    r = ok(cfg.check_layer_text("double_xp", kOverlay, other));
+    CHECK(cost([&] { return push(r, other); }) == 1);
+    r = ok(cfg.check_layer_text("double_xp", kOverlay, other));
+    CHECK(cost([&] { return push(r, other, {}, {.below = "default"}); }) == 2);
+    Config twin({.tweaks = nullptr});
+    twin.session().set_pack_levels({"game", "live"});
+    REQUIRE(twin.push_layer("default", dir.write("default.dta", kBase)));
+    r = ok(twin.check_layer_text("double_xp", kOverlay, policy));
+    CHECK(cost([&] { return push(r); }) == 2);
+
+    // A tree: the same one, then a different one.
+    const Ref<Array> tree = ok(read_string("(event (xp 4))\n", "double_xp"));
+    r = ok(cfg.check_layer("double_xp", tree, policy));
+    CHECK(cost([&] {
+              return cfg.push_layer("double_xp", tree, {.policy = &policy, .checked = &r})
+                  .has_value();
+          }) == 1);
+    r = ok(cfg.check_layer("double_xp", tree, policy));
+    const Ref<Array> copy = ok(read_string("(event (xp 4))\n", "double_xp"));
+    CHECK(cost([&] {
+              return cfg.push_layer("double_xp", copy, {.policy = &policy, .checked = &r})
+                  .has_value();
+          }) == 2);
+}
+
+TEST_CASE("a report that holds and refuses refuses at once, changing nothing") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    cfg.session().set_pack_levels({"game", "live"});
+    REQUIRE(cfg.push_layer("default", dir.write("default.dta", kBase)));
+    int runs = 0;
+    cfg.add_validator([&runs](const Array&, const Callback<void(const Error&)>&) { ++runs; });
+    const LayerPolicy policy{.data_only = true};
+    const char* const code = "(event (xp {random 1 9}))\n";
+    const LayerReport r = ok(cfg.check_layer_text("cheat", code, policy));
+    REQUIRE_FALSE(r.ok());
+    const uint64_t epoch = cfg.epoch();
+    const int before = runs;
+    auto pushed = cfg.push_layer_text("cheat", code, {.policy = &policy, .checked = &r});
+    REQUIRE_FALSE(pushed);
+    CHECK(pushed.error().code() == ErrorCode::Refused);
+    CHECK(runs == before);
+    CHECK(cfg.epoch() == epoch);
+    CHECK(cfg.layers().size() == 2);
+}

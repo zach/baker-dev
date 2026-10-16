@@ -5174,3 +5174,57 @@ longer holds (D165) pays for a check at the boundary.*
   indexed, every entry's `below` and `below_source` match `get` and `source()`. That
   includes the first of the repeated tags, the supplying layer, and a new key with
   nothing below.
+
+## D165. A report that still holds: `LayerOptions::checked`, and the Config's generation
+
+*Requirement note 0002 from the live-ops integration. The design is
+`dev/received-layers-plan.md` §3.2. A host checks a layer when it arrives and applies it
+later, at a boundary it chooses, under the same policy. The push checked again, and that
+second check was most of the cost of applying, paid where a game has the least time. The
+note asked that Baker, not the host, decide whether the first check still holds: `epoch()`
+misses changes that alter a verdict (a validator added; a fast-path `set()`).*
+
+- **API** (`config.hpp`).
+  - **`LayerOptions::checked`**, with `policy`, is a report from `check_layer` or
+    `check_layer_text`. A push by tree or by text takes its verdict if it still holds, and
+    checks as without it otherwise. If the report holds and refuses, the push refuses at
+    once, changing nothing.
+  - **`LayerReport::stamp`** is an opaque `CheckStamp`: the Config, its generation, a hash
+    of the name with the text (or with the tree's address), and a hash of the policy.
+- **When a report holds.** All of these must be true:
+  - the push is by the same Config and on top;
+  - the generation is unchanged;
+  - the name and text, or the name and tree, are the ones checked;
+  - the policy has the same rules and `allow` paths.
+
+  A file pushed by path never matches, because no check reads by path.
+- **The generation** is private to the Config.
+  - **What changes it:** every merge (in `commit`, so a push, removal, toggle, reload,
+    restore or write-back), `add_validator`, `remove_validator`, every `set()` (the fast
+    path included: one add on a member it already touches), and each call of the
+    non-const `session()`.
+  - **Its range.** Each Config starts at a process-wide count shifted 32 bits, so a report
+    never holds for another Config built at the same address.
+- **What the host is trusted with.** A tree must not change between the check and the
+  push. A validator that reads outside the Config (`check_validator` reads a Context) is
+  trusted not to have changed its verdict meanwhile. The header says both.
+- **The live-ops example** stages, keeps the report, and applies with it. The cookbook's
+  "Published overlays" says the same.
+- **Cost** (`bench/bench_layers.cpp`, shipping, release; the 9.8 KB overlay):
+
+  | Push | Checks again | Report held | No policy |
+  |---|---|---|---|
+  | By tree | 378 µs | 87–88 µs | 80 µs |
+  | By text | 481–483 µs | 123–154 µs | 143–145 µs |
+
+  With `shape::validator`, a held push is 174–197 µs by tree and 215–271 µs by text.
+  Note 0002's goal was under 1 ms of the owning thread's time to apply; a held push meets
+  it with room to spare. So, since D164, does one that checks again.
+- **Tests** (`tests/data/test_received_layers.cpp`; a validator that counts its calls shows
+  whether a push checked):
+  - **A held report is used once.** The push and removal it pays for invalidate it.
+  - **Each change invalidates:** a push, a removal, a toggle, a validator added and
+    removed, `session()`, and the fast-path `set()`.
+  - **So does a mismatch:** another text, another policy, placement below, another
+    Config's report, another tree with the same content.
+  - **A held refusal** refuses with no validator run and the epoch unchanged.

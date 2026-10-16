@@ -43,12 +43,13 @@ std::string text_of(const std::string& file) {
 }
 
 // Stage: check the overlay as it arrived, changing nothing. A game does this as soon as an
-// overlay downloads, and logs or shows the report.
-bool stage(const baker::Config& cfg, const std::string& name) {
+// overlay downloads, and logs or shows the report; it keeps the report for the push.
+bool stage(const baker::Config& cfg, const std::string& name, baker::LayerReport& staged) {
     std::printf("stage %s\n", name.c_str());
     const std::string file = "overlays/" + name + ".dta";
     auto report = cfg.check_layer_text(file, text_of(file), kLive);
     if (!report) return std::printf("  %s\n", baker::to_string(report.error()).data()), false;
+    staged = *report;
     for (const baker::Error& e : report->refusals)
         std::printf("  refused: %s\n", baker::to_string(e).data());
     if (!report->ok()) return false;
@@ -60,11 +61,14 @@ bool stage(const baker::Config& cfg, const std::string& name) {
 }
 
 // Apply: at a boundary the game chooses (a session's start, a lobby), push the text under
-// the same policy. It checks again and refuses, changing nothing, if the stack moved since.
-bool apply(baker::Config& cfg, const std::string& name) {
+// the same policy, with the staged report. If nothing changed since the stage, the push takes
+// its verdict, costing what an unchecked push costs; if the stack moved, it checks again and
+// refuses, changing nothing, if the policy does.
+bool apply(baker::Config& cfg, const std::string& name, const baker::LayerReport& staged) {
     std::printf("apply %s\n", name.c_str());
     const std::string file = "overlays/" + name + ".dta";
-    if (auto r = cfg.push_layer_text(file, text_of(file), {.policy = &kLive}); !r)
+    if (auto r = cfg.push_layer_text(file, text_of(file), {.policy = &kLive, .checked = &staged});
+        !r)
         return std::printf("  %s\n", baker::to_string(r.error()).data()), false;
     return true;
 }
@@ -87,7 +91,8 @@ int main(int argc, char** argv) {
     status(cfg);
 
     const std::string xp = "2026-10-17-double-xp";
-    if (!stage(cfg, xp) || !apply(cfg, xp)) return 1;
+    baker::LayerReport staged;
+    if (!stage(cfg, xp, staged) || !apply(cfg, xp, staged)) return 1;
     status(cfg);
     // Provenance names the overlay, and the tool that published it.
     if (auto s = cfg.source("event.xp_multiplier"))
@@ -97,7 +102,7 @@ int main(int argc, char** argv) {
     // Three that never reach players: a typo the shapes reject, an overlay made for a newer
     // base, and one that runs script.
     for (const char* bad : {"2026-10-18-drops", "2026-10-19-season-two", "2026-10-20-lucky-hour"})
-        if (stage(cfg, bad)) return 1;
+        if (stage(cfg, bad, staged)) return 1;
     status(cfg);
 
     // Rollback: the layer goes, and the values below it return. Nothing is left behind.

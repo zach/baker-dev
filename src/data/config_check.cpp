@@ -228,14 +228,61 @@ LayerReport Config::Impl::check_candidate(const Config& c, std::string_view name
         for (const Error& w : warnings)
             refusals.push_back(
                 refused("a warning refuses the layer: " + Str(w.message()), w.file(), w.line()));
-    return LayerReport{List<LayerEffectEntry>(effect), List<Error>(refusals),
-                       List<Error>(warnings)};
+    return LayerReport{List<LayerEffectEntry>(effect), List<Error>(refusals), List<Error>(warnings),
+                       CheckStamp{}};
+}
+
+namespace config_internal {
+
+namespace {
+uint64_t mix(uint64_t h, uint64_t v) noexcept {
+    return h ^ (v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2));
+}
+}  // namespace
+
+uint64_t text_subject(std::string_view name, std::string_view text) noexcept {
+    return mix(mix(1, detail::content_hash(name)), detail::content_hash(text));
+}
+
+uint64_t tree_subject(std::string_view name, const Array* tree) noexcept {
+    return mix(mix(2, detail::content_hash(name)), reinterpret_cast<uintptr_t>(tree));
+}
+
+uint64_t policy_hash(const LayerPolicy& p) noexcept {
+    uint64_t h = mix(3, (p.data_only ? 1u : 0u) | (p.scalars_only ? 2u : 0u) |
+                            (p.existing_only ? 4u : 0u) | (p.warnings_refuse ? 8u : 0u));
+    for (const Path& path : p.allow) {
+        h = mix(h, path.size());
+        for (size_t i = 0; i < path.size(); ++i)
+            h = mix(mix(h, reinterpret_cast<uintptr_t>(path[i].name.id())),
+                    path[i].is_index ? path[i].index + 1 : 0);
+    }
+    return h;
+}
+
+}  // namespace config_internal
+
+void Config::stamp(LayerReport& report, uint64_t subject,
+                   const LayerPolicy& policy) const noexcept {
+    report.stamp.config_ = this;
+    report.stamp.generation_ = impl_->generation;
+    report.stamp.subject_ = subject;
+    report.stamp.policy_ = policy_hash(policy);
+}
+
+bool Config::holds(const LayerOptions& options, uint64_t subject, bool on_top) const noexcept {
+    const LayerReport* r = options.checked;
+    return r && options.policy && on_top && r->stamp.config_ == this &&
+           r->stamp.generation_ == impl_->generation && r->stamp.subject_ == subject &&
+           r->stamp.policy_ == policy_hash(*options.policy);
 }
 
 Expected<LayerReport> Config::check_layer(std::string_view name, const Ref<Array>& root,
                                           const LayerPolicy& policy) const {
     if (!root) return Unexpected(make_error(ErrorCode::NotFound, "null layer to check"));
-    return impl_->check_candidate(*this, name, *root, {}, policy, {});
+    LayerReport report = impl_->check_candidate(*this, name, *root, {}, policy, {});
+    stamp(report, tree_subject(name, root.get()), policy);
+    return report;
 }
 
 Expected<LayerReport> Config::check_layer_text(std::string_view name, std::string_view text,
@@ -249,8 +296,10 @@ Expected<LayerReport> Config::check_layer_text(std::string_view name, std::strin
     auto tree = read_string(text, name, session);
     if (!tree) return Unexpected(std::move(tree).error());
     const auto all = session.warnings();
-    return impl_->check_candidate(*this, name, **tree, session.autorun(), policy,
-                                  all.subspan(std::min(known, all.size())));
+    LayerReport report = impl_->check_candidate(*this, name, **tree, session.autorun(), policy,
+                                                all.subspan(std::min(known, all.size())));
+    stamp(report, text_subject(name, text), policy);
+    return report;
 }
 
 }  // namespace baker
