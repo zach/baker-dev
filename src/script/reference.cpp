@@ -320,38 +320,8 @@ void write(const CheckReport& report, TextSink text) {
 
 namespace {
 
-// One JSON string, escaped: quote, backslash, and control characters; UTF-8 as it is.
-void json_string(Str& out, std::string_view s) {
-    out += '"';
-    for (const char ch : s) {
-        const auto c = static_cast<unsigned char>(ch);
-        if (c == '"' || c == '\\') {
-            out += '\\';
-            out += ch;
-        } else if (c == '\n') {
-            out += "\\n";
-        } else if (c == '\t') {
-            out += "\\t";
-        } else if (c < 0x20) {
-            static const char hex[] = "0123456789abcdef";
-            out += "\\u00";
-            out += hex[c >> 4];
-            out += hex[c & 15];
-        } else {
-            out += ch;
-        }
-    }
-    out += '"';
-}
-
-void json_names(Str& out, const List<Symbol>& names) {
-    out += '[';
-    for (size_t i = 0; i < names.size(); ++i) {
-        if (i) out += ", ";
-        json_string(out, names[i].str());
-    }
-    out += ']';
-}
+using detail::json_names;
+using detail::json_string;
 
 void json_sites(Str& out, Vec<CheckReport::Site> sites) {
     std::sort(sites.begin(), sites.end(), [](const auto& a, const auto& b) {
@@ -459,11 +429,11 @@ void write_json(const CheckReport& report, TextSink text, const LoadSession* pac
         out += ", \"file\": ";
         json_string(out, p.file.str());
         out += ", \"requires\": ";
-        json_names(out, p.requires_packs);
+        json_names(out, p.requires_packs.items());
         out += ", \"owners\": ";
-        json_names(out, p.owners);
+        json_names(out, p.owners.items());
         out += ", \"for\": ";
-        json_names(out, p.audience);
+        json_names(out, p.audience.items());
         out += ", \"stage\": ";
         json_string(out, p.stage.str());
         out += '}';
@@ -617,7 +587,222 @@ Str reference_text(const Context& ctx, const LoadSession* packs) {
     if (packs) out += harness_register(*packs);
     return out;
 }
+
+// --- The reference as JSON (baker.reference/1, docs/reference-json.md) ---
+
+const char* param_kind_name(detail::ParamKind k) {
+    switch (k) {
+        case detail::ParamKind::Value: return "value";
+        case detail::ParamKind::Raw: return "raw";
+        case detail::ParamKind::Optional: return "optional";
+        case detail::ParamKind::Rest: return "rest";
+        case detail::ParamKind::Implicit: return "implicit";
+    }
+    return "value";
+}
+
+const char* status_name(Status s) {
+    switch (s) {
+        case Status::Normal: return "normal";
+        case Status::Stub: return "stub";
+        case Status::Provisional: return "provisional";
+        case Status::Deprecated: return "deprecated";
+    }
+    return "normal";
+}
+
+void json_overloads(Str& out, const Vec<detail::Overload>& overloads) {
+    out += "\"overloads\": [";
+    for (size_t i = 0; i < overloads.size(); ++i) {
+        const detail::Overload& o = overloads[i];
+        out += i ? ", {\"params\": [" : "{\"params\": [";
+        for (size_t j = 0; j < o.params.size(); ++j) {
+            const detail::ParamInfo& p = o.params[j];
+            out += j ? ", {\"type\": " : "{\"type\": ";
+            json_string(out, p.type);
+            out += ", \"kind\": ";
+            json_string(out, param_kind_name(p.kind));
+            out += Str(", \"raw\": ") + (p.raw ? "true" : "false") + "}";
+        }
+        out += "], \"result\": ";
+        json_string(out, o.result);
+        out += ", \"min_args\": " + detail::decimal(o.min_args) + ", \"max_args\": ";
+        out += o.max_args == UINT32_MAX ? Str("null") : detail::decimal(o.max_args);
+        out += '}';
+    }
+    out += ']';
+}
+
+void json_status(Str& out, Status status, Symbol replacement, std::string_view doc) {
+    out += "\"status\": ";
+    json_string(out, status_name(status));
+    out += ", \"replacement\": ";
+    json_string(out, replacement.str());
+    out += ", \"doc\": ";
+    json_string(out, doc);
+}
+
+Str reference_json(const Context& ctx, const LoadSession* packs) {
+    const Context::Impl& impl = ctx.impl();
+    Str out = "{\n  \"schema\": \"baker.reference/1\",\n  \"functions\": [";
+    Vec<const Function*> fs;
+    for (const auto& f : impl.functions)
+        if (!f->overloads.empty()) fs.push_back(f.get());
+    std::sort(fs.begin(), fs.end(),
+              [](const Function* a, const Function* b) { return a->name.str() < b->name.str(); });
+    for (size_t i = 0; i < fs.size(); ++i) {
+        const Function& f = *fs[i];
+        out += i ? ",\n    {\"name\": " : "\n    {\"name\": ";
+        json_string(out, f.name.str());
+        out += ", \"tier\": ";
+        json_string(out, f.tier == Tier::Native ? "native" : "script");
+        out += ", ";
+        json_status(out, f.status, f.replacement, f.doc);
+        out += ", \"file\": ";
+        json_string(out, f.file.str());
+        out += ", \"line\": " + detail::decimal(f.line) + ", ";
+        json_overloads(out, f.overloads);
+        out += '}';
+    }
+    out += fs.empty() ? "],\n" : "\n  ],\n";
+
+    // Types: native ones with their methods, properties, and script handlers; then the
+    // classes only script defined.
+    Vec<const detail::TypeRecord*> types = impl.types;
+    std::sort(types.begin(), types.end(),
+              [](const auto* a, const auto* b) { return a->name < b->name; });
+    auto handlers = [&](Symbol cls) {
+        out += "\"handlers\": [";
+        if (const ScriptClass* c = impl.script_class(cls))
+            for (size_t i = 0; i < c->handlers.size(); ++i) {
+                if (i) out += ", ";
+                json_string(out, c->handlers[i].name.str());
+            }
+        out += ']';
+    };
+    out += "  \"types\": [";
+    for (size_t i = 0; i < types.size(); ++i) {
+        const detail::TypeRecord& t = *types[i];
+        out += i ? ",\n    {\"name\": " : "\n    {\"name\": ";
+        json_string(out, t.name);
+        out += ", \"bases\": [";
+        for (size_t b = 0; b < t.bases.size(); ++b) {
+            if (b) out += ", ";
+            json_string(out, t.bases[b]->name);
+        }
+        out += "], \"methods\": [";
+        Vec<const detail::MethodEntry*> ms;
+        for (const detail::MethodEntry& m : t.methods) ms.push_back(&m);
+        std::sort(ms.begin(), ms.end(),
+                  [](const auto* a, const auto* b) { return a->name.str() < b->name.str(); });
+        for (size_t m = 0; m < ms.size(); ++m) {
+            out += m ? ", {\"name\": " : "{\"name\": ";
+            json_string(out, ms[m]->name.str());
+            out += ", ";
+            json_status(out, ms[m]->status, ms[m]->replacement, ms[m]->doc);
+            out += ", \"message\": ";
+            json_string(out, ms[m]->message);
+            out += ", ";
+            json_overloads(out, ms[m]->overloads);
+            out += '}';
+        }
+        out += "], \"properties\": [";
+        for (size_t p = 0; p < t.properties.size(); ++p) {
+            out += p ? ", {\"name\": " : "{\"name\": ";
+            json_string(out, t.properties[p].name.str());
+            out += ", \"type\": ";
+            json_string(out, t.properties[p].type);
+            out += ", \"doc\": ";
+            json_string(out, t.properties[p].doc);
+            out += '}';
+        }
+        out += "], ";
+        handlers(t.symbol);
+        out += '}';
+    }
+    out += types.empty() ? "],\n" : "\n  ],\n";
+
+    Vec<const ScriptClass*> scripts;
+    for (const auto& c : impl.classes)
+        if (!impl.type_named(c->name)) scripts.push_back(c.get());
+    std::sort(scripts.begin(), scripts.end(),
+              [](const auto* a, const auto* b) { return a->name.str() < b->name.str(); });
+    out += "  \"script_classes\": [";
+    for (size_t i = 0; i < scripts.size(); ++i) {
+        out += i ? ",\n    {\"name\": " : "\n    {\"name\": ";
+        json_string(out, scripts[i]->name.str());
+        out += ", ";
+        handlers(scripts[i]->name);
+        out += '}';
+    }
+    out += scripts.empty() ? "],\n" : "\n  ],\n";
+
+    Vec<Global> gs = impl.globals;
+    std::sort(gs.begin(), gs.end(),
+              [](const Global& a, const Global& b) { return a.name.str() < b.name.str(); });
+    out += "  \"globals\": [";
+    for (size_t i = 0; i < gs.size(); ++i) {
+        out += i ? ",\n    {\"name\": " : "\n    {\"name\": ";
+        json_string(out, gs[i].name.str());
+        out += ", \"doc\": ";
+        json_string(out, gs[i].doc);
+        out += '}';
+    }
+    out += gs.empty() ? "],\n" : "\n  ],\n";
+
+    // Packs and origins, as check's JSON writes them (docs/check-json.md).
+    Vec<const Pack*> ps;
+    Vec<const Origin*> os;
+    if (packs) {
+        for (const Pack& p : packs->packs()) ps.push_back(&p);
+        for (const Origin& o : packs->origins()) os.push_back(&o);
+    }
+    std::sort(ps.begin(), ps.end(), [](const Pack* a, const Pack* b) {
+        if (const int c = a->name.str().compare(b->name.str()); c != 0) return c < 0;
+        return a->file.str() < b->file.str();
+    });
+    std::sort(os.begin(), os.end(), [](const Origin* a, const Origin* b) {
+        if (const int c = a->tool.str().compare(b->tool.str()); c != 0) return c < 0;
+        return a->file.str() < b->file.str();
+    });
+    out += "  \"packs\": [";
+    for (size_t i = 0; i < ps.size(); ++i) {
+        const Pack& p = *ps[i];
+        out += i ? ",\n    {\"name\": " : "\n    {\"name\": ";
+        json_string(out, p.name.str());
+        out += ", \"level\": ";
+        json_string(out, p.level.str());
+        out += ", \"file\": ";
+        json_string(out, p.file.str());
+        out += ", \"requires\": ";
+        json_names(out, p.requires_packs.items());
+        out += ", \"owners\": ";
+        json_names(out, p.owners.items());
+        out += ", \"for\": ";
+        json_names(out, p.audience.items());
+        out += ", \"stage\": ";
+        json_string(out, p.stage.str());
+        out += '}';
+    }
+    out += ps.empty() ? "],\n" : "\n  ],\n";
+    out += "  \"origins\": [";
+    for (size_t i = 0; i < os.size(); ++i) {
+        out += i ? ",\n    {\"tool\": " : "\n    {\"tool\": ";
+        json_string(out, os[i]->tool.str());
+        out += ", \"source\": ";
+        json_string(out, os[i]->source.str());
+        out += ", \"file\": ";
+        json_string(out, os[i]->file.str());
+        out += '}';
+    }
+    out += os.empty() ? "]\n}\n" : "\n  ]\n}\n";
+    return out;
+}
 }  // namespace
+
+void write_reference_json(const Context& ctx, TextSink out, const LoadSession* packs) {
+    out(reference_json(ctx, packs));
+}
 
 void reference(const Context& ctx, TextSink out, const LoadSession* packs) {
     out(reference_text(ctx, packs));

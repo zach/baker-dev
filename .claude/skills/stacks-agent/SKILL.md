@@ -25,13 +25,13 @@ Then, with `G=build-stacks/bin/stacks_<game>`:
 
 | Command | What it tells you |
 |---|---|
-| `$G reference` | Every script function, global, shape, and pack: the words you may use. Read it first. |
+| `$G reference` | Every script function, global, shape, and pack: the words you may use. Read it first. `--json` gives the same, plus every tweak, as JSON. |
 | `$G check` | Errors and calls to undefined functions in data, scenarios, and metrics, as JSON. Exit 1 means fix before anything else. |
 | `$G sim [--scenario NAME] [--seeds 1-20] [--out DIR]` | Runs scenarios headless and judges them by the objectives. Exit 0: all passed; 1: an objective failed; 2: something could not run. |
 | `$G eval "{cmd}"...` | Commands on the data and the reset game, headless: a frame table, a search, a report. |
 | `$G diff` | Exactly what `agent.dta` changes: path, old value, new value. |
 | `$G promote` | What promotion would write into `default.dta`. **Never pass `--write`**: promotion is a person's decision. |
-| `python3 -I stacks/tools/console.py "{cmd}"` | A command in a game a person is running (127.0.0.1:4555). Use it only when asked to. |
+| `python3 -I stacks/tools/console.py "{cmd}"` | A command in a game a person is running (127.0.0.1:4555). Use it only when asked to. `{config.explain path}` says which layer sets a value; `--json` prints the raw replies. |
 
 `sim` and `check` see `default.dta` and `agent.dta`, never `local.dta`, so results do not
 depend on whose machine runs them. Nothing in a run reads the clock: the same data, scenario,

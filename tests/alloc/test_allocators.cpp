@@ -116,6 +116,8 @@ TEST_CASE("a Config allocates through its allocator, and nothing through operato
             ok = config.push_layer("base", "base.dta").has_value();
             ok = ok && config.push_layer("over", "over.dta").has_value();
             ok = ok && config.get<int>(baker::Path("window/width")).value_or(0) == 800;
+            ok = ok && config.explain(baker::Path("window/width")).has_value();
+            ok = ok && config.explain(baker::Path("speed")).has_value();  // the code default
             if constexpr (!baker::kShipping) {  // live edits are refused in shipping
                 ok = ok && config.set("window/height", baker::Node(int64_t{600})).has_value();
                 const baker::ConfigSnapshot snap = config.snapshot();
@@ -159,6 +161,23 @@ TEST_CASE("a Context allocates through its allocator, and nothing through operat
             ok = ok && ctx.eval("{b1 bounce 3}").value_or(baker::Node()).try_int() == 4;
             ok = ok && ctx.eval("{bob step 1.5} {new Mover m2 (x 2)} {delete m2}").has_value();
             ok = ok && !ctx.eval("{add 1}").has_value();  // an error record
+        }
+        {
+            // The Config's tools and the reply form (dev/tool-surface-plan.md §3, §4).
+            baker::Config config({.tweaks = nullptr}, alloc);
+            config.session().set_reader(&read_text);
+            ok = ok && config.push_layer("base", "base.dta").has_value();
+            baker::Context ctx(alloc);
+            ok = ok && baker::bind_config_tools(ctx, config).has_value();
+            ok = ok && ctx.eval("{config.explain window.width}").has_value();
+            if constexpr (!baker::kShipping)
+                ok = ok && ctx.eval("{config.snapshot a} {config.restore a}").has_value();
+            size_t reply_bytes = 0;  // a sink that keeps nothing: the reply's own work only
+            baker::eval_request(
+                ctx, "(1 {config.source window.width})",
+                {[](void* n, std::string_view s) { *static_cast<size_t*>(n) += s.size(); },
+                 &reply_bytes});
+            ok = ok && reply_bytes > 0;
         }
         unowned = g_default_allocations.load() - unowned_before;
         global = scope.count();

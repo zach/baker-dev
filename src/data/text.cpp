@@ -313,4 +313,36 @@ Str dta_of(const Array& root) {
     return out;
 }
 
+void json_string(Str& out, std::string_view s) {
+    out += '"';
+    for (const char ch : s) {
+        const auto c = static_cast<unsigned char>(ch);
+        if (c == '"' || c == '\\') {
+            out += '\\';
+            out += ch;
+        } else if (c == '\n') {
+            out += "\\n";
+        } else if (c == '\t') {
+            out += "\\t";
+        } else if (c < 0x20) {
+            static const char hex[] = "0123456789abcdef";
+            out += "\\u00";
+            out += hex[c >> 4];
+            out += hex[c & 15];
+        } else {
+            out += ch;
+        }
+    }
+    out += '"';
+}
+
+void json_names(Str& out, std::span<const Symbol> names) {
+    out += '[';
+    for (size_t i = 0; i < names.size(); ++i) {
+        if (i) out += ", ";
+        json_string(out, names[i].str());
+    }
+    out += ']';
+}
+
 }  // namespace baker::detail

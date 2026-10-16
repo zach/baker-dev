@@ -1,5 +1,7 @@
 // A developer console over TCP: each line a client sends is evaluated, and the result, or
-// the error with its script stack, is sent back, followed by an empty line. poll() is called once a
+// the error with its script stack, is sent back, followed by an empty line. A line in
+// request form, (ID {command}), is answered with one line of JSON instead (baker.reply/1,
+// docs/reply-json.md), for tools. poll() is called once a
 // frame, on the thread that owns the Context, so commands run between frames like any other script.
 #pragma once
 

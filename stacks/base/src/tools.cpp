@@ -29,6 +29,7 @@ struct Options {
     uint64_t seed_first = 1, seed_last = 1;
     double step_hz = 60;
     bool write = false;
+    bool json = false;
 };
 
 [[noreturn]] void usage(const char* problem) {
@@ -39,7 +40,8 @@ struct Options {
         "  sim [--scenario NAME]... [--seeds A-B] [--out DIR] [--step-hz N]\n"
         "  check                          errors, demand, repeats as JSON; exit 1 on an error,\n"
         "                                 a shape error, or a call to an undefined function\n"
-        "  reference                      the game's script vocabulary, as Markdown\n"
+        "  reference [--json]             the game's script vocabulary, as Markdown; --json:\n"
+        "                                 {reference, tweaks, shapes} as Baker's JSON\n"
         "  diff                           what agent.dta changes\n"
         "  promote [--to LAYER] [--write] agent.dta into LAYER (default); --write writes\n"
         "  eval [--seed N] \"{command}\"...   each command's result, one a line, on the\n"
@@ -62,7 +64,9 @@ Options parse(int argc, char** argv, const std::string& data) {
     for (int i = 2; i < argc; ++i) {
         const char* a = argv[i];
         const bool more = i + 1 < argc;
-        if (!std::strcmp(a, "--data") && more) {
+        if (!std::strcmp(a, "--json")) {
+            o.json = true;
+        } else if (!std::strcmp(a, "--data") && more) {
             o.data = argv[++i];
         } else if (!std::strcmp(a, "--sim") && more) {
             o.sim = argv[++i];
@@ -286,7 +290,25 @@ int eval(Game& game, const Options& o) {
 int reference(Game& game, const Options& o) {
     Loaded l;
     if (!load(game, l, o)) return kError;
-    std::printf("%s", baker::reference(l.ctx, &l.live.config().read_session()).c_str());
+    const baker::Config& cfg = l.live.config();
+    if (!o.json) {
+        std::printf("%s", baker::reference(l.ctx, &cfg.read_session()).c_str());
+        return 0;
+    }
+    // The three documents in one object: the vocabulary, the tweaks, and the shapes the
+    // enabled layers declare (Baker's docs/reference-json.md).
+    std::string ref, tweaks, shapes;
+    baker::write_reference_json(l.ctx, baker::string_out(ref), &cfg.read_session());
+    baker::write_json(baker::TweakRegistry::global(), baker::string_out(tweaks));
+    baker::shape::Set set;
+    baker::shape::Report report;
+    for (const baker::Symbol layer : cfg.layers())
+        if (cfg.layer_enabled(layer.str()))
+            if (const baker::Ref<baker::Array> root = cfg.layer_root(layer.str()))
+                set.add(*root, report, &cfg.read_session());
+    baker::shape::write_json(set, baker::string_out(shapes));
+    std::printf("{\"reference\": %s, \"tweaks\": %s, \"shapes\": %s}\n", ref.c_str(),
+                tweaks.c_str(), shapes.c_str());
     return 0;
 }
 

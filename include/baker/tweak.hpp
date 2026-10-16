@@ -36,6 +36,7 @@
 #include <baker/path.hpp>
 
 #include <baker/callback.hpp>
+#include <baker/text.hpp>
 
 #include <atomic>
 #include <span>
@@ -76,6 +77,8 @@ public:
     // True while the config supplies the value; false while the default stands.
     [[nodiscard]] bool bound() const noexcept { return bound_ != nullptr; }
     [[nodiscard]] TweakRegistry& registry() const noexcept { return *registry_; }
+    // The value's type, as errors and the reference name it: "float32", "int", "vec2"...
+    [[nodiscard]] std::string_view type_name() const noexcept { return info().name; }
 
     // Metadata, the data file's winning over the code's.
     [[nodiscard]] TweakRange range() const;
@@ -88,6 +91,8 @@ public:
     // Appends the current value as data to `out`, for a generic tuning panel (nothing if T
     // cannot be written).
     virtual void values(ValueList& out) const = 0;
+    // Appends the code's default as data, as values() does the current value.
+    virtual void default_values(ValueList& out) const = 0;
     // Sets the value from data, as a panel would; see Tweak<T>::set.
     [[nodiscard]] Expected<void> set_values(std::span<const Node> values);
 
@@ -171,6 +176,11 @@ private:
     Config* config_ = nullptr;
 };
 
+// Every tweak in `tweaks` as JSON (schema baker.tweaks/1, docs/reference-json.md), sorted by
+// path: its type, default and current value, metadata (the data's winning over the code's),
+// and, while a config supplies it, where the value came from. For tools and agents.
+void write_json(const TweakRegistry& tweaks, TextSink out);
+
 namespace detail {
 template <class T>
 [[nodiscard]] constexpr bool atomic_tweak() noexcept {
@@ -222,6 +232,12 @@ public:
                           Convert<T>::to(std::declval<const T&>(), std::declval<ValueList&>());
                       })
             Convert<T>::to(value(), out);
+    }
+    void default_values(ValueList& out) const override {
+        if constexpr (requires {
+                          Convert<T>::to(std::declval<const T&>(), std::declval<ValueList&>());
+                      })
+            Convert<T>::to(default_, out);
     }
 
 private:

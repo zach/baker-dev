@@ -3,9 +3,9 @@
 // Test helpers for files on disk: a scratch directory and a line diff.
 
 #include <atomic>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <random>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -16,9 +16,12 @@ namespace baker::test {
 class TempDir {
 public:
     TempDir() {
+        // The process's own tag: test binaries run in parallel under ctest -j, and an
+        // unseeded rand() gave every process the same names, so one could delete another's.
+        static const unsigned process = std::random_device{}();
         static std::atomic<int> counter{0};
         dir_ = std::filesystem::temp_directory_path() /
-               ("baker_test_" + std::to_string(counter++) + "_" + std::to_string(std::rand()));
+               ("baker_test_" + std::to_string(process) + "_" + std::to_string(counter++));
         std::filesystem::remove_all(dir_);
         std::filesystem::create_directories(dir_);
     }

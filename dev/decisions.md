@@ -4647,3 +4647,202 @@ side.*
   skills, the stacks' docs and the decision records themselves. The publisher's citation
   patterns now read `dev/`. The release check refuses a published line that names `dev/`,
   except a path such as `/dev/null`.
+
+## D153. Integrations to pursue: shared Baker features first, then the agent bridge
+
+*The owner asked for a competitive analysis of Baker against the data, tuning and scripting
+systems of larger engines and services, a choice of the most valuable integrations, and
+critiqued plans for them. The analysis is `dev/background/integration-landscape.md`; the
+plans are `dev/integration-plans.md`.*
+
+- **Finding.** No engine, service or library surveyed ships one-line write-back of a value
+  tuned live, per-value provenance, or one stack for local and live layers. The pairings
+  that would show this best need the same few Baker features, so most of the work is
+  Baker's own and the integrations stay thin.
+- **Chosen integrations:** an agent bridge (MCP), editor tooling (tree-sitter and an LSP
+  driven by `check`), Godot through GDExtension, and published live-ops overlays. Unreal,
+  a spreadsheet round-trip and a Tracy adapter were considered and deferred.
+- **The owner's choices:**
+  - Start with the shared features E1 (`explain`), E2 (a JSON reply form and the Config's
+    tools as script functions) and E3 (a machine-readable reference), then plan A, the
+    agent bridge, with its evaluation on the stacks.
+  - Each integration lives in its own repository from `tools/integration-template/`,
+    including the MIT-only ones (`INTEGRATIONS.md`, rule 2).
+  - E2's reply form and `bind_config_tools` ship in the published library.
+
+## D154. `Config::explain`: a path's whole layer chain
+
+*E1 of the tool surface (`dev/tool-surface-plan.md` §1), the first step D153 chose. Tools,
+editors and agents needed every contributor to one value; `source()` names the winner
+only, and `layer_effect` works one layer at a time.*
+
+- **API.** `Config::explain(path)` returns `List<ExplainEntry>`, bottom to top. Each entry
+  has `layer`, `value` (packed as `layer_effect` packs it), `source` and `standing`:
+  - `Wins`: the value `get` returns;
+  - `Shadowed`: overridden or removed from above;
+  - `Removes`: `(key #remove)` at the path or an ancestor;
+  - `Disabled`: a disabled layer, or disabled scratch, that has the path.
+- **Rules.**
+  - The walk goes top down: scratch, the layers, then the code default. The first enabled
+    contributor with a value wins, or with a marker removes. Every enabled one below it
+    is shadowed.
+  - A layer's value is what `supplier()` already decides, so the winner is the layer
+    `source()` names. A test checks this, and the value against `get`, for every leaf of a
+    three-layer stack with a removal.
+  - An ancestor's marker is found by resolving the path's prefixes in each layer. The
+    marker's own line is its source.
+  - A tweak at the path adds a first entry, layer `code`, holding its default. It wins only
+    when nothing above sets the path. This needed `TweakBase::default_values(ValueList&)`,
+    a second virtual beside `values`; the tweak read is unchanged.
+  - A path that names arrays of arrays is refused ("holds arrays, not values: explain a
+    leaf"). A path nothing sets fails as `get` fails.
+  - The marker symbol prints quoted when it stands alone, `'#remove'`, as D143 has it.
+- **Cost.** Tool path. It allocates its result, and the work is one resolve per prefix per
+  layer. It is available in shipping builds, as `source()` is.
+- **Tests:**
+  - `tests/data/test_explain.cpp`: overrides, an index path, removals of a key and of an
+    ancestor, a key set again above a removal, a tweak's default alone and shadowed,
+    refusals, a disabled layer and scratch, and the agreement with `source()` and `get`.
+  - `baker_alloc_tests`: a Config answering `explain` through its own allocator.
+- **Core:** 11,989 → 12,085 lines.
+
+## D155. `eval_request` and the reply form `baker.reply/1`
+
+*E2a of the tool surface (`dev/tool-surface-plan.md` §3). Every tool that drove the
+console parsed `=> value` text and prose errors. The owner chose JSON for request-form
+lines with the human reply kept for bare ones, and keyed arrays projected to objects.*
+
+- **API.** `eval_request(ctx, line, sink)` in `baker::script` writes one JSON line and never
+  fails.
+  - A request is `(ID {command})`, with ID an int, symbol or string, echoed back.
+  - Any other line is evaluated whole, as `eval(text)` does, with a `null` id.
+  - A line that does not parse gets an error reply.
+  - The tree is built from the Context's allocator, as `eval(text)` builds it.
+- **The reply** (`docs/reply-json.md`):
+  - On success: `text`, the printed result and the authority, and `value`, a JSON
+    projection.
+  - On failure: `error` with `code`, `file`, `line`, `path`, `message`, and the script
+    `stack`.
+  - Baker reads no JSON. Requests are Baker text.
+- **The projection.**
+  - A keyed array, whose children after an optional leading symbol are all arrays headed by
+    distinct symbols, is an object. Its leading symbol is dropped, and keyed children nest.
+  - Floats use the printer's shortest form, which is valid JSON; a non-finite float is
+    `null`.
+  - The first version projected a keyed child's rest as an array, so
+    `(cfg (box (width 2)))` read as `{"box":[["width",2]]}`. The tests caught it: a child
+    that is itself keyed is now an object.
+- **The console.** `examples/remote-console` answers a line beginning with `(` through
+  `eval_request`, and any other line as before. Replies still end with an empty line, so
+  clients frame both alike. The stacks build this console, so their games answer requests
+  too.
+  - `stacks/tools/console.py` sends `(N {command})`, parses the JSON, prints `=> text` or
+    the error with its stack, and keeps its exit codes (1 for an error reply, 2 when nothing
+    listens).
+  - `--json` prints the raw replies.
+- **Not fuzzed.** The fuzz harness stays data-only. The parse is fuzzed already, and
+  fuzzing evaluation would run arbitrary script.
+- **Tests:**
+  - `tests/script/test_request.cpp`: ids of each kind, bare lines, every projection rule
+    (nesting, null rests, repeated tags, ordered lists), an error two script frames deep,
+    a parse error, and escaping onto one line.
+  - The remote-console example's CTest checks a JSON reply. A deliberately wrong id was
+    seen to fail it.
+- **Core:** 12,085 → 12,229 lines, the JSON move included.
+- **Also in this step:** the JSON writing helpers moved from `reference.cpp` to `data/text`,
+  shared by all three libraries. `check`'s bytes are unchanged.
+
+## D156. `bind_config_tools`: the Config's tooling as script functions
+
+*E2b of the tool surface (`dev/tool-surface-plan.md` §4). An agent or an editor talking
+to a running game needs the Config's answers (provenance, layers, live edits), not only
+`eval`. The owner chose read-only tools in shipping builds.*
+
+- **API.** `bind_config_tools(ctx, cfg, {.allow_write})` in `baker::script` returns
+  `Expected<void>`. Every function is documented, so `reference` lists it and `check`
+  checks calls to it. Results are data, which `eval_request` projects to JSON.
+  - **Every build:** `config.get`, `config.source`, `config.explain`, `config.layers`,
+    `config.effect`, `config.diff`.
+  - **Development builds:** `config.set`, `config.toggle`, `config.reload` (trigger
+    `console`), `config.unsaved`, `config.journal [since_ns]`, `config.loop`, and
+    `config.snapshot` and `config.restore` by name.
+  - **Only with `allow_write`:** `config.write_back` and `config.promote`, which return the
+    lines written and any refusals.
+- **Arguments.** Paths and layer names may be written as symbols or strings
+  (`box.width`, `"phase.2"`), through a file-local `Convert<Name>`. Binding them as
+  `string_view` refused symbols.
+- **Values** are packed as `explain` packs them: one value bare, several as an array.
+  - The journal's `before` and `after` first came out as one-element lists; they are now
+    packed the same way and left out when there is no value.
+  - `config.get` is the entry `explain` says wins, so it agrees with `get` (D154's test).
+    The code default does not count: an unset path is a located error.
+- **State.** Named snapshots live in one block (`Rc<Tools>`), allocated from the
+  Context's allocator and shared by the bound functions. It is freed with the last of
+  them. `baker_alloc_tests` binds the tools, evaluates `explain` and a snapshot, answers a
+  request, and checks that nothing reaches `operator new` and everything is freed.
+- **The stacks** bind the tools in `Live::open`, without `allow_write`, so the console and
+  `stacks/tools/console.py` can ask a running game `{config.explain p}`. Writing stays with
+  the person at the panel.
+- **Core:** 12,229 → 12,556 lines.
+- **Shipped as one step with D155** (E2). The matrix for E2a alone ran while E2b was
+  being written, so its results counted for neither, and the two went in together.
+- **A test race fixed.** `TempDir` named directories with an unseeded `rand()`, so every
+  test process chose the same names. Under `ctest -j`, the first script test to use one
+  could delete a data test's files: the matrix's release run failed once and passed on a
+  rerun. Names now carry a per-process tag from `std::random_device`.
+- **Tests.** `tests/script/test_config_tools.cpp`:
+  - every reading tool, against a two-layer Config on disk;
+  - the JSON reply for `explain`;
+  - `check` finding a wrong-arity call, and the reference listing the tools;
+  - the live tools: set, unsaved, the journal, toggles, snapshot and restore, reload, loop;
+  - the writers absent by default, and writing a one-line change with `allow_write`;
+  - a shipping build's reading tools only.
+
+## D157. The vocabulary as JSON: `baker.reference/1`, `baker.tweaks/1`, `baker.shapes/1`
+
+*E3 of the tool surface (`dev/tool-surface-plan.md` §6), and the last step of the three
+D153 started with. Agents, editors and engine docks need the functions, tweaks and shapes
+as data. The reference was Markdown only.*
+
+- **Three documents, three libraries** (`docs/reference-json.md`). Each is sorted, so a
+  program gives the same bytes every run, and each is versioned like `baker.check/1`.
+  - `write_reference_json(ctx, sink, packs)` in `baker::script` lists:
+    - functions: tier, status, replacement, doc, a script function's `file` and `line`
+      (already recorded on `Function`), and overloads with each parameter's type, kind
+      and rawness, the result type, `min_args`, and `max_args` (`null` for a rest
+      parameter);
+    - types: bases, methods, properties, and script handlers;
+    - script-only classes;
+    - globals;
+    - packs and origins, as `check` writes them.
+  - `write_json(registry, sink)` in `baker::data`, next to the tweaks:
+    - path, type, default, current value, bound;
+    - range, step, desc, kind, group, dev_only;
+    - source while bound.
+  - `shape::write_json(set, sink)` in `baker::shape`: each shape's `at`, keyed, place, and
+    fields.
+- **A deviation from the note.** The note had `Tweak<T>` record a type name at
+  construction. `TweakBase` already knows it through its `ConvertInfo`, so the new public
+  `type_name()` reads that, with no new storage. The names are Baker's own (`float32`,
+  `int32`), as errors print them.
+- **Not in it.** JSON Schema output is left to a tool, which can derive it from
+  `baker.shapes/1`. Macro definition sites need a load-path change and wait for plan B's
+  go-to-definition.
+- **The stacks.** `<game> reference --json` prints the three documents in one object.
+  Duel's lists 57 functions, the `config.*` tools among them, 8 tweaks and 4 shapes. The
+  stacks' agent docs and skill mention it.
+- **Checked.**
+  - `tests/script/test_reference_json.cpp`:
+    - byte-stable output;
+    - a native overload with an optional parameter;
+    - a script function's file and line;
+    - a rest parameter;
+    - a type's method, property and handler;
+    - a script-only class;
+    - a global;
+    - packs and origins.
+  - `tests/data/test_tweaks_json.cpp`: the whole document, compared exactly, with a bound
+    and an unbound tweak.
+  - `tests/shape/test_shape.cpp`: a keyed shape's fields.
+  - Python parsed all three documents as JSON.
+- **Core:** 12,556 → 12,829 lines. `baker::shape`: 466 → 513 of its 600.

@@ -15,7 +15,8 @@ stacks_cube                                   play (the base's app)
 stacks_cube sim [--scenario NAME]... [--seeds A-B] [--out DIR]
 stacks_cube check                             baker::check over data, scenarios, metrics; JSON;
                                               exit 1 on an error or an undefined, unstubbed call
-stacks_cube reference                         the vocabulary: functions, shapes, packs (Markdown)
+stacks_cube reference [--json]                the vocabulary: functions, shapes, packs (Markdown);
+                                              --json: Baker's reference, tweaks and shapes JSON
 stacks_cube diff                              what agent.dta changes, value by value
 stacks_cube promote --to default [--write]    agent.dta into default.dta; --write is a person's
 stacks_cube eval [--seed N] "{command}"...     commands on the data and the reset game: a frame
@@ -24,7 +25,9 @@ stacks_cube eval [--seed N] "{command}"...     commands on the data and the rese
 
 The design called this a tool server. A command-line tool is the same surface with less
 code: an agent with a shell calls it, CI calls it, a person calls it. The console of a
-running game is the existing remote console; `tools/console.py` sends it a line.
+running game is the existing remote console; `tools/console.py` sends it a line, and reads
+the JSON reply. The game binds Baker's Config tools there (`{config.explain p}`,
+`{config.set p v}`, `{config.journal}`, ...), without the ones that write files.
 
 Commands need the game's own script functions (check reports a call to one that does not
 exist; the reference lists them), so they live in the game's binary, not a separate tool.
