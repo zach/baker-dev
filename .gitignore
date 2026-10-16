@@ -10,3 +10,4 @@ compile_commands.json
 /examples/harness-imgui/data/local/
 /build-stacks/
 __pycache__/
+/stacks/*/runs/

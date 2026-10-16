@@ -15,6 +15,17 @@ std::ofstream("check.json") << baker::to_json(report, &cfg.read_session());
 `tests/script/check_expected.json` is a complete example, checked byte for byte by the test
 suite.
 
+**A gate.** A host that gates edits on `check` (an agent's proposal, a pre-commit hook, CI)
+reads `passed` and shows the lists:
+
+- `check(cfg, ctx, report, {.unresolved_fails = true}, extra)` checks a Config as it loads.
+  That covers the merged tree and the `#autorun` commands of its layers, which are not in
+  the tree, with any extra trees beside them. A call to a function nothing defines then
+  fails the check, unless the function is declared a stub.
+- The host adds what it found to `report.load`, `report.shape_errors` and
+  `report.shape_warnings` before writing the JSON: what its load reported, and the shape
+  check's errors and warnings.
+
 ## Stability
 
 - **The same data gives the same bytes.** Every list is sorted by its data alone (below);
@@ -25,7 +36,7 @@ suite.
   end. Strings escape `"`, `\`, and control characters (`\n`, `\t`, `\u00XX`); other
   characters are written as they are. Numbers are integers.
 - **Versioning.** `schema` is `baker.check/MAJOR` while the minor version is 0, then
-  `baker.check/MAJOR.MINOR`. A field is only ever added with a new minor version, which old
+  `baker.check/MAJOR.MINOR` (now `baker.check/1.1`). A field is only ever added with a new minor version, which old
   readers can ignore; a field is removed or renamed, or its meaning changed, only with a new
   major version.
 
@@ -33,15 +44,19 @@ suite.
 
 | Field | Type | Contents |
 |---|---|---|
-| `schema` | string | `"baker.check/1"` |
+| `schema` | string | `"baker.check/1.1"` |
+| `passed` | boolean | `CheckReport::ok()`: no errors, no load problems, no shape errors, and, when unresolved calls fail, no unresolved demand (1.1) |
 | `errors` | list of problems | calls with the wrong arguments for every overload |
 | `warnings` | list of problems | the one-way rule: a harder pack calling a softer one's function (D83) |
 | `demand` | list of demands | functions and methods called but not defined, or stubs |
 | `repeats` | list of repeats | subtrees repeated across the trees of one `check` call (D94) |
 | `findings` | list of problems | informational: packs that declare one owner (D94) |
+| `load` | list of problems | what loading the data reported: a file that did not parse, an `#autorun` command that failed. Filled by the host (1.1) |
+| `shape_errors` | list of problems | the data's shape check: values out of range or of the wrong type. Filled by the host (1.1) |
+| `shape_warnings` | list of problems | fields no shape declares; never a failure. Filled by the host (1.1) |
 | `packs` | list of packs | the session's packs and their harness metadata; empty without a session |
 
-**A problem** (errors, warnings, findings), sorted by `file`, then `line`, then `message`:
+**A problem** (in every list of problems), sorted by `file`, then `line`, then `message`:
 
 | Field | Type | Contents |
 |---|---|---|

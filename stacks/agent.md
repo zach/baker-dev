@@ -12,15 +12,22 @@ game plays as before:
 
 ```
 stacks_cube                                   play (the base's app)
-stacks_cube sim [--scenario NAME]... [--seeds A-B] [--out DIR]
-stacks_cube check                             baker::check over data, scenarios, metrics; JSON;
-                                              exit 1 on an error or an undefined, unstubbed call
+stacks_cube sim [--scenario NAME]... [--seeds A-B] [--out DIR] [--json]
+                                              --out also gets results.json (stacks.sim/1)
+stacks_cube compare BEFORE_DIR AFTER_DIR      which objectives moved between two --out
+                                              directories, as JSON; exit 1 if one broke
+stacks_cube check                             baker::check over data, its #autorun script,
+                                              scenarios, metrics; baker.check/1.1 JSON with
+                                              passed, load and shape problems; exit 1 on any,
+                                              or an undefined, unstubbed call; 2 if no load
 stacks_cube reference [--json]                the vocabulary: functions, shapes, packs (Markdown);
                                               --json: Baker's reference, tweaks and shapes JSON
 stacks_cube diff                              what agent.dta changes, value by value
 stacks_cube promote --to default [--write]    agent.dta into default.dta; --write is a person's
+stacks_cube promote --patch FILE              the same change as a unified diff; writes nothing
 stacks_cube eval [--seed N] "{command}"...     commands on the data and the reset game: a frame
-                                              table, a search, a report
+                                              table, a search, a report; --json: one
+                                              baker.reply/1 line each, as the console answers
 ```
 
 The design called this a tool server. A command-line tool is the same surface with less

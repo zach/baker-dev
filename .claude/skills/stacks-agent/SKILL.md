@@ -26,11 +26,12 @@ Then, with `G=build-stacks/bin/stacks_<game>`:
 | Command | What it tells you |
 |---|---|
 | `$G reference` | Every script function, global, shape, and pack: the words you may use. Read it first. `--json` gives the same, plus every tweak, as JSON. |
-| `$G check` | Errors and calls to undefined functions in data, scenarios, and metrics, as JSON. Exit 1 means fix before anything else. |
+| `$G check` | Errors, load problems, shape errors, and calls to undefined functions in data (its `#autorun` script too), scenarios, and metrics, as JSON. `passed` and exit 1 mean fix before anything else; the lists say what. |
 | `$G sim [--scenario NAME] [--seeds 1-20] [--out DIR]` | Runs scenarios headless and judges them by the objectives. Exit 0: all passed; 1: an objective failed; 2: something could not run. |
-| `$G eval "{cmd}"...` | Commands on the data and the reset game, headless: a frame table, a search, a report. |
+| `$G eval "{cmd}"...` | Commands on the data and the reset game, headless: a frame table, a search, a report. `--json` answers each as the console does (`{config.explain path}` included). |
+| `$G compare BEFORE AFTER` | Which objectives moved between two `sim --out` directories, as JSON; exit 1 if one broke. `sim --json` prints a run's results as JSON. |
 | `$G diff` | Exactly what `agent.dta` changes: path, old value, new value. |
-| `$G promote` | What promotion would write into `default.dta`. **Never pass `--write`**: promotion is a person's decision. |
+| `$G promote` | What promotion would write into `default.dta`. `--patch FILE` writes it as a diff a person can review and apply. **Never pass `--write`**: promotion is a person's decision. |
 | `python3 -I stacks/tools/console.py "{cmd}"` | A command in a game a person is running (127.0.0.1:4555). Use it only when asked to. `{config.explain path}` says which layer sets a value; `--json` prints the raw replies. |
 
 `sim` and `check` see `default.dta` and `agent.dta`, never `local.dta`, so results do not
@@ -40,11 +41,15 @@ and seed give the same result, so a failing seed is a reproduction.
 ## The loop
 
 1. **Read** `$G reference`, the objectives in `metrics/`, and the scenarios in `sim/`.
-2. **Baseline:** `$G sim --seeds 1-10` before you change anything. Note what passes.
+2. **Baseline:** `$G sim --seeds 1-10 --out runs/before` before you change anything,
+   over every scenario. Note what passes.
 3. **Change** `data/agent.dta` (or add a scenario or task pack). Keep each change small and
    say in a `;` comment why.
 4. **`$G check`**: exit 0, or fix it.
-5. **`$G sim`** over the same seeds; compare objective by objective with the baseline.
+5. **`$G sim --seeds 1-10 --out runs/after`** over the same seeds and every scenario, then
+   **`$G compare runs/before runs/after`**: it names each objective that broke (passed on a
+   scenario and seed, now fails) and exits 1. A fix that breaks another objective is not
+   done; that is the most common way a change fails review.
 6. **Report** to the person: what you changed and why (`$G diff`), which objectives moved
    (before and after), what you could not judge by objectives (how it looks or feels), and
    how to see it: start the game and toggle the `agent` layer in the Layers panel (F1).

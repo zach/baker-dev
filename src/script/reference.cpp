@@ -1,6 +1,7 @@
 // The generated script reference and load-time checking: both read a Context's
 // registrations, and neither evaluates anything.
 
+#include <baker/config.hpp>
 #include <baker/write.hpp>
 
 #include "common/containers.hpp"
@@ -233,6 +234,7 @@ void check(std::span<const Array* const> trees, const Context& ctx, CheckReport&
     Vec<CheckReport::Demand> demand;
     for (const Checker::DemandBuild& d : b.demand)
         demand.push_back({d.name, d.stub, List<CheckReport::Site>(d.sites), d.on});
+    report.unresolved_fails = report.unresolved_fails || options.unresolved_fails;
     report.errors = List<Error>(b.errors);
     report.warnings = List<Error>(b.warnings);
     report.demand = List<CheckReport::Demand>(demand);
@@ -273,6 +275,20 @@ CheckReport check(const Array& tree, const Context& ctx, const CheckOptions& opt
     return report;
 }
 
+void check(const Config& cfg, const Context& ctx, CheckReport& report, const CheckOptions& options,
+           std::span<const Array* const> extra) {
+    // The #autorun commands, as one tree: each keeps its own file and line.
+    const List<Node> commands = cfg.autorun();
+    const Ref<Array> autorun = Array::make_copy(commands.items());
+    Vec<const Array*> trees;
+    trees.push_back(cfg.root().get());
+    trees.push_back(autorun.get());
+    for (const Array* t : extra) trees.push_back(t);
+    CheckOptions o = options;
+    if (!o.packs) o.packs = &cfg.read_session();
+    check(std::span<const Array* const>(trees.data(), trees.size()), ctx, report, o);
+}
+
 Callback<void(const Array&, const Callback<void(const Error&)>&)> check_validator(
     const Context& ctx, const CheckOptions& options) {
     CheckOptions o = options;
@@ -288,7 +304,11 @@ Callback<void(const Array&, const Callback<void(const Error&)>&)> check_validato
 
 void write(const CheckReport& report, TextSink text) {
     Str out;
+    for (const Error& e : report.load) out += "load: " + Str(baker::to_string(e)) + "\n";
     for (const Error& e : report.errors) out += Str(baker::to_string(e)) + "\n";
+    for (const Error& e : report.shape_errors) out += "shape: " + Str(baker::to_string(e)) + "\n";
+    for (const Error& e : report.shape_warnings)
+        out += "shape warning: " + Str(baker::to_string(e)) + "\n";
     for (const Error& w : report.warnings) out += "warning: " + Str(baker::to_string(w)) + "\n";
     for (const CheckReport::Demand& d : report.demand) {
         out += "demand: " + quoted(d.name);
@@ -366,7 +386,8 @@ void json_errors(Str& out, const char* key, const List<Error>& errors) {
 }  // namespace
 
 void write_json(const CheckReport& report, TextSink text, const LoadSession* packs) {
-    Str out = "{\n  \"schema\": \"baker.check/1\",\n";
+    Str out = "{\n  \"schema\": \"baker.check/1.1\",\n";
+    out += Str("  \"passed\": ") + (report.ok() ? "true" : "false") + ",\n";
     json_errors(out, "errors", report.errors);
     out += ",\n";
     json_errors(out, "warnings", report.warnings);
@@ -409,6 +430,12 @@ void write_json(const CheckReport& report, TextSink text, const LoadSession* pac
     out += report.repeats.empty() ? "],\n" : "\n  ],\n";
 
     json_errors(out, "findings", report.findings);
+    out += ",\n";
+    json_errors(out, "load", report.load);
+    out += ",\n";
+    json_errors(out, "shape_errors", report.shape_errors);
+    out += ",\n";
+    json_errors(out, "shape_warnings", report.shape_warnings);
     out += ",\n";
 
     // Packs: the session's, by name; their harness metadata is the harness register.

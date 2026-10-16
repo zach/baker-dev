@@ -617,8 +617,24 @@ struct CheckReport {
     List<Repeat> repeats;  // subtrees repeated across the trees of one call (repeats.hpp)
     // Informational, never an error: each pack that declares fewer than two owners (D94).
     List<Error> findings;
+    // Filled by the host, not by check: what loading the data reported (a file that did not
+    // parse, an #autorun command that failed), and its shape check (baker::shape, which this
+    // library does not depend on). A shape warning is a field no shape declares.
+    List<Error> load;
+    List<Error> shape_errors;
+    List<Error> shape_warnings;
+    // From CheckOptions: whether a call to a function nothing defines (not a stub) fails.
+    bool unresolved_fails = false;
 
-    [[nodiscard]] bool ok() const noexcept { return errors.empty(); }
+    // Passes: no errors, no load problems, no shape errors, and under unresolved_fails, no
+    // unresolved demand. Warnings, findings, repeats, and stubs never fail it.
+    [[nodiscard]] bool ok() const noexcept {
+        if (!errors.empty() || !load.empty() || !shape_errors.empty()) return false;
+        if (unresolved_fails)
+            for (const Demand& d : demand)
+                if (!d.stub) return false;
+        return true;
+    }
 };
 
 // What check reads besides the trees and the Context.
@@ -627,6 +643,9 @@ struct CheckOptions {
     // calls and reports packs with fewer than two owners.
     const LoadSession* packs = nullptr;
     RepeatOptions repeats{};  // repeats.min_repeats = 0: no repetition report
+    // A call to a function nothing defines fails the check (CheckReport::ok), unless the
+    // function is declared a stub: an agent's or CI's gate, where it is nearly always a typo.
+    bool unresolved_fails = false;
 };
 
 // Writes the report: errors, warnings, the demand report, repeats, then findings, one each.
@@ -842,6 +861,12 @@ void check(const Array& tree, const Context& ctx, CheckReport& report,
            const CheckOptions& options = {});
 [[nodiscard]] CheckReport check(const Array& tree, const Context& ctx,
                                 const CheckOptions& options = {});
+// Checks a Config's data as it loads: its merged tree, and the #autorun commands of its
+// enabled layers, which are not in the tree (so a {func} an #autorun defines is seen
+// too), with the Config's read session as `packs` unless options give one. `extra` adds
+// trees checked alongside, such as scenarios.
+void check(const Config& cfg, const Context& ctx, CheckReport& report,
+           const CheckOptions& options = {}, std::span<const Array* const> extra = {});
 // For Config::add_validator (the same type as Config::Validator): checks the merged root
 // after every merge and reports check's errors and one-way warnings through the Config's
 // warning handler (D102); the demand report, repeats, and findings are for tools. `ctx` and

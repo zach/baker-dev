@@ -1,5 +1,6 @@
 {
-  "schema": "baker.check/1",
+  "schema": "baker.check/1.1",
+  "passed": false,
   "errors": [
     {"code": "type", "file": "game.dta", "line": 5, "path": "", "message": "no overload of '+' takes 1 argument"}
   ],
@@ -15,6 +16,9 @@
   "findings": [
     {"code": "refused", "file": "task.dta", "line": 0, "path": "", "message": "pack 'boss_task' has one owner, td-encounter: no one else keeps it"}
   ],
+  "load": [],
+  "shape_errors": [],
+  "shape_warnings": [],
   "packs": [
     {"name": "boss_task", "level": "task", "file": "task.dta", "requires": [], "owners": ["td-encounter"], "for": ["designers"], "stage": "custom"},
     {"name": "game_rules", "level": "game", "file": "game.dta", "requires": ["boss_task"], "owners": ["a", "b"], "for": [], "stage": ""}

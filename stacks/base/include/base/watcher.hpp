@@ -18,8 +18,8 @@
 
 namespace base {
 
-// A file's last write time, as nanoseconds in the file system's clock, offset so every
-// time is positive (file clocks may count from before 1970). Live uses this clock as the
+// A file's last write time, as nanoseconds since 1970 (through the system clock, whatever
+// the file clock's own epoch); 0 for a time before 1970. Live uses this clock as the
 // Config's time source, so a reload's origin is when its edit was saved.
 [[nodiscard]] uint64_t file_clock_ns(std::filesystem::file_time_type t) noexcept;
 [[nodiscard]] uint64_t file_clock_now_ns() noexcept;

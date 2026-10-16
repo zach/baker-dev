@@ -4846,3 +4846,147 @@ as data. The reference was Markdown only.*
   - `tests/shape/test_shape.cpp`: a keyed shape's fields.
   - Python parsed all three documents as JSON.
 - **Core:** 12,556 → 12,829 lines. `baker::shape`: 466 → 513 of its 600.
+
+## D158. The check gate: report 1.1, a Config's `#autorun` script, and the stacks' `check`
+
+*Requirement notes 0004 and 0005 from the agent-bridge integration (`baker-mcp`), which
+the owner brought here and chose to take up. The design is `dev/check-gate-plan.md`.
+`check` is the gate an edit must pass in the stacks' skill, in hooks and in CI. It passed
+data that failed to load, missed calls inside script that `#autorun` defines, and kept
+shape errors and parse errors out of its JSON.*
+
+- **The cause of the missed calls.** `check` already finds an undefined call inside a
+  `{func}` body in the trees it is given. The commands `#autorun` runs are not in the
+  merged tree (D107), so checking `cfg.root()` never saw them.
+- **Baker.**
+  - **The Config form.** `check(cfg, ctx, report, options, extra)` checks the merged tree
+    and a tree built from `cfg.autorun()`, each node keeping its file and line. It uses the
+    read session as `packs` unless the options give one, and checks any `extra` trees
+    alongside.
+  - **New fields.** `CheckReport` gains `load`, `shape_errors` and `shape_warnings`, which
+    the host fills: `baker::script` does not depend on `baker::shape`, and the load is the
+    host's. It also gains `unresolved_fails`, from the new `CheckOptions::unresolved_fails`.
+  - **`ok()`.** It now means no errors, no load problems, no shape errors, and, under the
+    rule, no unresolved demand. Every caller in the repository still holds: the meaning
+    widens only when a host fills the new lists.
+  - **The JSON is `baker.check/1.1`.**
+    - `passed` comes after `schema`, so a reader need not re-derive the rule.
+    - `load`, `shape_errors` and `shape_warnings` take the problem form, after `findings`.
+    - The pinned example changed only by these additions.
+    - The text form prints them as `load:`, `shape:` and `shape warning:` lines.
+- **The stacks.**
+  - **`Live`** keeps the located errors of its last load: a layer that did not read, and
+    each failed `#autorun` command.
+  - **`check`:**
+    - It uses the Config form, with scenarios and metrics as `extra`.
+    - It fills `load` from `Live` and the shape lists from `shape::check`, and sets
+      `unresolved_fails`.
+    - Its exit status is `report.ok() ? 0 : 1`.
+    - Data that does not load still prints the JSON, with `passed: false` and the error
+      in `load`. The exit status stays 2, "could not load", as the note's constraint asks.
+    - Standard error keeps its text for people.
+  - **Validator warnings stay out of `load`.** They are the shape and call checks again,
+    and are reported in their own lists.
+- **Tests.**
+  - `tests/script/test_check.cpp`:
+    - the Config form finds demand inside an `#autorun` function that the merged tree
+      alone misses;
+    - the demand rule;
+    - each new list's effect on `ok()` and its place in the JSON.
+  - `stacks/tools/test_commands.py`, run by CTest for Duel where Python is found, on a
+    copy of the data. It covers clean data, a failing `#autorun` command, a typo inside an
+    `#autorun` function, a value out of range, and a parse error (exit 2 with JSON).
+  - Every stack's own data still passes `check`.
+- **Core:** 12,829 → 12,867 lines.
+
+## D159. The stacks' commands for tools: `eval --json`, `sim` as JSON with `compare`, `promote --patch`
+
+*Requirement notes 0001, 0002 and 0003 from the agent-bridge integration, which the owner
+chose to take up (`dev/check-gate-plan.md` §3–5). They are the stacks' commands, not
+Baker's, so Baker's code is unchanged.*
+
+- **`eval --json`** (0001).
+  - Each command is answered with one `baker.reply/1` line through `eval_request`, as a
+    running game's console answers, with ids counting from 1.
+  - Exit 0 when every command ran, 1 when a reply carries an error, 2 when the data does
+    not load.
+  - A tool now reads a headless game and a live one the same way.
+- **`sim` as JSON, and `compare`** (0002).
+  - **`stacks.sim/1`.** `sim --out DIR` also writes `results.json`, and `--json` prints it
+    instead of the text. It holds:
+    - each run (scenario, seed, steps, passed, errors, objectives), sorted by scenario,
+      then seed, with objectives by name;
+    - a tally per objective (passed, failed, min, median, max);
+    - `status`.
+
+    Numbers are printed as the `.dta` results print them, and a value that is not finite is
+    `null` with its reason. Two runs give the same bytes.
+  - **`compare BEFORE AFTER`.** It reads the `run-*.dta` files two `--out` directories
+    hold, so the stacks need no JSON parser and no rerun. It prints `stacks.compare/1`.
+    Per objective:
+    - `moved`: `broke` (passed on a scenario and seed, now fails), `fixed`, `same`, `new` or
+      `gone`;
+    - each side's tally and the median's change;
+    - the runs whose pass changed.
+
+    Exit 1 when anything broke.
+  - **The agent skill now uses them.** The loop saves the baseline with `--out
+    runs/before` and the change with `--out runs/after`, over every scenario, then
+    compares. In the bridge's evaluation, every failed run, in both arms, was a fix that
+    broke another objective on one seed. `/stacks/*/runs/` is ignored.
+- **`promote --patch FILE`** (0003).
+  - **The promotion is real; only the write is captured.** The Config's writer captures
+    each file instead of writing it (D132's hook), so nothing on disk is written, created
+    or locked.
+  - **The patch.** Each captured file becomes a unified diff against the file on disk,
+    with paths relative to the data directory, for `patch -p1` or `git apply`.
+    - Promotion is all or nothing, so on a refusal the patch is empty and the exit is 1.
+    - The diff is about 90 lines in the stacks' tools: the common head and tail are cut,
+      then the middle is compared line by line, then grouped into hunks with three lines
+      of context.
+    - A last line without a newline is marked as `diff -u` marks it.
+  - **Checked.** On Duel's data:
+    - the patch applies with `patch -p1` and `git apply`;
+    - the patched files equal what `--write` writes, byte for byte, also when the target
+      has no final newline;
+    - the data directory is unchanged after `--patch`.
+- **Tests.** `stacks/tools/test_commands.py` gains each case:
+  - one reply line per command, the `explain` chain as JSON, an error reply, and the exit
+    codes;
+  - `sim --json` equal to `results.json`, byte-stable, and sorted;
+  - `compare` moving nothing for identical runs, and naming the broken runs after a
+    weaker fighter (exit 1);
+  - `--patch` writing nothing, and its application equal to `--write`.
+- **CI found a Windows case.** A Windows checkout gives the data CRLF lines, so the patch
+  carries `\r` bytes in its content lines. That is still exact: applied with `git apply`,
+  it equals `--write` byte for byte, also tried by converting a copy of Duel's data to
+  CRLF. But the old GNU `patch` (2.5.9) a Windows runner carries asserted on it. The test
+  now applies with `git apply` and falls back to `patch` only where git is absent, and the
+  command's message suggests `git apply` first.
+- **One commit, not three.** The three changes share `tools.cpp`.
+
+## D160. The stacks' file clock counts from 1970: journal times read negative on Linux
+
+*Reported by the agent-bridge session while testing the live tools: `{config.journal}`
+in a stack game returned negative `time_ns`, which broke its `since_ns` filter. It is a
+defect in the stacks, not in Baker.*
+
+- **The cause.** `Live` gives the Config `file_clock_now_ns()` as its time source, so that
+  edit-to-see runs from a file's save time.
+  - That function shifted the file system clock by 2^62 to keep it positive.
+  - libstdc++'s file clock counts from 2174, so today is about −4.65×10^18 ns there,
+    beyond the shift. The value wrapped to near 2^64.
+  - Script integers are 64-bit signed, so `config.journal` (D156) showed it as negative.
+  - Windows' file clock counts from 1601, so Windows never showed it.
+- **The fix.** `file_clock_ns` converts through `std::chrono::clock_cast` to the system
+  clock: nanoseconds since 1970, positive until 2262 on every platform. A time before 1970
+  is 0, which the stacks already read as unknown.
+- **Checked.**
+  - A live cube game's journal entry carries a positive time.
+  - `{config.journal T}` keeps the entry made at T, and `{config.journal T+1}` drops it.
+  - A new test in `stacks/base/tests/test_watcher.cpp` asserts the clock is below 2^63
+    and within a minute of the system clock. It fails on the old clock and passes on the
+    new.
+- **For Baker.** A host's TimeSource is its own domain (`uint64_t`), but `config.journal`
+  and `config.loop` hand times to script as `int64`. A host's clock should stay below
+  2^63. The stacks' now does.
