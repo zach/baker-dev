@@ -11,6 +11,7 @@
 #include <baker/object.hpp>
 #include <baker/parse.hpp>
 #include <baker/path.hpp>
+#include <baker/project.hpp>
 #include <baker/script.hpp>
 #include <baker/shape.hpp>
 #include <baker/source_map.hpp>

@@ -5471,3 +5471,59 @@ live tasks on every stack. The owner brought the summary.*
     fail its run. The verdicts read back from `medians.dta`, and `compare` reports a broken
     median verdict and ignores seeds moving.
   - The stacks' command test checks the new schema names.
+
+## D172. A project file for the game and its tools: `read_project`, `open_project`
+
+*Plan B's Baker step (`dev/integration-plans.md` §3, critique B2), which the owner asked for
+once the editor work began. A Config's layers, pack levels, include directories, and
+defines were set up in each game's C++. A tool that opens the data (an editor checking as
+you type, a CI check, an agent) needed a second copy, which drifts. The plan's kill
+criterion was that the convention could not describe a stack without changes its authors
+reject.*
+
+- **The format** (`baker-project.dta`) is one `(project ...)` form holding `pack_levels`,
+  `include_dirs`, `defines` (flags) and `layers`, bottom to top.
+  - **Layers.** Each is `(name "path" [optional] [disabled])`.
+  - **Paths** are relative to the project file's directory unless absolute.
+  - **Strictness.** Every part but `layers` may be left out. An unknown key, a malformed
+    layer, a stray flag or two layers with one name is a located error, so a typo is found
+    rather than ignored.
+- **API** (`include/baker/project.hpp`, in `baker::data`).
+  - **`read_project(path, reader)`** returns a `Project` of `List`s. It reads through
+    `reader` when given, which is how an editor serves an unsaved buffer. It reads text
+    only, and refuses `#include`, so the project reaches no other file.
+  - **`open_project(cfg, project, {.skip = ...})`** sets the session's pack levels,
+    include directories and defines, then pushes the layers. `skip` leaves layers out by
+    name: a simulation or check leaves out `local`, as the stacks always have.
+- **The stacks.** Each of the seven has a `baker-project.dta` at its root describing the
+  stack `base::Live` built in code: `default`, then `local` and `agent` optional; levels
+  `engine game task`; `data` searched.
+  - **`Live::open`** reads it from beside the data directory and opens it. It skips
+    `local` when asked, as before.
+  - **Without the file,** as in a packaged game whose data sits beside the executable, it
+    builds the same `Project` in code.
+  - **A project file's mistake** stops the load like data that does not parse: `check`
+    reports it under `load`, located, and exits 2.
+- **The kill criterion is not met.** The stacks' setup is described whole, and `Live`
+  changed only in where it gets the stack. Its validators, tools, watcher and `#autorun`
+  are as they were.
+- **Not in the format:** script functions, validators and the reference file. Those are
+  the game's code, or plan B's (the reference JSON comes from the game's build, B3). The
+  editor session may ask for more in a requirement note.
+- **Docs.** A cookbook section, "One project file for the game and its tools", and a line
+  in `stacks/README.md`.
+- **Tests.**
+  - `tests/data/test_project.cpp`:
+    - everything is read, with paths joined and flags set;
+    - `open_project` sets the levels (a pack loads), the include directory (an `#include`
+      resolves), the defines (`#ifdef PC`) and the layers, with the disabled one
+      skipped;
+    - `skip` leaves out `local`;
+    - an unsaved buffer is read through a reader;
+    - eight mistakes are refused, each located: the line, and the message names what is
+      wrong.
+  - `stacks/tools/test_commands.py`:
+    - a layer named only in the copy's project file is in the game's stack (`check`
+      finds its shape error);
+    - a project file with an unknown key is a located load problem.
+- **Core:** 13,518 → 13,664 lines.

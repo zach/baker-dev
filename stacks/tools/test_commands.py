@@ -145,6 +145,31 @@ def promote_patch(s):
         print("skipped: neither git nor patch to apply the diff")
 
 
+def project_file(s):
+    """The game opens the stack its baker-project.dta describes."""
+    project = s.dir / "baker-project.dta"
+    original = project.read_text()
+    try:
+        (s.dir / "data" / "experiment.dta").write_text("(fighters (kestrel (width 9.5)))\n")
+        project.write_text(original.replace(
+            '(agent "data/agent.dta" optional)',
+            '(agent "data/agent.dta" optional)\n      (experiment "data/experiment.dta")'))
+        code, out, _ = s.run("check", agent="")
+        r = json.loads(out)
+        expect(code == 1 and len(r["shape_errors"]) == 1 and
+               r["shape_errors"][0]["file"].endswith("experiment.dta"),
+               "a layer only the project file names is in the game's stack")
+        project.write_text("(project (layers (default \"data/default.dta\")) (levels x))\n")
+        code, out, _ = s.run("check", agent="")
+        r = json.loads(out)
+        expect(code == 2 and [e["file"] for e in r["load"]] == ["baker-project.dta"] and
+               "no 'levels'" in r["load"][0]["message"],
+               "a project file's mistake is a load problem, located, as data that does not load")
+    finally:
+        project.write_text(original)
+        (s.dir / "data" / "experiment.dta").unlink(missing_ok=True)
+
+
 def headless_idle(s):
     """A headless game serving its console paces its frames: it idles, and still answers."""
     with socket.socket() as probe:  # a free port
@@ -193,6 +218,7 @@ def main():
     check_gate(s)
     eval_json(s)
     sim_json(s)
+    project_file(s)
     headless_idle(s)
     promote_patch(s)  # last: --write changes the copy's default.dta
     print(f"{len(FAILURES)} failures" if FAILURES else "all passed")
