@@ -209,11 +209,11 @@ TEST_CASE("a push takes a report that still holds, and checks again when it does
     CHECK(stale_after(
         [&] { REQUIRE(cfg.push_layer("x", dir.write("x.dta", "(event (drops 6))\n"))); }));
     CHECK(stale_after([&] { REQUIRE(cfg.remove_layer("x")); }));
-    CHECK(stale_after([&] { REQUIRE(cfg.toggle_layer("default")); }));
-    REQUIRE(cfg.toggle_layer("default"));
     CHECK(stale_after([&] { cfg.remove_validator(cfg.add_validator(nullptr)); }));
     CHECK(stale_after([&] { (void)cfg.session(); }));
-    if constexpr (!kShipping) {
+    if constexpr (!kShipping) {  // toggles and set() are inert in shipping
+        CHECK(stale_after([&] { REQUIRE(cfg.toggle_layer("default")); }));
+        REQUIRE(cfg.toggle_layer("default"));
         REQUIRE(cfg.set("event.drops", Node(int64_t{6})));  // the next is the fast path
         CHECK(stale_after([&] { REQUIRE(cfg.set("event.drops", Node(int64_t{7}))); }));
         REQUIRE(cfg.clear_scratch());
