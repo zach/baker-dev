@@ -5140,3 +5140,37 @@ a mod, a proposed change) had two routes, and each lost something.*
   - write-back refuses;
   - the read's warnings refuse under the policy, by text and by path;
   - the frozen live-layers path.
+
+## D164. A cheaper layer check: an index of each wide array, and refusal paths made only on refusal
+
+*Step 2 of `dev/received-layers-plan.md`; the owner chose to do it in this work. D161's
+profile put most of a check in linear lookups of a wide table, and a host whose report no
+longer holds (D165) pays for a check at the boundary.*
+
+- **The index.** The check moved to `src/data/config_check.cpp`. A `Finder` there resolves
+  paths through an open-addressed index of each array of 32 or more children it searches,
+  built once per check. It finds what `Array::try_find` finds: the first child array with
+  the tag.
+  - The check uses the finder for the stack's value below each changed one, the layer that
+    supplies it, and that value's source. These were three linear scans per value before.
+  - The lookup path (`detail::resolve`, `try_find`) is unchanged.
+- **`data_only`'s walk built a path string for every array it passed.** It now keeps the
+  tags on a stack and makes the path only for a refusal.
+- **The leaf helpers** (`Leaf`, `values_of`, `leaves_of`) moved from `config_write.cpp`'s
+  anonymous namespace to `config_internal`, which the check and write-back share.
+- **Cost** (`bench/bench_layers.cpp`, shipping, release, this container: the 9.8 KB overlay
+  changing 400 prices of a 2,000-item table, every rule on):
+
+  | Row | Before (D163) | After |
+  |---|---|---|
+  | `check_layer` (tree) | 723–728 µs | 228–292 µs |
+  | `check_layer_text` | 808–824 µs | 302–387 µs |
+  | `push_layer` (tree) with the policy | 806–819 µs | 393–445 µs |
+
+  - **Before.** Callgrind put 67% of the instructions in `detail::resolve`.
+  - **After.** No function dominates: the leaves' dotted paths (building, parsing and
+    interning them), the merge of the candidate over the stack, and `malloc`.
+- **Test.** On a 41-child table with a repeated tag, and two layers each wide enough to be
+  indexed, every entry's `below` and `below_source` match `get` and `source()`. That
+  includes the first of the repeated tags, the supplying layer, and a new key with
+  nothing below.

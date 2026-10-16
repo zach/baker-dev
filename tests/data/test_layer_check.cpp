@@ -182,3 +182,34 @@ TEST_CASE("a frozen game with live layers takes a checked overlay and refuses a 
     REQUIRE(cfg.remove_layer("hotfix"));
     CHECK(cfg.root()->get<int>("shop.bow.price") == 12);
 }
+
+TEST_CASE("on a wide table, the check finds what lookups find (D164)") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    std::string base = "(shop\n";
+    for (int i = 0; i < 40; ++i)
+        base += " (item" + std::to_string(i) + " (price " + std::to_string(i + 1) + "))\n";
+    base += " (item5 (price 99)))\n";  // a repeated tag: the first is the one found
+    REQUIRE(cfg.push_layer("default", dir.write("default.dta", base)));
+    std::string sale = "(shop\n";
+    for (int i = 0; i < 40; i += 2)
+        sale += " (item" + std::to_string(i) + " (price " + std::to_string(i + 100) + "))\n";
+    REQUIRE(cfg.push_layer("sale", dir.write("sale.dta", sale + ")\n")));
+
+    const LayerReport r = ok(cfg.check_layer(
+        "x", tree("(shop (item5 (price 7)) (item38 (price 8)) (item41 (price 9)))\n")));
+    REQUIRE(r.effect.size() == 3);
+    for (const LayerEffectEntry& e : r.effect) {
+        CAPTURE(e.path.str());
+        if (e.path == Symbol("shop.item41.price")) {
+            CHECK_FALSE(e.below);
+            continue;
+        }
+        const Source s = ok(cfg.source(Path(e.path.str())));
+        CHECK(to_string(*e.below) == std::to_string(ok(cfg.get<int>(Path(e.path.str())))));
+        CHECK(e.below_source->layer == s.layer);
+        CHECK(e.below_source->line == s.line);
+    }
+    CHECK(to_string(*r.effect[0].below) == "6");
+    CHECK(r.effect[1].below_source->layer == Symbol("sale"));
+}

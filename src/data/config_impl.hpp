@@ -119,6 +119,19 @@ bool value_nodes(const Array& root, const Path& path, Vec<Node>& out);
 
 bool same_nodes(std::span<const Node> a, std::span<const Node> b);
 
+// A tagged array with values in some tree, found by walking tags (first occurrence of
+// each tag, as find and merge use).
+struct Leaf {
+    Str path;  // dotted
+    const Array* holder;
+    Vec<Node> values;
+};
+
+// A tag array's values: its children that are not tagged arrays.
+Vec<Node> values_of(const Array& a);
+// Each tag's first child only, as lookup sees it, depth first.
+Vec<Leaf> leaves_of(const Array& root);
+
 }  // namespace config_internal
 using namespace config_internal;
 
