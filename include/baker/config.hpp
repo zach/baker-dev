@@ -124,6 +124,17 @@ struct ConfigOptions {
     std::string_view cache_dir = {};
 };
 
+// What a layer may change (Config::check_layer, LayerOptions::policy). Each rule is off by
+// default; a refusal names the rule's reason, the path, and the file and line.
+struct LayerPolicy {
+    bool data_only = false;         // no {commands}, [properties], $variables, or #autorun
+    bool scalars_only = false;      // every value an int, float, symbol, or string; no removals
+    bool existing_only = false;     // change only values the stack already has: no new keys, no
+                                    // removals
+    bool warnings_refuse = false;   // a validator's or the read's warning refuses too
+    std::span<const Path> allow{};  // if not empty, every changed path lies under one of these
+};
+
 struct LayerOptions {
     bool optional = false;  // a missing file is not an error; the layer exists, empty
     bool enabled = true;    // disabled layers keep their position but are skipped by merge
@@ -132,6 +143,9 @@ struct LayerOptions {
     // because they read with the macros below them. Read at the push, never kept.
     std::string_view below = {};
     std::string_view above = {};
+    // If given, the layer is checked first (Config::check_layer) and refused, changing
+    // nothing, if the policy refuses it. A file layer's #autorun commands count too.
+    const LayerPolicy* policy = nullptr;
 };
 
 // --- Telemetry ---
@@ -215,6 +229,15 @@ struct ExplainEntry {
     Node value{};    // packed as LayerEffectEntry::value; the symbol #remove for Removes
     Source source{};
     Standing standing = Standing::Wins;
+};
+
+// Config::check_layer: a candidate layer's effect, and the verdicts on it, before it takes
+// effect.
+struct LayerReport {
+    List<LayerEffectEntry> effect;  // what it would change, as layer_effect reports it
+    List<Error> refusals;           // the policy's, located; any refuses the layer
+    List<Error> warnings;           // the validators' over the stack with it, and the read's
+    [[nodiscard]] bool ok() const noexcept { return refusals.empty(); }
 };
 
 struct WrittenLine {
@@ -414,6 +437,17 @@ public:
     // path, each layer that holds a value there or removes it, and scratch. The one that
     // Wins is the one source() names. Refuses a path that holds arrays rather than values.
     [[nodiscard]] Expected<List<ExplainEntry>> explain(const Path& path) const;
+    // Checks a candidate layer, changing nothing: its effect on top of the stack as it
+    // stands, the policy's refusals, and the validators' warnings over the stack with it.
+    // Available in shipping builds: it is what makes live_layers safe there.
+    [[nodiscard]] Expected<LayerReport> check_layer(std::string_view name, const Ref<Array>& root,
+                                                    const LayerPolicy& policy = {}) const;
+    // The same for text a host received: read as text only (never a cache), with the session
+    // the stack's layers read with, so its packs' requires and versions are checked against
+    // the stack's packs; the read's warnings join the report's.
+    [[nodiscard]] Expected<LayerReport> check_layer_text(std::string_view name,
+                                                         std::string_view text,
+                                                         const LayerPolicy& policy = {}) const;
 
     [[nodiscard]] ConfigSnapshot snapshot() const;
     [[nodiscard]] Expected<void> restore(const ConfigSnapshot& snapshot);

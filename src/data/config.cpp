@@ -33,6 +33,17 @@ Vec<ScratchEntry> copy_scratch(const Vec<ScratchEntry>& from) {
     return out;
 }
 
+// A checked layer's verdict for push_layer: the first refusal, with how many more.
+Expected<void> refuse_unless(const LayerReport& report) {
+    if (report.ok()) return {};
+    const Error& first = report.refusals[0];
+    Str message(first.message());
+    if (report.refusals.size() > 1)
+        message +=
+            " (and " + detail::decimal(static_cast<int64_t>(report.refusals.size() - 1)) + " more)";
+    return Unexpected(make_error(ErrorCode::Refused, message, first.file(), first.line()));
+}
+
 }  // namespace
 
 namespace config_internal {
@@ -463,7 +474,17 @@ Expected<void> Config::push_layer(std::string_view name, std::string_view path,
     layer.name.assign(name);
     layer.path.assign(path);
     layer.options = options;
-    if (auto r = impl_->read(layer, *impl_->session_below(impl_->layers, *at)); !r) return r;
+    const Rc<LoadSession> below = impl_->session_below(impl_->layers, *at);
+    if (auto r = impl_->read(layer, *below); !r) return r;
+    if (options.policy) {
+        const auto all = layer.after->warnings();
+        const size_t known = std::min(below->warnings().size(), all.size());
+        if (auto r = refuse_unless(impl_->check_candidate(*this, name, *layer.root,
+                                                          layer.after->autorun(), *options.policy,
+                                                          all.subspan(known)));
+            !r)
+            return r;
+    }
     if (*at == impl_->layers.size()) {
         impl_->layers.push_back(std::move(layer));
     } else {
@@ -486,6 +507,11 @@ Expected<void> Config::push_layer(std::string_view name, Ref<Array> overlay, Lay
         return Unexpected(refused("there is already a layer named '" + Str(name) + "'"));
     const auto at = impl_->placement(options);
     if (!at) return Unexpected(at.error());
+    if (options.policy)
+        if (auto r = refuse_unless(
+                impl_->check_candidate(*this, name, *overlay, {}, *options.policy, {}));
+            !r)
+            return r;
     LayerState layer(impl_->alloc);
     layer.name.assign(name);
     layer.options = options;
