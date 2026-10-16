@@ -5049,3 +5049,38 @@ proposal, a mod loader, CI.*
     - the frozen live-layers path.
   - `baker_alloc_tests` checks a layer from text through the Config's allocator.
 - **Core:** 12,867 → 13,033 lines.
+
+## D162. Published overlays: the convention, and the live-ops example on E5
+
+*Plan D's Baker side (`dev/integration-plans.md` §5), which the owner chose to start. The
+publisher, the client helper, and the storage backends are the integration's, in
+`baker-liveops`. Baker's part is the convention they share, documented, and an example
+that runs it on the policy check (D161).*
+
+- **The convention** (cookbook, "Published overlays").
+  - An overlay is a pack: `(pack NAME (level live) (version N) (requires (BASE "V")))`,
+    with `(origin ...)` naming the ticket and the publishing tool. The shipped data
+    declares itself a pack with a version.
+  - The game handles an overlay in order:
+    1. **Fetch and verify.** The host fetches it and checks its hash and signature before
+       Baker sees any bytes.
+    2. **Stage** with `check_layer_text`.
+    3. **Apply at a boundary the game chooses**, by path or through a reader, so the pack's
+       `requires` and its `origin` are read with it, under the same policy.
+    4. **Keep the last good one** and re-stage it at start.
+    5. **Roll back** with `remove_layer`.
+    6. **Retire it into source** with `promote`, once it sticks.
+- **`examples/live-ops`** now runs this. It stages and applies a double-XP overlay; the
+  ticket and tool show in `source()`. It refuses three others, each located:
+  - a drop rate typed as a percentage, which the shape validator warns about, so under
+    `warnings_refuse` it is refused;
+  - an overlay made for game data `"1.1"`;
+  - one that runs script.
+
+  Then it rolls back. The shapes judge candidates through `shape::validator` inside the
+  check, which replaces the example's own merge-and-check helper.
+- **One limit, documented.** A tree read separately and pushed with `push_layer(name,
+  tree)` carries no pack or origin: those are read with a file. So the convention pushes
+  by path, or through a `LoadSession` reader that serves the fetched text by name.
+- **Test.** The example's CTest pins the effect, the provenance line, each refusal and the
+  rollback. Changing one expected detail was seen to fail it.

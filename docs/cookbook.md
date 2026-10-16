@@ -266,6 +266,59 @@ auto tree = baker::read_string(downloaded, "hotfix_0412", untrusted);
 cfg.push_layer("hotfix_0412", *tree, {.policy = &hotfix});  // refused: nothing changed
 ```
 
+### Published overlays
+
+An overlay that leaves the studio is a file with a name, a version, and the base it was made
+for. `examples/live-ops` runs each step below.
+
+**The overlay is a pack.** The shipped data declares itself one too, so an overlay can say
+which base it needs:
+
+```dta
+; data/default.dta
+(pack game_data (level game) (version "1.0"))
+
+; overlays/2026-10-17-double-xp.dta
+(pack double_xp_1017 (level live) (version 1) (requires (game_data "1.0")))
+(origin "liveops console, ticket 4412" (tool baker-publish))
+(event (xp_multiplier 2) (banner "Double XP all weekend!"))
+```
+
+- With the pack levels set (`cfg.session().set_pack_levels({"game", "live"})`), an overlay
+  made for game data `"1.1"` is warned about against `"1.0"`. Under `warnings_refuse` it is
+  refused.
+- This guards rollbacks too. An overlay checked against the base it lands on cannot meet
+  data whose shape has moved since it was made.
+- `(origin ...)` carries into provenance. `source("event.xp_multiplier")` names the
+  overlay's layer, the ticket, and the publishing tool, so an operator can see what is live
+  and why.
+
+**Its life in the game:**
+
+1. **Fetch and verify.** The host's transport fetches the overlay's text and verifies it,
+   with a content hash and a signature checked before Baker sees any bytes. Baker's
+   `Cipher` hides a cache's contents; it is not a signature.
+2. **Stage.** `cfg.check_layer_text(name, text, policy)` checks it at once, changing
+   nothing; log or show the report.
+3. **Apply at a boundary.** Push it at a moment the game chooses: a session's start, a
+   lobby, never mid-match. Push it with the same policy, which checks again in case the
+   stack moved.
+   - Push by path, or through a `LoadSession` reader that serves the fetched text by name,
+     so the pack's `requires` and its `origin` are read with it. A tree read separately
+     and pushed directly carries neither.
+   - Dedicated servers apply the same overlay at the same boundary, so a client and its
+     server never disagree.
+4. **Keep the last good one.** Store each applied overlay's text, and re-stage it at the
+   next start. If the store is unreachable, the game starts on what it last ran. If the
+   stored overlay no longer passes against a patched base, it starts on the base.
+5. **Roll back** with `remove_layer`, as above.
+
+**Retire it into source.** An overlay that sticks belongs in the shipped data. Load the
+base checkout with the overlay as a layer and `promote` it into `default`: a
+reviewed change, one line per value. Then stop publishing the overlay for builds that
+contain it. Otherwise the next patch silently drops values players have been playing
+with.
+
 ### Personal and experiment layers
 
 Developers tune in their own [`local` layer](#personal-layers-local), and variants live in
