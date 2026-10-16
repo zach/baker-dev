@@ -5611,3 +5611,24 @@ would otherwise write for itself, slightly differently.*
   - the reference is joined and need not exist, and `(reference a b)` is a located error;
   - every format error has a column.
 - **Core:** 13,667 → 13,765 lines.
+
+## D174. The reference lists the objects a Context names
+
+*The editor session's requirement note 0002. A tool that checks data without the game
+learns its vocabulary from `baker.reference`, which had the functions and types but not
+the objects added under a name. So `{clock thread_task ...}` looked like a call to an
+undefined `clock`.*
+
+- **`objects`** is a new field of the reference JSON, after `globals`, so the schema is
+  `baker.reference/1.1`. It lists each live object that has a name, with its `type`:
+  - the type's name, as `types` lists it;
+  - for an object made from a script-only class (`{new Ghost attic}`), the class's name,
+    as `script_classes` lists it.
+- **Sorted by name.** It lists the objects present when the reference is written: for a
+  build step, after the game's setup. The Context's own `scheduler` is one of them.
+- **Cost.** `write_reference_json` walks the object slots, once, when it is called.
+  Nothing else changes.
+- **Tests** (`tests/script/test_reference_json.cpp`): two native objects and a script
+  object, sorted, with an unnamed one left out; a removed object is gone from the next
+  reference.
+- **Core:** 13,765 → 13,784 lines.

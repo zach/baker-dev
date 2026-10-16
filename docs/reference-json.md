@@ -1,11 +1,11 @@
-# The vocabulary as JSON: `baker.reference/1`, `baker.tweaks/1`, `baker.shapes/1`
+# The vocabulary as JSON: `baker.reference/1.1`, `baker.tweaks/1`, `baker.shapes/1`
 
 Three documents describe what a program's data and script may say, for editors, agents,
 and other tools that should not scrape the Markdown reference:
 
 | Document | Written by | Library |
 |---|---|---|
-| `baker.reference/1` | `baker::write_reference_json(ctx, sink, &session)` | `baker::script` |
+| `baker.reference/1.1` | `baker::write_reference_json(ctx, sink, &session)` | `baker::script` |
 | `baker.tweaks/1` | `baker::write_json(registry, sink)` | `baker::data` |
 | `baker.shapes/1` | `baker::shape::write_json(shapes, sink)` | `baker::shape` |
 
@@ -29,15 +29,16 @@ They follow `check`'s rules (`check-json.md`):
   or changed only with a new major version.
 - **Numbers.** Ranges and steps are written as Baker prints floats (`0.5`, `10.0`).
 
-## `baker.reference/1`
+## `baker.reference/1.1`
 
 | Field | Contents |
 |---|---|
-| `schema` | `"baker.reference/1"` |
+| `schema` | `"baker.reference/1.1"` |
 | `functions` | every function with at least one overload |
 | `types` | every native type made known to the Context |
 | `script_classes` | classes only script defined (`{class Name ...}` with no native type) |
 | `globals` | documented globals: `name`, `doc` |
+| `objects` | the objects added to the Context under a name (`ctx.add(object, "clock")`, `{new Class name}`) when it is written: `name`, and `type` as `types` or `script_classes` names it (1.1) |
 | `packs` | given a session: as in `check`'s JSON (`name`, `level`, `file`, `requires`, `owners`, `for`, `stage`) |
 | `origins` | given a session: `tool`, `source`, `file` for each file a tool generated |
 
