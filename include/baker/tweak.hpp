@@ -196,11 +196,19 @@ class Tweak final : public TweakBase {
     static constexpr bool kAtomic = detail::atomic_tweak<T>();
 
 public:
+    // `path` must outlive the tweak: a string literal, as tweaks in code are written.
     Tweak(const char* path, T fallback, const TweakMeta& meta = {},
           TweakRegistry& registry = TweakRegistry::global())
         : TweakBase(path, meta, registry), default_(fallback), value_(default_) {
         attach();
     }
+    // A path made at runtime, by a scripting host or an editor: a symbol is interned for
+    // the program's life, so it outlives the tweak. Each new path stays interned, so make
+    // such tweaks once, at startup or at a load, not in a loop. `meta`'s strings must
+    // outlive the tweak too; a symbol's str() does.
+    Tweak(Symbol path, T fallback, const TweakMeta& meta = {},
+          TweakRegistry& registry = TweakRegistry::global())
+        : Tweak(path.c_str(), std::move(fallback), meta, registry) {}
     ~Tweak() { detach(); }
 
     operator T() const noexcept {  // NOLINT(google-explicit-constructor)

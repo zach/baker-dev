@@ -45,6 +45,12 @@ static baker::Tweak<float> kJumpHeight{"player.jump.height", 1.2f,
 - **Types.** Any `T` with a `Convert<T>` works. One whose `std::atomic` is lock-free reads
   with a load; another (`std::string`, `std::vector<float>`) reads through `get()`, whose
   reference stays valid until the next reload.
+- **Paths made at runtime.** A scripting host or an editor that makes tunables from its own
+  scripts passes the path as a `Symbol`: `Tweak<float>(Symbol(path), 1.0f, {}, registry)`.
+  A symbol lives as long as the program, so the path outlives the tweak; a `const char*`
+  must, which is why code writes literals. Each new path stays interned, so make such
+  tweaks once, at startup or at a load. `TweakMeta`'s strings must outlive the tweak too;
+  a symbol's `str()` does.
 - **`on_change`** runs after the value changes, on the thread that changed the Config,
   for the few values whose change must do something (resize a buffer).
 - **`dev_only`** marks a tweak a shipped build must not take from data: under

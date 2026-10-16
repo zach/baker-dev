@@ -5471,3 +5471,28 @@ live tasks on every stack. The owner brought the summary.*
     fail its run. The verdicts read back from `medians.dta`, and `compare` reports a broken
     median verdict and ignores seeds moving.
   - The stacks' command test checks the new schema names.
+
+## D171. A tweak whose path is a symbol (E6)
+
+*E6 of `dev/integration-plans.md`, which comes before plan C; the owner chose to do it now.
+`Tweak(const char* path, ...)` keeps the pointer, so the path must outlive the tweak. Code
+writes literals, which do. A scripting host makes tunables from paths it builds at runtime,
+and had no safe way to: GDScript's tunables in a Godot extension are the case plan C
+names.*
+
+- **`Tweak<T>(Symbol path, fallback, meta, registry)`** delegates to the `const char*`
+  form with the symbol's interned text. That text is NUL-terminated and lives as long as
+  the program, so nothing new is stored and `TweakBase` is unchanged.
+- **Overloads.** A string literal still picks the `const char*` form. A `std::string_view`
+  made at runtime converts to `Symbol` and is interned, so it is safe too. A `std::string`
+  needs `Symbol(s)` written out.
+- **The critique's point stands as documentation, not code.** Each new path stays
+  interned, so a host makes tunables once, at startup or at a load, not in a loop. No
+  owning string was built. `TweakMeta`'s strings (`desc`, `kind`, `group`) carry the same
+  rule. The header and the cookbook say so, with `Symbol(text).str()` as the way to give
+  them that life.
+- **Test** (`tests/data/test_config.cpp`). Two tweaks get paths built in a
+  `std::string`, one by `Symbol` and one by a view, and a description by a symbol's
+  `str()`. The string is then overwritten and destroyed. The paths and description read
+  back, a Config binds the tweak to its value with its source line, and destroying the
+  tweaks empties the registry.
