@@ -4964,3 +4964,29 @@ Baker's, so Baker's code is unchanged.*
   now applies with `git apply` and falls back to `patch` only where git is absent, and the
   command's message suggests `git apply` first.
 - **One commit, not three.** The three changes share `tools.cpp`.
+
+## D160. The stacks' file clock counts from 1970: journal times read negative on Linux
+
+*Reported by the agent-bridge session while testing the live tools: `{config.journal}`
+in a stack game returned negative `time_ns`, which broke its `since_ns` filter. It is a
+defect in the stacks, not in Baker.*
+
+- **The cause.** `Live` gives the Config `file_clock_now_ns()` as its time source, so that
+  edit-to-see runs from a file's save time.
+  - That function shifted the file system clock by 2^62 to keep it positive.
+  - libstdc++'s file clock counts from 2174, so today is about −4.65×10^18 ns there,
+    beyond the shift. The value wrapped to near 2^64.
+  - Script integers are 64-bit signed, so `config.journal` (D156) showed it as negative.
+  - Windows' file clock counts from 1601, so Windows never showed it.
+- **The fix.** `file_clock_ns` converts through `std::chrono::clock_cast` to the system
+  clock: nanoseconds since 1970, positive until 2262 on every platform. A time before 1970
+  is 0, which the stacks already read as unknown.
+- **Checked.**
+  - A live cube game's journal entry carries a positive time.
+  - `{config.journal T}` keeps the entry made at T, and `{config.journal T+1}` drops it.
+  - A new test in `stacks/base/tests/test_watcher.cpp` asserts the clock is below 2^63
+    and within a minute of the system clock. It fails on the old clock and passes on the
+    new.
+- **For Baker.** A host's TimeSource is its own domain (`uint64_t`), but `config.journal`
+  and `config.loop` hand times to script as `int64`. A host's clock should stay below
+  2^63. The stacks' now does.

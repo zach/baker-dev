@@ -20,8 +20,12 @@ namespace fs = std::filesystem;
 namespace base {
 
 uint64_t file_clock_ns(fs::file_time_type t) noexcept {
-    const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t.time_since_epoch());
-    return static_cast<uint64_t>(ns.count()) + (uint64_t{1} << 62);
+    // Through the system clock, so the epoch is 1970 on every platform: a file clock's own
+    // epoch differs by library (libstdc++ counts from 2174, so today is negative there),
+    // and a value at or above 2^63 reads as negative wherever it becomes a script integer.
+    const auto sys = std::chrono::clock_cast<std::chrono::system_clock>(t);
+    const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(sys.time_since_epoch());
+    return ns.count() > 0 ? static_cast<uint64_t>(ns.count()) : 0;  // before 1970: unknown
 }
 
 uint64_t file_clock_now_ns() noexcept {

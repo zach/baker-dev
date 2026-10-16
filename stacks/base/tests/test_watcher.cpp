@@ -2,6 +2,9 @@
 
 #include <doctest.h>
 
+#include <chrono>
+#include <cstdint>
+
 #include "test_util.hpp"
 
 namespace fs = std::filesystem;
@@ -22,6 +25,19 @@ TEST_CASE("watcher: a saved file is reported, with its write time") {
     CHECK(c.newest_write_ns ==
           base::file_clock_ns(fs::last_write_time(dir.path / "default.dta", ec)));
     CHECK(c.newest_write_ns <= base::file_clock_now_ns());
+}
+
+TEST_CASE("watcher: file times are nanoseconds since 1970, which script integers hold") {
+    // Live hands this clock to the Config, and the journal and loop records carry it into
+    // script as 64-bit signed integers: a time at or above 2^63 would read as negative.
+    const uint64_t now = base::file_clock_now_ns();
+    const auto sys = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                         std::chrono::system_clock::now().time_since_epoch())
+                         .count();
+    CHECK(now < (uint64_t{1} << 63));
+    const int64_t apart = static_cast<int64_t>(now) - sys;
+    CHECK(apart > -60'000'000'000);  // the same clock, read a moment apart
+    CHECK(apart < 60'000'000'000);
 }
 
 TEST_CASE("watcher: other extensions are ignored") {
