@@ -5330,3 +5330,39 @@ opt in to other threads (D166).*
   Locally, GCC's ThreadSanitizer finds no race in the data tests; CI's TSan job runs them
   too. `baker_alloc_tests` checks that a checker allocates through its allocator, returns
   all of it, and reaches no `operator new`.
+
+## D168. A headless stack game paces its frames: `--frame-hz`
+
+*Requirement note 0006 from the bridge integration, brought by the owner. A headless stack
+game held open for a session of console requests (a tool's live preview, a harness driving
+several games, an agent beside a person) spun its frame loop. The loop slept 1 ms per frame,
+but each frame still ran ImGui's pass and the Noop renderer, so one core stayed near 100%:
+four such games filled a four-core machine.*
+
+- **`AppOptions::frame_hz` and `--frame-hz N`** cap the frames a second.
+  - The loop sleeps out the rest of each period with `SDL_DelayPrecise`.
+  - A frame that runs long starts the next period at once, rather than racing to catch
+    up.
+  - 0 is unpaced.
+- **The default** paces a headless game run without `--frames` to `step_hz`, which is the
+  game serving its console. Every other run is unpaced as before: a window presents at
+  vsync, and `--frames` runs (tests, screenshots) run as fast as they can. So the play
+  build is unchanged unless the person passes the flag.
+- **The simulation is unaffected.** The fixed-step clock advances by elapsed time, so
+  pacing changes when frames run, never how many steps a span of game time takes. The
+  `sim` command does not use this loop.
+- **Measured** (Duel, headless with a console, idle, 5 s, this container):
+
+  | Run | CPU |
+  |---|---|
+  | `--frame-hz 0`, the old loop | 94% of a core |
+  | The default, 60 Hz | 5% |
+  | `--frame-hz 20` | 3% |
+
+  A console request waits at most one period for its frame: the worst of 40 requests was
+  16.7 ms at 60 Hz, against 0.4 ms unpaced. The note asked for tens of milliseconds.
+- **Test.** `stacks/tools/test_commands.py` (the CTest `stacks_duel_commands`) starts
+  Duel headless with a console on a free port. It sends a request, expects the answer,
+  then measures the idle game's CPU over 3 s from `/proc` and expects under half a core.
+  It measured 5%. Where there is no `/proc` (Windows), the CPU part is skipped.
+- **Docs:** the flags table in `stacks/README.md`.

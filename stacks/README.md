@@ -73,3 +73,4 @@ Options every stack's game takes:
 | `--screenshot PATH` | Write the last frame (frame 30 without `--frames`) as a PNG |
 | `--console-port N` | The remote console's port; 0 turns it off |
 | `--no-vsync`, `--step-hz N`, `--no-tools` | Present unthrottled; the simulation rate; start with the panels hidden |
+| `--frame-hz N` | At most N frames a second; 0: unpaced. By default a headless game without `--frames`, one serving its console, paces to the step rate, so an idle one costs a few percent of a core; every other run is unpaced |

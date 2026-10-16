@@ -8,6 +8,7 @@
 #include <imgui_impl_sdl3.h>
 #include <baker/task.hpp>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -23,7 +24,7 @@ namespace {
     std::fprintf(stderr,
                  "%s\nusage: %s [--data DIR] [--renderer auto|noop|d3d11|d3d12|vulkan|gl]\n"
                  "          [--frames N] [--headless] [--console-port N] [--no-vsync]\n"
-                 "          [--step-hz N] [--no-tools] [--screenshot PATH]\n",
+                 "          [--step-hz N] [--frame-hz N] [--no-tools] [--screenshot PATH]\n",
                  problem, program);
     std::exit(2);
 }
@@ -126,6 +127,8 @@ AppOptions parse_args(int argc, char** argv, AppOptions o) {
             o.vsync = false;
         } else if (!std::strcmp(a, "--step-hz") && more) {
             o.step_hz = static_cast<double>(number(argv[0], argv[++i], 1, 10000));
+        } else if (!std::strcmp(a, "--frame-hz") && more) {
+            o.frame_hz = static_cast<double>(number(argv[0], argv[++i], 0, 10000));
         } else if (!std::strcmp(a, "--no-tools")) {
             o.tools = false;
         } else if (!std::strcmp(a, "--screenshot") && more) {
@@ -135,6 +138,7 @@ AppOptions parse_args(int argc, char** argv, AppOptions o) {
         }
     }
     if (o.headless) o.renderer = RendererKind::Noop;
+    if (o.frame_hz < 0) o.frame_hz = o.headless && !o.frames ? o.step_hz : 0;
     return o;
 }
 
@@ -211,6 +215,10 @@ int run(Game& game, const AppOptions& options) {
     int exit_code = game.start(app) ? 0 : 1;
     app.clock_.step_ns = FixedStep::hz(options.step_hz);
     uint64_t last = SDL_GetTicksNS();
+    // Pacing (frame_hz): each frame starts no sooner than one period after the last began.
+    const uint64_t period =
+        options.frame_hz > 0 ? static_cast<uint64_t>(1e9 / options.frame_hz) : 0;
+    uint64_t next_frame = last + period;
     float fps = 0;
     std::string seen_file;
     uint64_t shot_requested = 0;
@@ -275,8 +283,14 @@ int run(Game& game, const AppOptions& options) {
         if (options.frames && app.frame_ >= options.frames &&
             (!shot_pending || app.frame_ > shot_requested + 10))
             app.quit_ = true;
-        // Headless and open-ended (serving the console), nothing presents to pace the loop.
-        if (options.headless && !options.frames) SDL_Delay(1);
+        // Headless, nothing presents to pace the loop: frame_hz does, so a game serving its
+        // console idles. A request waits at most one period for its frame.
+        if (period) {
+            const uint64_t t = SDL_GetTicksNS();
+            if (t < next_frame) SDL_DelayPrecise(next_frame - t);
+            // A frame that ran long starts the next period now, rather than racing to catch up.
+            next_frame = std::max(next_frame, SDL_GetTicksNS()) + period;
+        }
     }
 
     console.reset();
