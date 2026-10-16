@@ -228,6 +228,44 @@ setting only its own values) so that removing one never needs another removed fi
 - **In CI**, run both over every file under `overlays/`, stacked on the shipped data, on
   every change. An overlay that fails never reaches the server.
 
+### Bounding what an overlay may change
+
+A shipped game should take an overlay only after checking it, and only within bounds it
+declares.
+
+**The policy.** A `LayerPolicy` states the bounds:
+
+| Rule | Refuses |
+|---|---|
+| `data_only` | commands, properties, variables, `#autorun` |
+| `scalars_only` | a value that is not a number, symbol or string, and a removal |
+| `existing_only` | a new key, and a removal |
+| `allow` | anything outside the listed paths |
+| `warnings_refuse` | anything a validator, or the read, warns about |
+
+**The check.** `cfg.check_layer_text(name, text, policy)` checks text received from
+outside, changing nothing:
+- it reads the text as text only, never a cache;
+- it reads it against the stack's packs, so an overlay whose `requires` names a newer base
+  version is warned about;
+- it runs the validators over the stack with the overlay;
+- it reports the overlay's effect, refusals and warnings.
+
+**The push.** `push_layer` with `{.policy = &policy}` runs the same check and refuses,
+changing nothing, if the policy refuses.
+
+```cpp
+const baker::Path tunable[] = {baker::Path("economy"), baker::Path("events")};
+const baker::LayerPolicy hotfix{.data_only = true, .scalars_only = true,
+                                .existing_only = true, .warnings_refuse = true,
+                                .allow = tunable};
+auto report = cfg.check_layer_text("hotfix_0412", downloaded, hotfix);  // show it, log it
+baker::LoadSession untrusted;
+untrusted.text_only = true;  // never a cache from outside
+auto tree = baker::read_string(downloaded, "hotfix_0412", untrusted);
+cfg.push_layer("hotfix_0412", *tree, {.policy = &hotfix});  // refused: nothing changed
+```
+
 ### Personal and experiment layers
 
 Developers tune in their own [`local` layer](#personal-layers-local), and variants live in

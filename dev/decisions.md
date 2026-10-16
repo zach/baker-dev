@@ -4990,3 +4990,62 @@ defect in the stacks, not in Baker.*
 - **For Baker.** A host's TimeSource is its own domain (`uint64_t`), but `config.journal`
   and `config.loop` hand times to script as `int64`. A host's clock should stay below
   2^63. The stacks' now does.
+
+## D161. Checking a layer before it takes effect: `LayerPolicy`, `check_layer`
+
+*E5 of `dev/integration-plans.md`, which the owner chose next. The design is
+`dev/layer-check-plan.md`. A host taking a layer from outside needs, before it takes
+effect, its effect and the verdicts on it, under a policy that bounds what it may change,
+with a refusal that changes nothing. The hosts: a live game taking an overlay, an agent's
+proposal, a mod loader, CI.*
+
+- **API** (`config.hpp`).
+  - **`LayerPolicy`** has `data_only`, `scalars_only`, `existing_only`, `warnings_refuse`,
+    and `allow` (a span of path prefixes).
+  - **`LayerReport`** has `effect` (as `layer_effect` reports it), `refusals` and
+    `warnings`, and `ok()`.
+  - **`Config::check_layer(name, tree, policy)`** checks a tree, changing nothing.
+  - **`Config::check_layer_text(name, text, policy)`** reads the text first:
+    - as text only, never a cache (D142);
+    - with a copy of the read session, so the candidate's packs' `requires` and versions
+      (D141, D147) are checked against the stack's;
+    - only the warnings that read adds are reported.
+  - **`LayerOptions::policy`.** With it, `push_layer`, by path or by tree, checks first and
+    refuses with the first refusal and a count of the rest, changing nothing. A file
+    layer's `#autorun` commands count under `data_only`.
+- **The rules.**
+  - The candidate's leaves are `layer_effect`'s.
+  - `data_only` refuses commands, properties and variables anywhere, and `#autorun`.
+  - `scalars_only` refuses a value that is not a number, symbol or string, and a removal.
+  - `existing_only` refuses a path the stack does not set, and a removal.
+  - `allow` refuses a path outside every prefix, compared segment by segment.
+  - The validators run over the stack merged with the candidate on top; what they report
+    is a warning.
+  - `warnings_refuse` makes each warning a refusal.
+  - Each refusal names the path and its reason, located at the array that holds it.
+- **The effect is computed with the candidate on top.** A host that places a checked layer
+  lower sees what the layer says, not where it would land.
+- **Shipping.** It is available, as `source()` and `layer_effect` are: it is what makes
+  `live_layers` safe. A test pushes a checked overlay into a frozen Config with
+  `live_layers`, refuses a bad one, and rolls back.
+- **Cost.**
+  - **The case.** A 9.8 KB overlay changing 400 prices in a 2,000-item table (155 KB),
+    with every rule on, checks in 820–900 µs (release, three runs, this container). The
+    parse is 66–71 µs of that.
+  - **The profile.** Callgrind puts 54% in `detail::resolve`: three lookups per changed
+    value, each a linear scan of the 2,000-item array. That is Baker's lookup cost on a
+    very wide table, which sorted mode exists for, and not this feature's.
+  - **The path class.** It runs once per arriving layer, never per frame, so it is left as
+    measured.
+- **Tests.**
+  - `tests/data/test_layer_check.cpp`:
+    - the effect, with nothing changed;
+    - each rule's refusals, located, and every rule at once passing a balance change;
+    - a validator's warning, and `warnings_refuse`;
+    - a pack requiring a newer base version, warned about and refused under the flag,
+      while one requiring the current version passes;
+    - `push_layer` refusing by tree and by file (`#autorun`) with nothing changed, and
+      accepting good layers;
+    - the frozen live-layers path.
+  - `baker_alloc_tests` checks a layer from text through the Config's allocator.
+- **Core:** 12,867 → 13,033 lines.

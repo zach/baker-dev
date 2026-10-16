@@ -410,6 +410,15 @@ struct Config::Impl {
         return {Symbol(layer), holder.file(), holder.line()};
     }
 
+    // --- Checking a candidate layer (Config::check_layer) ---
+
+    // The candidate `tree` (with a file layer's #autorun `commands`) on top of the stack:
+    // its effect, the policy's refusals, and the validators' warnings, `read_warnings` added.
+    [[nodiscard]] LayerReport check_candidate(const Config& c, std::string_view name,
+                                              const Array& tree, std::span<const Node> commands,
+                                              const LayerPolicy& policy,
+                                              std::span<const Error> read_warnings) const;
+
     // --- Write-back ---
 
     [[nodiscard]] Expected<Plan> plan(const LayerState& layer, const Path& path,
