@@ -92,7 +92,7 @@ def sim_json(s):
 
     code, first = sim("before", "")
     r = json.loads(first)
-    expect(code == 0 and r["schema"] == "stacks.sim/1" and r["status"] == "passed",
+    expect(code == 0 and r["schema"] == "stacks.sim/1.1" and r["status"] == "passed",
            "sim --json: the results, passed")
     expect((s.dir / "before" / "results.json").read_text() == first,
            "sim --out writes the same JSON to results.json")
@@ -107,7 +107,7 @@ def sim_json(s):
     code, out, _ = s.run("compare", str(s.dir / "before"), str(s.dir / "after"))
     c = json.loads(out)
     broke = [o["name"] for o in c["objectives"] if o["moved"] == "broke"]
-    expect(code == 1 and c["schema"] == "stacks.compare/1" and c["broke"] == len(broke) > 0,
+    expect(code == 1 and c["schema"] == "stacks.compare/1.1" and c["broke"] == len(broke) > 0,
            "compare: a weaker fighter breaks objectives, and exits 1")
     first_broken = next(o for o in c["objectives"] if o["moved"] == "broke")
     expect(first_broken["changed"] and first_broken["changed"][0]["before"]

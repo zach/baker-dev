@@ -48,8 +48,10 @@ and seed give the same result, so a failing seed is a reproduction.
 4. **`$G check`**: exit 0, or fix it.
 5. **`$G sim --seeds 1-10 --out runs/after`** over the same seeds and every scenario, then
    **`$G compare runs/before runs/after`**: it names each objective that broke (passed on a
-   scenario and seed, now fails) and exits 1. A fix that breaks another objective is not
-   done; that is the most common way a change fails review.
+   scenario and seed, now fails; or, for an objective `(over median)`, its median over the
+   seeds passed and now fails) and exits 1. A fix that breaks another objective is not done;
+   that is the most common way a change fails review. `sim`'s exit status is the verdict:
+   do not judge a seed as noise yourself.
 6. **Report** to the person: what you changed and why (`$G diff`), which objectives moved
    (before and after), what you could not judge by objectives (how it looks or feels), and
    how to see it: start the game and toggle the `agent` layer in the Layers panel (F1).
@@ -61,8 +63,10 @@ and seed give the same result, so a failing seed is a reproduction.
 - **Duel** (`stacks/duel/`): frame data under `(fighters (NAME (moves (MOVE ...))))`, the
   CPU's difficulties under `(cpu ...)`, the bots under `(bots ...)`. Read
   `$G eval "{duel.frame_table}" "{duel.combo_route}"` before and after a frame-data change,
-  and quote both in your report. Win rates are per run over an hour of rounds; one seed
-  outside a band is noise, a shifted median is a finding.
+  and quote both in your report. Win rates are per run over an hour of rounds, so their
+  objectives are judged by their median over the seeds (`(over median)`): a seed outside
+  the band is reported but passes, a median outside it fails. A median near a band's edge
+  is a risk to name in the report.
 - **Ledger** (`stacks/ledger/`): goods and buildings come from `economy.xlsx` through
   `data/economy.dta`, which is generated: never edit it. Tune in `agent.dta`, and report each
   value as the sheet cell to change (each line of `economy.dta` ends with its sheet and

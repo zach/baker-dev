@@ -124,9 +124,64 @@ TEST_CASE("sim: results are data that reads back") {
     std::vector<base::RunResult> runs{
         base::simulate(game, ctx, f.scenarios[0], f.objectives, 1, 60),
         base::simulate(game, ctx, f.scenarios[0], f.objectives, 2, 60)};
-    REQUIRE(test::write(f.dir.path / "out.dta", base::to_dta(runs[0]) + base::summary_dta(runs)));
+    REQUIRE(
+        test::write(f.dir.path / "out.dta", base::to_dta(runs[0]) + base::summary_dta(runs, {})));
     auto back = baker::read_file((f.dir.path / "out.dta").string());
     REQUIRE_MESSAGE(back, base::to_dta(runs[0]));
     CHECK((*back)->get<int64_t>("summary.runs").value_or(0) == 2);
     CHECK((*back)->get<int64_t>("run.seed").value_or(0) == 1);
+}
+
+TEST_CASE("sim: an objective (over median) is judged by its median over a scenario's seeds") {
+    Fixture f;
+    // Each seed's total is the seed: 1 to 5, so the median is 3.
+    REQUIRE_MESSAGE(f.load(R"(
+        (objective counter.typical (over median) (measure {counter.total}) (pass {<= $value 3.5}))
+        (objective counter.strict (over median) (measure {counter.total}) (pass {<= $value 2.5})))",
+                           "(scenario seeded (seconds 1) (start {counter.rate $seed}))"),
+                    f.error);
+    REQUIRE(f.objectives.size() == 2);
+    CHECK(f.objectives[0].over_median);
+    Counter game;
+    baker::Context ctx;
+    game.bind(ctx);
+    std::vector<base::RunResult> runs;
+    for (uint64_t seed = 1; seed <= 5; ++seed)
+        runs.push_back(base::simulate(game, ctx, f.scenarios[0], f.objectives, seed, 60));
+    // A seed whose value is out of band does not fail its run.
+    CHECK_FALSE(runs[4].objectives[0].pass);
+    CHECK(runs[4].passed());
+    const auto medians = base::judge_medians(ctx, f.objectives, runs);
+    REQUIRE(medians.size() == 2);
+    CHECK(medians[0].objective == "counter.strict");
+    CHECK(medians[0].value == doctest::Approx(3.0));
+    CHECK(medians[0].seeds == 5);
+    CHECK_FALSE(medians[0].pass);
+    CHECK(medians[1].pass);  // counter.typical
+    CHECK_FALSE(base::all_passed(runs, medians));
+    CHECK(base::all_passed(runs, {medians[1]}));
+
+    // The verdicts are data that reads back, and compare judges by them.
+    std::filesystem::create_directories(f.dir.path / "out");
+    for (const base::RunResult& r : runs)
+        REQUIRE(test::write(f.dir.path / "out" / ("run-seeded-" + std::to_string(r.seed) + ".dta"),
+                            base::to_dta(r)));
+    REQUIRE(test::write(f.dir.path / "out" / "medians.dta", base::medians_dta(medians)));
+    std::vector<base::RunResult> back;
+    std::vector<base::MedianResult> back_medians;
+    REQUIRE_MESSAGE(base::read_runs(f.dir.path / "out", back, back_medians, f.error), f.error);
+    REQUIRE(back_medians.size() == 2);
+    CHECK(back_medians[1].pass);
+    CHECK(back[0].objectives[0].over_median);
+
+    bool broke = false;
+    // The strict objective's median fails on both sides: the same, whatever the seeds did.
+    std::string json = base::compare_json(back, back_medians, runs, medians, broke);
+    CHECK_FALSE(broke);
+    // The typical objective's median passed, and now fails: broke.
+    std::vector<base::MedianResult> worse = medians;
+    worse[1].pass = false;
+    json = base::compare_json(runs, medians, runs, worse, broke);
+    CHECK(broke);
+    CHECK(json.find("\"over\": \"median\"") != std::string::npos);
 }

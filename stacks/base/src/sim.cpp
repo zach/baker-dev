@@ -104,6 +104,14 @@ bool load_objectives(const fs::path& dir, std::vector<Objective>& out,
             o.desc = text_of(form, "desc");
             o.measure = (*measure)[1];
             o.pass = (*pass)[1];
+            if (const baker::Array* over = form.try_find("over")) {
+                if (over->size() != 2 || !(*over)[1].is(baker::Symbol("median"))) {
+                    error = file.string() + ": objective " + o.name +
+                            ": (over median) is the one form of (over ...)";
+                    return false;
+                }
+                o.over_median = true;
+            }
             out.push_back(std::move(o));
         }
         trees.push_back(*tree);
@@ -160,7 +168,7 @@ bool load_scenarios(const fs::path& file, std::vector<Scenario>& out, std::strin
 bool RunResult::passed() const noexcept {
     if (!errors.empty()) return false;
     for (const ObjectiveResult& o : objectives)
-        if (!o.pass) return false;
+        if (!o.pass && (!o.over_median || !o.error.empty())) return false;
     return true;
 }
 
@@ -199,6 +207,7 @@ RunResult simulate(Game& game, baker::Context& ctx, const Scenario& scenario,
             continue;
         ObjectiveResult r;
         r.name = o.name;
+        r.over_median = o.over_median;
         auto value = ctx.eval(o.measure);
         if (!value) {
             r.error = described(value.error());
@@ -232,6 +241,7 @@ std::string to_dta(const RunResult& run) {
     for (const ObjectiveResult& o : run.objectives) {
         s += "\n   (objective " + o.name + " (value " + fixed(o.value) + ") (pass " +
              (o.pass ? "1" : "0") + ")";
+        if (o.over_median) s += " (over median)";
         if (!o.error.empty()) s += " (error " + quote(o.error) + ")";
         s += ")";
     }
@@ -239,7 +249,69 @@ std::string to_dta(const RunResult& run) {
     return s + ")\n";
 }
 
-std::string summary_dta(const std::vector<RunResult>& runs) {
+std::vector<MedianResult> judge_medians(baker::Context& ctx,
+                                        const std::vector<Objective>& objectives,
+                                        const std::vector<RunResult>& runs) {
+    // The values of each (scenario, objective) judged by its median, in that order.
+    std::map<std::pair<std::string, std::string>, std::vector<double>> values;
+    for (const RunResult& r : runs)
+        for (const ObjectiveResult& o : r.objectives)
+            if (o.over_median) {
+                std::vector<double>& v = values[{r.scenario, o.name}];
+                if (o.error.empty() && std::isfinite(o.value)) v.push_back(o.value);
+            }
+    std::vector<MedianResult> out;
+    for (auto& [key, v] : values) {
+        MedianResult m;
+        m.scenario = key.first;
+        m.objective = key.second;
+        m.seeds = static_cast<int>(v.size());
+        const auto o = std::find_if(objectives.begin(), objectives.end(),
+                                    [&](const Objective& x) { return x.name == m.objective; });
+        if (v.empty() || o == objectives.end()) {
+            m.error = "no value to judge";
+        } else {
+            std::sort(v.begin(), v.end());
+            m.value = v[v.size() / 2];  // the upper median, as the summaries print it
+            ctx.var("value") = baker::Node(m.value);
+            auto pass = ctx.eval(o->pass);
+            double p = 0;
+            if (!pass)
+                m.error = described(pass.error());
+            else if (!number(*pass, p))
+                m.error = "pass is not a number: " + baker::to_string(*pass);
+            else
+                m.pass = p != 0;
+        }
+        out.push_back(std::move(m));
+    }
+    return out;
+}
+
+bool all_passed(const std::vector<RunResult>& runs, const std::vector<MedianResult>& medians) {
+    return std::all_of(runs.begin(), runs.end(), [](const RunResult& r) { return r.passed(); }) &&
+           std::all_of(medians.begin(), medians.end(),
+                       [](const MedianResult& m) { return m.pass; });
+}
+
+namespace {
+std::string median_dta(const MedianResult& m) {
+    std::string s = "(median " + m.objective + " (scenario " + m.scenario + ") (value " +
+                    fixed(m.value) + ") (seeds " + std::to_string(m.seeds) + ") (pass " +
+                    (m.pass ? "1" : "0") + ")";
+    if (!m.error.empty()) s += " (error " + quote(m.error) + ")";
+    return s + ")";
+}
+}  // namespace
+
+std::string medians_dta(const std::vector<MedianResult>& medians) {
+    std::string s;
+    for (const MedianResult& m : medians) s += median_dta(m) + "\n";
+    return s;
+}
+
+std::string summary_dta(const std::vector<RunResult>& runs,
+                        const std::vector<MedianResult>& medians) {
     struct Tally {
         int passed = 0, failed = 0;
         std::vector<double> values;
@@ -267,10 +339,11 @@ std::string summary_dta(const std::vector<RunResult>& runs) {
         }
         s += ")";
     }
+    for (const MedianResult& m : medians) s += "\n   " + median_dta(m);
     return s + ")\n";
 }
 
-// --- JSON (stacks.sim/1, stacks.compare/1) ---
+// --- JSON (stacks.sim/1.1, stacks.compare/1.1) ---
 
 namespace {
 
@@ -338,13 +411,19 @@ std::map<std::string, Tally> tallies(const std::vector<RunResult>& runs) {
     return by;
 }
 
+std::string median_json(const MedianResult& m) {
+    return "{\"scenario\": " + json_str(m.scenario) + ", \"objective\": " + json_str(m.objective) +
+           ", \"value\": " + (m.error.empty() ? json_num(m.value) : "null") +
+           ", \"seeds\": " + std::to_string(m.seeds) +
+           ", \"pass\": " + (m.pass ? "true" : "false") + ", \"error\": " + json_str(m.error) + "}";
+}
+
 }  // namespace
 
-std::string results_json(std::vector<RunResult> runs) {
+std::string results_json(std::vector<RunResult> runs, const std::vector<MedianResult>& medians) {
     runs = sorted_runs(std::move(runs));
-    const bool all =
-        std::all_of(runs.begin(), runs.end(), [](const RunResult& r) { return r.passed(); });
-    std::string s = "{\n  \"schema\": \"stacks.sim/1\",\n  \"status\": ";
+    const bool all = all_passed(runs, medians);
+    std::string s = "{\n  \"schema\": \"stacks.sim/1.1\",\n  \"status\": ";
     s += all ? "\"passed\"" : "\"failed\"";
     s += ",\n  \"runs\": [";
     for (size_t i = 0; i < runs.size(); ++i) {
@@ -357,15 +436,19 @@ std::string results_json(std::vector<RunResult> runs) {
         s += "], \"objectives\": [";
         for (size_t j = 0; j < r.objectives.size(); ++j) {
             const ObjectiveResult& o = r.objectives[j];
-            s += (j ? ", {\"name\": " : "{\"name\": ") + json_str(o.name) +
-                 ", \"value\": " + json_num(o.value) +
-                 ", \"pass\": " + (o.pass ? "true" : "false") + ", \"error\": " +
-                 json_str(!o.error.empty() || std::isfinite(o.value) ? o.error : "not finite") +
-                 "}";
+            s +=
+                (j ? ", {\"name\": " : "{\"name\": ") + json_str(o.name) +
+                ", \"value\": " + json_num(o.value) + ", \"pass\": " + (o.pass ? "true" : "false") +
+                ", \"over\": " + (o.over_median ? "\"median\"" : "\"seed\"") + ", \"error\": " +
+                json_str(!o.error.empty() || std::isfinite(o.value) ? o.error : "not finite") + "}";
         }
         s += "]}";
     }
     s += runs.empty() ? "],\n" : "\n  ],\n";
+    s += "  \"medians\": [";
+    for (size_t i = 0; i < medians.size(); ++i)
+        s += (i ? ",\n    " : "\n    ") + median_json(medians[i]);
+    s += medians.empty() ? "],\n" : "\n  ],\n";
     s += "  \"summary\": [";
     const auto by = tallies(runs);
     size_t k = 0;
@@ -377,7 +460,8 @@ std::string results_json(std::vector<RunResult> runs) {
     return s;
 }
 
-bool read_runs(const fs::path& dir, std::vector<RunResult>& out, std::string& error) {
+bool read_runs(const fs::path& dir, std::vector<RunResult>& out, std::vector<MedianResult>& medians,
+               std::string& error) {
     std::error_code ec;
     if (!fs::is_directory(dir, ec)) {
         error = "no results directory: " + dir.string();
@@ -430,6 +514,7 @@ bool read_runs(const fs::path& dir, std::vector<RunResult>& out, std::string& er
                     const baker::Array* part = (*field)[j].try_array();
                     if (!part || part->size() < 2) continue;
                     if ((*part)[0].is("value")) o.value = number(*part);
+                    if ((*part)[0].is("over")) o.over_median = true;
                     if ((*part)[0].is("pass")) o.pass = number(*part) != 0;
                     if ((*part)[0].is("error"))
                         if (auto text = (*part)[1].try_str()) o.error = std::string(*text);
@@ -439,12 +524,39 @@ bool read_runs(const fs::path& dir, std::vector<RunResult>& out, std::string& er
         }
         out.push_back(std::move(r));
     }
+    // The medians' verdicts, if any objective was judged by its median.
+    const fs::path mf = dir / "medians.dta";
+    if (!fs::exists(mf, ec)) return true;
+    auto tree = baker::read_file(mf.string());
+    if (!tree) {
+        error = described(tree.error());
+        return false;
+    }
+    for (const baker::Array& form : (*tree)->subarrays()) {
+        if (form.size() < 2 || !form[0].is(baker::Symbol("median"))) continue;
+        MedianResult m;
+        if (auto sym = form[1].try_sym()) m.objective = std::string(sym->str());
+        if (const baker::Array* a = form.try_find("scenario"); a && a->size() > 1)
+            if (auto sym = (*a)[1].try_sym()) m.scenario = std::string(sym->str());
+        if (const baker::Array* a = form.try_find("value")) m.value = number(*a);
+        if (const baker::Array* a = form.try_find("seeds")) m.seeds = static_cast<int>(number(*a));
+        if (const baker::Array* a = form.try_find("pass")) m.pass = number(*a) != 0;
+        if (const baker::Array* a = form.try_find("error"); a && a->size() > 1)
+            if (auto text = (*a)[1].try_str()) m.error = std::string(*text);
+        medians.push_back(std::move(m));
+    }
     return true;
 }
 
-std::string compare_json(const std::vector<RunResult>& before, const std::vector<RunResult>& after,
-                         bool& broke) {
+std::string compare_json(const std::vector<RunResult>& before,
+                         const std::vector<MedianResult>& medians_before,
+                         const std::vector<RunResult>& after,
+                         const std::vector<MedianResult>& medians_after, bool& broke) {
     broke = false;
+    // An objective judged by its median, by scenario: its verdict on each side.
+    std::map<std::string, std::map<std::string, bool>> median_before, median_after;
+    for (const MedianResult& m : medians_before) median_before[m.objective][m.scenario] = m.pass;
+    for (const MedianResult& m : medians_after) median_after[m.objective][m.scenario] = m.pass;
     // Pass by objective, then by (scenario, seed).
     using Key = std::pair<std::string, uint64_t>;
     std::map<std::string, std::map<Key, bool>> pass_before, pass_after;
@@ -469,6 +581,20 @@ std::string compare_json(const std::vector<RunResult>& before, const std::vector
             moved = "new";
         } else if (a == ta.end()) {
             moved = "gone";
+        } else if (median_before.count(name) || median_after.count(name)) {
+            // Judged by its median: a seed's pass moving is not a change, its verdict is.
+            bool any_broke = false, any_fixed = false;
+            size_t c = 0;
+            for (const auto& [scenario, now] : median_after[name]) {
+                const auto was = median_before[name].find(scenario);
+                if (was == median_before[name].end() || was->second == now) continue;
+                (now ? any_fixed : any_broke) = true;
+                changed +=
+                    (c++ ? ", {\"scenario\": " : "{\"scenario\": ") + json_str(scenario) +
+                    ", \"over\": \"median\", \"before\": " + (was->second ? "true" : "false") +
+                    ", \"after\": " + (now ? "true" : "false") + "}";
+            }
+            moved = any_broke ? "broke" : any_fixed ? "fixed" : "same";
         } else {
             bool any_broke = false, any_fixed = false;
             size_t c = 0;
@@ -496,7 +622,7 @@ std::string compare_json(const std::vector<RunResult>& before, const std::vector
                       ", \"median_change\": " + change + ", \"changed\": [" + changed + "]}";
     }
     broke = broken > 0;
-    return "{\n  \"schema\": \"stacks.compare/1\",\n  \"broke\": " + std::to_string(broken) +
+    return "{\n  \"schema\": \"stacks.compare/1.1\",\n  \"broke\": " + std::to_string(broken) +
            ",\n  \"fixed\": " + std::to_string(fixed_count) + ",\n  \"objectives\": [" +
            objectives + (names.empty() ? "]\n}\n" : "\n  ]\n}\n");
 }

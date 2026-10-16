@@ -13,7 +13,7 @@ game plays as before:
 ```
 stacks_cube                                   play (the base's app)
 stacks_cube sim [--scenario NAME]... [--seeds A-B] [--out DIR] [--json]
-                                              --out also gets results.json (stacks.sim/1)
+                                              --out also gets results.json (stacks.sim/1.1)
 stacks_cube compare BEFORE_DIR AFTER_DIR      which objectives moved between two --out
                                               directories, as JSON; exit 1 if one broke
 stacks_cube check                             baker::check over data, its #autorun script,
@@ -81,8 +81,24 @@ A run's result is `.dta`, so an agent reads results with the tools it reads data
    (objective cube.turns (passed 5) (failed 0) (min 2.5) (median 2.5) (max 2.5)))
 ```
 
-`sim` exits 0 when every objective passed, 1 when one failed, and 2 when something could
-not run (a missing scenario, a broken file): CI can gate on it.
+**Judged by the median.** A measure that moves from seed to seed, such as a win rate over
+an hour of rounds, says `(over median)`. It is judged once per scenario, by its `pass` on the
+median of its values over the seeds `sim` ran. Each run still records its own value and
+pass, but a seed outside the band does not fail the run; the median's verdict does:
+
+```dta
+(objective duel.normal_vs_combo
+   (over median)
+   (measure {duel.win_rate 2})
+   (pass {and {>= $value 0.15} {<= $value 0.5}}))
+; in the summary, and in medians.dta beside the runs with --out:
+(median duel.normal_vs_combo (scenario normal_vs_combo) (value 0.36) (seeds 3) (pass 1))
+```
+
+`sim` exits 0 when every objective passed (and every median), 1 when one failed, and 2 when
+something could not run (a missing scenario, a broken file): CI can gate on it.
+`compare` calls an objective judged by its median broken only when a scenario's median
+verdict went from pass to fail.
 
 ## Script functions from data
 
