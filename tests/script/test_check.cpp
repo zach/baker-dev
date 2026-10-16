@@ -414,10 +414,9 @@ TEST_CASE("problems the host found fail the check and are in its JSON") {
     CHECK_FALSE(report.ok());
     const std::string json = to_json(report);
     CHECK(json.find("\"passed\": false") != std::string::npos);
-    CHECK(json.find(
-              "\"shape_errors\": [\n    {\"code\": \"range\", \"file\": \"d.dta\", "
-              "\"line\": 3, \"column\": 0, \"path\": \"\", \"message\": \"speed 12 is out of range 0..10\"}") !=
-          std::string::npos);
+    CHECK(json.find("\"shape_errors\": [\n    {\"code\": \"range\", \"file\": \"d.dta\", "
+                    "\"line\": 3, \"column\": 0, \"path\": \"\", \"message\": \"speed 12 is out of "
+                    "range 0..10\"}") != std::string::npos);
 
     CheckReport loaded;
     const Error failed(ErrorCode::NotFound, "'spawnn' is not a function", Symbol("d.dta"), 1);
