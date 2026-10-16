@@ -11,6 +11,7 @@ namespace baker {
 namespace {
 
 // A path or a layer name, written as a symbol (box.width) or a string ("phase.2").
+// Context::declare knows the type by its name, "name", and checks it alike.
 struct Name {
     std::string_view text;
 };

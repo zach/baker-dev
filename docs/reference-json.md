@@ -65,8 +65,10 @@ editor, a CI job) can register each function from its overloads with
   game's own functions. A stub stays a stub when its status is set on the returned `FuncRef`.
 - A declared function has no body: calling it fails.
 - The types `declare` can check are Baker's own (`int` and the other integer names, `float`,
-  `float32`, `bool`, `symbol`, `string`, `array`, `value`, `unevaluated`, `$variable`,
-  `values...`) and any type that a native function or method of the same Context takes.
+  `float32`, `bool`, `symbol`, `string`, `name`, `array`, `value`, `unevaluated`,
+  `$variable`, `values...`) and any type that a native function or method of the same
+  Context takes. Every function Baker itself binds, the config tools included, can be
+  declared from its own reference.
   Any other type name is an error naming the function. The tool decides what to do then,
   for example to declare that parameter as `value`.
 
