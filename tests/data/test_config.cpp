@@ -950,3 +950,29 @@ TEST_CASE("Config::autorun: each enabled file layer's #autorun commands, bottom 
         CHECK(heads() == std::vector<std::string>{"{first}", "{fourth}"});  // the new read's
     }
 }
+
+TEST_CASE("a tweak's path made at runtime is kept by the symbol (D171)") {
+    TweakRegistry reg;
+    std::vector<std::unique_ptr<Tweak<float>>> tunables;  // as a scripting host keeps them
+    {
+        std::string built = "enemy.";
+        built += "speed";  // made at runtime, and gone after this block
+        tunables.push_back(std::make_unique<Tweak<float>>(Symbol(built), 1.0f, TweakMeta{}, reg));
+        const std::string_view desc_view = "Enemy speed";
+        tunables.push_back(std::make_unique<Tweak<float>>(
+            std::string_view(built.data(), 5), 2.0f,  // a view converts to a Symbol: "enemy"
+            TweakMeta{.desc = Symbol(desc_view).str()}, reg));
+        built.assign(built.size(), 'x');  // the buffer the paths came from is overwritten
+    }
+    CHECK(tunables[0]->path() == "enemy.speed");
+    CHECK(tunables[1]->path() == "enemy");
+    CHECK(tunables[1]->desc() == "Enemy speed");
+    TempDir dir;
+    Config cfg({.tweaks = &reg});
+    REQUIRE(cfg.push_layer("default", dir.write("default.dta", "(enemy (speed 4.5))\n")));
+    CHECK(float(*tunables[0]) == 4.5f);
+    CHECK(tunables[0]->bound());
+    CHECK(ok(tunables[0]->source()).line == 1);
+    tunables.clear();  // detached, the registry empty again
+    CHECK(reg.size() == 0);
+}
