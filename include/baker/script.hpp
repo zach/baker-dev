@@ -49,6 +49,7 @@
 namespace baker {
 
 class Config;
+struct ValidatorStack;
 class Context;
 class Scheduler;
 class ObjectBase;
@@ -868,10 +869,12 @@ void check(const Array& tree, const Context& ctx, CheckReport& report,
 void check(const Config& cfg, const Context& ctx, CheckReport& report,
            const CheckOptions& options = {}, std::span<const Array* const> extra = {});
 // For Config::add_validator (the same type as Config::Validator): checks the merged root
-// after every merge and reports check's errors and one-way warnings through the Config's
-// warning handler (D102); the demand report, repeats, and findings are for tools. `ctx` and
-// `options.packs` must outlive the Config's use of it. Silent without a warning handler.
-[[nodiscard]] Callback<void(const Array& root, const Callback<void(const Error&)>& warn)>
+// after every merge, and each candidate layer, and reports check's errors and one-way
+// warnings through the Config's warning handler (D102); the demand report, repeats, and
+// findings are for tools. Without `options.packs`, the stack's session is the packs. `ctx`
+// and `options.packs` must outlive the Config's use of it. Silent without a warning handler.
+// It reads the Context, which is single-threaded: add it without ValidatorOptions::any_thread.
+[[nodiscard]] Callback<void(const ValidatorStack& stack, const Callback<void(const Error&)>& warn)>
 check_validator(const Context& ctx, const CheckOptions& options = {});
 
 // Writes the script reference (spec §5): every function with its overloads, tier, status,

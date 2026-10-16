@@ -217,10 +217,10 @@ setting only its own values) so that removing one never needs another removed fi
 ### Tests before an overlay ships
 
 - **Shapes.** Declare, in the shipped data, the shapes of everything an overlay may set,
-  with ranges: `(event (drop_rate float (range 0 1)))`. Before pushing, merge the overlay
-  over the current root and check it: `examples/live-ops` refuses an overlay that sets a
-  15% drop rate as `15`. In a development build, `cfg.add_validator(baker::shape::validator())`
-  checks every push.
+  with ranges: `(event (drop_rate float (range 0 1)))`. With
+  `cfg.add_validator(baker::shape::validator(), {.any_thread = true})`, the shapes judge
+  every push and every check of an overlay before it is pushed: `examples/live-ops` refuses
+  an overlay that sets a 15% drop rate as `15`.
 - **`check`.** An overlay that carries script (`(on_event {grant_xp 2})`) gets
   `baker::check` against a Context with the game's functions bound: a wrong call is an
   error before a player runs it. `cfg.add_validator(baker::check_validator(ctx))` checks

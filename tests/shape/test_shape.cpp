@@ -41,7 +41,7 @@ TEST_CASE("a violation in corpus-style data is reported at load, located") {
     Config cfg({.tweaks = nullptr});
     std::vector<std::string> reported;
     cfg.set_warning_handler([&](const Error& e) { reported.emplace_back(to_string(e)); });
-    cfg.add_validator(shape::validator(cfg));
+    cfg.add_validator(shape::validator(), {.any_thread = true});
     REQUIRE(cfg.push_layer("bosses", kDir + "/bosses.dta"));
     // Before the patch: the dragon's third phase is out of range, the golem's phase lacks
     // its cadence (errors), and the golem's taunts is not declared (a warning).
@@ -213,7 +213,7 @@ TEST_CASE("a softer pack may narrow a harder pack's shape, not loosen it (D145)"
             });
             cfg.session().set_pack_levels({"game", "mod"});
             cfg.set_warning_handler([&](const Error& e) { reported.emplace_back(to_string(e)); });
-            cfg.add_validator(shape::validator(cfg));
+            cfg.add_validator(shape::validator(), {.any_thread = true});
             for (const char* l : layers) REQUIRE(cfg.push_layer(l, l));
         }
         bool has(const std::string& part) const {

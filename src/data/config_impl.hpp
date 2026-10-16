@@ -221,8 +221,12 @@ struct Config::Impl {
     struct Check {
         ValidatorId id;
         Validator fn;
+        ValidatorOptions options;
     };
     Vec<Check> validators{alloc};
+    // The enabled layers' trees, for the validators' stack (ValidatorStack::layers): refilled
+    // at each merge, its capacity kept.
+    mutable Vec<Ref<Array>> enabled_roots{alloc};
     Vec<LayerState> layers{alloc};
     Vec<ScratchEntry> scratch{alloc};
     bool scratch_enabled = true;
@@ -439,12 +443,16 @@ struct Config::Impl {
 
     // --- Checking a candidate layer (Config::check_layer) ---
 
-    // The candidate `tree` (with a file layer's #autorun `commands`) on top of the stack:
-    // its effect, the policy's refusals, and the validators' warnings, `read_warnings` added.
+    // The candidate `tree` (with a file layer's #autorun `commands`, read with `session`) on
+    // top of the stack: its effect, the policy's refusals, and the validators' warnings,
+    // `read_warnings` added.
     [[nodiscard]] LayerReport check_candidate(const Config& c, std::string_view name,
-                                              const Array& tree, std::span<const Node> commands,
-                                              const LayerPolicy& policy,
+                                              const Ref<Array>& tree,
+                                              std::span<const Node> commands,
+                                              const LoadSession& session, const LayerPolicy& policy,
                                               std::span<const Error> read_warnings) const;
+    // Fills enabled_roots: the enabled layers' trees, then `candidate` if given.
+    std::span<const Ref<Array>> stack_layers(const Ref<Array>& candidate = nullptr) const;
 
     // --- Write-back ---
 

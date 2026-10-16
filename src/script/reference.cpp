@@ -289,14 +289,16 @@ void check(const Config& cfg, const Context& ctx, CheckReport& report, const Che
     check(std::span<const Array* const>(trees.data(), trees.size()), ctx, report, o);
 }
 
-Callback<void(const Array&, const Callback<void(const Error&)>&)> check_validator(
+Callback<void(const ValidatorStack&, const Callback<void(const Error&)>&)> check_validator(
     const Context& ctx, const CheckOptions& options) {
     CheckOptions o = options;
     o.repeats.min_repeats = 0;  // the repetition report is for tools
-    return [&ctx, o](const Array& root, const Callback<void(const Error&)>& warn) {
+    return [&ctx, o](const ValidatorStack& stack, const Callback<void(const Error&)>& warn) {
         if (!warn) return;
         CheckReport report;
-        check(root, ctx, report, o);
+        CheckOptions with = o;
+        if (!with.packs) with.packs = &stack.session;
+        check(stack.root, ctx, report, with);
         for (const Error& e : report.errors) warn(e);
         for (const Error& w : report.warnings) warn(w);
     };

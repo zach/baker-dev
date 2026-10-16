@@ -178,7 +178,8 @@ TEST_CASE("a push takes a report that still holds, and checks again when it does
     cfg.session().set_pack_levels({"game", "live"});
     REQUIRE(cfg.push_layer("default", dir.write("default.dta", kBase)));
     int runs = 0;  // a validator runs once per check, and once after every merge
-    cfg.add_validator([&runs](const Array&, const Callback<void(const Error&)>&) { ++runs; });
+    cfg.add_validator(
+        [&runs](const ValidatorStack&, const Callback<void(const Error&)>&) { ++runs; });
     const LayerPolicy policy{.data_only = true, .warnings_refuse = true};
     const LayerPolicy other{.data_only = true};
 
@@ -255,7 +256,8 @@ TEST_CASE("a report that holds and refuses refuses at once, changing nothing") {
     cfg.session().set_pack_levels({"game", "live"});
     REQUIRE(cfg.push_layer("default", dir.write("default.dta", kBase)));
     int runs = 0;
-    cfg.add_validator([&runs](const Array&, const Callback<void(const Error&)>&) { ++runs; });
+    cfg.add_validator(
+        [&runs](const ValidatorStack&, const Callback<void(const Error&)>&) { ++runs; });
     const LayerPolicy policy{.data_only = true};
     const char* const code = "(event (xp {random 1 9}))\n";
     const LayerReport r = ok(cfg.check_layer_text("cheat", code, policy));

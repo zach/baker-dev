@@ -55,8 +55,10 @@ TEST_CASE("check_validator checks script at every merge, beside other validators
     std::vector<std::string> seen;
     cfg.set_warning_handler([&](const Error& e) { seen.emplace_back(to_string(e)); });
     // Validators run in the order they were added (D102).
-    const auto first = cfg.add_validator(
-        [&](const Array&, const Callback<void(const Error&)>&) { seen.emplace_back("first"); });
+    const auto first =
+        cfg.add_validator([&](const ValidatorStack&, const Callback<void(const Error&)>&) {
+            seen.emplace_back("first");
+        });
     cfg.add_validator(check_validator(ctx));
     REQUIRE(cfg.push_layer("base", parse("(level (on_enter {spawn grunt 3}))", "base.dta")));
     CHECK(seen == std::vector<std::string>{"first"});

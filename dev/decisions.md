@@ -5228,3 +5228,34 @@ misses changes that alter a verdict (a validator added; a fast-path `set()`).*
   - **So does a mismatch:** another text, another policy, placement below, another
     Config's report, another tree with the same content.
   - **A held refusal** refuses with no validator run and the epoch unchanged.
+
+## D166. Validators judge a stack they are given: `ValidatorStack`, and `any_thread`
+
+*Step 4 of `dev/received-layers-plan.md`, for requirement note 0003. The owner's choice:
+validators opt in to running on any thread, and the owning thread runs the rest. For
+`shape::validator` to opt in, it had to stop reading the Config. It read each enabled
+layer's tree and the read session through the Config it held.*
+
+- **API** (`config.hpp`).
+  - **`Config::Validator`** takes a `const ValidatorStack&`: the merged root; the enabled
+    layers' own trees, bottom to top; and the session. Every caller changed, and there is
+    no old form.
+  - **`add_validator(validator, ValidatorOptions)`.** `any_thread` says the validator
+    reads only its stack and keeps no state. A `LayerChecker` (D167) runs only those.
+- **What a validator sees.**
+  - **At a merge:** the enabled layers' trees, and `read_session()`.
+  - **In a check:** the same with the candidate's tree last, and the candidate's own read
+    session when it came as text. So a candidate's shapes count in its check as they will
+    after its push.
+  - **The layer list** is one vector the Config keeps and refills at each merge. It is
+    built only when there are validators.
+- **`shape::validator()`** takes no Config and is any-thread:
+  `cfg.add_validator(baker::shape::validator(), {.any_thread = true})`.
+- **`check_validator(ctx, options)`** reads the stack's root. Without `options.packs` it
+  now uses the stack's session, so a host no longer passes `cfg.read_session()` for packs.
+  It reads a Context, which is single-threaded, so it is added without `any_thread`.
+- **Callers updated:** the stacks, the harness, the live-ops example, the benchmark, the
+  tests, the language guide, the cookbook, and acton-review's gap table.
+- **Test.** A validator sees the enabled layers bottom to top, skipping a disabled one, and
+  the merged root. In a check it sees the candidate last, and the root with the candidate
+  merged.

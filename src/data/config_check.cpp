@@ -144,9 +144,12 @@ bool under(const Path& path, const Path& prefix) noexcept {
 
 }  // namespace
 
-LayerReport Config::Impl::check_candidate(const Config& c, std::string_view name, const Array& tree,
-                                          std::span<const Node> commands, const LayerPolicy& policy,
+LayerReport Config::Impl::check_candidate(const Config& c, std::string_view name,
+                                          const Ref<Array>& candidate,
+                                          std::span<const Node> commands,
+                                          const LoadSession& session, const LayerPolicy& policy,
                                           std::span<const Error> read_warnings) const {
+    const Array& tree = *candidate;
     Vec<LayerEffectEntry> effect;
     Vec<Error> refusals;
     Vec<Error> warnings(read_warnings.data(), read_warnings.data() + read_warnings.size());
@@ -221,8 +224,9 @@ LayerReport Config::Impl::check_candidate(const Config& c, std::string_view name
 
     // The validators, over the stack with the candidate on top.
     const Ref<Array> merged = detail::merge(stack, tree, MergePolicy::Overwrite, merge_scratch);
+    const ValidatorStack with{*merged, stack_layers(candidate), session};
     for (const Check& v : validators)
-        v.fn(*merged, [&warnings](const Error& e) { warnings.push_back(e); });
+        v.fn(with, [&warnings](const Error& e) { warnings.push_back(e); });
 
     if (policy.warnings_refuse)
         for (const Error& w : warnings)
@@ -280,7 +284,7 @@ bool Config::holds(const LayerOptions& options, uint64_t subject, bool on_top) c
 Expected<LayerReport> Config::check_layer(std::string_view name, const Ref<Array>& root,
                                           const LayerPolicy& policy) const {
     if (!root) return Unexpected(make_error(ErrorCode::NotFound, "null layer to check"));
-    LayerReport report = impl_->check_candidate(*this, name, *root, {}, policy, {});
+    LayerReport report = impl_->check_candidate(*this, name, root, {}, impl_->as_read, policy, {});
     stamp(report, tree_subject(name, root.get()), policy);
     return report;
 }
@@ -296,8 +300,8 @@ Expected<LayerReport> Config::check_layer_text(std::string_view name, std::strin
     auto tree = read_string(text, name, session);
     if (!tree) return Unexpected(std::move(tree).error());
     const auto all = session.warnings();
-    LayerReport report = impl_->check_candidate(*this, name, **tree, session.autorun(), policy,
-                                                all.subspan(std::min(known, all.size())));
+    LayerReport report = impl_->check_candidate(*this, name, *tree, session.autorun(), session,
+                                                policy, all.subspan(std::min(known, all.size())));
     stamp(report, text_subject(name, text), policy);
     return report;
 }

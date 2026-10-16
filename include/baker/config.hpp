@@ -137,6 +137,25 @@ struct LayerPolicy {
 
 struct LayerReport;
 
+// What a validator judges (Config::add_validator): the merged tree, the trees it was merged
+// from, and what their files declared. Valid for the call only.
+struct ValidatorStack {
+    const Array& root;  // the merged tree
+    // The enabled layers' own trees, bottom to top, as Config::layer_root gives them; when
+    // a candidate layer is checked, it is last.
+    std::span<const Ref<Array>> layers;
+    // What the layers' files declared (Config::read_session), with a checked candidate's
+    // text read too.
+    const LoadSession& session;
+};
+
+struct ValidatorOptions {
+    // It reads only the stack it is given, and keeps no state, so it may run on any thread
+    // at once with the Config's own: a LayerChecker runs it on the thread that checks. A
+    // validator without it runs on the Config's thread only.
+    bool any_thread = false;
+};
+
 struct LayerOptions {
     bool optional = false;  // a missing file is not an error; the layer exists, empty
     bool enabled = true;    // disabled layers keep their position but are skipped by merge
@@ -413,12 +432,14 @@ public:
     // keeps its default) and each bad tweak path. Default: ignored.
     void set_warning_handler(Callback<void(const Error&)> handler);
     // Called after every merge (a layer pushed, popped, removed, or toggled; a reload; a
-    // restore) with the merged root and the warning handler, to report on the data:
-    // baker::shape::validator() checks shapes this way (D84), and baker::check_validator()
-    // script calls (D102). Validators run in the order they were added.
-    using Validator = Callback<void(const Array& root, const Callback<void(const Error&)>& warn)>;
+    // restore) with the stack and the warning handler, to report on the data, and by each
+    // check of a candidate layer: baker::shape::validator() checks shapes this way (D84),
+    // and baker::check_validator() script calls (D102). Validators run in the order they
+    // were added.
+    using Validator =
+        Callback<void(const ValidatorStack& stack, const Callback<void(const Error&)>& warn)>;
     using ValidatorId = uint32_t;
-    ValidatorId add_validator(Validator validator);
+    ValidatorId add_validator(Validator validator, ValidatorOptions options = {});
     void remove_validator(ValidatorId id);
     void freeze() noexcept { frozen_ = true; }
     [[nodiscard]] bool frozen() const noexcept { return frozen_; }

@@ -58,7 +58,7 @@ int main() {
     baker::Config cfg({.edit_mode = false, .tweaks = nullptr});
     if (!cfg.push_layer_text("default", base)) return 1;
 #if defined(BAKER_BENCH_SHAPE)
-    cfg.add_validator(baker::shape::validator(cfg));
+    cfg.add_validator(baker::shape::validator(), {.any_thread = true});
     std::printf("with shape::validator\n");
 #endif
     const baker::Path shop[] = {baker::Path("shop")};

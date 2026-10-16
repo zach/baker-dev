@@ -372,7 +372,10 @@ void Config::Impl::commit(Config& c, ReloadRecord& rec, uint64_t& t) {
     c.root_ = merged();
     c.scratch_dirty_ = false;
     refresh_read();
-    for (const Check& v : validators) v.fn(*c.root_, warn);
+    if (!validators.empty()) {
+        const ValidatorStack stack{*c.root_, stack_layers(), as_read};
+        for (const Check& v : validators) v.fn(stack, warn);
+    }
     lap(rec.merge_ns, t);
     ++c.epoch_;
     Vec<TweakBase*> moved;
@@ -451,9 +454,17 @@ void Config::set_warning_handler(Callback<void(const Error&)> handler) {
     impl_->warn = std::move(handler);
 }
 
-Config::ValidatorId Config::add_validator(Validator validator) {
+std::span<const Ref<Array>> Config::Impl::stack_layers(const Ref<Array>& candidate) const {
+    enabled_roots.clear();
+    for (const LayerState& l : layers)
+        if (l.options.enabled) enabled_roots.push_back(l.root);
+    if (candidate) enabled_roots.push_back(candidate);
+    return {enabled_roots.data(), enabled_roots.size()};
+}
+
+Config::ValidatorId Config::add_validator(Validator validator, ValidatorOptions options) {
     const ValidatorId id = impl_->next_id++;
-    impl_->validators.push_back({id, std::move(validator)});
+    impl_->validators.push_back({id, std::move(validator), options});
     ++impl_->generation;
     return id;
 }
@@ -499,9 +510,9 @@ Expected<void> Config::Impl::push_read(Config& c, LayerState&& layer, LayerOptio
         const bool held = layer.text && c.holds(opts, text_subject(layer.name, *layer.text),
                                                 *at == layers.size());
         if (auto r = refuse_unless(held ? *opts.checked
-                                        : check_candidate(c, layer.name, *layer.root,
-                                                          layer.after->autorun(), *opts.policy,
-                                                          read_warnings));
+                                        : check_candidate(c, layer.name, layer.root,
+                                                          layer.after->autorun(), *layer.after,
+                                                          *opts.policy, read_warnings));
             !r)
             return r;
     }
@@ -547,9 +558,10 @@ Expected<void> Config::push_layer(std::string_view name, Ref<Array> overlay, Lay
     if (options.policy) {
         const bool held =
             holds(options, tree_subject(name, overlay.get()), *at == impl_->layers.size());
-        if (auto r = refuse_unless(
-                held ? *options.checked
-                     : impl_->check_candidate(*this, name, *overlay, {}, *options.policy, {}));
+        if (auto r =
+                refuse_unless(held ? *options.checked
+                                   : impl_->check_candidate(*this, name, overlay, {},
+                                                            impl_->as_read, *options.policy, {}));
             !r)
             return r;
     }

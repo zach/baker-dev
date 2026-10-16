@@ -85,7 +85,8 @@ int main(int argc, char** argv) {
     baker::Config cfg({.live_layers = true});
     cfg.session().set_pack_levels({"game", "live"});
     if (!cfg.push_layer("default", "data/default.dta")) return 1;
-    cfg.add_validator(baker::shape::validator(cfg));  // the shapes judge every candidate
+    cfg.add_validator(baker::shape::validator(),
+                      {.any_thread = true});  // the shapes judge every candidate
     cfg.freeze();
     std::printf("shipped:\n");
     status(cfg);
