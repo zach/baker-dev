@@ -66,7 +66,8 @@
 // write-back, and promote() are always inert.
 //
 // Not thread-safe: change a Config from one thread. Readers on other threads should take
-// root() (a Ref) and read that.
+// root() (a Ref) and read that; checks of a candidate layer on another thread take a
+// LayerChecker (checker()).
 
 #include <baker/array.hpp>
 #include <baker/clock.hpp>
@@ -135,6 +136,27 @@ struct LayerPolicy {
     std::span<const Path> allow{};  // if not empty, every changed path lies under one of these
 };
 
+struct LayerReport;
+
+// What a validator judges (Config::add_validator): the merged tree, the trees it was merged
+// from, and what their files declared. Valid for the call only.
+struct ValidatorStack {
+    const Array& root;  // the merged tree
+    // The enabled layers' own trees, bottom to top, as Config::layer_root gives them; when
+    // a candidate layer is checked, it is last.
+    std::span<const Ref<Array>> layers;
+    // What the layers' files declared (Config::read_session), with a checked candidate's
+    // text read too.
+    const LoadSession& session;
+};
+
+struct ValidatorOptions {
+    // It reads only the stack it is given, and keeps no state, so it may run on any thread
+    // at once with the Config's own: a LayerChecker runs it on the thread that checks. A
+    // validator without it runs on the Config's thread only.
+    bool any_thread = false;
+};
+
 struct LayerOptions {
     bool optional = false;  // a missing file is not an error; the layer exists, empty
     bool enabled = true;    // disabled layers keep their position but are skipped by merge
@@ -144,8 +166,18 @@ struct LayerOptions {
     std::string_view below = {};
     std::string_view above = {};
     // If given, the layer is checked first (Config::check_layer) and refused, changing
-    // nothing, if the policy refuses it. A file layer's #autorun commands count too.
+    // nothing, if the policy refuses it. A file or text layer's #autorun commands, and the
+    // warnings its read adds (a pack's unmet requires), count too.
     const LayerPolicy* policy = nullptr;
+    // With `policy`: a report on this layer from check_layer or check_layer_text, under the
+    // same policy. If it still holds, the push takes its verdict instead of checking again:
+    // that is, if the Config has not changed since the check (no layer change, reload,
+    // set(), validator added or removed, or call of session()), and the push puts the same
+    // name with the same text, or the same tree, on top. Otherwise the push checks, as
+    // without it. A tree must not change between the check and the push. A validator that
+    // reads something outside the Config (check_validator's Context) is trusted not to have
+    // changed its verdict meanwhile.
+    const LayerReport* checked = nullptr;
 };
 
 // --- Telemetry ---
@@ -231,12 +263,26 @@ struct ExplainEntry {
     Standing standing = Standing::Wins;
 };
 
+// What a LayerReport was made against, so that a push can tell whether it still holds
+// (LayerOptions::checked). Opaque.
+class CheckStamp {
+private:
+    friend class Config;
+    friend class LayerChecker;
+    const void* config_ = nullptr;
+    uint64_t generation_ = 0;
+    uint64_t subject_ = 0;  // the layer's name with its text, or with its tree's address
+    uint64_t policy_ = 0;
+    bool left_out_ = false;  // by a LayerChecker: validators not any_thread did not run
+};
+
 // Config::check_layer: a candidate layer's effect, and the verdicts on it, before it takes
 // effect.
 struct LayerReport {
     List<LayerEffectEntry> effect;  // what it would change, as layer_effect reports it
     List<Error> refusals;           // the policy's, located; any refuses the layer
     List<Error> warnings;           // the validators' over the stack with it, and the read's
+    CheckStamp stamp;
     [[nodiscard]] bool ok() const noexcept { return refusals.empty(); }
 };
 
@@ -287,6 +333,36 @@ private:
     State* state_ = nullptr;
 };
 
+// A fixed state of a Config to check candidate layers against, on any thread
+// (Config::checker). It shares the Config's trees and copies the rest, and never touches the
+// Config after it is made: the Config may change, or be destroyed, meanwhile. Its checks
+// report as Config::check_layer and check_layer_text do, against the state it was made
+// from, and run only the validators added with ValidatorOptions::any_thread; a push with
+// such a report, if it still holds (LayerOptions::checked), runs the others first, on the
+// Config's thread. Copyable; copies share one state, and checks with it may run on several
+// threads at once. Needs atomic reference counts (the default; D20) to be used off the
+// Config's thread. The Config's allocator must outlive it, as for a snapshot.
+class LayerChecker {
+public:
+    LayerChecker() noexcept = default;
+    LayerChecker(const LayerChecker& other) noexcept;
+    LayerChecker& operator=(const LayerChecker& other) noexcept;
+    ~LayerChecker();
+    [[nodiscard]] bool empty() const noexcept { return !state_; }
+
+    [[nodiscard]] Expected<LayerReport> check(std::string_view name, const Ref<Array>& root,
+                                              const LayerPolicy& policy = {}) const;
+    [[nodiscard]] Expected<LayerReport> check_text(std::string_view name, std::string_view text,
+                                                   const LayerPolicy& policy = {}) const;
+
+    struct State;  // refcounted; defined in config_check.cpp
+
+private:
+    friend class Config;
+    void stamp(LayerReport& report, uint64_t subject, const LayerPolicy& policy) const noexcept;
+    State* state_ = nullptr;
+};
+
 class Config {
 public:
     using Writer = Callback<bool(std::string_view path, std::string_view text)>;
@@ -304,6 +380,14 @@ public:
                                             LayerOptions options = {});
     [[nodiscard]] Expected<void> push_layer(std::string_view name, Ref<Array> overlay,
                                             LayerOptions options = {});
+    // A layer from text the host received (over the network, from a mod store): read as a
+    // file layer is, against the session below it, so its packs, origin, and #autorun are
+    // recorded; but from `text` alone, never through a cache, and an #include or #merge in
+    // it is refused. `name` is also the file its sources name, such as
+    // "received/balance@3.dta". The Config keeps the text, to read it again when a layer
+    // below changes; reload() never does. Write-back refuses its values: it has no file.
+    [[nodiscard]] Expected<void> push_layer_text(std::string_view name, std::string_view text,
+                                                 LayerOptions options = {});
     [[nodiscard]] Expected<void> remove_layer(std::string_view name);
     // Removes the topmost layer below scratch.
     [[nodiscard]] Expected<void> pop_layer();
@@ -381,12 +465,14 @@ public:
     // keeps its default) and each bad tweak path. Default: ignored.
     void set_warning_handler(Callback<void(const Error&)> handler);
     // Called after every merge (a layer pushed, popped, removed, or toggled; a reload; a
-    // restore) with the merged root and the warning handler, to report on the data:
-    // baker::shape::validator() checks shapes this way (D84), and baker::check_validator()
-    // script calls (D102). Validators run in the order they were added.
-    using Validator = Callback<void(const Array& root, const Callback<void(const Error&)>& warn)>;
+    // restore) with the stack and the warning handler, to report on the data, and by each
+    // check of a candidate layer: baker::shape::validator() checks shapes this way (D84),
+    // and baker::check_validator() script calls (D102). Validators run in the order they
+    // were added.
+    using Validator =
+        Callback<void(const ValidatorStack& stack, const Callback<void(const Error&)>& warn)>;
     using ValidatorId = uint32_t;
-    ValidatorId add_validator(Validator validator);
+    ValidatorId add_validator(Validator validator, ValidatorOptions options = {});
     void remove_validator(ValidatorId id);
     void freeze() noexcept { frozen_ = true; }
     [[nodiscard]] bool frozen() const noexcept { return frozen_; }
@@ -442,12 +528,18 @@ public:
     // Available in shipping builds: it is what makes live_layers safe there.
     [[nodiscard]] Expected<LayerReport> check_layer(std::string_view name, const Ref<Array>& root,
                                                     const LayerPolicy& policy = {}) const;
-    // The same for text a host received: read as text only (never a cache), with the session
-    // the stack's layers read with, so its packs' requires and versions are checked against
-    // the stack's packs; the read's warnings join the report's.
+    // The same for text a host received, read as push_layer_text reads it (never a cache,
+    // and no #include), with the session the stack's layers read with, so its packs'
+    // requires and versions are checked against the stack's packs; the read's warnings join
+    // the report's.
     [[nodiscard]] Expected<LayerReport> check_layer_text(std::string_view name,
                                                          std::string_view text,
                                                          const LayerPolicy& policy = {}) const;
+
+    // A LayerChecker of the stack as it stands, for checks on another thread. What it keeps,
+    // and each of its checks' temporaries and candidate trees, come from `allocator`, which
+    // must outlive it and its reports. Allocates.
+    [[nodiscard]] LayerChecker checker(const Allocator& allocator = default_allocator()) const;
 
     [[nodiscard]] ConfigSnapshot snapshot() const;
     [[nodiscard]] Expected<void> restore(const ConfigSnapshot& snapshot);
@@ -457,6 +549,12 @@ private:
     friend class TweakBase;
 
     void bind(TweakBase& t);
+    // LayerOptions::checked: stamps a report on the layer `subject` names, and tells whether
+    // one still holds for a push of it on top.
+    void stamp(LayerReport& report, uint64_t subject, const LayerPolicy& policy) const noexcept;
+    enum class Holding : uint8_t { No, Yes, LeftOut };  // LeftOut: and validators left to run
+    [[nodiscard]] Holding holds(const LayerOptions& options, uint64_t subject,
+                                bool on_top) const noexcept;
     // The scratch values `path` names (exactly, or one element of them): none, found, or
     // an element past the end of a scratch value, which hides the layers' longer one.
     enum class ScratchHit : uint8_t { None, Found, PastEnd };

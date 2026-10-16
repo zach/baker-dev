@@ -145,6 +145,37 @@ TEST_CASE("a Config allocates through its allocator, and nothing through operato
     MESSAGE("Config: " << mine.allocs << " allocations through its allocator");
 }
 
+TEST_CASE("a LayerChecker keeps its state on its allocator, and nothing through operator new") {
+    Counting mine, theirs;
+    size_t global = 0;
+    bool ok = false;
+    {
+        const baker::test::AllocationScope scope;  // no doctest assertion inside: they allocate
+        baker::Config config({.tweaks = nullptr}, mine.allocator());
+        config.session().set_reader(&read_text);
+        ok = config.push_layer("base", "base.dta").has_value();
+        const baker::LayerPolicy policy{.data_only = true, .existing_only = true};
+        {
+            const baker::LayerChecker checker = config.checker(theirs.allocator());
+            const auto checked = checker.check_text("hotfix", "(window (width 1024))", policy);
+            ok = ok && checked.has_value() && checked->ok() && checked->effect.size() == 1;
+            ok = ok && config
+                           .push_layer_text("hotfix", "(window (width 1024))",
+                                            {.policy = &policy, .checked = &*checked})
+                           .has_value();
+        }
+        ok = ok && config.get<int>(baker::Path("window/width")).value_or(0) == 1024;
+        global = scope.count();
+    }
+    CHECK(ok);
+    if (baker::test::counting_allocations()) CHECK(global == 0);  // not under TSan
+    CHECK(theirs.allocs > 0);
+    CHECK(theirs.allocs == theirs.frees);
+    CHECK(theirs.live_bytes == 0);
+    CHECK(mine.allocs == mine.frees);
+    MESSAGE("LayerChecker: " << theirs.allocs << " allocations through its allocator");
+}
+
 TEST_CASE("a Context allocates through its allocator, and nothing through operator new") {
     Counting mine;
     const baker::Allocator alloc = mine.allocator();

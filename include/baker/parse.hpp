@@ -163,6 +163,10 @@ public:
     // loader of content from outside the game's own packages (mods, user files) sets this
     // (dev/decisions.md D142).
     bool text_only = false;
+    // Refuses #include, #merge, and their kin, each with a located error: the text read may
+    // reach no other file. With text_only, for text from outside the game, such as a layer
+    // a live game receives (Config::push_layer_text).
+    bool refuse_includes = false;
     // Where the trees read through this session come from: each read is one arena from
     // it (dev/decisions.md D64), which must outlive the tree. Null: the default allocator.
     const Allocator* allocator = nullptr;

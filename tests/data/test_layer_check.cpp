@@ -7,6 +7,7 @@
 #include "temp_dir.hpp"
 
 #include <string>
+#include <vector>
 #include "ok.hpp"
 
 using namespace baker;
@@ -94,8 +95,8 @@ TEST_CASE("validators warn over the stack with the layer; warnings_refuse refuse
     TempDir dir;
     Config cfg({.tweaks = nullptr});
     REQUIRE(cfg.push_layer("default", dir.write("default.dta", kBase)));
-    cfg.add_validator([](const Array& root, const Callback<void(const Error&)>& warn) {
-        if (root.get<int>("shop.sword.price").value_or(1) <= 0)
+    cfg.add_validator([](const ValidatorStack& stack, const Callback<void(const Error&)>& warn) {
+        if (stack.root.get<int>("shop.sword.price").value_or(1) <= 0)
             warn(make_error(ErrorCode::Range, "a sword must cost something"));
     });
     const Ref<Array> free_sword = tree("(shop (sword (price 0)))\n");
@@ -181,4 +182,61 @@ TEST_CASE("a frozen game with live layers takes a checked overlay and refuses a 
     CHECK(cfg.root()->get<int>("shop.bow.price") == 14);
     REQUIRE(cfg.remove_layer("hotfix"));
     CHECK(cfg.root()->get<int>("shop.bow.price") == 12);
+}
+
+TEST_CASE("on a wide table, the check finds what lookups find (D164)") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    std::string base = "(shop\n";
+    for (int i = 0; i < 40; ++i)
+        base += " (item" + std::to_string(i) + " (price " + std::to_string(i + 1) + "))\n";
+    base += " (item5 (price 99)))\n";  // a repeated tag: the first is the one found
+    REQUIRE(cfg.push_layer("default", dir.write("default.dta", base)));
+    std::string sale = "(shop\n";
+    for (int i = 0; i < 40; i += 2)
+        sale += " (item" + std::to_string(i) + " (price " + std::to_string(i + 100) + "))\n";
+    REQUIRE(cfg.push_layer("sale", dir.write("sale.dta", sale + ")\n")));
+
+    const LayerReport r = ok(cfg.check_layer(
+        "x", tree("(shop (item5 (price 7)) (item38 (price 8)) (item41 (price 9)))\n")));
+    REQUIRE(r.effect.size() == 3);
+    for (const LayerEffectEntry& e : r.effect) {
+        CAPTURE(e.path.str());
+        if (e.path == Symbol("shop.item41.price")) {
+            CHECK_FALSE(e.below);
+            continue;
+        }
+        const Source s = ok(cfg.source(Path(e.path.str())));
+        CHECK(to_string(*e.below) == std::to_string(ok(cfg.get<int>(Path(e.path.str())))));
+        CHECK(e.below_source->layer == s.layer);
+        CHECK(e.below_source->line == s.line);
+    }
+    CHECK(to_string(*r.effect[0].below) == "6");
+    CHECK(r.effect[1].below_source->layer == Symbol("sale"));
+}
+
+TEST_CASE("a validator sees the enabled layers, bottom to top, and a candidate last (D166)") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer("default", dir.write("default.dta", kBase)));
+    REQUIRE(cfg.push_layer("off", tree("(shop (bow (price 1)))\n"), {.enabled = false}));
+    REQUIRE(cfg.push_layer("sale", tree("(shop (bow (price 11)))\n")));
+    std::vector<const Array*> seen;
+    int bow = 0;
+    cfg.add_validator([&](const ValidatorStack& stack, const Callback<void(const Error&)>&) {
+        seen.clear();
+        for (const Ref<Array>& l : stack.layers) seen.push_back(l.get());
+        bow = stack.root.get<int>("shop.bow.price").value_or(0);
+    });
+    REQUIRE(cfg.push_layer("top", tree("(shop (bow (price 13)))\n")));
+    REQUIRE(seen.size() == 3);  // "off" is disabled
+    CHECK(seen[0] == cfg.layer_root("default").get());
+    CHECK(seen[1] == cfg.layer_root("sale").get());
+    CHECK(seen[2] == cfg.layer_root("top").get());
+    CHECK(bow == 13);
+    const Ref<Array> candidate = tree("(shop (bow (price 15)))\n");
+    REQUIRE(cfg.check_layer("x", candidate));
+    REQUIRE(seen.size() == 4);
+    CHECK(seen[3] == candidate.get());
+    CHECK(bow == 15);
 }

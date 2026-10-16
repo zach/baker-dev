@@ -31,49 +31,9 @@ void make_parents(const Str& path) {
     }
 }
 
-// A tagged array with values in some tree, found by walking tags (first occurrence of
-// each tag, as find and merge use).
-struct Leaf {
-    Str path;  // dotted
-    const Array* holder;
-    Vec<Node> values;
-};
-
-Vec<Node> values_of(const Array& a) {
-    Vec<Node> out;
-    for (size_t i = 1; i < a.size(); ++i)
-        if (!is_tagged(a[i])) out.push_back(a[i]);
-    return out;
-}
-
 int32_t line_at(std::string_view text, uint32_t offset) {
     const auto end = text.begin() + std::min<size_t>(offset, text.size());
     return 1 + static_cast<int32_t>(std::count(text.begin(), end, '\n'));
-}
-
-// Each tag's first child only, as lookup sees it: found by the tag run's scan in a small
-// array, and by a set past kIndexed children, so a wide layer is linear (D132).
-void collect_leaves(const Array& a, size_t first, const Str& prefix, Vec<Leaf>& out) {
-    constexpr size_t kIndexed = 32;
-    HashMap<Symbol, char> seen;
-    const bool indexed = a.size() > kIndexed;
-    for (size_t i = first; i < a.size(); ++i) {
-        if (!is_tagged(a[i])) continue;
-        const Array& child = *a[i].try_array();
-        const Symbol tag = *child[0].try_sym();
-        if (indexed ? !seen.emplace(tag, 0).second : a.try_find(tag) != &child) continue;
-        Str path = prefix;
-        if (!path.empty()) path += '.';
-        detail::append_path_name(path, tag.str());
-        if (has_values(child)) out.push_back({path, &child, values_of(child)});
-        collect_leaves(child, 1, path, out);
-    }
-}
-
-Vec<Leaf> leaves_of(const Array& root) {
-    Vec<Leaf> out;
-    collect_leaves(root, 0, "", out);
-    return out;
 }
 
 // Every tagged child's leaves, a repeated tag's included, each path once: all a layer
@@ -122,6 +82,37 @@ struct Edit {
 }  // namespace
 
 namespace config_internal {
+Vec<Node> values_of(const Array& a) {
+    Vec<Node> out;
+    for (size_t i = 1; i < a.size(); ++i)
+        if (!is_tagged(a[i])) out.push_back(a[i]);
+    return out;
+}
+
+// Each tag's first child only, as lookup sees it: found by the tag run's scan in a small
+// array, and by a set past kIndexed children, so a wide layer is linear (D132).
+static void collect_leaves(const Array& a, size_t first, const Str& prefix, Vec<Leaf>& out) {
+    constexpr size_t kIndexed = 32;
+    HashMap<Symbol, char> seen;
+    const bool indexed = a.size() > kIndexed;
+    for (size_t i = first; i < a.size(); ++i) {
+        if (!is_tagged(a[i])) continue;
+        const Array& child = *a[i].try_array();
+        const Symbol tag = *child[0].try_sym();
+        if (indexed ? !seen.emplace(tag, 0).second : a.try_find(tag) != &child) continue;
+        Str path = prefix;
+        if (!path.empty()) path += '.';
+        detail::append_path_name(path, tag.str());
+        if (has_values(child)) out.push_back({path, &child, values_of(child)});
+        collect_leaves(child, 1, path, out);
+    }
+}
+
+Vec<Leaf> leaves_of(const Array& root) {
+    Vec<Leaf> out;
+    collect_leaves(root, 0, "", out);
+    return out;
+}
 
 bool write_disk_file(std::string_view where, std::string_view text) {
     const Str path(where);
@@ -148,6 +139,9 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
     if (layer.path.empty())
         return Unexpected(refused(quoted(path) + " comes from layer '" + layer.name +
                                   "', which has no source file"));
+    if (layer.text)
+        return Unexpected(refused(quoted(path) + " comes from layer '" + layer.name +
+                                  "', which was pushed as text and has no file"));
     if (!layer.map)
         return Unexpected(refused("layer '" + layer.name +
                                   "' was not read in edit mode, so it cannot be written"));
@@ -662,143 +656,6 @@ Expected<List<ExplainEntry>> Config::explain(const Path& path) const {
     }
     std::reverse(out.begin(), out.end());
     return List<ExplainEntry>(out);
-}
-
-// --- Checking a candidate layer (D161) ---
-
-namespace {
-
-bool is_code(const Node& n) noexcept {
-    return n.type() == Type::Command || n.type() == Type::Property || n.type() == Type::Var;
-}
-
-bool is_scalar(const Node& n) noexcept {
-    const Type t = n.type();
-    return t == Type::Int || t == Type::Float || t == Type::Symbol || t == Type::String;
-}
-
-// data_only: every command, property, or variable in `a`, located at the array holding it.
-void find_code(const Array& a, const Str& path, Vec<Error>& out) {
-    for (size_t i = 0; i < a.size(); ++i) {
-        const Node& n = a[i];
-        if (is_code(n)) {
-            const Array* at = n.array() ? n.array() : &a;
-            out.push_back(refused(
-                "'" + path + "' holds " + detail::preview(n) + "; the layer may hold data only",
-                at->file(), at->line()));
-        } else if (const Array* child = n.try_array()) {
-            Str p = path;
-            if (const auto tag = child->empty() ? std::nullopt : (*child)[0].try_sym()) {
-                if (!p.empty()) p += '.';
-                detail::append_path_name(p, tag->str());
-            }
-            find_code(*child, p, out);
-        }
-    }
-}
-
-bool under(const Path& path, const Path& prefix) noexcept {
-    if (prefix.size() > path.size()) return false;
-    for (size_t i = 0; i < prefix.size(); ++i)
-        if (!(path[i] == prefix[i])) return false;
-    return true;
-}
-
-}  // namespace
-
-LayerReport Config::Impl::check_candidate(const Config& c, std::string_view name, const Array& tree,
-                                          std::span<const Node> commands, const LayerPolicy& policy,
-                                          std::span<const Error> read_warnings) const {
-    Vec<LayerEffectEntry> effect;
-    Vec<Error> refusals;
-    Vec<Error> warnings(read_warnings.data(), read_warnings.data() + read_warnings.size());
-    const Symbol layer(name);
-
-    if (policy.data_only) {
-        find_code(tree, "", refusals);
-        for (const Node& n : commands) {
-            const Array* at = n.array();
-            refusals.push_back(refused(
-                "#autorun " + detail::preview(n) + " runs a command; the layer may hold data only",
-                at ? at->file() : Symbol(), at ? at->line() : 0));
-        }
-    }
-    const Array& stack = *c.root();
-    Vec<Node> below;
-    for (const Leaf& leaf : leaves_of(tree)) {
-        const Path path(leaf.path);
-        const bool removal = detail::is_removal(*leaf.holder);
-        const bool exists = value_nodes(stack, path, below);
-        LayerEffectEntry e{};
-        e.path = Symbol(leaf.path);
-        e.value = pack(leaf.values);
-        e.source = Source{layer, leaf.holder->file(), leaf.holder->line()};
-        if (exists) {
-            e.below = pack(below);
-            if (const auto s = supplier(path, layers.size()))
-                e.below_source = source_in(layers[*s], path);
-        }
-        effect.push_back(std::move(e));
-
-        auto refuse = [&](const Str& why) {
-            refusals.push_back(
-                refused("'" + leaf.path + "' " + why, leaf.holder->file(), leaf.holder->line()));
-        };
-        if (policy.scalars_only) {
-            if (removal)
-                refuse("is removed; the layer may only change values");
-            else
-                for (const Node& v : leaf.values)
-                    if (!is_scalar(v)) {
-                        refuse("is " + detail::preview(v) +
-                               ", not a number, symbol, or string; the layer may only change "
-                               "values to those");
-                        break;
-                    }
-        }
-        if (policy.existing_only) {
-            if (removal)
-                refuse("is removed; the layer may only change values the stack has");
-            else if (!exists)
-                refuse("is new; the layer may only change values the stack has");
-        }
-        if (!policy.allow.empty() && std::none_of(policy.allow.begin(), policy.allow.end(),
-                                                  [&](const Path& p) { return under(path, p); }))
-            refuse("is outside the paths the layer may change");
-    }
-
-    // The validators, over the stack with the candidate on top.
-    const Ref<Array> merged = detail::merge(stack, tree, MergePolicy::Overwrite, merge_scratch);
-    for (const Check& v : validators)
-        v.fn(*merged, [&warnings](const Error& e) { warnings.push_back(e); });
-
-    if (policy.warnings_refuse)
-        for (const Error& w : warnings)
-            refusals.push_back(
-                refused("a warning refuses the layer: " + Str(w.message()), w.file(), w.line()));
-    return LayerReport{List<LayerEffectEntry>(effect), List<Error>(refusals),
-                       List<Error>(warnings)};
-}
-
-Expected<LayerReport> Config::check_layer(std::string_view name, const Ref<Array>& root,
-                                          const LayerPolicy& policy) const {
-    if (!root) return Unexpected(make_error(ErrorCode::NotFound, "null layer to check"));
-    return impl_->check_candidate(*this, name, *root, {}, policy, {});
-}
-
-Expected<LayerReport> Config::check_layer_text(std::string_view name, std::string_view text,
-                                               const LayerPolicy& policy) const {
-    // The stack's session, so the candidate's packs meet the stack's; text only, as a layer
-    // from outside must be (D142).
-    LoadSession session = impl_->as_read;
-    session.text_only = true;
-    session.clear_autorun();
-    const size_t known = session.warnings().size();
-    auto tree = read_string(text, name, session);
-    if (!tree) return Unexpected(std::move(tree).error());
-    const auto all = session.warnings();
-    return impl_->check_candidate(*this, name, **tree, session.autorun(), policy,
-                                  all.subspan(std::min(known, all.size())));
 }
 
 }  // namespace baker

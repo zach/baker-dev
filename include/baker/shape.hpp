@@ -22,7 +22,7 @@
 // warning, so adding data never requires touching its shape first. Commands and variables
 // are not checked: their values are unknown until run.
 //
-//   cfg.add_validator(baker::shape::validator(cfg));   // reported at every load and reload
+//   cfg.add_validator(baker::shape::validator(), {.any_thread = true});  // at every merge
 //
 // Shapes are opt-in: unshaped data works everywhere. The library depends only on
 // baker::data.
@@ -105,11 +105,12 @@ private:
 
 // Checks every array of `tree` that a shape of `shapes` governs, into `report`.
 void check(const Array& tree, const Set& shapes, Report& report);
-// For Config::add_validator: reads the shapes each enabled layer of `cfg` declares, bottom to
-// top, with its read session's packs (so harder packs' shapes hold, D145), and checks the
-// merged root against them, reporting errors and warnings to the warning handler. `cfg`
-// must outlive the validator.
-[[nodiscard]] Config::Validator validator(const Config& cfg);
+// For Config::add_validator: reads the shapes each layer of the stack declares, bottom to
+// top, with the stack's session's packs (so harder packs' shapes hold, D145), and checks the
+// merged root against them, reporting errors and warnings to the warning handler. It reads
+// only its stack, so it may run on any thread:
+//   cfg.add_validator(baker::shape::validator(), {.any_thread = true});
+[[nodiscard]] Config::Validator validator();
 
 // The shapes of `shapes` as JSON (schema baker.shapes/1, docs/reference-json.md), sorted by
 // name: each shape's place, keyed or not, and its fields with their types, ranges, steps,

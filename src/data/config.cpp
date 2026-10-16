@@ -145,44 +145,59 @@ Expected<Ref<Array>> Config::Impl::read_through_cache(std::string_view path, con
     }
 }
 
-Expected<void> Config::Impl::read(LayerState& layer, const LoadSession& before,
-                                  uint64_t* read_ns) const {
+Expected<void> Config::Impl::read(LayerState& layer, const LoadSession& before, uint64_t* read_ns,
+                                  Vec<Error>* warnings) const {
     auto session = Rc<LoadSession>::make(alloc, before);
     session->clear_autorun();
-    Vec<Dep> deps(alloc);
-    const LoadSession::Reader& reader = before.reader();
-    // Edit mode reads text, which keeps the source maps write-back needs.
-    Str cache(alloc);
-    if (!options.edit_mode && !cache_dir.empty()) {
-        // The cache's name: the hash of the layer's normalized path, in hex, so that the bake
-        // and the game agree however the path is spelled (D140).
-        char name[17];
-        uint64_t h = detail::content_hash(detail::normalize_path(layer.path));
-        for (int i = 15; i >= 0; --i, h >>= 4) name[i] = "0123456789abcdef"[h & 15];
-        name[16] = '\0';
-        cache.append(cache_dir).append("/").append(name).append(".datb");
-    }
-    session->set_reader([&](std::string_view p, TextSink out) {
-        const uint64_t t0 = read_ns ? now() : 0;
-        // Into the Config's buffer, which the parser copies from before it reads an include
-        // through here again: a file read allocates only the parser's copy (D131).
-        const bool ok = detail::read_with(reader, p, scan);
-        if (read_ns) *read_ns += now() - t0;
-        if (p != cache.view())
-            deps.push_back({Str(p, alloc), ok, ok ? detail::content_hash(scan) : 0});
-        if (ok) out(scan);
-        return ok;
-    });
     auto map = options.edit_mode ? Rc<SourceMap>::make(alloc, alloc) : nullptr;
     session->source_map = map.get();
-    auto root = cache.empty() ? read_file(layer.path, *session)
-                              : read_through_cache(layer.path, cache, *session,
-                                                   detail::SessionAccess::reads_disk(before));
-    session->set_reader(reader);
+    Vec<Dep> deps(alloc);
+    Expected<Ref<Array>> root = Ref<Array>();
+    if (layer.text) {
+        // Received: from its text alone, never a cache and never another file (D142).
+        session->text_only = session->refuse_includes = true;
+        const uint64_t t0 = read_ns ? now() : 0;
+        root = read_string(*layer.text, layer.path, *session);
+        if (read_ns) *read_ns += now() - t0;
+        session->text_only = before.text_only;
+        session->refuse_includes = before.refuse_includes;
+    } else {
+        const LoadSession::Reader& reader = before.reader();
+        // Edit mode reads text, which keeps the source maps write-back needs.
+        Str cache(alloc);
+        if (!options.edit_mode && !cache_dir.empty()) {
+            // The cache's name: the hash of the layer's normalized path, in hex, so that the
+            // bake and the game agree however the path is spelled (D140).
+            char name[17];
+            uint64_t h = detail::content_hash(detail::normalize_path(layer.path));
+            for (int i = 15; i >= 0; --i, h >>= 4) name[i] = "0123456789abcdef"[h & 15];
+            name[16] = '\0';
+            cache.append(cache_dir).append("/").append(name).append(".datb");
+        }
+        session->set_reader([&](std::string_view p, TextSink out) {
+            const uint64_t t0 = read_ns ? now() : 0;
+            // Into the Config's buffer, which the parser copies from before it reads an
+            // include through here again: a file read allocates only the parser's copy (D131).
+            const bool ok = detail::read_with(reader, p, scan);
+            if (read_ns) *read_ns += now() - t0;
+            if (p != cache.view())
+                deps.push_back({Str(p, alloc), ok, ok ? detail::content_hash(scan) : 0});
+            if (ok) out(scan);
+            return ok;
+        });
+        root = cache.empty() ? read_file(layer.path, *session)
+                             : read_through_cache(layer.path, cache, *session,
+                                                  detail::SessionAccess::reads_disk(before));
+        session->set_reader(reader);
+    }
     session->source_map = nullptr;
-    // The one-way rule's warnings (D80) go to the warning handler.
-    for (const Error& w : session->warnings())
+    // The one-way rule's warnings (D80), and a pack's unmet requires, go to the warning
+    // handler.
+    const auto all = session->warnings();
+    for (const Error& w : all.subspan(std::min(before.warnings().size(), all.size()))) {
         if (warn) warn(w);
+        if (warnings) warnings->push_back(w);
+    }
     session->clear_warnings();
     layer.file = deps.empty() ? layer.path : deps.front().path;
     layer.missing = false;
@@ -352,11 +367,15 @@ void Config::Impl::refresh_read() {
 }
 
 void Config::Impl::commit(Config& c, ReloadRecord& rec, uint64_t& t) {
+    ++generation;
     const Ref<Array> before = std::move(c.root_);
     c.root_ = merged();
     c.scratch_dirty_ = false;
     refresh_read();
-    for (const Check& v : validators) v.fn(*c.root_, warn);
+    if (!validators.empty()) {
+        const ValidatorStack stack{*c.root_, stack_layers(), as_read};
+        for (const Check& v : validators) v.fn(stack, warn);
+    }
     lap(rec.merge_ns, t);
     ++c.epoch_;
     Vec<TweakBase*> moved;
@@ -398,6 +417,8 @@ Expected<void> Config::Impl::may_change(const Config& c) const {
 
 Config::Config(ConfigOptions options, const Allocator& allocator)
     : root_(Array::make(0)), impl_(detail::create<Impl>(allocator, allocator)) {
+    static std::atomic<uint64_t> configs{0};
+    impl_->generation = configs.fetch_add(1, std::memory_order_relaxed) << 32;
     impl_->options = options;
     impl_->cache_dir.assign(options.cache_dir);
     impl_->options.cache_dir = impl_->cache_dir;
@@ -417,6 +438,7 @@ Config::~Config() {
 }
 
 LoadSession& Config::session() noexcept {
+    ++impl_->generation;  // the caller may change what a check reads with
     return impl_->base;
 }
 
@@ -432,9 +454,18 @@ void Config::set_warning_handler(Callback<void(const Error&)> handler) {
     impl_->warn = std::move(handler);
 }
 
-Config::ValidatorId Config::add_validator(Validator validator) {
+std::span<const Ref<Array>> Config::Impl::stack_layers(const Ref<Array>& candidate) const {
+    enabled_roots.clear();
+    for (const LayerState& l : layers)
+        if (l.options.enabled) enabled_roots.push_back(l.root);
+    if (candidate) enabled_roots.push_back(candidate);
+    return {enabled_roots.data(), enabled_roots.size()};
+}
+
+Config::ValidatorId Config::add_validator(Validator validator, ValidatorOptions options) {
     const ValidatorId id = impl_->next_id++;
-    impl_->validators.push_back({id, std::move(validator)});
+    impl_->validators.push_back({id, std::move(validator), options});
+    ++impl_->generation;
     return id;
 }
 
@@ -442,6 +473,7 @@ void Config::remove_validator(ValidatorId id) {
     auto& v = impl_->validators;
     v.erase(std::remove_if(v.begin(), v.end(), [id](const auto& x) { return x.id == id; }),
             v.end());
+    ++impl_->generation;
 }
 
 void Config::bind(TweakBase& t) {
@@ -463,39 +495,65 @@ Expected<size_t> Config::Impl::placement(LayerOptions& opts) const {
     return below ? *at : *at + 1;
 }
 
-Expected<void> Config::push_layer(std::string_view name, std::string_view path,
-                                  LayerOptions options) {
-    if (auto ok = impl_->may_change(*this); !ok) return ok;
-    if (name == "scratch" || impl_->find_layer(name))
-        return Unexpected(refused("there is already a layer named '" + Str(name) + "'"));
-    const auto at = impl_->placement(options);
+Expected<void> Config::Impl::admit(const Config& c, const LayerOptions& opts, std::string_view name,
+                                   const Ref<Array>& tree, uint64_t subject, bool on_top,
+                                   std::span<const Node> commands, const LoadSession& session,
+                                   std::span<const Error> read_warnings) const {
+    switch (subject ? c.holds(opts, subject, on_top) : Holding::No) {
+        case Holding::Yes: return refuse_unless(*opts.checked);  // its verdict (D165)
+        case Holding::LeftOut: return refuse_unless(check_left_out(c, tree, session, *opts.policy));
+        case Holding::No: break;
+    }
+    return refuse_unless(
+        check_candidate(c, name, tree, commands, session, *opts.policy, read_warnings));
+}
+
+Expected<void> Config::Impl::push_read(Config& c, LayerState&& layer, LayerOptions opts) {
+    if (auto ok = may_change(c); !ok) return ok;
+    if (layer.name == "scratch" || find_layer(layer.name))
+        return Unexpected(refused("there is already a layer named '" + layer.name + "'"));
+    const auto at = placement(opts);
     if (!at) return Unexpected(at.error());
-    LayerState layer(impl_->alloc);
-    layer.name.assign(name);
-    layer.path.assign(path);
-    layer.options = options;
-    const Rc<LoadSession> below = impl_->session_below(impl_->layers, *at);
-    if (auto r = impl_->read(layer, *below); !r) return r;
-    if (options.policy) {
-        const auto all = layer.after->warnings();
-        const size_t known = std::min(below->warnings().size(), all.size());
-        if (auto r = refuse_unless(impl_->check_candidate(*this, name, *layer.root,
-                                                          layer.after->autorun(), *options.policy,
-                                                          all.subspan(known)));
+    layer.options = opts;
+    const Rc<LoadSession> below = session_below(layers, *at);
+    Vec<Error> read_warnings(alloc);
+    if (auto r = read(layer, *below, nullptr, &read_warnings); !r) return r;
+    if (opts.policy) {
+        // A file has no report that holds: no check reads by path.
+        const uint64_t subject = layer.text ? text_subject(layer.name, *layer.text) : 0;
+        if (auto r = admit(c, opts, layer.name, layer.root, subject, *at == layers.size(),
+                           layer.after->autorun(), *layer.after, read_warnings);
             !r)
             return r;
     }
-    if (*at == impl_->layers.size()) {
-        impl_->layers.push_back(std::move(layer));
+    if (*at == layers.size()) {
+        layers.push_back(std::move(layer));
     } else {
         // The layers above read with the macros below them, now this one's too (D144).
-        Vec<LayerState> placed = impl_->layers;
+        Vec<LayerState> placed = layers;
         placed.insert(placed.begin() + static_cast<ptrdiff_t>(*at), std::move(layer));
-        if (auto r = impl_->reread(placed, *at + 1); !r) return r;
-        impl_->layers = std::move(placed);
+        if (auto r = reread(placed, *at + 1); !r) return r;
+        layers = std::move(placed);
     }
-    impl_->change(*this, trigger_name("layer"));
+    change(c, trigger_name("layer"));
     return {};
+}
+
+Expected<void> Config::push_layer(std::string_view name, std::string_view path,
+                                  LayerOptions options) {
+    LayerState layer(impl_->alloc);
+    layer.name.assign(name);
+    layer.path.assign(path);
+    return impl_->push_read(*this, std::move(layer), options);
+}
+
+Expected<void> Config::push_layer_text(std::string_view name, std::string_view text,
+                                       LayerOptions options) {
+    LayerState layer(impl_->alloc);
+    layer.name.assign(name);
+    layer.path.assign(name);
+    layer.text = Rc<Str>::make(impl_->alloc, text, impl_->alloc);
+    return impl_->push_read(*this, std::move(layer), options);
 }
 
 Expected<void> Config::push_layer(std::string_view name, Ref<Array> overlay, LayerOptions options) {
@@ -508,8 +566,8 @@ Expected<void> Config::push_layer(std::string_view name, Ref<Array> overlay, Lay
     const auto at = impl_->placement(options);
     if (!at) return Unexpected(at.error());
     if (options.policy)
-        if (auto r = refuse_unless(
-                impl_->check_candidate(*this, name, *overlay, {}, *options.policy, {}));
+        if (auto r = impl_->admit(*this, options, name, overlay, tree_subject(name, overlay.get()),
+                                  *at == impl_->layers.size(), {}, impl_->as_read, {});
             !r)
             return r;
     LayerState layer(impl_->alloc);
@@ -699,6 +757,7 @@ void Config::remove_on_reload(ReloadId id) {
 Expected<void> Config::set(const Path& path, std::span<const Node> values) {
     if constexpr (kShipping) return Unexpected(shipping("set()"));
     if (auto ok = impl_->may_change(*this); !ok) return ok;
+    ++impl_->generation;
     if (!path.valid()) return Unexpected(detail::get_error(*root_, path, nullptr));
     if (path.empty()) return Unexpected(refused("cannot set the whole config"));
     for (size_t i = 0; i + 1 < path.size(); ++i)
@@ -733,6 +792,7 @@ Expected<void> Config::set(std::string_view path, const Node& value) {
             impl_->log_edit(e, &before, 1, std::span<const Node>(&value, 1),
                             Source{scratch_name()});
             scratch_dirty_ = true;
+            ++impl_->generation;
             impl_->retune(e);
             return {};
         }

@@ -72,7 +72,7 @@ if(BAKER_BUILD_SHAPE)
   add_executable(baker_example_live_ops live-ops/main.cpp)
   target_link_libraries(baker_example_live_ops PRIVATE baker::shape)
   if(BAKER_BUILD_TESTS)
-    baker_example_test(baker_example_live_ops baker_example_live_ops "xp x1, drops 0[.]05.*event[.]xp_multiplier: 1 -> 2.*event[.]banner: [(]none[)] -> .*xp x2, drops 0[.]05, banner \"Double XP all weekend!\"${nl}  event[.]xp_multiplier from layer 2026-10-17-double-xp [(]liveops console, ticket 4412, by baker-publish[)].*refused: baker: a warning refuses the layer: .drop_rate. is 15, outside 0[.]0 to 1[.]0  [(]overlays/2026-10-18-drops[.]dta:5[)].*requires .game_data. \"1[.]1\" or later, which is \"1[.]0\".*holds [{]random_float 0[.]05 0[.]5[}][;] the layer may hold data only.*roll back.*${nl}  xp x1, drops 0[.]05, banner \"\"${nl}layers: default scratch"
+    baker_example_test(baker_example_live_ops baker_example_live_ops "xp x1, drops 0[.]05.*event[.]xp_multiplier: 1 -> 2.*event[.]banner: [(]none[)] -> .*xp x2, drops 0[.]05, banner \"Double XP all weekend!\"${nl}  event[.]xp_multiplier from layer overlays/2026-10-17-double-xp[.]dta [(]liveops console, ticket 4412, by baker-publish[)].*refused: baker: a warning refuses the layer: .drop_rate. is 15, outside 0[.]0 to 1[.]0  [(]overlays/2026-10-18-drops[.]dta:5[)].*requires .game_data. \"1[.]1\" or later, which is \"1[.]0\".*holds [{]random_float 0[.]05 0[.]5[}][;] the layer may hold data only.*roll back.*${nl}  xp x1, drops 0[.]05, banner \"\"${nl}layers: default scratch"
       ${CMAKE_CURRENT_SOURCE_DIR}/live-ops)
   endif()
 endif()

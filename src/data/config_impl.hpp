@@ -41,8 +41,9 @@ struct LayerState {
     explicit LayerState(const Allocator& a) : name(a), path(a), file(a), deps(a) {}
 
     Str name;
-    Str path;  // as given; empty for an overlay
-    Str file;  // the main file, normalized; empty for an overlay
+    Str path;      // as given; empty for an overlay; the name, for text
+    Str file;      // the main file, normalized; empty for an overlay
+    Rc<Str> text;  // pushed as text (push_layer_text): read from this, never a file; shared
     LayerOptions options;
     Ref<Array> root;
     Rc<SourceMap> map;  // edit mode; shared with snapshots, read-only once built
@@ -117,6 +118,25 @@ Path parent_of(const Path& path);
 bool value_nodes(const Array& root, const Path& path, Vec<Node>& out);
 
 bool same_nodes(std::span<const Node> a, std::span<const Node> b);
+
+// A tagged array with values in some tree, found by walking tags (first occurrence of
+// each tag, as find and merge use).
+struct Leaf {
+    Str path;  // dotted
+    const Array* holder;
+    Vec<Node> values;
+};
+
+// What a check was made against (CheckStamp): a layer's name with its text, or with its
+// tree's address; and a policy's rules.
+[[nodiscard]] uint64_t text_subject(std::string_view name, std::string_view text) noexcept;
+[[nodiscard]] uint64_t tree_subject(std::string_view name, const Array* tree) noexcept;
+[[nodiscard]] uint64_t policy_hash(const LayerPolicy& policy) noexcept;
+
+// A tag array's values: its children that are not tagged arrays.
+Vec<Node> values_of(const Array& a);
+// Each tag's first child only, as lookup sees it, depth first.
+Vec<Leaf> leaves_of(const Array& root);
 
 }  // namespace config_internal
 using namespace config_internal;
@@ -201,14 +221,22 @@ struct Config::Impl {
     struct Check {
         ValidatorId id;
         Validator fn;
+        ValidatorOptions options;
     };
     Vec<Check> validators{alloc};
+    // The enabled layers' trees, for the validators' stack (ValidatorStack::layers): refilled
+    // at each merge, its capacity kept.
+    mutable Vec<Ref<Array>> enabled_roots{alloc};
     Vec<LayerState> layers{alloc};
     Vec<ScratchEntry> scratch{alloc};
     bool scratch_enabled = true;
     Vec<Subscriber> subscribers{alloc};
     Vec<Completion> completions{alloc};
     ReloadId next_id = 1;
+    // Incremented on every change that can change a check's verdict (CheckStamp): a merge, a
+    // validator added or removed, a set(), a call of session(). Each Config starts its own
+    // range, so a report never holds for another Config at the same address.
+    uint64_t generation = 0;
 
     TimeSource clock = steady_now;
     void* clock_user = nullptr;
@@ -300,9 +328,20 @@ struct Config::Impl {
                                             LoadSession& session, bool from_disk) const;
 
     // Reads a file layer, recording every file it reads (or looks for) for reload, and the
-    // time spent reading them into `read_ns`.
-    Expected<void> read(LayerState& layer, const LoadSession& before,
-                        uint64_t* read_ns = nullptr) const;
+    // time spent reading them into `read_ns`; or a layer pushed as text, from its text only.
+    // The read's warnings go to the warning handler, and to `warnings` if given.
+    Expected<void> read(LayerState& layer, const LoadSession& before, uint64_t* read_ns = nullptr,
+                        Vec<Error>* warnings = nullptr) const;
+    // A layer pushed under a policy: the verdict of the report it brings if that still holds
+    // (`subject` names it; 0 for a file), with the validators a LayerChecker left out run
+    // now; else of a check.
+    [[nodiscard]] Expected<void> admit(const Config& c, const LayerOptions& opts,
+                                       std::string_view name, const Ref<Array>& tree,
+                                       uint64_t subject, bool on_top,
+                                       std::span<const Node> commands, const LoadSession& session,
+                                       std::span<const Error> read_warnings) const;
+    // push_layer by path or text, once the layer is named.
+    Expected<void> push_read(Config& c, LayerState&& layer, LayerOptions opts);
 
     bool changed(const LayerState& layer, Symbol& first) const;
 
@@ -412,12 +451,22 @@ struct Config::Impl {
 
     // --- Checking a candidate layer (Config::check_layer) ---
 
-    // The candidate `tree` (with a file layer's #autorun `commands`) on top of the stack:
-    // its effect, the policy's refusals, and the validators' warnings, `read_warnings` added.
+    // The candidate `tree` (with a file layer's #autorun `commands`, read with `session`) on
+    // top of the stack: its effect, the policy's refusals, and the validators' warnings,
+    // `read_warnings` added.
     [[nodiscard]] LayerReport check_candidate(const Config& c, std::string_view name,
-                                              const Array& tree, std::span<const Node> commands,
-                                              const LayerPolicy& policy,
+                                              const Ref<Array>& tree,
+                                              std::span<const Node> commands,
+                                              const LoadSession& session, const LayerPolicy& policy,
                                               std::span<const Error> read_warnings) const;
+    // A held report from a LayerChecker: the validators it left out (not any_thread), over
+    // the stack with `candidate` on top, read with `session`; their warnings refuse under
+    // the policy's warnings_refuse.
+    [[nodiscard]] LayerReport check_left_out(const Config& c, const Ref<Array>& candidate,
+                                             const LoadSession& session,
+                                             const LayerPolicy& policy) const;
+    // Fills enabled_roots: the enabled layers' trees, then `candidate` if given.
+    std::span<const Ref<Array>> stack_layers(const Ref<Array>& candidate = nullptr) const;
 
     // --- Write-back ---
 

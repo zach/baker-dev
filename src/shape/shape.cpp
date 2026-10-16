@@ -440,15 +440,12 @@ void check(const Array& tree, const Set& shapes, Report& report) {
     report.warnings = List<Error>({warnings.data(), warnings.size()});
 }
 
-Config::Validator validator(const Config& cfg) {
-    return [&cfg](const Array& root, const Callback<void(const Error&)>& warn) {
+Config::Validator validator() {
+    return [](const ValidatorStack& stack, const Callback<void(const Error&)>& warn) {
         Set set;
         Report report;
-        for (const baker::Symbol name : cfg.layers())
-            if (cfg.layer_enabled(name.str()))
-                if (const Ref<Array> tree = cfg.layer_root(name.str()))
-                    set.add(*tree, report, &cfg.read_session());
-        check(root, set, report);
+        for (const Ref<Array>& tree : stack.layers) set.add(*tree, report, &stack.session);
+        check(stack.root, set, report);
         if (!warn) return;
         for (const Error& e : report.errors) warn(e);
         for (const Error& w : report.warnings) warn(w);

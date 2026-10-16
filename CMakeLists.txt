@@ -119,6 +119,7 @@ add_library(baker_data
   src/data/config.cpp
   src/data/config_loop.cpp
   src/data/config_write.cpp
+  src/data/config_check.cpp
   src/data/error.cpp
   src/data/lookup.cpp
   src/data/merge.cpp
@@ -215,6 +216,13 @@ if(BAKER_BUILD_BENCH)
   target_link_libraries(baker_bench_cache PRIVATE baker::data baker_alloc_counter)
   add_executable(baker_bench_lookup bench/bench_lookup.cpp)
   target_link_libraries(baker_bench_lookup PRIVATE baker::data)
+  add_executable(baker_bench_layers bench/bench_layers.cpp)
+  target_link_libraries(baker_bench_layers PRIVATE baker::data)
+  if(BAKER_BUILD_SHAPE)  # the same, with shape::validator judging each candidate
+    add_executable(baker_bench_layers_shape bench/bench_layers.cpp)
+    target_compile_definitions(baker_bench_layers_shape PRIVATE BAKER_BENCH_SHAPE)
+    target_link_libraries(baker_bench_layers_shape PRIVATE baker::shape)
+  endif()
   if(BAKER_BUILD_SCRIPT)
     add_executable(baker_bench_tasks bench/bench_tasks.cpp)
     target_link_libraries(baker_bench_tasks PRIVATE baker::script baker_alloc_counter)

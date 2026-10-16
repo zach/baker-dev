@@ -5084,3 +5084,249 @@ that runs it on the policy check (D161).*
   by path, or through a `LoadSession` reader that serves the fetched text by name.
 - **Test.** The example's CTest pins the effect, the provenance line, each refusal and the
   rollback. Changing one expected detail was seen to fail it.
+
+## D163. Received text as a layer: `push_layer_text`, and text that reaches no file
+
+*Requirement note 0001 from the live-ops integration, brought by the owner. The design is
+`dev/received-layers-plan.md` §3.1. A host that receives a layer's text (a live overlay,
+a mod, a proposed change) had two routes, and each lost something.*
+- *By path through a reader that serves the text: a Config with `cache_dir` read it through
+  the cache, writing one in development and looking for one in shipping, against D142.*
+- *As a tree read separately: no pack, no origin, and a policy that never saw the read's
+  warnings.*
+
+- **`Config::push_layer_text(name, text, options)`.**
+  - **The read.** It reads the text as a file layer is read: with a copy of the session
+    below, so its pack, `origin` and `#autorun` are recorded, and `read_session()` and
+    `source()` show them.
+  - **Text only.** It never uses a cache, written or read, whatever `cache_dir` and the
+    build say.
+  - **The name.** `name` is the layer's name and the file its sources name.
+  - **Re-reads.** The Config keeps the text, shared by snapshots, and reads it again when
+    a layer below is pushed or removed.
+  - **What refuses it.** `reload()` never sees it change. Write-back refuses its values:
+    "pushed as text and has no file".
+- **`LoadSession::refuse_includes`** (the owner's choice). It refuses `#include`,
+  `#include_opt`, `#require` and `#merge` with a located error: the text may include no
+  files. A layer from outside never reaches the game's disk.
+  - `push_layer_text` and `check_layer_text` both set it, so a verdict and a push read
+    the same way.
+  - A host reading untrusted text with `read_string` can set it too.
+- **A fix: a push with a policy now sees its read's warnings.**
+  - **The bug.** `read()` handed the read's warnings to the warning handler and cleared
+    them. Only then did `push_layer` by path ask for them, so it saw none, and a pack's
+    unmet `requires` never refused under `warnings_refuse`.
+  - **The fix.** `read()` now collects them for the check. A test covers both the path
+    and the text push.
+- **The live-ops example and the cookbook** now push received text with `push_layer_text`.
+  The reader route, and its limit, are gone from "Published overlays".
+- **Cost** (shipping, release, this container). The new `bench/bench_layers.cpp` measures
+  a 9.8 KB overlay changing 400 prices of a 2,000-item table (122 KB):
+
+  | Row | Time |
+  |---|---|
+  | `read_string` | 58–65 µs |
+  | `push_layer` (tree), no policy | 80 µs |
+  | `push_layer_text`, no policy | 145 µs: the read plus the push, as the note asked |
+  | `check_layer_text` | 808–824 µs |
+  | `push_layer_text` with the policy | 722–898 µs |
+
+  With `shape::validator`, the pushes without a policy are 186 and 251 µs.
+- **Tests** (`tests/data/test_received_layers.cpp`):
+  - the pack and origin are recorded, and gone after removal;
+  - nothing is written to `cache_dir`, and a cache planted under the same name is not read;
+  - each include directive is refused, located, by the push and the check;
+  - a re-read after a layer is placed below it, and after that layer is removed;
+  - write-back refuses;
+  - the read's warnings refuse under the policy, by text and by path;
+  - the frozen live-layers path.
+
+## D164. A cheaper layer check: an index of each wide array, and refusal paths made only on refusal
+
+*Step 2 of `dev/received-layers-plan.md`; the owner chose to do it in this work. D161's
+profile put most of a check in linear lookups of a wide table, and a host whose report no
+longer holds (D165) pays for a check at the boundary.*
+
+- **The index.** The check moved to `src/data/config_check.cpp`. A `Finder` there resolves
+  paths through an open-addressed index of each array of 32 or more children it searches,
+  built once per check. It finds what `Array::try_find` finds: the first child array with
+  the tag.
+  - The check uses the finder for the stack's value below each changed one, the layer that
+    supplies it, and that value's source. These were three linear scans per value before.
+  - The lookup path (`detail::resolve`, `try_find`) is unchanged.
+- **`data_only`'s walk built a path string for every array it passed.** It now keeps the
+  tags on a stack and makes the path only for a refusal.
+- **The leaf helpers** (`Leaf`, `values_of`, `leaves_of`) moved from `config_write.cpp`'s
+  anonymous namespace to `config_internal`, which the check and write-back share.
+- **Cost** (`bench/bench_layers.cpp`, shipping, release, this container: the 9.8 KB overlay
+  changing 400 prices of a 2,000-item table, every rule on):
+
+  | Row | Before (D163) | After |
+  |---|---|---|
+  | `check_layer` (tree) | 723–728 µs | 228–292 µs |
+  | `check_layer_text` | 808–824 µs | 302–387 µs |
+  | `push_layer` (tree) with the policy | 806–819 µs | 393–445 µs |
+
+  - **Before.** Callgrind put 67% of the instructions in `detail::resolve`.
+  - **After.** No function dominates: the leaves' dotted paths (building, parsing and
+    interning them), the merge of the candidate over the stack, and `malloc`.
+- **Test.** On a 41-child table with a repeated tag, and two layers each wide enough to be
+  indexed, every entry's `below` and `below_source` match `get` and `source()`. That
+  includes the first of the repeated tags, the supplying layer, and a new key with
+  nothing below.
+
+## D165. A report that still holds: `LayerOptions::checked`, and the Config's generation
+
+*Requirement note 0002 from the live-ops integration. The design is
+`dev/received-layers-plan.md` §3.2. A host checks a layer when it arrives and applies it
+later, at a boundary it chooses, under the same policy. The push checked again, and that
+second check was most of the cost of applying, paid where a game has the least time. The
+note asked that Baker, not the host, decide whether the first check still holds: `epoch()`
+misses changes that alter a verdict (a validator added; a fast-path `set()`).*
+
+- **API** (`config.hpp`).
+  - **`LayerOptions::checked`**, with `policy`, is a report from `check_layer` or
+    `check_layer_text`. A push by tree or by text takes its verdict if it still holds, and
+    checks as without it otherwise. If the report holds and refuses, the push refuses at
+    once, changing nothing.
+  - **`LayerReport::stamp`** is an opaque `CheckStamp`: the Config, its generation, a hash
+    of the name with the text (or with the tree's address), and a hash of the policy.
+- **When a report holds.** All of these must be true:
+  - the push is by the same Config and on top;
+  - the generation is unchanged;
+  - the name and text, or the name and tree, are the ones checked;
+  - the policy has the same rules and `allow` paths.
+
+  A file pushed by path never matches, because no check reads by path.
+- **The generation** is private to the Config.
+  - **What changes it:** every merge (in `commit`, so a push, removal, toggle, reload,
+    restore or write-back), `add_validator`, `remove_validator`, every `set()` (the fast
+    path included: one add on a member it already touches), and each call of the
+    non-const `session()`.
+  - **Its range.** Each Config starts at a process-wide count shifted 32 bits, so a report
+    never holds for another Config built at the same address.
+- **What the host is trusted with.** A tree must not change between the check and the
+  push. A validator that reads outside the Config (`check_validator` reads a Context) is
+  trusted not to have changed its verdict meanwhile. The header says both.
+- **The live-ops example** stages, keeps the report, and applies with it. The cookbook's
+  "Published overlays" says the same.
+- **Cost** (`bench/bench_layers.cpp`, shipping, release; the 9.8 KB overlay):
+
+  | Push | Checks again | Report held | No policy |
+  |---|---|---|---|
+  | By tree | 378 µs | 87–88 µs | 80 µs |
+  | By text | 481–483 µs | 123–154 µs | 143–145 µs |
+
+  With `shape::validator`, a held push is 174–197 µs by tree and 215–271 µs by text.
+  Note 0002's goal was under 1 ms of the owning thread's time to apply; a held push meets
+  it with room to spare. So, since D164, does one that checks again.
+- **Tests** (`tests/data/test_received_layers.cpp`; a validator that counts its calls shows
+  whether a push checked):
+  - **A held report is used once.** The push and removal it pays for invalidate it.
+  - **Each change invalidates:** a push, a removal, a toggle, a validator added and
+    removed, `session()`, and the fast-path `set()`.
+  - **So does a mismatch:** another text, another policy, placement below, another
+    Config's report, another tree with the same content.
+  - **A held refusal** refuses with no validator run and the epoch unchanged.
+
+## D166. Validators judge a stack they are given: `ValidatorStack`, and `any_thread`
+
+*Step 4 of `dev/received-layers-plan.md`, for requirement note 0003. The owner's choice:
+validators opt in to running on any thread, and the owning thread runs the rest. For
+`shape::validator` to opt in, it had to stop reading the Config. It read each enabled
+layer's tree and the read session through the Config it held.*
+
+- **API** (`config.hpp`).
+  - **`Config::Validator`** takes a `const ValidatorStack&`: the merged root; the enabled
+    layers' own trees, bottom to top; and the session. Every caller changed, and there is
+    no old form.
+  - **`add_validator(validator, ValidatorOptions)`.** `any_thread` says the validator
+    reads only its stack and keeps no state. A `LayerChecker` (D167) runs only those.
+- **What a validator sees.**
+  - **At a merge:** the enabled layers' trees, and `read_session()`.
+  - **In a check:** the same with the candidate's tree last, and the candidate's own read
+    session when it came as text. So a candidate's shapes count in its check as they will
+    after its push.
+  - **The layer list** is one vector the Config keeps and refills at each merge. It is
+    built only when there are validators.
+- **`shape::validator()`** takes no Config and is any-thread:
+  `cfg.add_validator(baker::shape::validator(), {.any_thread = true})`.
+- **`check_validator(ctx, options)`** reads the stack's root. Without `options.packs` it
+  now uses the stack's session, so a host no longer passes `cfg.read_session()` for packs.
+  It reads a Context, which is single-threaded, so it is added without `any_thread`.
+- **Callers updated:** the stacks, the harness, the live-ops example, the benchmark, the
+  tests, the language guide, the cookbook, and acton-review's gap table.
+- **Test.** A validator sees the enabled layers bottom to top, skipping a disabled one, and
+  the merged root. In a check it sees the candidate last, and the root with the candidate
+  merged.
+
+## D167. Checking a layer off the Config's thread: `LayerChecker`
+
+*Requirement note 0003 from the live-ops integration, step 5 of
+`dev/received-layers-plan.md`. A host receiving a layer on any frame wants the check
+(parse, merge over the stack, validators) off that frame. The owning thread applies the
+layer later, at a boundary (D165). The owner chose a checker value, and validators that
+opt in to other threads (D166).*
+
+- **API** (`config.hpp`).
+  - **`Config::checker(allocator)`**, on the owning thread, returns a `LayerChecker`.
+  - **`LayerChecker::check(name, tree, policy)` and `check_text(name, text, policy)`**
+    report as `check_layer` and `check_layer_text` do, against the state the checker was
+    made from. They read text the same way: text only, no includes.
+  - **The checker is copyable;** copies share one refcounted state, and checks may run on
+    several threads at once.
+- **What the checker keeps.** One block on the host's allocator:
+  - the merged root and the enabled layers' trees, shared;
+  - the layers' names;
+  - a copy of `read_session()`, whose origins name each value's source;
+  - copies of the validators added with `any_thread`, and whether others were left out;
+  - the Config's address and generation, for the stamp.
+
+  It never touches the Config again, and outlives it: a test destroys the Config and
+  checks again.
+- **The check is one function of a *basis*** (`config_check.cpp`): the root, the layers
+  and their names, the session, the validators, a merge scratch, and an allocator. The
+  Config passes its own, with its shared merge scratch; a checker passes its copy, with a
+  merge scratch and validator list per check. So checks on several threads share nothing
+  they write. The value below a changed one is located through the session's origins,
+  which hold every layer's.
+- **Allocation.** The checker's state, each check's temporaries, and a candidate text's
+  tree come from the allocator given. The stack's trees stay the Config's, so the Config's
+  allocator must outlive its checkers, as it must its snapshots.
+- **A push with a checker's report.** It holds as any report does (D165). If the checker
+  left validators out, the push runs them first, on the owning thread, over the stack
+  merged with the candidate. Under `warnings_refuse` their warnings refuse, changing
+  nothing.
+- **Threads.** A checker needs atomic reference counts, the default (D20); the header
+  says so.
+- **Cost** (`bench/bench_layers.cpp`, shipping, release; the 9.8 KB overlay):
+
+  | Row | Time |
+  |---|---|
+  | `checker()`, the owning thread's part | 0.2 µs |
+  | `LayerChecker::check_text`, on any thread | 278–354 µs, as `check_layer_text` (385–388 µs) |
+  | Push with the checker's report | 119–149 µs, as a held report from the Config |
+
+  With `shape::validator`, which runs in the checker, the check is 364–466 µs and the
+  push 202–259 µs.
+- **Note 0003's constraints.**
+  - The worker changes nothing the owner reads and takes no lock the owner takes.
+  - Validators say whether they may run there.
+  - Allocations come from the host's allocator, but for the stack's own trees, which are
+    shared.
+- **Tests** (`tests/data/test_layer_checker.cpp`):
+  - a checker's reports equal the Config's, by text and by tree, including sources, origins
+    and refusals;
+  - it refuses includes;
+  - it keeps the state it was made from after the Config changes, and after the Config is
+    destroyed;
+  - a worker checks 20 or more times while the owner pushes, sets and removes 50 layers,
+    every report equal to the first. It is compiled only with atomic counts: CI's
+    plain-refcounts job crashed in it, as the header says it would;
+  - a push with a holding report runs only the left-out validator, and refuses on its
+    warning, changing nothing;
+  - a report from a checker made before a change does not hold.
+
+  Locally, GCC's ThreadSanitizer finds no race in the data tests; CI's TSan job runs them
+  too. `baker_alloc_tests` checks that a checker allocates through its allocator, returns
+  all of it, and reaches no `operator new`.

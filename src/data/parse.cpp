@@ -830,6 +830,9 @@ private:
     // Resolves and parses an included or merged file. Leaves `out` null if `optional`
     // and the file does not exist, or if `require` and the session has read it already.
     bool load(const Str& path, bool optional, int32_t line, Ref<Array>& out, bool require = false) {
+        if (s_.refuse_includes)
+            return fail(ErrorCode::Refused,
+                        "'" + path + "' is not read: this text may include no files", line);
         if (include_depth_ + 1 > s_.limits.max_include_depth)
             return fail(
                 ErrorCode::Limit,
@@ -913,6 +916,7 @@ void LoadSession::copy_options(const LoadSession& o) noexcept {
     record_for_cache = o.record_for_cache;
     cipher = o.cipher;
     text_only = o.text_only;
+    refuse_includes = o.refuse_includes;
     allocator = o.allocator;
 }
 LoadSession::LoadSession(const LoadSession& o)
