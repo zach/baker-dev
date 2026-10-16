@@ -96,6 +96,7 @@ TEST_CASE("a checker outlives its Config, and keeps the state it was made from")
     CHECK(summary(ok(checker.check_text("sale", kOverlay))) == summary(r));
 }
 
+#if BAKER_ATOMIC_REFCOUNT_ENABLED  // a checker off the Config's thread needs atomic counts
 TEST_CASE("a checker checks on another thread while the Config changes") {
     Fixture f;
     const LayerPolicy policy{.data_only = true, .warnings_refuse = true};
@@ -122,6 +123,7 @@ TEST_CASE("a checker checks on another thread while the Config changes") {
     CHECK(checks.load() >= 20);
     CHECK(mismatches.load() == 0);
 }
+#endif
 
 TEST_CASE("a checker's report holds until the Config changes, and the push runs the rest") {
     Fixture f;

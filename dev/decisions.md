@@ -5321,7 +5321,8 @@ opt in to other threads (D166).*
   - it keeps the state it was made from after the Config changes, and after the Config is
     destroyed;
   - a worker checks 20 or more times while the owner pushes, sets and removes 50 layers,
-    every report equal to the first;
+    every report equal to the first. It is compiled only with atomic counts: CI's
+    plain-refcounts job crashed in it, as the header says it would;
   - a push with a holding report runs only the left-out validator, and refuses on its
     warning, changing nothing;
   - a report from a checker made before a change does not hold.
