@@ -664,7 +664,13 @@ Expected<Node> call_declared(const void* callable, Args&) {
 
 using Match = bool (*)(const Node&, bool) noexcept;
 
-// Baker's own type names, as the reference writes them, and how each checks an argument.
+// `name`: a path or a layer name, a symbol or a string, as the config tools read one.
+bool match_name(const Node& n, bool) noexcept {
+    return n.type() == Type::Symbol || n.type() == Type::String;
+}
+
+// Baker's own type names, as the reference writes them for its functions (the config
+// tools' included), and how each checks an argument.
 bool builtin_match(std::string_view type, Match& match) {
     struct Entry {
         std::string_view name;
@@ -678,6 +684,7 @@ bool builtin_match(std::string_view type, Match& match) {
         {"array", detail::Param<const Array&>::match},
         {"symbol", &detail::match_value<Symbol>},
         {"string", &detail::match_value<std::string_view>},
+        {"name", &match_name},
         {"bool", &detail::match_value<bool>},
         {"int", &detail::match_value<int64_t>},
         {"int8", &detail::match_value<int64_t>},

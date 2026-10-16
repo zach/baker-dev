@@ -547,3 +547,115 @@ TEST_CASE("a declared function keeps its status, and a description it cannot exp
     CHECK_FALSE(ctx.declare("jump", std::span<const OverloadDescription>()));
     CHECK_FALSE(ctx.has_func("jump"));
 }
+
+namespace {
+
+// The functions of a baker.reference JSON, as declare takes them: a small reader for the
+// one-function-per-line layout write_reference_json writes. Views point into `json`.
+struct Described {
+    std::string_view name;
+    std::vector<std::vector<ParamDescription>> params;
+    std::vector<OverloadDescription> overloads;
+};
+
+std::string_view quoted_after(std::string_view s, std::string_view key, size_t& at) {
+    at = s.find(key, at);
+    REQUIRE(at != std::string_view::npos);
+    at += key.size();
+    const size_t end = s.find('"', at);
+    const std::string_view value = s.substr(at, end - at);
+    at = end + 1;
+    return value;
+}
+
+std::vector<Described> described_functions(std::string_view json) {
+    std::vector<Described> out;
+    const size_t from = json.find("\"functions\": [");
+    const size_t to = json.find("\"types\": [");
+    std::string_view list = json.substr(from, to - from);
+    for (size_t at = 0; (at = list.find("\n    {\"name\": \"", at)) != std::string_view::npos;) {
+        const size_t end = list.find('\n', at + 1);
+        const std::string_view line = list.substr(at + 1, end - at - 1);
+        Described d;
+        size_t p = 0;
+        d.name = quoted_after(line, "{\"name\": \"", p);
+        std::vector<std::string_view> results;
+        while ((p = line.find("{\"params\": [", p)) != std::string_view::npos) {
+            const size_t params_end = line.find("], \"result\": ", p);
+            auto& ps = d.params.emplace_back();
+            size_t q = p;
+            while ((q = line.find("{\"type\": \"", q)) < params_end) {
+                ParamDescription pd;
+                pd.type = quoted_after(line, "{\"type\": \"", q);
+                pd.kind = quoted_after(line, "\"kind\": \"", q);
+                pd.raw = line.substr(line.find("\"raw\": ", q) + 7, 4) == "true";
+                ps.push_back(pd);
+            }
+            p = params_end;
+            results.push_back(quoted_after(line, "\"result\": \"", p));
+        }
+        for (size_t i = 0; i < d.params.size(); ++i)
+            d.overloads.push_back({d.params[i], results[i]});
+        out.push_back(std::move(d));
+        at = end;
+    }
+    return out;
+}
+
+}  // namespace
+
+TEST_CASE("every function Baker binds can be declared from its own reference, and checks alike") {
+    // Baker's built-ins and its config tools, with no other functions.
+    Context game;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(bind_config_tools(game, cfg));
+    std::string json;
+    write_reference_json(game, string_out(json));
+    const std::vector<Described> functions = described_functions(json);
+    size_t written = 0;  // every function in the reference is read back
+    for (size_t at = 0; (at = json.find("\"tier\": ", at)) != std::string::npos; ++at) ++written;
+    REQUIRE(written > 20);
+    REQUIRE(functions.size() == written);
+
+    // Each declared under another name, in a Context that has the built-ins but no tools.
+    Context tool;
+    std::string calls, declared_calls;
+    const char* const args[] = {"",       " 1",   " a",   " \"s\"", " 1.5",        " $v",
+                                " (1 2)", " a 1", " 1 a", " a b c", " \"p\" 2 3 4"};
+    for (const Described& f : functions) {
+        CAPTURE(f.name);
+        const std::string as = "d." + std::string(f.name);
+        REQUIRE(tool.declare(Symbol(as), f.overloads));
+        for (const char* a : args) {
+            calls += "{" + std::string(f.name) + a + "}\n";
+            declared_calls += "{" + as + a + "}\n";
+        }
+    }
+    const CheckReport native = check(*parse(calls, "calls.dta"), game);
+    const CheckReport described = check(*parse(declared_calls, "calls.dta"), tool);
+    REQUIRE(native.errors.size() > 100);
+
+    // The same errors, at the same lines, but for the name: except the forms check knows
+    // by their own name, whose special rules a declared function does not have.
+    std::map<int32_t, std::string> by_line;
+    for (const Error& e : described.errors) {
+        std::string m(e.message());
+        const size_t d = m.find("'d.");
+        if (d != std::string::npos) m.erase(d + 1, 2);
+        by_line[e.line()] = m;
+    }
+    size_t compared = 0;
+    for (const Error& e : native.errors) {
+        CAPTURE(to_string(e));
+        auto it = by_line.find(e.line());
+        if (it == by_line.end()) {
+            const std::string m(e.message());
+            // A special form's own rule, which needs its name: {set x 1} wants a variable.
+            CHECK(m.find("'set'") != std::string::npos);
+            continue;
+        }
+        CHECK(it->second == std::string(e.message()));
+        ++compared;
+    }
+    CHECK(compared > 100);
+}

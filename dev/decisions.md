@@ -5681,3 +5681,34 @@ only in types.*
     parameter, and no overloads are refused.
 - **Docs.** `docs/reference-json.md`, "Checking without the game".
 - **Core:** 13,784 → 13,922 lines.
+
+## D176. Every type Baker's own functions use can be declared
+
+*The editor session's requirement note 0008, from using D175 on the stacks. The reference
+writes `name` for the path parameter of nine of the config tools (`config.get`,
+`config.explain`, ...). `declare` refused it as an unknown type, so a tool could not
+declare Baker's own functions from their reference. The editor declared them with `value`,
+which loses the check.*
+
+- **`name`** joins `declare`'s table of Baker's types. It checks as the config tools read
+  one: a symbol or a string. `config_tools.cpp`'s comment on its `Name` type points at the
+  table, so the two stay alike.
+- **Every other type** the reference writes for a Context with the config tools bound was
+  in the table already:
+  - `$variable`, `bool`, `float`, `int`, `unevaluated`, `value` and `values...`;
+  - results `bool`, `float`, `int`, `nothing` and `value`.
+- **The round trip is a test.** It keeps this true as Baker's functions change.
+  - The setup: a Context with the config tools bound writes its reference. The test reads
+    every function back from the JSON (forty; thirty-two in a shipping build) and declares
+    each under a `d.` name in a Context without the tools.
+  - The calls: eleven argument shapes for each, against the natives and against the
+    declared functions. `check` gives the same errors on the same lines, but for the name.
+  - The one exception: `{set x 1}`, whose "needs a variable" rule check keeps for `set`
+    by name.
+  - Without the `name` entry, the test fails at the first config tool.
+- **Not changed, from the session's observations:**
+  - `ProjectOptions::skip` stays an `initializer_list`. A tool with a runtime list filters
+    `Project::layers` itself, which is one loop.
+  - The stacks' project files name no reference yet. Writing one is the stacks' build's
+    job, and is left to the owner.
+- **Core:** 13,922 → 13,926 lines.
