@@ -3,6 +3,7 @@
 (project
    (pack_levels engine game task)
    (include_dirs "data")
+   (reference "build/reference.json")   ; written by the build (stacks_reference)
    (layers
       (default "data/default.dta")
       (local "data/local.dta" optional)   ; one developer's own tuning; sim and check skip it

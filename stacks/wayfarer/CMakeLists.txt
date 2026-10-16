@@ -11,6 +11,7 @@ add_executable(stacks_wayfarer main.cpp)
 target_link_libraries(stacks_wayfarer PRIVATE stacks_wayfarer_world stacks_physics stacks_app)
 target_compile_definitions(stacks_wayfarer PRIVATE WAYFARER_DATA="${CMAKE_CURRENT_SOURCE_DIR}/data")
 stacks_target(stacks_wayfarer)
+stacks_reference(stacks_wayfarer)
 
 if(STACKS_BUILD_TESTS)
   add_executable(stacks_wayfarer_tests tests/test_world.cpp)

@@ -11,3 +11,4 @@ compile_commands.json
 /build-stacks/
 __pycache__/
 /stacks/*/runs/
+/stacks/*/build/

@@ -10,6 +10,7 @@ add_executable(stacks_duel main.cpp)
 target_link_libraries(stacks_duel PRIVATE stacks_duel_fight stacks_app)
 target_compile_definitions(stacks_duel PRIVATE DUEL_DATA="${CMAKE_CURRENT_SOURCE_DIR}/data")
 stacks_target(stacks_duel)
+stacks_reference(stacks_duel)
 
 if(STACKS_BUILD_TESTS)
   add_executable(stacks_duel_tests tests/test_fight.cpp)

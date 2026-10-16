@@ -11,6 +11,7 @@ add_executable(stacks_hearth main.cpp)
 target_link_libraries(stacks_hearth PRIVATE stacks_hearth_sim stacks_app)
 target_compile_definitions(stacks_hearth PRIVATE HEARTH_DATA="${CMAKE_CURRENT_SOURCE_DIR}/data")
 stacks_target(stacks_hearth)
+stacks_reference(stacks_hearth)
 
 if(STACKS_BUILD_TESTS)
   add_executable(stacks_hearth_tests tests/test_household.cpp)

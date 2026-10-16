@@ -37,6 +37,19 @@ function(stacks_target target)
   endif()
 endfunction()
 
+# After `game` is linked, writes its reference to build/reference.json in the stack's source
+# directory, where the stack's baker-project.dta names it (D177): beside the project file,
+# not in the build directory, since a tool that opens the stack knows only the project
+# file. Ignored by git.
+function(stacks_reference game)
+  add_custom_command(TARGET ${game} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -DGAME=$<TARGET_FILE:${game}>
+            -DOUT=${CMAKE_CURRENT_SOURCE_DIR}/build/reference.json
+            -P ${CMAKE_SOURCE_DIR}/cmake/write_reference.cmake
+    COMMENT "Writing ${game}'s reference"
+    VERBATIM)
+endfunction()
+
 if(STACKS_BUILD_TESTS)
   enable_testing()
   add_library(stacks_doctest_main STATIC ${BAKER_ROOT}/tests/doctest_impl.cpp

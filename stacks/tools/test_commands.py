@@ -170,6 +170,23 @@ def project_file(s):
         (s.dir / "data" / "experiment.dta").unlink(missing_ok=True)
 
 
+def built_reference(s):
+    """The build writes the game's reference where the stack's project file names it."""
+    named = '(reference "build/reference.json")'
+    expect(named in (s.dir / "baker-project.dta").read_text(),
+           "the project file names the build's reference")
+    written = s.dir / "build" / "reference.json"
+    expect(written.is_file(), "the build wrote build/reference.json beside the project file")
+    if not written.is_file():
+        return
+    code, out, _ = s.run("reference", "--json", agent="")
+    names = lambda r: [f["name"] for f in r["reference"]["functions"]]
+    built = json.loads(written.read_text())
+    expect(code == 0 and built["reference"]["schema"] == "baker.reference/1.1" and
+           names(built) == names(json.loads(out)),
+           "the built reference is the game's reference --json")
+
+
 def headless_idle(s):
     """A headless game serving its console paces its frames: it idles, and still answers."""
     with socket.socket() as probe:  # a free port
@@ -219,6 +236,7 @@ def main():
     eval_json(s)
     sim_json(s)
     project_file(s)
+    built_reference(s)
     headless_idle(s)
     promote_patch(s)  # last: --write changes the copy's default.dta
     print(f"{len(FAILURES)} failures" if FAILURES else "all passed")

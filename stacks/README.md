@@ -66,7 +66,7 @@ Options every stack's game takes:
 
 | Option | Effect |
 |---|---|
-| `--data DIR` | The game's data directory (default: its own `data/`). The stack itself (layers, pack levels, include directories) is in `baker-project.dta` beside it, which an editor or checker reads too |
+| `--data DIR` | The game's data directory (default: its own `data/`). The stack itself (layers, pack levels, include directories) is in `baker-project.dta` beside it, which an editor or checker reads too. It also names `build/reference.json`, the game's `reference --json`, which the build writes there (ignored by git) after linking the game, so a tool that opens the stack has its functions |
 | `--renderer NAME` | `auto` (default: bgfx picks the platform's best), `d3d11`, `d3d12`, `vulkan`, `gl`, `noop` |
 | `--headless` | No window and the Noop renderer: for tests and CI |
 | `--frames N` | Quit after N frames |

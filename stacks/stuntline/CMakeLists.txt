@@ -11,6 +11,7 @@ add_executable(stacks_stuntline main.cpp)
 target_link_libraries(stacks_stuntline PRIVATE stacks_stuntline_race stacks_app)
 target_compile_definitions(stacks_stuntline PRIVATE STUNTLINE_DATA="${CMAKE_CURRENT_SOURCE_DIR}/data")
 stacks_target(stacks_stuntline)
+stacks_reference(stacks_stuntline)
 stacks_deterministic(stacks_stuntline)
 
 if(STACKS_BUILD_TESTS)
