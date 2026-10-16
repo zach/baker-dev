@@ -44,7 +44,7 @@ struct Options {
         "                                 --json prints it instead of the text\n"
         "  compare BEFORE_DIR AFTER_DIR   which objectives moved between two --out\n"
         "                                 directories (stacks.compare/1); exit 1 if one broke\n"
-        "  check                          baker.check/1.1 JSON; exit 1 on an error, a load\n"
+        "  check                          baker.check/1.2 JSON; exit 1 on an error, a load\n"
         "                                 problem, a shape error, or an undefined function\n"
         "  reference [--json]             the game's script vocabulary, as Markdown; --json:\n"
         "                                 {reference, tweaks, shapes} as Baker's JSON\n"
@@ -55,7 +55,7 @@ struct Options {
         "  eval [--seed N] [--json] \"{command}\"...\n"
         "                                 each command's result, one a line, on the game\n"
         "                                 reset with the seed (default 1); --json: one\n"
-        "                                 baker.reply/1 line each, as the console answers\n"
+        "                                 baker.reply/1.1 line each, as the console answers\n"
         "every command also takes --data DIR, --sim DIR, --metrics DIR\n",
         problem);
     std::exit(kError);
@@ -231,7 +231,7 @@ int sim(Game& game, const Options& o) {
                : kFailed;
 }
 
-// Prints check's JSON (baker.check/1.1) with the load problems, and returns the exit status.
+// Prints check's JSON (baker.check/1.2) with the load problems, and returns the exit status.
 int report_check(baker::CheckReport& report, const Loaded& l, const baker::LoadSession* packs) {
     const auto& load = l.live.load_errors();
     report.load =
@@ -309,7 +309,7 @@ int eval(Game& game, const Options& o) {
     game.reset(o.seed_first);
     int status = 0;
     if (o.json) {
-        // One baker.reply/1 line per command, as a running game's console answers a request:
+        // One baker.reply/1.1 line per command, as a running game's console answers a request:
         // a tool reads a headless game and a live one the same way.
         int id = 0;
         for (const std::string& command : o.commands) {

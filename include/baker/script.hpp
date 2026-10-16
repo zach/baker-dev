@@ -893,7 +893,7 @@ void reference(const Context& ctx, TextSink out, const LoadSession* packs = null
 // origins. Sorted by name, so the same Context gives the same bytes.
 void write_reference_json(const Context& ctx, TextSink out, const LoadSession* packs = nullptr);
 
-// Evaluates one line from a tool and writes one line of JSON (schema baker.reply/1,
+// Evaluates one line from a tool and writes one line of JSON (schema baker.reply/1.1,
 // docs/reply-json.md). A request is (ID {command}), its ID an int, symbol or string that
 // the reply echoes; any other line is evaluated whole, with a null id, as eval(text) would.
 // The reply holds the result's printed form ("text", the authority) and a JSON projection

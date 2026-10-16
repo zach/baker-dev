@@ -81,6 +81,9 @@ public:
     [[nodiscard]] std::string_view message() const noexcept;
     [[nodiscard]] Symbol file() const noexcept;   // empty when unknown
     [[nodiscard]] int32_t line() const noexcept;  // 0 when unknown
+    // 1-based, in characters (code points) from the line's start; 0 when unknown. The parser
+    // gives one; a lookup or shape error, located by an array's line, does not.
+    [[nodiscard]] int32_t column() const noexcept;
     // The array path, e.g. menu/'bacon and eggs'; empty when unknown.
     [[nodiscard]] std::string_view path() const noexcept;
     // The script calls it unwound through, innermost first.
@@ -88,7 +91,9 @@ public:
 
     // Changing an error, as it is located on the way out.
     void set_message(std::string_view message);
+    // Sets the file and line, and clears the column.
     void set_location(Symbol file, int32_t line);
+    void set_column(int32_t column);
     void set_path(std::string_view path);
     void push_stack(const StackEntry& entry);
 
@@ -101,9 +106,9 @@ private:
 [[nodiscard]] Error make_error(ErrorCode code, std::string_view message, Symbol file = {},
                                int32_t line = 0);
 
-// "baker: <message>  (<file>:<line>, at <path>)", omitting whatever is unknown. The text is
-// kept in the error and null-terminated; the view is valid while the error lives and is
-// not changed.
+// "baker: <message>  (<file>:<line>:<column>, at <path>)", omitting whatever is unknown. The text
+// is kept in the error and null-terminated; the view is valid while the error lives and is not
+// changed.
 [[nodiscard]] std::string_view to_string(const Error& error);
 // to_string, then a line per stack entry, innermost first:
 //   baker: '%' by zero  (boss.dta:9)

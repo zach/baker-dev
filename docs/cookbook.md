@@ -508,7 +508,7 @@ people. Two calls give it what it needs:
 
 ```
 > (1 {config.explain player.speed})
-{"schema":"baker.reply/1","id":1,"ok":true,"text":"...","value":[
+{"schema":"baker.reply/1.1","id":1,"ok":true,"text":"...","value":[
   {"layer":"default","value":4.5,"standing":"shadowed","file":"default.dta","line":3},
   {"layer":"local","value":6,"standing":"wins","file":"local/me.dta","line":1}]}
 ```

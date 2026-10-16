@@ -36,7 +36,7 @@ reads `passed` and shows the lists:
   end. Strings escape `"`, `\`, and control characters (`\n`, `\t`, `\u00XX`); other
   characters are written as they are. Numbers are integers.
 - **Versioning.** `schema` is `baker.check/MAJOR` while the minor version is 0, then
-  `baker.check/MAJOR.MINOR` (now `baker.check/1.1`). A field is only ever added with a new minor version, which old
+  `baker.check/MAJOR.MINOR` (now `baker.check/1.2`). A field is only ever added with a new minor version, which old
   readers can ignore; a field is removed or renamed, or its meaning changed, only with a new
   major version.
 
@@ -44,7 +44,7 @@ reads `passed` and shows the lists:
 
 | Field | Type | Contents |
 |---|---|---|
-| `schema` | string | `"baker.check/1.1"` |
+| `schema` | string | `"baker.check/1.2"` |
 | `passed` | boolean | `CheckReport::ok()`: no errors, no load problems, no shape errors, and, when unresolved calls fail, no unresolved demand (1.1) |
 | `errors` | list of problems | calls with the wrong arguments for every overload |
 | `warnings` | list of problems | the one-way rule: a harder pack calling a softer one's function (D83) |
@@ -56,13 +56,15 @@ reads `passed` and shows the lists:
 | `shape_warnings` | list of problems | fields no shape declares; never a failure. Filled by the host (1.1) |
 | `packs` | list of packs | the session's packs and their harness metadata; empty without a session |
 
-**A problem** (in every list of problems), sorted by `file`, then `line`, then `message`:
+**A problem** (in every list of problems), sorted by `file`, then `line`, then `column`,
+then `message`:
 
 | Field | Type | Contents |
 |---|---|---|
 | `code` | string | the `ErrorCode`: `syntax`, `range`, `directive`, `io`, `limit`, `type`, `not found`, `refused` |
 | `file` | string | where it was found; `""` if unknown |
 | `line` | integer | the line; 0 if unknown (a pack's finding names only its file) |
+| `column` | integer | the column, 1-based, in characters from the line's start; 0 if unknown. A parse error has one; a call or shape problem, located by its array's line, does not (1.2) |
 | `path` | string | the array path that led there, as errors print it; `""` if none |
 | `message` | string | what is wrong, as the text form says it |
 

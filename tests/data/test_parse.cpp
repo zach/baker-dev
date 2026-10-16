@@ -164,7 +164,7 @@ TEST_CASE("errors format with file and line") {
     Error e = parse_error("(a 1)\n(b 0x1FFFFFFFFFFFFFFFF)");
     CHECK(e.file() == Symbol("t.dta"));
     CHECK(e.line() == 2);
-    CHECK(to_string(e) == "baker: integer 0x1FFFFFFFFFFFFFFFF is out of 64-bit range  (t.dta:2)");
+    CHECK(to_string(e) == "baker: integer 0x1FFFFFFFFFFFFFFFF is out of 64-bit range  (t.dta:2:4)");
 }
 
 TEST_CASE("reading text and files") {
@@ -200,4 +200,46 @@ TEST_CASE("include paths are handled lexically") {
     CHECK(detail::join_path("", "x.dta") == "x.dta");
     CHECK(detail::join_path("dir", "x.dta") == "dir/x.dta");
     CHECK(detail::join_path("dir/", "x.dta") == "dir/x.dta");
+}
+
+TEST_CASE("parse errors carry a column, in characters from the line's start (D169)") {
+    struct Case {
+        const char* text;
+        int line, column;
+    };
+    const Case cases[] = {
+        {"(a 1)\n  (b \"open", 2, 6},               // unterminated string: at its quote
+        {"(a 'open", 1, 4},                         // unterminated quoted symbol
+        {"(a 1) /* never", 1, 7},                   // unterminated comment: at its /*
+        {"(a $)", 1, 4},                            // '$' without a name
+        {"(a\n   99999999999999999999)", 2, 4},     // integer out of range
+        {"(a 1))", 1, 6},                           // unexpected ')'
+        {"(a (b 1]", 1, 8},                         // ( closed by ]
+        {"(a 1)\n   (b 2", 2, 4},                   // never closed: at the bracket
+        {"(a 1)\n #frobnicate", 2, 2},              // unknown directive
+        {"(a 1) #else", 1, 7},                      // #else without #ifdef
+        {"(name \"\xC3\xA9t\xC3\xA9\") $", 1, 14},  // two-byte characters count once
+        {"\xEF\xBB\xBF(a \"open", 1, 4},            // a byte-order mark is not a character
+    };
+    for (const Case& c : cases) {
+        CAPTURE(c.text);
+        const Error e = parse_error(c.text);
+        CHECK(e.line() == c.line);
+        CHECK(e.column() == c.column);
+    }
+    const Error e = parse_error("(a 1)\n  (b \"open");
+    CHECK(to_string(e) == "baker: unterminated string  (t.dta:2:6)");
+}
+
+TEST_CASE("an error located by an array's line has no column") {
+    const auto root = read_string("(speed fast)", "t.dta");
+    REQUIRE(root);
+    const auto v = (*root)->get<int>("speed");
+    REQUIRE_FALSE(v);
+    CHECK(v.error().line() == 1);
+    CHECK(v.error().column() == 0);
+    CHECK(to_string(v.error()) == "baker: 'speed' is symbol, not int  (t.dta:1)");
+    // A pack declaration's problem names the declaration's line only.
+    const Error pack = parse_error("(pack p (level 3))");
+    CHECK(pack.column() == 0);
 }

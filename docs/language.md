@@ -464,8 +464,16 @@ baker: 'price' is float, not int  (menu.dta:3, at menu/'bacon and eggs')
 ```
 
 read as: what went wrong; the file and line of the array involved; and the path from the
-root to it, which can be pasted back into a lookup. A parse error names the line where
-the trouble started, so an unclosed parenthesis points at its opening line.
+root to it, which can be pasted back into a lookup. A parse error also names the column,
+counted in characters from the start of the line, and points where the trouble started, so
+an unclosed parenthesis points at the parenthesis itself:
+
+```
+baker: '(' is never closed  (menu.dta:12:4)
+```
+
+`Error::column()` gives it, 0 when unknown. An error found on an array after the parse (a
+lookup, a shape, a script call) names the array's line and no column.
 
 An error raised in script also carries the script calls it unwound through, innermost
 first. `describe(error)` prints them:

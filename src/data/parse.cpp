@@ -66,11 +66,28 @@ public:
     }
 
 private:
-    bool fail(Error& err, ErrorCode code, std::string_view msg, int32_t line) {
+    bool fail(Error& err, ErrorCode code, std::string_view msg, int32_t line, size_t at) {
         err = make_error(code, msg, file_, line);
+        err.set_column(column_at(at));
         return false;
     }
 
+public:
+    // The 1-based column of byte `at`, in characters (code points) from its line's start,
+    // a byte-order mark aside. On the error path only: nothing tracks it per token.
+    [[nodiscard]] int32_t column_at(size_t at) const noexcept {
+        at = std::min(at, src_.size());
+        const size_t nl = at == 0 ? std::string_view::npos : src_.rfind('\n', at - 1);
+        size_t from = nl == std::string_view::npos ? 0 : nl + 1;
+        if (from == 0 && src_.size() >= 3 && std::memcmp(src_.data(), "\xEF\xBB\xBF", 3) == 0)
+            from = std::min<size_t>(3, at);
+        int32_t column = 1;
+        for (size_t i = from; i < at; ++i)
+            if ((static_cast<unsigned char>(src_[i]) & 0xC0) != 0x80) ++column;
+        return column;
+    }
+
+private:
     bool lex(Token& t, Error& err) {
         const bool ok = lex_token(t, err);
         t.end = static_cast<uint32_t>(pos_);
@@ -99,10 +116,12 @@ private:
                 pos_ = std::min(src_.find('\n', pos_), n);  // to the newline, as memchr
             } else if (c == '/' && pos_ + 1 < n && src_[pos_ + 1] == '*') {
                 const int32_t start = line_;
+                const size_t opened = pos_;
                 pos_ += 2;
                 for (;;) {
                     if (pos_ + 1 >= n)
-                        return fail(err, ErrorCode::Syntax, "unterminated /* comment", start);
+                        return fail(err, ErrorCode::Syntax, "unterminated /* comment", start,
+                                    opened);
                     if (src_[pos_] == '*' && src_[pos_ + 1] == '/') {
                         pos_ += 2;
                         break;
@@ -147,7 +166,7 @@ private:
         // Neither escape contains a quote, so the string ends at the first one.
         const size_t i = src_.find('"', begin);
         if (i == std::string_view::npos)
-            return fail(err, ErrorCode::Syntax, "unterminated string", start_line);
+            return fail(err, ErrorCode::Syntax, "unterminated string", start_line, begin - 1);
         const std::string_view raw = src_.substr(begin, i - begin);
         line_ += count_lines(raw);
         pos_ = i + 1;
@@ -174,7 +193,8 @@ private:
         const size_t begin = ++pos_;
         const size_t end = src_.find('\'', begin);
         if (end == std::string_view::npos)
-            return fail(err, ErrorCode::Syntax, "unterminated 'quoted symbol'", start_line);
+            return fail(err, ErrorCode::Syntax, "unterminated 'quoted symbol'", start_line,
+                        begin - 1);
         t.kind = Tok::Symbol;
         t.quoted = true;
         t.text = src_.substr(begin, end - begin);
@@ -194,7 +214,7 @@ private:
         }
         if (atom[0] == '$') {
             if (atom.size() == 1)
-                return fail(err, ErrorCode::Syntax, "'$' without a variable name", t.line);
+                return fail(err, ErrorCode::Syntax, "'$' without a variable name", t.line, begin);
             t.kind = Tok::Var;
             t.text = atom.substr(1);
             return true;
@@ -211,10 +231,10 @@ private:
                 return true;
             case NumberKind::IntOutOfRange:
                 return fail(err, ErrorCode::Range,
-                            "integer " + Str(atom) + " is out of 64-bit range", t.line);
+                            "integer " + Str(atom) + " is out of 64-bit range", t.line, begin);
             case NumberKind::FloatOutOfRange:
                 return fail(err, ErrorCode::Range, "float " + Str(atom) + " is out of double range",
-                            t.line);
+                            t.line, begin);
             case NumberKind::NotNumber: break;
         }
         t.kind = Tok::Symbol;
@@ -368,7 +388,8 @@ public:
                 conds_.back().line);
         if (frames_.size() > 1) {
             const FrameInfo& f = frames_.back();
-            return fail(ErrorCode::Syntax, Str(bracket_name(f.open)) + " is never closed", f.line);
+            return fail(ErrorCode::Syntax, Str(bracket_name(f.open)) + " is never closed", f.line,
+                        f.begin);
         }
         Ref<Array> root = arena_.make_array(scratch_, file_, 1);
         if (root->height() > s_.limits.max_depth + 1) return too_deep(1);
@@ -401,14 +422,22 @@ private:
         int32_t line;
     };
 
-    bool fail(ErrorCode code, std::string_view msg, int32_t line) {
+    static constexpr uint32_t kNoColumn = UINT32_MAX;
+    // An error at byte `at`, which gives its column.
+    bool fail(ErrorCode code, std::string_view msg, int32_t line, uint32_t at) {
         *err_ = make_error(code, msg, file_, line);
+        if (at != kNoColumn) err_->set_column(lex_.column_at(at));
         return false;
     }
-    bool too_deep(int32_t line) {
+    // At `line` alone: an array's line, which keeps no column. Nothing tracks the column
+    // per token, so a column comes only from an offset at hand (E4's Acton note).
+    bool fail(ErrorCode code, std::string_view msg, int32_t line) {
+        return fail(code, msg, line, kNoColumn);
+    }
+    bool too_deep(int32_t line, uint32_t at = kNoColumn) {
         return fail(ErrorCode::Limit,
-                    "nesting deeper than " + detail::decimal(s_.limits.max_depth) + " levels",
-                    line);
+                    "nesting deeper than " + detail::decimal(s_.limits.max_depth) + " levels", line,
+                    at);
     }
     [[nodiscard]] bool active() const noexcept { return conds_.empty() || conds_.back().active; }
 
@@ -423,11 +452,11 @@ private:
             return fail(ErrorCode::Limit,
                         "more than " + detail::decimal(static_cast<int64_t>(s_.limits.max_nodes)) +
                             " nodes",
-                        line_);
+                        line_, span.file.empty() ? kNoColumn : span.begin);
         if (frames_.back().kind == Frame::Root && n.type() == Type::Property)
             return fail(ErrorCode::Syntax,
-                        "a [property] cannot appear at top level, where '[' defines a macro",
-                        line_);
+                        "a [property] cannot appear at top level, where '[' defines a macro", line_,
+                        span.file.empty() ? kNoColumn : span.begin);
         scratch_.push_back(std::move(n));
         if (map_) spans_.push_back(span);
         return true;
@@ -461,7 +490,7 @@ private:
     }
 
     bool open(char bracket, int32_t line, uint32_t begin) {
-        if (frames_.size() > s_.limits.max_depth) return too_deep(line);
+        if (frames_.size() > s_.limits.max_depth) return too_deep(line, begin);
         Frame kind = Frame::Array;
         if (bracket == '{') kind = Frame::Command;
         if (bracket == '[')
@@ -483,24 +512,26 @@ private:
     bool close(const Token& t) {
         const FrameInfo f = frames_.back();
         if (f.kind == Frame::Root)
-            return fail(ErrorCode::Syntax, "unexpected " + Str(bracket_name(t.bracket)), t.line);
+            return fail(ErrorCode::Syntax, "unexpected " + Str(bracket_name(t.bracket)), t.line,
+                        t.begin);
         if (t.bracket != closer(f.kind))
             return fail(ErrorCode::Syntax,
                         Str(bracket_name(f.open)) + " from line " + detail::decimal(f.line) +
                             " is closed by " + Str(bracket_name(t.bracket)),
-                        t.line);
+                        t.line, t.begin);
         frames_.pop_back();
         std::span<Node> kids(scratch_.data() + f.start, scratch_.size() - f.start);
-        if (f.removes && kids.size() != 2) return bad_remove(f.line);
+        if (f.removes && kids.size() != 2) return bad_remove(f.line, f.begin);
 
         if (f.kind == Frame::MacroDef) {
             const auto name = kids.empty() ? std::nullopt : kids[0].try_sym();
             if (!name)
-                return fail(ErrorCode::Syntax, "macro definition needs a symbol name", f.line);
+                return fail(ErrorCode::Syntax, "macro definition needs a symbol name", f.line,
+                            f.begin);
             Ref<Array> body = arena_.make_array(kids.subspan(1), file_, f.line);
             record(body, f.start + 1, f.begin, t.end);
             truncate(f.start);
-            if (body->height() > s_.limits.max_depth) return too_deep(f.line);
+            if (body->height() > s_.limits.max_depth) return too_deep(f.line, f.begin);
             s_.define(*name, std::move(body));
             defined(*name);
             return true;
@@ -509,7 +540,7 @@ private:
         Ref<Array> arr = arena_.make_array(kids, file_, f.line);
         record(arr, f.start, f.begin, t.end);
         truncate(f.start);
-        if (arr->height() > s_.limits.max_depth) return too_deep(f.line);
+        if (arr->height() > s_.limits.max_depth) return too_deep(f.line, f.begin);
         const SourceSpan span{file_, f.begin, t.end, {}};
         switch (f.kind) {
             case Frame::DefineBody:
@@ -709,7 +740,8 @@ private:
     bool name_arg(std::string_view directive, Token& t) {
         if (!lex_.next(t, *err_)) return false;
         if (t.kind != Tok::Symbol)
-            return fail(ErrorCode::Directive, "#" + Str(directive) + " needs a name", t.line);
+            return fail(ErrorCode::Directive, "#" + Str(directive) + " needs a name", t.line,
+                        t.begin);
         return true;
     }
 
@@ -717,7 +749,8 @@ private:
         Token t;
         if (!lex_.next(t, *err_)) return false;
         if (t.kind != Tok::Symbol && t.kind != Tok::String)
-            return fail(ErrorCode::Directive, "#" + Str(directive) + " needs a file path", t.line);
+            return fail(ErrorCode::Directive, "#" + Str(directive) + " needs a file path", t.line,
+                        t.begin);
         path.assign(t.text);
         return true;
     }
@@ -736,13 +769,15 @@ private:
 
     bool else_or_endif(const Token& t) {
         if (conds_.empty())
-            return fail(ErrorCode::Directive, "#" + Str(t.text) + " without #ifdef", t.line);
+            return fail(ErrorCode::Directive, "#" + Str(t.text) + " without #ifdef", t.line,
+                        t.begin);
         if (t.text == "endif") {
             conds_.pop_back();
             return true;
         }
         Cond& c = conds_.back();
-        if (c.seen_else) return fail(ErrorCode::Directive, "second #else for one #ifdef", t.line);
+        if (c.seen_else)
+            return fail(ErrorCode::Directive, "second #else for one #ifdef", t.line, t.begin);
         c.seen_else = true;
         c.active = c.parent_active && !c.value;
         return true;
@@ -756,15 +791,15 @@ private:
     }
 
     // `(key #remove)`: the marker is the tagged array's one value (D143).
-    bool bad_remove(int32_t line) {
+    bool bad_remove(int32_t line, uint32_t at) {
         return fail(ErrorCode::Directive, "#remove is written as a key's only value: (key #remove)",
-                    line);
+                    line, at);
     }
     bool removal(const Token& t) {
         FrameInfo& f = frames_.back();
         if (f.kind != Frame::Array || scratch_.size() != f.start + 1 ||
             !scratch_[f.start].try_sym())
-            return bad_remove(t.line);
+            return bad_remove(t.line, t.begin);
         f.removes = true;
         return push(Node(remove_marker()), here(t));
     }
@@ -778,7 +813,8 @@ private:
             Str path;
             if (!path_arg(d, path)) return false;
             Ref<Array> root;
-            if (!load(path, d == "include_opt", t.line, root, d == "require")) return false;
+            if (!load(path, d == "include_opt", t.line, t.begin, root, d == "require"))
+                return false;
             if (!root) return true;  // optional and missing, or already required
             if (d == "merge") {
                 MergeScratch merge_scratch;  // #merge is rare: its own
@@ -819,29 +855,31 @@ private:
             Token next;
             if (!lex_.next(next, *err_)) return false;
             if (next.kind != Tok::Open || next.bracket != '{')
-                return fail(ErrorCode::Directive, "#autorun needs a {command}", next.line);
+                return fail(ErrorCode::Directive, "#autorun needs a {command}", next.line,
+                            next.begin);
             if (!open('{', next.line, next.begin)) return false;
             frames_.back().kind = Frame::Autorun;
             return true;
         }
-        return fail(ErrorCode::Directive, "unknown directive '#" + Str(d) + "'", t.line);
+        return fail(ErrorCode::Directive, "unknown directive '#" + Str(d) + "'", t.line, t.begin);
     }
 
     // Resolves and parses an included or merged file. Leaves `out` null if `optional`
     // and the file does not exist, or if `require` and the session has read it already.
-    bool load(const Str& path, bool optional, int32_t line, Ref<Array>& out, bool require = false) {
+    bool load(const Str& path, bool optional, int32_t line, uint32_t at, Ref<Array>& out,
+              bool require = false) {
         if (s_.refuse_includes)
             return fail(ErrorCode::Refused,
-                        "'" + path + "' is not read: this text may include no files", line);
+                        "'" + path + "' is not read: this text may include no files", line, at);
         if (include_depth_ + 1 > s_.limits.max_include_depth)
             return fail(
                 ErrorCode::Limit,
-                "includes nested deeper than " + detail::decimal(s_.limits.max_include_depth),
-                line);
+                "includes nested deeper than " + detail::decimal(s_.limits.max_include_depth), line,
+                at);
         if (s_.st_->includes >= s_.limits.max_includes)
             return fail(ErrorCode::Limit,
                         "more than " + detail::decimal(s_.limits.max_includes) + " included files",
-                        line);
+                        line, at);
 
         Vec<Str> candidates;
         if (is_absolute_path(path)) {
@@ -870,11 +908,11 @@ private:
         }
         if (!found) {
             if (optional) return true;
-            return fail(ErrorCode::Io, "cannot read included file '" + path + "'", line);
+            return fail(ErrorCode::Io, "cannot read included file '" + path + "'", line, at);
         }
         for (const Str& open_file : s_.st_->include_stack)
             if (open_file == *found)
-                return fail(ErrorCode::Directive, "'" + path + "' includes itself", line);
+                return fail(ErrorCode::Directive, "'" + path + "' includes itself", line, at);
         if (require) required.push_back(*found);
 
         ++s_.st_->includes;

@@ -64,7 +64,7 @@ bool Console::serve(Client& c) {
 }
 
 std::string Console::answer(const std::string& line) {
-    // A request, (ID {command}), gets one line of JSON (baker.reply/1) for a tool to read.
+    // A request, (ID {command}), gets one line of JSON (baker.reply/1.1) for a tool to read.
     if (const size_t first = line.find_first_not_of(" \t");
         first != std::string::npos && line[first] == '(') {
         std::string json;
