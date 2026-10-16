@@ -56,7 +56,9 @@ struct Project {
 struct ProjectOptions {
     // Layers to leave out, by name: a simulation or a check leaves out one person's own
     // tuning (`local`), so its results do not depend on whose machine runs it.
-    std::initializer_list<std::string_view> skip{};
+    // No default member initializer: MSVC does not implement list-initializing one (C2797).
+    // Value-initialized, it is empty.
+    std::initializer_list<std::string_view> skip;
 };
 
 // Sets `cfg.session()`'s pack levels, include directories, and defines from `project`, then
