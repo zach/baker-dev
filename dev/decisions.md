@@ -5632,3 +5632,52 @@ undefined `clock`.*
   object, sorted, with an unnamed one left out; a removed object is gone from the next
   reference.
 - **Core:** 13,765 → 13,784 lines.
+
+## D175. Functions declared from a description: `Context::declare`
+
+*The editor session's requirement note 0003. A tool that checks data without the game has
+the game's reference but not its code. It could only stand in for a function with a C++
+callable whose parameter types are fixed when the tool is compiled, so it registered
+parameters of any type. That lost `check`'s type checks, and merged overloads that differ
+only in types.*
+
+- **API.** `Context::declare(name, std::span<const OverloadDescription>)` returns the
+  `FuncRef`, on which the host sets the status and documentation.
+  - An `OverloadDescription` holds its `params` and `result`.
+  - A `ParamDescription` holds `type`, `kind` (`"value"`, `"raw"`, `"optional"` or
+    `"rest"`) and `raw`. These are the reference JSON's own fields and names, so a tool
+    passes them through as it reads them.
+- **What it builds:** an ordinary native overload. The parameter table and type names are
+  owned by the overload's `callable`, as `Overload::params` allows. Each type has the
+  check the real parameter would have:
+  - Baker's names map to the same `match` functions that `Param<T>` uses. Every integer
+    name checks as `int`, `float32` as `float`, and `value` accepts anything.
+    `unevaluated` and `values...` have no check; `$variable` and `array` have their own.
+  - A host's own type (`vec2`) is checkable when a native function or method of the same
+    Context takes it. `declare` borrows that parameter's `match`, so a tool that links the
+    game's `Convert` types gets their checks. It finds them by walking the registered
+    functions and methods when `declare` is called.
+  - Any other name is a `Type` error naming the function and the type, with nothing
+    registered. So are an unknown kind, a parameter after the rest parameter, and no
+    overloads. Every overload is built before any is added.
+    - The tool decides the fallback, for example declaring the parameter as `value`.
+      `declare` never falls back silently.
+- **A call fails** with a `Refused` error: the function was declared from a description
+  and has no body to run.
+  - The note offered "never run" or "fails when run". A tool that checks never runs it, so
+    failing is the one behaviour needed.
+  - A host that wants a body registers the native function.
+- **Cost.** None on the call path. A declared function goes through the existing overload
+  dispatch, and native functions are unchanged. `declare` is a tool-time call.
+- **Tests** (`tests/script/test_check.cpp`):
+  - five natives, and the same five declared as the reference describes them (an optional
+    parameter, overloads differing only in type, a rest parameter, a raw parameter, a
+    `$variable` and an array). Check gives the same ten errors over seventeen calls, and
+    the two references write the same entries for them;
+  - a call to a declared function fails;
+  - a stub stays a stub in the demand;
+  - a host type is refused until a native taking it is registered, then is checked;
+  - a bad kind (in a second overload, with nothing registered), a parameter after the rest
+    parameter, and no overloads are refused.
+- **Docs.** `docs/reference-json.md`, "Checking without the game".
+- **Core:** 13,784 → 13,922 lines.

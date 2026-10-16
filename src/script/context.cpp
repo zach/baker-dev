@@ -627,6 +627,151 @@ Expected<FuncRef> Context::add_overload(Symbol name, detail::Overload o) {
     return FuncRef(&f);
 }
 
+// --- Functions declared from a description (D175) ---
+
+namespace {
+
+// A declared function's callable: its name, for the error a call gets, and the parameter
+// table its overload's params point into, with the type names it owns.
+struct Declared {
+    // `infos`: each parameter's kind, match, and raw, as checked; its type is `od`'s.
+    Declared(const Allocator& a, Symbol n, const OverloadDescription& od,
+             const detail::ParamInfo* infos)
+        : name(n), params(a), names(a), result(a) {
+        result = od.result;
+        size_t length = 0;
+        for (const ParamDescription& p : od.params) length += p.type.size();
+        names.reserve(length);  // so the views below stay where they point
+        for (size_t i = 0; i < od.params.size(); ++i) {
+            const size_t at = names.size();
+            names += od.params[i].type;
+            params.push_back(infos[i]);
+            params.back().type = names.view().substr(at, od.params[i].type.size());
+        }
+    }
+    Symbol name;
+    Vec<detail::ParamInfo> params;
+    Str names;  // every parameter's type name, one after the other
+    Str result;
+};
+
+Expected<Node> call_declared(const void* callable, Args&) {
+    const auto& d = *static_cast<const Declared*>(callable);
+    return Unexpected(make_error(ErrorCode::Refused, quoted(d.name) +
+                                                         " was declared from a description, "
+                                                         "and has no body to run"));
+}
+
+using Match = bool (*)(const Node&, bool) noexcept;
+
+// Baker's own type names, as the reference writes them, and how each checks an argument.
+bool builtin_match(std::string_view type, Match& match) {
+    struct Entry {
+        std::string_view name;
+        Match match;
+    };
+    static constexpr Entry kTypes[] = {
+        {"value", &detail::match_value<Node>},
+        {"unevaluated", nullptr},
+        {"values...", nullptr},
+        {"$variable", detail::Param<Raw<Var>>::match},
+        {"array", detail::Param<const Array&>::match},
+        {"symbol", &detail::match_value<Symbol>},
+        {"string", &detail::match_value<std::string_view>},
+        {"bool", &detail::match_value<bool>},
+        {"int", &detail::match_value<int64_t>},
+        {"int8", &detail::match_value<int64_t>},
+        {"int16", &detail::match_value<int64_t>},
+        {"int32", &detail::match_value<int64_t>},
+        {"uint8", &detail::match_value<int64_t>},
+        {"uint16", &detail::match_value<int64_t>},
+        {"uint32", &detail::match_value<int64_t>},
+        {"uint64", &detail::match_value<int64_t>},
+        {"float", &detail::match_value<double>},
+        {"float32", &detail::match_value<double>},
+    };
+    for (const Entry& e : kTypes)
+        if (e.name == type) {
+            match = e.match;
+            return true;
+        }
+    return false;
+}
+
+// A type a native function or method of this Context takes (a host's own, `vec2`), with
+// the check its parameter makes.
+bool registered_match(const Context::Impl& impl, std::string_view type, Match& match) {
+    auto in = [&](const Vec<detail::Overload>& overloads) {
+        for (const detail::Overload& o : overloads)
+            for (const detail::ParamInfo& p : o.params)
+                if (p.type == type && p.match) {
+                    match = p.match;
+                    return true;
+                }
+        return false;
+    };
+    for (const auto& f : impl.functions)
+        if (f->tier == Tier::Native && in(f->overloads)) return true;
+    for (const detail::TypeRecord* t : impl.types)
+        for (const detail::MethodEntry& m : t->methods)
+            if (in(m.overloads)) return true;
+    return false;
+}
+
+}  // namespace
+
+Expected<FuncRef> Context::declare(Symbol name, std::span<const OverloadDescription> overloads) {
+    auto refuse = [&](std::string_view why) {
+        return Unexpected(
+            make_error(ErrorCode::Type, "cannot declare " + quoted(name) + ": " + Str(why)));
+    };
+    if (overloads.empty()) return refuse("it has no overloads");
+    // Every overload is built before any is added, so a description with a mistake adds
+    // nothing.
+    Vec<detail::Overload> built(impl_->alloc);
+    Vec<detail::ParamInfo> infos(impl_->alloc);
+    for (const OverloadDescription& od : overloads) {
+        detail::Overload o;
+        infos.clear();
+        for (const ParamDescription& p : od.params) {
+            detail::ParamInfo info{};
+            if (o.max_args == UINT32_MAX) return refuse("a parameter follows the rest parameter");
+            if (p.kind == "value")
+                info.kind = detail::ParamKind::Value;
+            else if (p.kind == "raw")
+                info.kind = detail::ParamKind::Raw;
+            else if (p.kind == "optional")
+                info.kind = detail::ParamKind::Optional;
+            else if (p.kind == "rest")
+                info.kind = detail::ParamKind::Rest;
+            else
+                return refuse("a parameter's kind is \"" + Str(p.kind) +
+                              "\", not value, raw, optional, or rest");
+            if (!builtin_match(p.type, info.match) && !registered_match(*impl_, p.type, info.match))
+                return refuse("this Context has no type \"" + Str(p.type) + "\"");
+            info.raw = p.raw || info.kind == detail::ParamKind::Raw;
+            infos.push_back(info);
+            if (info.kind == detail::ParamKind::Rest) {
+                o.max_args = UINT32_MAX;
+            } else {
+                ++o.max_args;
+                if (info.kind != detail::ParamKind::Optional) o.min_args = o.max_args;
+            }
+        }
+        o.callable =
+            detail::Shared::make_in<Declared>(impl_->alloc, impl_->alloc, name, od, infos.data());
+        const auto& d = *static_cast<const Declared*>(o.callable.get());
+        o.thunk = &call_declared;
+        o.params = std::span<const detail::ParamInfo>(d.params.data(), d.params.size());
+        o.result = d.result.view();
+        built.push_back(std::move(o));
+    }
+    Expected<FuncRef> ref = refuse("unreachable");
+    for (detail::Overload& o : built)
+        if (ref = add_overload(name, std::move(o)); !ref) return ref;
+    return ref;
+}
+
 FuncRef& FuncRef::doc(std::string_view text) {
     static_cast<Function*>(f_)->doc = text;
     return *this;

@@ -56,6 +56,20 @@ They follow `check`'s rules (`check-json.md`):
   - `min_args`;
   - `max_args`, which is `null` when the overload takes the rest of its arguments.
 
+**Checking without the game.** A tool that has the game's reference but not its code (an
+editor, a CI job) can register each function from its overloads with
+`Context::declare(name, overloads)`, then run `check`.
+- Each `OverloadDescription` holds its `params` and `result`, and each `ParamDescription`
+  holds its `type`, `kind` and `raw`, written as the reference writes them.
+- `check` then counts arguments and checks literal argument types as it would against the
+  game's own functions. A stub stays a stub when its status is set on the returned `FuncRef`.
+- A declared function has no body: calling it fails.
+- The types `declare` can check are Baker's own (`int` and the other integer names, `float`,
+  `float32`, `bool`, `symbol`, `string`, `array`, `value`, `unevaluated`, `$variable`,
+  `values...`) and any type that a native function or method of the same Context takes.
+  Any other type name is an error naming the function. The tool decides what to do then,
+  for example to declare that parameter as `value`.
+
 **A type** has `name`, `bases`, `methods`, `properties` and `handlers`.
 - A method has `name`, `status`, `replacement`, `doc`, `message` (the typed message it
   answers, or `""`) and `overloads`.

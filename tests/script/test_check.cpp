@@ -3,6 +3,7 @@
 #include <baker/config.hpp>
 #include <baker/parse.hpp>
 #include <baker/script.hpp>
+#include <baker/std_interop.hpp>
 #include <baker/std_script.hpp>
 
 #include <algorithm>
@@ -423,4 +424,126 @@ TEST_CASE("problems the host found fail the check and are in its JSON") {
     loaded.load = List<Error>(std::span<const Error>(&failed, 1));
     CHECK_FALSE(loaded.ok());
     CHECK(to_string(loaded).rfind("load: ", 0) == 0);
+}
+
+namespace {
+
+struct Speed {
+    double v = 0;
+};
+
+}  // namespace
+
+template <>
+struct baker::Convert<Speed> {
+    static constexpr std::string_view name = "speed";
+    static bool from(const Values& v, Speed& out) { return v.read(0, out.v); }
+};
+
+TEST_CASE("a function declared from a description checks as the native it describes") {
+    // The game's functions.
+    auto natives = [](Context& ctx) {
+        REQUIRE(
+            ctx.func("spawn", [](Symbol, int64_t, std::optional<float>) { return int64_t{1}; }));
+        REQUIRE(ctx.func("pick", [](int64_t n) { return n; }));
+        REQUIRE(ctx.func("pick", [](Symbol s) { return s; }));
+        REQUIRE(ctx.func("say", [](std::string_view, Args) {}));
+        REQUIRE(ctx.func("unless", [](Raw<Node>) { return int64_t{0}; }));
+        REQUIRE(ctx.func("bump", [](Raw<Var>, const Array&) { return int64_t{0}; }));
+    };
+    // The same, described as the reference describes them.
+    auto declared = [](Context& ctx) {
+        const ParamDescription spawn[] = {{"symbol"}, {"int"}, {"float32", "optional"}};
+        const ParamDescription pick_int[] = {{"int"}};
+        const ParamDescription pick_sym[] = {{"symbol"}};
+        const ParamDescription say[] = {{"string"}, {"values...", "rest"}};
+        const ParamDescription unless[] = {{"unevaluated", "raw", true}};
+        const ParamDescription bump[] = {{"$variable", "raw", true}, {"array"}};
+        const OverloadDescription spawn_o[] = {{spawn, "int"}};
+        const OverloadDescription pick_o[] = {{pick_int, "int"}, {pick_sym, "symbol"}};
+        const OverloadDescription say_o[] = {{say, "nothing"}};
+        const OverloadDescription unless_o[] = {{unless, "int"}};
+        const OverloadDescription bump_o[] = {{bump, "int"}};
+        REQUIRE(ctx.declare("spawn", spawn_o));
+        REQUIRE(ctx.declare("pick", pick_o));
+        REQUIRE(ctx.declare("say", say_o));
+        REQUIRE(ctx.declare("unless", unless_o));
+        REQUIRE(ctx.declare("bump", bump_o));
+    };
+    const auto tree = parse(
+        "{spawn grunt 3}\n{spawn grunt 3 0.5}\n{spawn grunt}\n{spawn 3 grunt}\n"
+        "{spawn grunt 3 fast}\n{spawn grunt 3 1 2}\n"
+        "{pick 1}\n{pick a}\n{pick \"s\"}\n"
+        "{say \"hi\" 1 two}\n{say hi}\n{say}\n"
+        "{unless anything}\n{unless}\n"
+        "{bump $x (1 2)}\n{bump x (1 2)}\n{bump $x 1}\n",
+        "level.dta");
+    Context game, tool;
+    natives(game);
+    declared(tool);
+    const CheckReport a = check(*tree, game);
+    const CheckReport b = check(*tree, tool);
+    REQUIRE(a.errors.size() == 10);  // one for each call on lines 3-6, 9, 11-12, 14, 16-17
+    REQUIRE(b.errors.size() == a.errors.size());
+    for (size_t i = 0; i < a.errors.size(); ++i)
+        CHECK(to_string(b.errors[i]) == to_string(a.errors[i]));
+
+    // The reference describes them alike, but for being native code or a description.
+    std::string from_game, from_tool;
+    write_reference_json(game, string_out(from_game));
+    write_reference_json(tool, string_out(from_tool));
+    for (const char* name : {"spawn", "pick", "say", "unless", "bump"}) {
+        auto entry = [&](const std::string& json) {
+            const size_t at = json.find(std::string("{\"name\": \"") + name + "\"");
+            return json.substr(at, json.find('\n', at) - at);
+        };
+        CAPTURE(name);
+        CHECK(entry(from_tool) == entry(from_game));
+    }
+
+    // A call fails: there is no body.
+    auto r = tool.eval("{spawn grunt 3}", "run.dta");
+    REQUIRE_FALSE(r);
+    CHECK(std::string(r.error().message()).find("'spawn' was declared from a description") !=
+          std::string::npos);
+}
+
+TEST_CASE("a declared function keeps its status, and a description it cannot express is refused") {
+    Context ctx;
+    const ParamDescription one[] = {{"symbol"}};
+    const OverloadDescription taunt[] = {{one, "nothing"}};
+    auto declared = ctx.declare("boss.taunt", taunt);
+    REQUIRE(declared);
+    declared->status(Status::Stub).doc("Taunts.");
+    const CheckReport report = check(*parse("{boss.taunt player}", "boss.dta"), ctx);
+    REQUIRE(report.demand.size() == 1);
+    CHECK(report.demand[0].stub);
+
+    // A host type is known once a native function of this Context takes it.
+    const ParamDescription fast[] = {{"speed"}};
+    const OverloadDescription run[] = {{fast, "nothing"}};
+    auto unknown = ctx.declare("run", run);
+    REQUIRE_FALSE(unknown);
+    CHECK(unknown.error().message() == "cannot declare 'run': this Context has no type \"speed\"");
+    CHECK_FALSE(ctx.has_func("run"));
+    REQUIRE(ctx.func("walk", [](Speed) {}));
+    REQUIRE(ctx.declare("run", run));
+    const CheckReport typed = check(*parse("{run 3}\n{run fast}", "run.dta"), ctx);
+    REQUIRE(typed.errors.size() == 1);
+    CHECK(typed.errors[0].line() == 2);
+
+    // Nothing of a description with a mistake is registered.
+    const ParamDescription bad_kind[] = {{"int", "many"}};
+    const ParamDescription after_rest[] = {{"values...", "rest"}, {"int"}};
+    const OverloadDescription two[] = {{one, "nothing"}, {bad_kind, "nothing"}};
+    const OverloadDescription rest[] = {{after_rest, "nothing"}};
+    auto kind = ctx.declare("jump", two);
+    REQUIRE_FALSE(kind);
+    CHECK(
+        kind.error().message() ==
+        "cannot declare 'jump': a parameter's kind is \"many\", not value, raw, optional, or rest");
+    CHECK_FALSE(ctx.has_func("jump"));
+    CHECK_FALSE(ctx.declare("jump", rest));
+    CHECK_FALSE(ctx.declare("jump", std::span<const OverloadDescription>()));
+    CHECK_FALSE(ctx.has_func("jump"));
 }
