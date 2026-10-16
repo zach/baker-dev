@@ -1,4 +1,4 @@
-// The machine-readable reference, baker.reference/1 (dev/tool-surface-plan.md §6).
+// The machine-readable reference, baker.reference/1.1 (dev/tool-surface-plan.md §6).
 #include <doctest.h>
 #include <baker/object.hpp>
 #include <baker/parse.hpp>
@@ -45,7 +45,7 @@ TEST_CASE("the reference as JSON lists functions, types, classes, globals, and p
                  "{class Ghost (haunt () 1)}",
                  "lib.dta"));
     const std::string json = reference_json(ctx);
-    CHECK(json.rfind("{\n  \"schema\": \"baker.reference/1\",\n  \"functions\": [", 0) == 0);
+    CHECK(json.rfind("{\n  \"schema\": \"baker.reference/1.1\",\n  \"functions\": [", 0) == 0);
     CHECK(json == reference_json(ctx));  // the same bytes, run to run
     CHECK(json.back() == '\n');
 
@@ -72,7 +72,36 @@ TEST_CASE("the reference as JSON lists functions, types, classes, globals, and p
     CHECK(has(json, R"j("globals": [)j"
                     "\n"
                     R"j(    {"name": "difficulty", "doc": "1 to 5."})j"));
-    CHECK(has(json, "  \"packs\": [],\n  \"origins\": []\n}\n"));
+    CHECK(has(json,
+              "  \"objects\": [\n"
+              R"j(    {"name": "scheduler", "type": "Scheduler"})j"  // the Context's own
+              "\n  ],\n  \"packs\": [],\n  \"origins\": []\n}\n"));
+}
+
+TEST_CASE("the reference lists the objects added under a name, with their types") {
+    Context ctx;
+    Lamp hall, porch, unnamed;
+    REQUIRE(ctx.add(porch, "porch"));
+    REQUIRE(ctx.add(hall, "hall"));
+    REQUIRE(ctx.add(unnamed));
+    REQUIRE(ctx.eval("{class Ghost (haunt () 1)}\n{new Ghost attic}", "lib.dta"));
+    std::string json = reference_json(ctx);
+    CHECK(has(json,
+              "  \"objects\": [\n"
+              R"j(    {"name": "attic", "type": "Ghost"},)j"
+              "\n"
+              R"j(    {"name": "hall", "type": "Lamp"},)j"
+              "\n"
+              R"j(    {"name": "porch", "type": "Lamp"},)j"
+              "\n"
+              R"j(    {"name": "scheduler", "type": "Scheduler"})j"
+              "\n  ],\n"));
+
+    // Those present when it is written.
+    ctx.remove(hall);
+    json = reference_json(ctx);
+    CHECK_FALSE(has(json, R"j("hall")j"));
+    CHECK(has(json, R"j({"name": "porch", "type": "Lamp"})j"));
 }
 
 TEST_CASE("given a session, the reference lists its packs and origins") {

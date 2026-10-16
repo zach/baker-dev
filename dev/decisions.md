@@ -5552,3 +5552,132 @@ reject.*
       finds its shape error);
     - a project file with an unknown key is a located load problem.
 - **Core:** 13,518 → 13,664 lines.
+
+## D173. The project file for tools: positions, every problem, `find_project`, the reference
+
+*The editor session's requirement notes 0004–0007, after using D172's project file in its
+server on every stack. Each asked for something every tool that shows or checks a project
+would otherwise write for itself, slightly differently.*
+
+- **Positions (note 0004).** Every entry `read_project` returns keeps where it is written,
+  as Baker's errors give it: a 1-based line and a column in code points, a byte-order mark
+  aside.
+  - **Types.** `ProjectPosition {line, column}`, zero for a `Project` built in code.
+    `pack_levels`, `include_dirs` and `defines` become `List<ProjectEntry>` (`value` and
+    `at`). `ProjectLayer` gains `name_at` and `path_at`.
+  - **How.** `read_project` reads with a `SourceMap`, which records each node's byte span
+    and the file's text, and counts lines and code points up to a span's start. It is a
+    load-time cost on a file of a few lines; nothing is kept per frame.
+  - **Errors.** The format's own errors now carry a column too, at the form that is wrong.
+- **Every problem (note 0005).** `ProjectOptions::go_on` pushes every layer that reads, and
+  `open_project` returns a `List<ProjectProblem>` (the layer's name and its error) for the
+  rest. It returns `Expected<List<ProjectProblem>>` in both modes:
+  - without `go_on` (the game's default), the first error is the `Expected`'s error, as
+    before;
+  - with it, the problems are the value, empty when every layer read.
+  - A layer that fails is absent, as a failed `push_layer` leaves it, and the layers above
+    read with the macros and defines below. The problems' table is a `Vec` that allocates
+    only for a problem.
+  - `skip` now has a default member initializer, `std::initializer_list<...>()`, which is
+    not list-initialization. Without one, GCC's `-Wmissing-field-initializers` flagged
+    `{.go_on = true}`. A braced `{}` is what MSVC refuses (C2797).
+- **`find_project(path, reader)` (note 0006).** It returns the nearest `baker-project.dta`
+  (`kProjectFileName`) in `path` or a directory above it, or an empty `Symbol`.
+  - **The search is lexical.** It tries `path` itself first, so a file or a directory may
+    be given. It goes up to the top of `path` as written: the root for an absolute path,
+    the directory it is relative to otherwise. It stops at `/` and at a drive root
+    (`C:/`'s parent, `C:`, is relative).
+  - **Existence.** Each candidate is tried through `reader` when given, with its text
+    discarded, else with an `fopen`. That is the host's own check, so content that is not
+    on the disk is found too.
+- **The reference (note 0007).** `(reference "path")` is optional. It is joined with the
+  project file's directory, and returned as `Project::reference` with `reference_at`.
+  - Nothing reads the reference or asks that it exist: it is a build output, and the tool
+    that reads it reports a stale or missing reference in its own terms.
+  - `open_project` ignores it, as a game does.
+  - D172 left it out of the format until a note asked.
+- **The stacks.** `Live::open` names the file `kProjectFileName`. Its built-in `Project`
+  uses `ProjectEntry` and designated initializers.
+- **Docs.** The cookbook's project-file section gains the reference, positions, `go_on`
+  and `find_project`.
+- **Tests** (`tests/data/test_project.cpp`):
+  - every entry's line and column, and characters counted after a BOM and before multibyte
+    names;
+  - `go_on`: a layer that does not parse and one that is missing are both reported, by
+    name, the layer above them reads a macro from the one below, and a clean project
+    returns no problems;
+  - `find_project`: a file, a directory, a parent's project, through a reader, and none
+    found for a relative or an absolute path;
+  - the reference is joined and need not exist, and `(reference a b)` is a located error;
+  - every format error has a column.
+- **Core:** 13,667 → 13,765 lines.
+
+## D174. The reference lists the objects a Context names
+
+*The editor session's requirement note 0002. A tool that checks data without the game
+learns its vocabulary from `baker.reference`, which had the functions and types but not
+the objects added under a name. So `{clock thread_task ...}` looked like a call to an
+undefined `clock`.*
+
+- **`objects`** is a new field of the reference JSON, after `globals`, so the schema is
+  `baker.reference/1.1`. It lists each live object that has a name, with its `type`:
+  - the type's name, as `types` lists it;
+  - for an object made from a script-only class (`{new Ghost attic}`), the class's name,
+    as `script_classes` lists it.
+- **Sorted by name.** It lists the objects present when the reference is written: for a
+  build step, after the game's setup. The Context's own `scheduler` is one of them.
+- **Cost.** `write_reference_json` walks the object slots, once, when it is called.
+  Nothing else changes.
+- **Tests** (`tests/script/test_reference_json.cpp`): two native objects and a script
+  object, sorted, with an unnamed one left out; a removed object is gone from the next
+  reference.
+- **Core:** 13,765 → 13,784 lines.
+
+## D175. Functions declared from a description: `Context::declare`
+
+*The editor session's requirement note 0003. A tool that checks data without the game has
+the game's reference but not its code. It could only stand in for a function with a C++
+callable whose parameter types are fixed when the tool is compiled, so it registered
+parameters of any type. That lost `check`'s type checks, and merged overloads that differ
+only in types.*
+
+- **API.** `Context::declare(name, std::span<const OverloadDescription>)` returns the
+  `FuncRef`, on which the host sets the status and documentation.
+  - An `OverloadDescription` holds its `params` and `result`.
+  - A `ParamDescription` holds `type`, `kind` (`"value"`, `"raw"`, `"optional"` or
+    `"rest"`) and `raw`. These are the reference JSON's own fields and names, so a tool
+    passes them through as it reads them.
+- **What it builds:** an ordinary native overload. The parameter table and type names are
+  owned by the overload's `callable`, as `Overload::params` allows. Each type has the
+  check the real parameter would have:
+  - Baker's names map to the same `match` functions that `Param<T>` uses. Every integer
+    name checks as `int`, `float32` as `float`, and `value` accepts anything.
+    `unevaluated` and `values...` have no check; `$variable` and `array` have their own.
+  - A host's own type (`vec2`) is checkable when a native function or method of the same
+    Context takes it. `declare` borrows that parameter's `match`, so a tool that links the
+    game's `Convert` types gets their checks. It finds them by walking the registered
+    functions and methods when `declare` is called.
+  - Any other name is a `Type` error naming the function and the type, with nothing
+    registered. So are an unknown kind, a parameter after the rest parameter, and no
+    overloads. Every overload is built before any is added.
+    - The tool decides the fallback, for example declaring the parameter as `value`.
+      `declare` never falls back silently.
+- **A call fails** with a `Refused` error: the function was declared from a description
+  and has no body to run.
+  - The note offered "never run" or "fails when run". A tool that checks never runs it, so
+    failing is the one behaviour needed.
+  - A host that wants a body registers the native function.
+- **Cost.** None on the call path. A declared function goes through the existing overload
+  dispatch, and native functions are unchanged. `declare` is a tool-time call.
+- **Tests** (`tests/script/test_check.cpp`):
+  - five natives, and the same five declared as the reference describes them (an optional
+    parameter, overloads differing only in type, a rest parameter, a raw parameter, a
+    `$variable` and an array). Check gives the same ten errors over seventeen calls, and
+    the two references write the same entries for them;
+  - a call to a declared function fails;
+  - a stub stays a stub in the demand;
+  - a host type is refused until a native taking it is registered, then is checked;
+  - a bad kind (in a second overload, with nothing registered), a parameter after the rest
+    parameter, and no overloads are refused.
+- **Docs.** `docs/reference-json.md`, "Checking without the game".
+- **Core:** 13,784 → 13,922 lines.

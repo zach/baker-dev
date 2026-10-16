@@ -619,7 +619,7 @@ Str reference_text(const Context& ctx, const LoadSession* packs) {
     return out;
 }
 
-// --- The reference as JSON (baker.reference/1, docs/reference-json.md) ---
+// --- The reference as JSON (baker.reference/1.1, docs/reference-json.md) ---
 
 const char* param_kind_name(detail::ParamKind k) {
     switch (k) {
@@ -675,7 +675,7 @@ void json_status(Str& out, Status status, Symbol replacement, std::string_view d
 
 Str reference_json(const Context& ctx, const LoadSession* packs) {
     const Context::Impl& impl = ctx.impl();
-    Str out = "{\n  \"schema\": \"baker.reference/1\",\n  \"functions\": [";
+    Str out = "{\n  \"schema\": \"baker.reference/1.1\",\n  \"functions\": [";
     Vec<const Function*> fs;
     for (const auto& f : impl.functions)
         if (!f->overloads.empty()) fs.push_back(f.get());
@@ -780,6 +780,27 @@ Str reference_json(const Context& ctx, const LoadSession* packs) {
         out += '}';
     }
     out += gs.empty() ? "],\n" : "\n  ],\n";
+
+    // Named objects, so a tool knows `{clock ...}` is a call on one: those present now.
+    struct Named {
+        Symbol name;
+        std::string_view type;
+    };
+    Vec<Named> named;
+    for (const Context::Impl::Slot& sl : impl.slots)
+        if (sl.object && !sl.name.empty())
+            named.push_back({sl.name, sl.script ? sl.script->name.str() : sl.object->type_name()});
+    std::sort(named.begin(), named.end(),
+              [](const Named& a, const Named& b) { return a.name.str() < b.name.str(); });
+    out += "  \"objects\": [";
+    for (size_t i = 0; i < named.size(); ++i) {
+        out += i ? ",\n    {\"name\": " : "\n    {\"name\": ";
+        json_string(out, named[i].name.str());
+        out += ", \"type\": ";
+        json_string(out, named[i].type);
+        out += '}';
+    }
+    out += named.empty() ? "],\n" : "\n  ],\n";
 
     // Packs and origins, as check's JSON writes them (docs/check-json.md).
     Vec<const Pack*> ps;

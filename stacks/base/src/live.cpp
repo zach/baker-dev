@@ -29,7 +29,7 @@ bool Live::open(const LiveOptions& options) {
     // tools (an editor, a checker) all read (D172). A packaged game has none beside its
     // data, and gets the same stack from here.
     const std::filesystem::path file =
-        std::filesystem::path(data_dir_).parent_path() / "baker-project.dta";
+        std::filesystem::path(data_dir_).parent_path() / baker::kProjectFileName;
     std::error_code exists_ec;
     baker::Project project;
     if (std::filesystem::exists(file, exists_ec)) {
@@ -41,14 +41,16 @@ bool Live::open(const LiveOptions& options) {
         }
         project = std::move(*read);
     } else {
-        const baker::Symbol levels[] = {"engine", "game", "task"};
-        const baker::Symbol dirs[] = {baker::Symbol(data_dir_)};
+        const baker::ProjectEntry levels[] = {
+            {.value = "engine"}, {.value = "game"}, {.value = "task"}};
+        const baker::ProjectEntry dirs[] = {{.value = baker::Symbol(data_dir_)}};
         auto in_data = [&](const char* f) { return baker::Symbol(data_dir_ + "/" + f); };
-        const baker::ProjectLayer layers[] = {{"default", in_data("default.dta")},
-                                              {"local", in_data("local.dta"), true},
-                                              {"agent", in_data("agent.dta"), true}};
-        project.pack_levels = baker::List<baker::Symbol>(levels);
-        project.include_dirs = baker::List<baker::Symbol>(dirs);
+        const baker::ProjectLayer layers[] = {
+            {.name = "default", .path = in_data("default.dta")},
+            {.name = "local", .path = in_data("local.dta"), .optional = true},
+            {.name = "agent", .path = in_data("agent.dta"), .optional = true}};
+        project.pack_levels = baker::List<baker::ProjectEntry>(levels);
+        project.include_dirs = baker::List<baker::ProjectEntry>(dirs);
         project.layers = baker::List<baker::ProjectLayer>(layers);
     }
     const auto opened = options.local ? baker::open_project(cfg_, project)

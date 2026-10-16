@@ -1,4 +1,4 @@
-// Project files (D172).
+// Project files (D172, D173).
 #include <doctest.h>
 #include <baker/project.hpp>
 #include <baker/std_interop.hpp>
@@ -20,6 +20,7 @@ const char* const kProject =
     "   (pack_levels engine game task)\n"
     "   (include_dirs \"data/shared\")\n"
     "   (defines PC DEMO)\n"
+    "   (reference \"build/reference.json\")\n"
     "   (layers\n"
     "      (default \"data/default.dta\")\n"
     "      (local \"data/local.dta\" optional)\n"
@@ -40,11 +41,53 @@ TEST_CASE("read_project reads the layers, levels, include dirs, and defines") {
     CHECK(p.layers[2].optional);
     CHECK_FALSE(p.layers[2].enabled);
     REQUIRE(p.pack_levels.size() == 3);
-    CHECK(p.pack_levels[1] == Symbol("game"));
+    CHECK(p.pack_levels[1].value == Symbol("game"));
     REQUIRE(p.include_dirs.size() == 1);
-    CHECK(p.include_dirs[0] == Symbol(dir.path("data/shared")));
+    CHECK(p.include_dirs[0].value == Symbol(dir.path("data/shared")));
     REQUIRE(p.defines.size() == 2);
-    CHECK(p.defines[0] == Symbol("PC"));
+    CHECK(p.defines[0].value == Symbol("PC"));
+    CHECK(p.reference == Symbol(dir.path("build/reference.json")));  // not read, need not exist
+}
+
+TEST_CASE("each entry of a project file keeps its line and column") {
+    TempDir dir;
+    const Project p = ok(read_project(dir.write("baker-project.dta", kProject)));
+    auto at = [](ProjectPosition pos, int line, int column) {
+        return pos.line == line && pos.column == column;
+    };
+    CHECK(at(p.pack_levels[0].at, 3, 17));
+    CHECK(at(p.pack_levels[2].at, 3, 29));
+    CHECK(at(p.include_dirs[0].at, 4, 18));
+    CHECK(at(p.defines[1].at, 5, 16));
+    CHECK(at(p.reference_at, 6, 15));
+    CHECK(at(p.layers[0].name_at, 8, 8));
+    CHECK(at(p.layers[0].path_at, 8, 16));
+    CHECK(at(p.layers[2].path_at, 10, 19));
+
+    // Columns count characters, and a byte-order mark is not one.
+    const Project q = ok(read_project(dir.write(
+        "other.dta", "\xEF\xBB\xBF(project (layers (d\xC3\xA9j\xC3\xA0 \"v\xC3\xBC.dta\")))")));
+    CHECK(at(q.layers[0].name_at, 1, 19));
+    CHECK(at(q.layers[0].path_at, 1, 24));
+}
+
+TEST_CASE("find_project finds the nearest project file at or above a path") {
+    TempDir dir;
+    dir.write("games/a/baker-project.dta", "(project (layers))");
+    dir.write("games/a/data/x.dta", "");
+    dir.write("baker-project.dta", "(project (layers))");
+    CHECK(find_project(dir.path("games/a/data/x.dta")) ==
+          Symbol(dir.path("games/a/baker-project.dta")));
+    CHECK(find_project(dir.path("games/a")) == Symbol(dir.path("games/a/baker-project.dta")));
+    CHECK(find_project(dir.path("games/b/data")) == Symbol(dir.path("baker-project.dta")));
+
+    // Through a reader, for content that is not on the disk.
+    const LoadSession::Reader reader = [](std::string_view path, TextSink) {
+        return path == "ws/game/baker-project.dta";
+    };
+    CHECK(find_project("ws/game/data/x.dta", reader) == Symbol("ws/game/baker-project.dta"));
+    CHECK(find_project("ws/other/x.dta", reader).empty());
+    CHECK(find_project("/ws/other/x.dta", reader).empty());
 }
 
 TEST_CASE("open_project sets the session and pushes the layers, leaving out what it skips") {
@@ -71,6 +114,45 @@ TEST_CASE("open_project sets the session and pushes the layers, leaving out what
     REQUIRE(open_project(shared, p, {.skip = {"local"}}));
     CHECK(shared.get<int>("speed") == 3);  // from the include directory
     CHECK(shared.layers().size() == 3);
+}
+
+TEST_CASE("open_project goes on past layers that do not read when asked") {
+    TempDir dir;
+    const std::string file = dir.write("baker-project.dta",
+                                       "(project\n"
+                                       "   (layers\n"
+                                       "      (default \"default.dta\")\n"
+                                       "      (broken \"broken.dta\")\n"
+                                       "      (missing \"missing.dta\")\n"
+                                       "      (top \"top.dta\")))\n");
+    dir.write("default.dta", "#define SPEED (4)\n(speed 1)\n");
+    dir.write("broken.dta", "(speed 2\n");
+    dir.write("top.dta", "(top SPEED)\n");
+    const Project p = ok(read_project(file));
+
+    Config game({.tweaks = nullptr});
+    auto first = open_project(game, p);
+    REQUIRE_FALSE(first);
+    CHECK(std::string(first.error().file().str()).find("broken.dta") != std::string::npos);
+
+    Config tool({.tweaks = nullptr});
+    const List<ProjectProblem> problems = ok(open_project(tool, p, {.go_on = true}));
+    REQUIRE(problems.size() == 2);
+    CHECK(problems[0].layer == Symbol("broken"));
+    CHECK(problems[0].error.line() == 1);
+    CHECK(problems[1].layer == Symbol("missing"));
+    CHECK(tool.layers().size() == 3);  // default, top, and scratch
+    CHECK(tool.get<int>("speed") == 1);
+    CHECK(tool.get<int>("top") == 4);  // read with the macros below it
+
+    Config fine({.tweaks = nullptr});
+    TempDir clean;
+    clean.write("d.dta", "(speed 5)");
+    CHECK(ok(open_project(fine,
+                          ok(read_project(clean.write("baker-project.dta",
+                                                      "(project (layers (d \"d.dta\")))"))),
+                          {.go_on = true}))
+              .empty());
 }
 
 TEST_CASE("read_project reads an unsaved buffer through a reader") {
@@ -101,12 +183,14 @@ TEST_CASE("a project file's mistakes are located") {
         {"(project\n (pack_levels (game)) (layers))", 2, "lists names or paths"},
         {"(layers (default \"d.dta\"))", 1, "holds (project"},
         {"(project\n #include other.dta\n (layers))", 2, "may include no files"},
+        {"(project\n (layers)\n (reference a b))", 3, "(reference \"path\")"},
     };
     for (const Case& c : cases) {
         CAPTURE(c.text);
         auto p = read_project(dir.write("baker-project.dta", c.text));
         REQUIRE_FALSE(p);
         CHECK(p.error().line() == c.line);
+        CHECK(p.error().column() > 0);
         CHECK(std::string(p.error().message()).find(c.says) != std::string::npos);
     }
     CHECK_FALSE(read_project(dir.path("missing.dta")));

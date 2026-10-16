@@ -678,6 +678,21 @@ struct TraceEvent {
     const Expected<Node>* result;
 };
 
+// A function's signature described as data, in the reference's terms (baker.reference,
+// docs/reference-json.md), for Context::declare. A parameter's `type` is a type name as the
+// reference writes it ("int", "float", "symbol", "string", "array", "value", ...), its
+// `kind` "value", "raw", "optional" or "rest", and `raw` whether its argument is passed
+// unevaluated. The views need last only for the call.
+struct ParamDescription {
+    std::string_view type;
+    std::string_view kind = "value";
+    bool raw = false;
+};
+struct OverloadDescription {
+    std::span<const ParamDescription> params;
+    std::string_view result = "value";
+};
+
 // A call in progress, on the C++ stack: the frames of a Context form a list from the
 // innermost call out (Context::top_frame). Read-only, and valid only while the call runs.
 struct CallFrame {
@@ -736,6 +751,16 @@ public:
                                       static_cast<typename Sig::params*>(nullptr), allocator()));
     }
     [[nodiscard]] bool has_func(Symbol name) const noexcept;
+    // Registers `name` from a description of its overloads rather than from a C++ callable:
+    // what a tool that checks data without the game registers from the game's reference.
+    // check() then treats a call to it as one to the function described, counting its
+    // arguments and checking its literal arguments' types, and it is in the reference and in
+    // check's demand like a native function; set its status and documentation on the
+    // FuncRef. A call to it fails: it has no body. A type this Context cannot check, neither
+    // one of Baker's nor one that a native function or method registered here takes, is an
+    // error naming the function, and nothing is registered; so is an unknown kind.
+    [[nodiscard]] Expected<FuncRef> declare(Symbol name,
+                                            std::span<const OverloadDescription> overloads);
 
     // --- Variables. ---
 
@@ -886,10 +911,11 @@ check_validator(const Context& ctx, const CheckOptions& options = {});
 void reference(const Context& ctx, TextSink out, const LoadSession* packs = nullptr);
 [[nodiscard]] Expected<void> write_reference(const Context& ctx, std::string_view path,
                                              const LoadSession* packs = nullptr);
-// The same as JSON (schema baker.reference/1, docs/reference-json.md), for tools and
+// The same as JSON (schema baker.reference/1.1, docs/reference-json.md), for tools and
 // agents: every function with its overloads' parameter types, status, documentation, and,
 // for a script function, its file and line; every type's methods, properties, and script
-// handlers; script-only classes; documented globals; and, given the session, its packs and
+// handlers; script-only classes; documented globals; the objects added under a name, with
+// their types, as they are when it is written; and, given the session, its packs and
 // origins. Sorted by name, so the same Context gives the same bytes.
 void write_reference_json(const Context& ctx, TextSink out, const LoadSession* packs = nullptr);
 
