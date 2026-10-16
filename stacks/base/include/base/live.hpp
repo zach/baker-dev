@@ -11,6 +11,10 @@
 // functions: `#autorun {func boss.restart ($n) ...}`; then it calls `changed`, where the game
 // reads its structured data (Game::load).
 //
+// The stack is described by <data>/../baker-project.dta, which an editor or a checker reads
+// too (Baker's read_project); without one, as in a packaged game, the stack above with pack
+// levels engine, game, and task, and <data> as an include directory.
+//
 // A stack's packs (game-stacks.md §2.4) are in <data>/../packs, which data files #require by
 // relative path; the watcher watches that directory too, so editing a pack reloads.
 //

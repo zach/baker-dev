@@ -25,6 +25,7 @@ add_executable(baker_data_tests
   data/test_layer_check.cpp
   data/test_received_layers.cpp
   data/test_layer_checker.cpp
+  data/test_project.cpp
   data/test_parse.cpp
   data/test_preprocessor.cpp
   data/test_version.cpp

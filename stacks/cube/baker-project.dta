@@ -1,0 +1,9 @@
+; What this stack's Config is made of: the game reads it (base::Live), and so do tools that
+; open the stack, such as an editor or a checker (Baker's read_project).
+(project
+   (pack_levels engine game task)
+   (include_dirs "data")
+   (layers
+      (default "data/default.dta")
+      (local "data/local.dta" optional)   ; one developer's own tuning; sim and check skip it
+      (agent "data/agent.dta" optional)))

@@ -6,6 +6,7 @@ this says how they fit a studio's day. Each pattern links the example that runs 
 - [Group parameters under the code that owns them](#group-parameters-under-the-code-that-owns-them)
 - [Tweaks in practice](#tweaks-in-practice)
 - [Reload callbacks: migrate or punt](#reload-callbacks-migrate-or-punt)
+- [One project file for the game and its tools](#one-project-file-for-the-game-and-its-tools)
 - [Personal layers: `local`](#personal-layers-local)
 - [Experiments and A/B comparison](#experiments-and-ab-comparison)
 - [Live ops](#live-ops)
@@ -93,6 +94,45 @@ cfg.on_reload(
   failed reloads counted (D92). Polling for changes does not dilute it.
 
 `examples/config` runs a reload that rebuilds the audio group and leaves the renderer alone.
+
+## One project file for the game and its tools
+
+A game's layer stack, pack levels, include directories, and defines are usually set up in
+its C++ `main`. A tool that opens the data (an editor checking as you type, a CI check, an
+agent) then needs a second copy of that setup, which drifts. A project file holds it once,
+and the game and every tool read it.
+
+```dta
+; baker-project.dta, at the root a tool opens
+(project
+   (pack_levels engine game task)     ; hardest first
+   (include_dirs "data")              ; searched after an including file's directory
+   (defines PC)                       ; flags, as #ifdef sees them
+   (layers                            ; bottom to top
+      (default "data/default.dta")
+      (local "data/local.dta" optional)
+      (agent "data/agent.dta" optional)))
+```
+
+```cpp
+auto project = baker::read_project("baker-project.dta");
+if (!project) return report(project.error());
+baker::Config cfg;
+if (auto r = baker::open_project(cfg, *project); !r) return report(r.error());
+```
+
+- **Paths** are relative to the project file's directory unless absolute.
+- **Layer flags:** `optional` makes a missing file an empty layer; `disabled` keeps a layer
+  in the stack, skipped by the merge, for a panel to toggle.
+- **Leaving layers out:** `open_project(cfg, project, {.skip = {"local"}})` leaves out one
+  person's own tuning, so a simulation or a check gives the same results on every machine.
+- **Mistakes are located.** A key the format does not know is an error with its file and
+  line, so a typo is found rather than ignored.
+- **The project file reaches no other file:** an `#include` in it is refused.
+- **An editor's unsaved buffer** reaches `read_project` through a reader, as it reaches the
+  layers through `cfg.session().set_reader(...)`; set the reader before `open_project`.
+- **A packaged game** may ship without the file and build the same `Project` in code,
+  then call `open_project` with it, so both paths open one stack.
 
 ## Personal layers: `local`
 

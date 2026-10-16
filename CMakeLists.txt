@@ -120,6 +120,7 @@ add_library(baker_data
   src/data/config_loop.cpp
   src/data/config_write.cpp
   src/data/config_check.cpp
+  src/data/project.cpp
   src/data/error.cpp
   src/data/lookup.cpp
   src/data/merge.cpp

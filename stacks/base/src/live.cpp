@@ -1,5 +1,6 @@
 #include "base/live.hpp"
 
+#include <baker/project.hpp>
 #include <baker/shape.hpp>
 #include <baker/std_interop.hpp>
 
@@ -21,26 +22,41 @@ Live::Live(baker::Context& ctx) : ctx_(ctx) {
 bool Live::open(const LiveOptions& options) {
     data_dir_ = options.data_dir;
     changed_ = options.changed;
-    baker::LoadSession& session = cfg_.session();
-    session.set_pack_levels({"engine", "game", "task"});
-    session.add_include_dir(data_dir_);
     cfg_.add_validator(baker::shape::validator(), {.any_thread = true});
     cfg_.add_validator(baker::check_validator(ctx_, {.packs = &cfg_.read_session()}));
 
-    struct Layer {
-        const char* name;
-        const char* file;
-        bool optional;
-    };
-    for (const Layer& l : {Layer{"default", "default.dta", false},
-                           Layer{"local", "local.dta", true}, Layer{"agent", "agent.dta", true}}) {
-        if (!options.local && std::string_view(l.name) == "local") continue;
-        if (auto r = cfg_.push_layer(l.name, data_dir_ + "/" + l.file, {.optional = l.optional});
-            !r) {
-            log(std::string(baker::to_string(r.error())));
-            load_errors_.push_back(r.error());
+    // The stack's baker-project.dta, beside its data directory, is what the game and its
+    // tools (an editor, a checker) all read (D172). A packaged game has none beside its
+    // data, and gets the same stack from here.
+    const std::filesystem::path file =
+        std::filesystem::path(data_dir_).parent_path() / "baker-project.dta";
+    std::error_code exists_ec;
+    baker::Project project;
+    if (std::filesystem::exists(file, exists_ec)) {
+        auto read = baker::read_project(file.generic_string());
+        if (!read) {
+            log(std::string(baker::to_string(read.error())));
+            load_errors_.push_back(read.error());
             return false;
         }
+        project = std::move(*read);
+    } else {
+        const baker::Symbol levels[] = {"engine", "game", "task"};
+        const baker::Symbol dirs[] = {baker::Symbol(data_dir_)};
+        auto in_data = [&](const char* f) { return baker::Symbol(data_dir_ + "/" + f); };
+        const baker::ProjectLayer layers[] = {{"default", in_data("default.dta")},
+                                              {"local", in_data("local.dta"), true},
+                                              {"agent", in_data("agent.dta"), true}};
+        project.pack_levels = baker::List<baker::Symbol>(levels);
+        project.include_dirs = baker::List<baker::Symbol>(dirs);
+        project.layers = baker::List<baker::ProjectLayer>(layers);
+    }
+    const auto opened = options.local ? baker::open_project(cfg_, project)
+                                      : baker::open_project(cfg_, project, {.skip = {"local"}});
+    if (!opened) {
+        log(std::string(baker::to_string(opened.error())));
+        load_errors_.push_back(opened.error());
+        return false;
     }
     // The loop's own numbers, for the console and the agent (reading-a-studio.md §7, step 2).
     if (auto f = ctx_.func("live.loop", [this] { return loop_report(); }))
