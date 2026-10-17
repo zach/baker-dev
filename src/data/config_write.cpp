@@ -6,6 +6,7 @@
 #include <baker/parse.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 
 #if defined(_WIN32)
@@ -124,6 +125,19 @@ bool write_disk_file(std::string_view where, std::string_view text) {
     if (!f) return false;
     const bool ok = std::fwrite(text.data(), 1, text.size(), f) == text.size();
     return std::fclose(f) == 0 && ok;
+}
+
+// The value to write over `old`: a whole float over an integer token stays an integer, as
+// most hosts tune numbers in float fields (D183): (height 96) tuned to 120.0 is written
+// (height 120). A fraction, a NaN or infinity, or a whole value no int64 holds stays a
+// float.
+Node as_written(const Node& old, const Node& value) {
+    if (old.type() != Type::Int || value.type() != Type::Float) return value;
+    const double d = *value.try_float();
+    if (!std::isfinite(d) || d != std::trunc(d) || d < -9223372036854775808.0 ||
+        d >= 9223372036854775808.0)
+        return value;
+    return Node(static_cast<int64_t>(d));
 }
 
 // One node for a value: itself, or (v1 v2 ...) for several.
@@ -283,9 +297,10 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
         }
         if (targets.size() == values.size()) {
             for (size_t i = 0; i < targets.size(); ++i) {
-                if (structurally_equal(old[i], values[i])) continue;
+                const Node value = as_written(old[i], values[i]);
+                if (structurally_equal(old[i], value)) continue;
                 const SourceSpan& sp = *map.span(*cur, targets[i]);
-                edits.push_back({sp.begin, sp.end, detail::text_of(values[i])});
+                edits.push_back({sp.begin, sp.end, detail::text_of(value)});
             }
         } else if (targets.empty()) {
             if (auto e = not_literal(*cur, 0)) return Unexpected(*e);
