@@ -5870,3 +5870,25 @@ found only by calling `reload()` on a timer, late, with no origin time.*
   - a missing layer file appearing moves it, and removing the layer drops its file.
 - **Docs.** The cookbook's reload section, "Watching files yourself".
 - **Core:** 13,993 → 14,027 lines.
+
+## D181. `script_functions` takes the commands, so it serves a Config
+
+*The editor session's requirement note 0011, from using D178. `script_functions(session)`
+read `session.autorun()`. A Config reads each file layer with a session of its own, and
+keeps the enabled layers' `#autorun` commands in `Config::autorun()`. Its `read_session()`
+has only the top layer's, since each layer's session starts its commands afresh. So for
+data loaded as a game loads it, the call found nothing below the top layer. The editor
+walked `Config::autorun()` itself.*
+
+- **The change.** `script_functions(std::span<const Node> autorun)` replaces the session
+  overload: `script_functions(session.autorun())` or
+  `script_functions(cfg.autorun().items())`.
+  - **The same walk and result:** nested `{func}`s and ones a macro made, at the command's
+    file and line, in load order, duplicates kept.
+  - **Disabled layers.** A disabled layer's commands are not in `Config::autorun()`, and so
+    not listed.
+- **Tests** (`tests/script/test_reference_json.cpp`): two text layers' functions, in order,
+  with the second's file and line; with the second layer disabled, one.
+- **Docs.** `docs/reference-json.md` names both calls, and says why a Config's come from
+  `autorun()`.
+- **Core:** 14,027 → 14,026 lines.

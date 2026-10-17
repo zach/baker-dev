@@ -863,9 +863,9 @@ void find_funcs(const Array& a, Vec<Definition>& out) {
 
 }  // namespace
 
-List<Definition> script_functions(const LoadSession& session) {
+List<Definition> script_functions(std::span<const Node> autorun) {
     Vec<Definition> out;
-    for (const Node& command : session.autorun())
+    for (const Node& command : autorun)
         if (const Array* a = command.array()) find_funcs(*a, out);
     return List<Definition>(std::span<const Definition>(out.data(), out.size()));
 }
