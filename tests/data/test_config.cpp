@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -1024,3 +1025,29 @@ TEST_CASE("a Config lists the files its stack was read from, for a host's own wa
         CHECK(listed().size() == 3);
     }
 }
+
+#if !BAKER_SHIPPING
+TEST_CASE("write-back keeps an integer token's form when a float value is whole") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer("default", dir.write("default.dta",
+                                                "(player (height 96) (speed 2.5) (lives 3) "
+                                                "(jump 4) (huge 1) (weird 1))\n")));
+    REQUIRE(cfg.set("player.height", Node(120.0)));  // a host's float field
+    REQUIRE(cfg.set("player.speed", Node(3.0)));     // a float token stays a float
+    REQUIRE(cfg.set("player.lives", Node(3.0)));     // the same number: no edit
+    REQUIRE(cfg.set("player.jump", Node(4.5)));      // a fraction is written as one
+    REQUIRE(cfg.set("player.huge", Node(1e30)));     // no int64 holds it
+    REQUIRE(cfg.set("player.weird", Node(std::numeric_limits<double>::infinity())));
+    REQUIRE(cfg.promote("scratch", "default"));
+    CHECK(dir.read("default.dta") ==
+          "(player (height 120) (speed 3.0) (lives 3) (jump 4.5) (huge 1e+30) (weird inf))\n");
+    CHECK(cfg.get<double>("player.height") == 120.0);  // reads the same either way
+    CHECK(cfg.get<int>("player.height") == 120);
+
+    // write_back alike.
+    REQUIRE(cfg.set("player.height", Node(150.0)));
+    REQUIRE(cfg.write_back("player.height"));
+    CHECK(dir.read("default.dta").rfind("(player (height 150) (speed 3.0)", 0) == 0);
+}
+#endif

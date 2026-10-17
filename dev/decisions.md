@@ -5915,3 +5915,35 @@ opt-in for this as well.*
     `headless_idle`. The console separates replies with blank lines, which the test
     skips.
 - **Docs.** The `--console-write` row in `stacks/README.md`'s table.
+
+## D183. Write-back keeps an integer token's form when the new value is whole
+
+*The baker-godot session's requirement note 0003, from plan C's editor loop. Engines and
+editors hold most tunable numbers as floats: an inspector's field, a script's float
+property, a slider. A designer who tunes a value the data wrote as `96` expects the diff to
+read `96` → `120`. It read `96` → `120.0`, which looks like a type change in review. Every
+host whose live edits come from float fields meets this, so it belongs where the token is
+replaced, which knows what the old token was.*
+
+- **The rule** (`as_written` in `config_write.cpp`): when write-back replaces a token
+  one-for-one, an old `Int` and a new `Float` that is finite, whole and within `int64`'s
+  range is written as an integer.
+  - **Where it applies:** `write_back`, `write_back_to` over an existing value, and
+    `promote`, which all plan through the same replacement.
+  - **Where it does not:** a new entry, a float token, a fraction, a NaN, an infinity, a
+    whole value beyond `int64`, and a replacement that changes the number of values are
+    written as before.
+- **The same number writes nothing.** The comparison that skips an unchanged value now uses
+  the value as it would be written, so `(lives 3)` tuned to `3.0` is not an edit.
+- **Reads are unchanged.** The scratch value stays the float until the write-back re-reads
+  the layer. A float lookup or tweak reads the same either way, and an int lookup now
+  works too.
+- **Tests** (`tests/data/test_config.cpp`), one promote over six paths:
+  - a whole float over an integer becomes an integer;
+  - over a float it stays a float (`3.0`);
+  - the same value is not edited;
+  - a fraction, `1e30` and an infinity are written as floats;
+  - then `write_back` alike.
+  - The corpus write-back test (every corpus value as one line) still passes.
+- **Docs.** The write-back paragraph in `config.hpp`.
+- **Core:** 14,026 → 14,036 lines.

@@ -49,8 +49,10 @@
 // scratch first; root() includes scratch as of the last full merge. write_back() writes
 // the current value into the file of the highest enabled layer below scratch that supplies
 // it, replacing only the tokens that produced the old value, so comments, notes, and
-// formatting are kept and the diff is one line. write_back_to() writes into a chosen
-// layer's file, adding the entry as the last child of the deepest ancestor written there
+// formatting are kept and the diff is one line. A whole float written over an integer
+// token keeps the integer form, since hosts tune numbers in float fields: (height 96) tuned
+// to 120.0 is written (height 120); 120.5 is written as itself. write_back_to() writes into a
+// chosen layer's file, adding the entry as the last child of the deepest ancestor written there
 // (creating an optional layer's missing file); promote() writes a whole layer's effect into
 // another layer, all or nothing. Write-back refuses, with a located error, a value from a
 // macro, an overlay, an ancestor that came from #include or #merge, a missing indexed
