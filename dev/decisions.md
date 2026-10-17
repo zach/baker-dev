@@ -5947,3 +5947,41 @@ replaced, which knows what the old token was.*
   - The corpus write-back test (every corpus value as one line) still passes.
 - **Docs.** The write-back paragraph in `config.hpp`.
 - **Core:** 14,026 → 14,036 lines.
+
+## D184. Three tooling layers, written down
+
+*The owner asked where the line falls between development tools in Baker, tooling outside
+Baker, and the game itself, and whether there are three clear layers. There were, in
+practice, but the rules were scattered (D153, D156, `INTEGRATIONS.md`, `stacks/agent.md`,
+the integration plans), and each requirement note was placed by judgment.*
+
+- **`dev/tooling-layers.md`** defines the three layers:
+  - **Baker:** what needs Baker's meaning of the data, as data and hooks, with no I/O of
+    its own and nothing paid until it is called.
+  - **The host:** the operating system, the game's own code, and policy. The stacks'
+    `base` is the reference host.
+  - **External tools:** a separate process and repository that talks to a game only
+    through the project file, the versioned JSON documents, the console and the game's
+    commands.
+- **The placement test**, three questions asked in order:
+  - Would a second host have to copy Baker's rules? Then it is Baker's.
+  - Does it need the operating system, the game's code, or a policy choice? Then it is
+    the host's.
+  - Otherwise it is the external tool's.
+  - A need that seems to be both splits, as `stack_files` and the watcher that uses it
+    did (D180).
+- **Baker's own tiers**, as a table: always, shipping included; development builds; and
+  writing on request (`allow_write`). The table lists the Config tools that bind in each.
+- **An open question for the owner:** a host kit. The file watcher, the loopback console
+  server and the tool commands' shared code touch the operating system, so they are not
+  core. Every host rewrites them: the stacks, the Godot integration, and
+  `examples/remote-console`. The note lays out three options:
+  - leave them in hosts, which is what holds until decided;
+  - an optional host-kit library beside the core;
+  - the commands' shared code only.
+- **Users' half.** `docs/tools.md`, linked from the README, gives the user-facing part:
+  - the three parts and how to place a feature;
+  - what Baker gives tools, tier by tier;
+  - what the host does: watching through `stack_files`, carrying requests through
+    `eval_request` on loopback, commands that need the game's functions, and policy;
+  - how an external tool talks to a game.
