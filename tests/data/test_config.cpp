@@ -976,3 +976,51 @@ TEST_CASE("a tweak's path made at runtime is kept by the symbol (D171)") {
     tunables.clear();  // detached, the registry empty again
     CHECK(reg.size() == 0);
 }
+
+TEST_CASE("a Config lists the files its stack was read from, for a host's own watcher") {
+    test::TempDir dir;
+    const std::string base = dir.write("base.dta", "#include parts.dta\n(speed 1)\n");
+    dir.write("parts.dta", "(jump 2)\n");
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer("default", base));
+    REQUIRE(cfg.push_layer("local", dir.path("local.dta"), {.optional = true}));
+    REQUIRE(cfg.push_layer_text("received/patch.dta", "(speed 3)"));  // no file
+
+    auto listed = [&] {
+        std::vector<std::string> out;
+        for (const StackFile& f : cfg.stack_files())
+            out.push_back(std::string(f.layer.str()) + " " +
+                          std::filesystem::path(std::string(f.path.str())).filename().string() +
+                          (f.present ? "" : " (missing)"));
+        return out;
+    };
+    CHECK(listed() == std::vector<std::string>{"default base.dta", "default parts.dta",
+                                               "local local.dta (missing)"});
+    const uint64_t epoch = cfg.stack_files_epoch();
+
+    if constexpr (!kShipping) {
+        // A reload that reads the same files keeps the list and its epoch.
+        dir.write("parts.dta", "(jump 3)\n");
+        REQUIRE(cfg.reload());
+        CHECK(cfg.get<int>("jump") == 3);
+        CHECK(cfg.stack_files_epoch() == epoch);
+
+        // One that reads other files moves it.
+        dir.write("more.dta", "(lives 3)\n");
+        dir.write("parts.dta", "#include more.dta\n(jump 3)\n");
+        REQUIRE(cfg.reload());
+        CHECK(cfg.stack_files_epoch() != epoch);
+        CHECK(listed() == std::vector<std::string>{"default base.dta", "default parts.dta",
+                                                   "default more.dta",
+                                                   "local local.dta (missing)"});
+
+        // A layer's file appearing, and a layer leaving, move it too.
+        const uint64_t before = cfg.stack_files_epoch();
+        dir.write("local.dta", "(speed 9)\n");
+        REQUIRE(cfg.reload());
+        CHECK(cfg.stack_files_epoch() != before);
+        CHECK(listed().back() == "local local.dta");
+        REQUIRE(cfg.remove_layer("local"));
+        CHECK(listed().size() == 3);
+    }
+}
