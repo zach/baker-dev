@@ -5795,3 +5795,100 @@ a tool checking data must not do. The editor scanned file text for `#define`, `[
     `read_session()`.
 - **Docs.** `docs/reference-json.md`, under "Checking without the game".
 - **Core:** 13,926 → 13,983 lines.
+
+## D179. Paths with a scheme are kept as written, and are absolute
+
+*The baker-godot session's requirement note 0002, from plan C's runtime. Engines name
+files through virtual roots: one for packaged content, one for per-user data that version
+control never sees, others for mounted packages. A personal `local` layer belongs in the
+per-user root, and the project file should be able to say so:
+`(local "user://baker/local.dta" optional)`. Baker folded `user://baker/local.dta` to
+`user:/baker/local.dta`, and joined the project file's directory onto it.*
+
+- **Scheme paths** (`src/data/text.cpp`). A path that begins with a scheme, `name://`, has
+  that prefix as its root.
+  - **What counts as a scheme:** a letter, then letters, digits, `+`, `-` or `.`, at least
+    two characters in all. So `C:/data/a.dta`, and even `C://data`, stay a drive.
+  - **What follows:**
+    - `is_absolute_path` is true, so a project file's directory is not joined onto it, and
+      an include of one is not searched for.
+    - `normalize_path` keeps the `//`, and drops `..` at the root as it does for `/`.
+    - An include beside the file resolves under the same root (`user://baker/inc.dta`).
+  - **Where the path reaches.** Every path Baker handles goes through these helpers, so
+    the path reaches the reader, the writer and `Source::file` exactly as written.
+  - **Unreadable paths.** A reader that cannot open such a path reports a missing file, so
+    an optional layer is empty.
+- **`parent_path` keeps a root.** A root is now its own parent: `/a` → `/`, `C:/a` → `C:/`
+  (it was `C:`), `user://a` → `user://`.
+  - `find_project`'s stopping rule becomes one comparison, `up == dir`, for every kind of
+    root.
+- **Tests:**
+  - `tests/data/test_parse.cpp`: normalizing, `..` at a scheme root, parents, joins, and
+    three near misses (a drive with `//`, a space, a leading digit);
+  - `tests/data/test_project.cpp`: a project file below the root names a `user://` layer.
+    It is not joined; the Config reads it and an include beside it through a host reader;
+    `source()` names it as written; and an unreadable one is an empty optional layer.
+- **Docs.** The cookbook's project-file section.
+- **Core:** 13,983 → 13,993 lines.
+
+## D180. A Config lists the files its stack was read from
+
+*The baker-godot session's requirement note 0001. An engine or editor already watches files.
+A host that knows which files matter calls `reload()` only when one changes, with the
+save's time as `ReloadRequest::origin_ns`, so edit-to-see is measured from the save. A host
+knew only the files it named itself, the layers' own files. An included file's edit was
+found only by calling `reload()` on a timer, late, with no origin time.*
+
+- **API.** `Config::stack_files()` returns a span of `StackFile {layer, path, present}`.
+  `Config::stack_files_epoch()` returns a number that moves whenever the list does.
+  - **What is listed:** each file layer's dependencies, bottom to top. That is its own
+    file, every file its `#include`, `#merge` or `#require` reached, and every file one of
+    them looked for and missed (creating that file would change the layer).
+  - **Paths** are as the session's reader was given them, so a host maps them as it maps
+    reads.
+  - **Not listed:** a layer pushed as text, which has no files, and an overlay.
+- **Where it comes from.** It is built from what the Config already kept. Each layer's
+  `deps` were the files `reload()` re-hashes.
+  - **When it is rebuilt.** It is flattened at every merge (`refresh_files`, beside
+    `refresh_read`) into a `Vec` the Config owns.
+  - **The epoch.** A merge that read the same files, in the same order, with the same
+    presence, keeps the list and its epoch: a reload of an edited file does not move it.
+  - **Reading it allocates nothing.** A host compares one number a frame.
+  - **Shipping builds** list what their reads opened, like any other build. The note
+    allowed an empty list there; nothing is saved by giving one.
+- **Cost.** A merge now also compares its layers' dependency paths with the list.
+  - **Instructions:** cachegrind over 400 merges (a 3,000-key base, with a 300-key overlay
+    pushed and removed 200 times, tree layers with no files) gives 160,066,127 →
+    160,094,355, about 70 instructions a merge, or 0.02%.
+  - **Time:** `bench_layers`' `push_layer (tree), no policy` read 94.4 and 95.9 µs on
+    main, and 100.9 and 101.5 µs on this branch. The instruction count says that gap is
+    layout, not work. `push_layer_text` was 183.3/179.2 µs against 184.2/181.6 µs.
+- **Tests** (`tests/data/test_config.cpp`):
+  - a layer and its include, a missing optional layer, and a text layer with no files;
+  - a reload that reads the same files keeps the epoch;
+  - one that reaches a new include moves it, and lists the new file;
+  - a missing layer file appearing moves it, and removing the layer drops its file.
+- **Docs.** The cookbook's reload section, "Watching files yourself".
+- **Core:** 13,993 → 14,027 lines.
+
+## D181. `script_functions` takes the commands, so it serves a Config
+
+*The editor session's requirement note 0011, from using D178. `script_functions(session)`
+read `session.autorun()`. A Config reads each file layer with a session of its own, and
+keeps the enabled layers' `#autorun` commands in `Config::autorun()`. Its `read_session()`
+has only the top layer's, since each layer's session starts its commands afresh. So for
+data loaded as a game loads it, the call found nothing below the top layer. The editor
+walked `Config::autorun()` itself.*
+
+- **The change.** `script_functions(std::span<const Node> autorun)` replaces the session
+  overload: `script_functions(session.autorun())` or
+  `script_functions(cfg.autorun().items())`.
+  - **The same walk and result:** nested `{func}`s and ones a macro made, at the command's
+    file and line, in load order, duplicates kept.
+  - **Disabled layers.** A disabled layer's commands are not in `Config::autorun()`, and so
+    not listed.
+- **Tests** (`tests/script/test_reference_json.cpp`): two text layers' functions, in order,
+  with the second's file and line; with the second layer disabled, one.
+- **Docs.** `docs/reference-json.md` names both calls, and says why a Config's come from
+  `autorun()`.
+- **Core:** 14,027 → 14,026 lines.

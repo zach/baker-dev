@@ -145,6 +145,26 @@ Expected<Ref<Array>> Config::Impl::read_through_cache(std::string_view path, con
     }
 }
 
+// stack_files(): the layers' dependencies, flattened. A merge that read the same files keeps
+// the list, and its epoch, as they were.
+void Config::Impl::refresh_files() {
+    size_t i = 0;
+    bool same = true;
+    for (const LayerState& l : layers)
+        for (const Dep& d : l.deps) {
+            same = same && i < stack_files.size() && stack_files[i].present == d.present &&
+                   stack_files[i].path.str() == d.path.view() &&
+                   stack_files[i].layer.str() == l.name.view();
+            ++i;
+        }
+    if (same && i == stack_files.size()) return;
+    stack_files.clear();
+    for (const LayerState& l : layers)
+        for (const Dep& d : l.deps)
+            stack_files.push_back({Symbol(l.name.view()), Symbol(d.path.view()), d.present});
+    ++stack_files_epoch;
+}
+
 Expected<void> Config::Impl::read(LayerState& layer, const LoadSession& before, uint64_t* read_ns,
                                   Vec<Error>* warnings) const {
     auto session = Rc<LoadSession>::make(alloc, before);
@@ -356,6 +376,7 @@ Ref<Array> Config::Impl::merged() const {
 }
 
 void Config::Impl::refresh_read() {
+    refresh_files();
     const Rc<LoadSession>* top = nullptr;
     for (const LayerState& l : layers)
         if (!l.path.empty() && l.after) top = &l.after;
@@ -440,6 +461,13 @@ Config::~Config() {
 LoadSession& Config::session() noexcept {
     ++impl_->generation;  // the caller may change what a check reads with
     return impl_->base;
+}
+
+std::span<const StackFile> Config::stack_files() const noexcept {
+    return {impl_->stack_files.data(), impl_->stack_files.size()};
+}
+uint64_t Config::stack_files_epoch() const noexcept {
+    return impl_->stack_files_epoch;
 }
 
 const LoadSession& Config::read_session() const noexcept {

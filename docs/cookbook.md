@@ -92,6 +92,12 @@ cfg.on_reload(
   nothing is waiting. `cfg.loop_stats()` then gives, per file and per layer, the median and
   worst time from a saved edit to the frame that showed it, over the last 32 edits, with
   failed reloads counted (D92). Polling for changes does not dilute it.
+- **Watching files yourself.** `cfg.stack_files()` lists every file the layers were read
+  from: each layer's file, the files its `#include`s reached, and those they looked for and
+  missed, with the layer each belongs to and the path as the reader was given it. An engine
+  or editor that already watches files calls `reload()` only when one of these changes,
+  with the save's time as `origin_ns`. `cfg.stack_files_epoch()` moves whenever the list
+  does, so checking it costs one comparison a frame.
 
 `examples/config` runs a reload that rebuilds the audio group and leaves the renderer alone.
 
@@ -122,7 +128,11 @@ baker::Config cfg;
 if (auto r = baker::open_project(cfg, *project); !r) return report(r.error());
 ```
 
-- **Paths** are relative to the project file's directory unless absolute.
+- **Paths** are relative to the project file's directory unless absolute. A path that
+  begins with a scheme, as an engine names its virtual roots (`"user://baker/local.dta"`),
+  is absolute and kept exactly as written, through to the reader, the writer and
+  `source()`. Serve it from your reader. A reader that cannot open it reads an optional
+  layer as empty.
 - **Layer flags:** `optional` makes a missing file an empty layer; `disabled` keeps a layer
   in the stack, skipped by the merge, for a panel to toggle.
 - **Leaving layers out:** `open_project(cfg, project, {.skip = {"local"}})` leaves out one

@@ -919,11 +919,14 @@ void reference(const Context& ctx, TextSink out, const LoadSession* packs = null
 // origins. Sorted by name, so the same Context gives the same bytes.
 void write_reference_json(const Context& ctx, TextSink out, const LoadSession* packs = nullptr);
 
-// The script functions the #autorun commands of `session` define with {func NAME ...}, each
-// where it is written, in load order, found without running anything: the data's own
-// vocabulary, for a tool that checks or completes data without the game. A {func} nested
-// in another command, or made by a macro, counts; one defined twice is listed twice.
-[[nodiscard]] List<Definition> script_functions(const LoadSession& session);
+// The script functions that #autorun commands define with {func NAME ...}, each where it is
+// written, in load order, found without running anything: the data's own vocabulary, for a
+// tool that checks or completes data without the game. A {func} nested in another command,
+// or made by a macro, counts; one defined twice is listed twice. Give it a session's
+// commands, or a Config's, which keeps each enabled file layer's apart from its sessions:
+//   script_functions(session.autorun());
+//   script_functions(cfg.autorun().items());
+[[nodiscard]] List<Definition> script_functions(std::span<const Node> autorun);
 
 // Evaluates one line from a tool and writes one line of JSON (schema baker.reply/1.1,
 // docs/reply-json.md). A request is (ID {command}), its ID an int, symbol or string that

@@ -186,9 +186,7 @@ Symbol find_project(std::string_view path, const LoadSession::Reader& reader) {
         if (exists(reader, candidate.view())) return Symbol(candidate.view());
         if (dir.empty()) return {};
         const std::string_view up = detail::parent_path(dir);
-        // Stop at the root: "/" is its own parent, and "C:/"'s is "C:", a relative path.
-        if (up == dir || (detail::is_absolute_path(dir) && !detail::is_absolute_path(up)))
-            return {};
+        if (up == dir) return {};  // the root ("/", "C:/", "user://") is its own parent
         dir = up;
     }
 }

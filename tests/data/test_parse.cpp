@@ -197,6 +197,21 @@ TEST_CASE("include paths are handled lexically") {
     CHECK(detail::parent_path("a/b/c.dta") == "a/b");
     CHECK(detail::parent_path("c.dta") == "");
     CHECK(detail::parent_path("/c.dta") == "/");
+    CHECK(detail::parent_path("C:/c.dta") == "C:/");
+
+    // A scheme names a virtual root (D179): absolute, and its "//" kept as written.
+    CHECK(normalize_path("user://baker/./local.dta") == "user://baker/local.dta");
+    CHECK(normalize_path("user://../a.dta") == "user://a.dta");
+    CHECK(normalize_path("my-pak+2.v1://x/y.dta") == "my-pak+2.v1://x/y.dta");
+    CHECK(detail::is_absolute_path("user://a.dta"));
+    CHECK(detail::parent_path("user://baker/local.dta") == "user://baker");
+    CHECK(detail::parent_path("user://local.dta") == "user://");
+    CHECK(detail::parent_path("user://") == "user://");
+    CHECK(detail::join_path("user://baker", "inc.dta") == "user://baker/inc.dta");
+    // Not schemes: a drive, a relative path with a colon, a scheme starting with a digit.
+    CHECK(normalize_path("C://data//a.dta") == "C:/data/a.dta");
+    CHECK_FALSE(detail::is_absolute_path("a b://x"));
+    CHECK_FALSE(detail::is_absolute_path("1x://y"));
     CHECK(detail::join_path("", "x.dta") == "x.dta");
     CHECK(detail::join_path("dir", "x.dta") == "dir/x.dta");
     CHECK(detail::join_path("dir/", "x.dta") == "dir/x.dta");

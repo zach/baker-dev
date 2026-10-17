@@ -130,7 +130,7 @@ TEST_CASE("script_functions lists the {func}s a load's #autorun defines, without
                     "#autorun {if 1 HELPER}\n"
                     "#autorun {func spawn_wave () 0}\n",
                     "boss.dta", session));
-    const List<Definition> fs = script_functions(session);
+    const List<Definition> fs = script_functions(session.autorun());
     std::vector<std::string> got;
     for (const Definition& d : fs)
         got.push_back(std::string(d.name.str()) + "@" + std::string(d.file.str()) + ":" +
@@ -139,6 +139,21 @@ TEST_CASE("script_functions lists the {func}s a load's #autorun defines, without
                                           "helper@boss.dta:1", "spawn_wave@boss.dta:5"});
     Context ctx;
     CHECK_FALSE(ctx.has_func("spawn_wave"));  // nothing ran
+
+    // A Config keeps its enabled file layers' commands, not its read session.
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer_text("base.dta", "#autorun {func base_fn () 0}\n(a 1)"));
+    REQUIRE(cfg.push_layer_text("mod.dta", "\n#autorun {func mod_fn () 0}\n(b 1)"));
+    List<Definition> layered = script_functions(cfg.autorun().items());
+    REQUIRE(layered.size() == 2);
+    CHECK(layered[0].name == Symbol("base_fn"));
+    CHECK(layered[1].name == Symbol("mod_fn"));
+    CHECK(layered[1].file == Symbol("mod.dta"));
+    CHECK(layered[1].line == 2);
+    if constexpr (!kShipping) {
+        REQUIRE(cfg.set_layer_enabled("mod.dta", false));  // a disabled layer's are left out
+        CHECK(script_functions(cfg.autorun().items()).size() == 1);
+    }
 }
 
 TEST_CASE("the macros a layer brought go with the layer") {

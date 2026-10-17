@@ -71,11 +71,13 @@ void append_path_name(Str& out, std::string_view name);
 
 // Lexical path handling. Baker never touches the file system itself (LoadSession's reader
 // does), so include paths are only joined and normalized as text. Both '/' and '\\' are
-// separators; results use '/'.
+// separators; results use '/'. A path that begins with a scheme, "user://a.dta" (an engine's
+// virtual root), is absolute, and its "name://" is kept as written.
 [[nodiscard]] bool is_absolute_path(std::string_view p) noexcept;
 // Removes "." and empty segments and resolves ".." lexically: "a/./b/../c.dta" -> "a/c.dta".
 [[nodiscard]] Str normalize_path(std::string_view p);
-// Everything before the last separator: "a/b/c.dta" -> "a/b"; "c.dta" -> "".
+// Everything before the last separator: "a/b/c.dta" -> "a/b"; "c.dta" -> ""; a root is its
+// own parent: "/a" -> "/", "C:/a" -> "C:/", "user://a" -> "user://".
 [[nodiscard]] std::string_view parent_path(std::string_view p) noexcept;
 [[nodiscard]] Str join_path(std::string_view dir, std::string_view p);
 

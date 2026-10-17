@@ -233,6 +233,15 @@ struct LoopStats {
 
 // One value a layer sets: a path to a tagged array with values. A value of several nodes,
 // like (screen_size 1920 1080), is an untagged array of them: (1920 1080).
+// A file a layer was read from: the layer's own file, one reached from it by #include,
+// #merge or #require, or one looked for there and missing (creating it would change what
+// the layer reads).
+struct StackFile {
+    Symbol layer;
+    Symbol path;  // as the session's reader was given it
+    bool present = false;
+};
+
 struct LayerEffectEntry {
     Symbol path;                // dotted, as get<T>() takes it
     Node value;                 // this layer's value
@@ -395,6 +404,15 @@ public:
     [[nodiscard]] Expected<void> merge(std::string_view path) { return push_layer(path, path); }
     // Layer names bottom to top, ending with "scratch".
     [[nodiscard]] List<Symbol> layers() const;
+    // Every file the file layers were read from, layer by layer, bottom to top: for a host
+    // that watches files itself (an engine's file notifications, an editor's change
+    // tracking, a write-time check each frame) and calls reload() with the save's time as
+    // origin_ns only when one changes. Valid until the Config next changes; refreshed at
+    // every merge. stack_files_epoch() moves whenever the list does, so a host compares one
+    // number a frame. A layer pushed as text, and a layer replayed from a cache, list what
+    // their reads opened.
+    [[nodiscard]] std::span<const StackFile> stack_files() const noexcept;
+    [[nodiscard]] uint64_t stack_files_epoch() const noexcept;
     // The #autorun commands of the enabled file layers, bottom to top, as their last reads
     // collected them (D107). Each layer is read with a session of its own, so they are not
     // in session().autorun(); a host runs them after a push, reload, or toggle, so that a

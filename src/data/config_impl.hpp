@@ -215,7 +215,9 @@ struct Config::Impl {
     LoadSession base{alloc};  // the sessions the Config keeps are on its allocator (D129)
     LoadSession as_read{
         alloc};  // read_session(): the last file layer's session, as of the last merge
-    Rc<LoadSession> as_read_from;  // the session as_read copies; held, so it is not reused
+    Rc<LoadSession> as_read_from;       // the session as_read copies; held, so it is not reused
+    Vec<StackFile> stack_files{alloc};  // stack_files(), as of the last merge
+    uint64_t stack_files_epoch = 0;
     Writer writer = write_disk_file;
     Callback<void(const Error&)> warn;
     struct Check {
@@ -403,6 +405,7 @@ struct Config::Impl {
     // read_session(): the session after the last file layer, which carries every layer's
     // packs and origins (each layer reads over a copy of the one below).
     void refresh_read();
+    void refresh_files();
 
     // Installs a new merged tree, rebinds tweaks, then fires the reload callbacks, timing
     // the merge, bind, and notify stages from `t`.
