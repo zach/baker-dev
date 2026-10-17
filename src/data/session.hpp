@@ -70,6 +70,9 @@ struct SessionAccess {
     static void set_macro_pack(LoadSession& s, Symbol macro, Symbol file);
     // Origins (D91): those the last recorded read declared; and one a cache recorded.
     [[nodiscard]] static std::span<const Origin> new_origins(const LoadSession& s) noexcept;
+    // The macro definitions the last recorded read made, and one replayed from a cache.
+    [[nodiscard]] static std::span<const Definition> new_definitions(const LoadSession& s) noexcept;
+    static void add_definition(LoadSession& s, const Definition& definition);
     static void add_origin(LoadSession& s, const Origin& origin);
 };
 

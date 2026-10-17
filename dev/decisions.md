@@ -5747,3 +5747,51 @@ it checked, so a workspace holding several stacks checked calls in at most one.*
   - The failure path was tried by hand: a game that exits 1 removes the file and warns, and
     an unchanged reference keeps its modification time.
 - **Docs.** `stacks/README.md`'s `--data` row.
+
+## D178. A load lists the macros and script functions it defined, and where
+
+*The editor session's requirement note 0010, from adding hover and completion. A tool
+needs the data's own vocabulary as well as the game's: macros where a value goes, script
+functions where a command goes, and go-to-definition on either. The session found a macro
+by name but could not list them. A `{func}` was known only once its `#autorun` ran, which
+a tool checking data must not do. The editor scanned file text for `#define`, `[` and
+`{func`, which misses anything a macro makes.*
+
+- **`LoadSession::macro_definitions()`** returns a span of `Definition {name, file, line,
+  flag}`.
+  - **What it records:** every macro definition the session's reads made, in the order
+    read: `#define NAME` (a flag), `#define NAME (body)`, and a top-level `[NAME ...]`.
+  - **Every definition is kept.** A name defined twice is listed twice, so a checker can
+    report it. One `#undef`'d stays listed, and `is_defined` says which stand.
+  - **Not listed:** macros a host defines in code, which are not the data's.
+  - **Recording.** The parser's existing `defined()` hook, which already attributes a
+    macro to its pack, pushes the entry. It is a new table in the session's state, so it
+    is copied with the state and goes with the layer that brought it: removing a layer
+    removes its macros from `read_session()`.
+  - **Caches.** A recorded load's cache carries the definitions, as `(definitions (NAME
+    file line flag) ...)` in its metadata, so a replayed load lists the same entries.
+- **`script_functions(session)`** (`baker::script`) returns a `List<Definition>`.
+  - **Where it looks:** every `{func NAME ...}` in the session's `#autorun` commands,
+    nested ones included, at the command's file and line, in load order.
+  - **Nothing runs.** The commands are already kept, expanded, with their locations, so a
+    function a macro makes is found and nothing new is recorded.
+- **Cost.**
+  - **Parsing without macros is unchanged:** `bench_parse`, 4.2 MB, best of 10, two runs
+    each against main. Main 33.2 and 32.3 ms, this branch 31.4 and 32.3 ms, with 43
+    allocations either way.
+  - **A file that is nothing but 40,000 macro definitions** (20,000 `[M ...]` and 20,000
+    `#define F`, with a use of each) costs 1.3% more instructions: 1,741.6 M to 1,764.6 M
+    under cachegrind, about 38 instructions per definition beside the define table's own
+    insert. Time is within noise: best of 15, three runs each, main 14.5–16.2 ms, this
+    branch 16.3–18.6 ms.
+  - The note allowed edit mode only "if recording costs anything". The cost is small enough
+    that every load records, so any Config's `read_session()` has the list.
+- **Tests:**
+  - `tests/data/test_preprocessor.cpp`: flags, `[NAME]`, `#define NAME (body)`, an
+    included file's macro, a redefinition and an `#undef`, a host's define left out, and
+    the same list from a cache replay;
+  - `tests/script/test_reference_json.cpp`: four `{func}`s, at the top level, nested, from
+    a macro, and one twice, with nothing run; and a removed layer's macros gone from
+    `read_session()`.
+- **Docs.** `docs/reference-json.md`, under "Checking without the game".
+- **Core:** 13,926 → 13,983 lines.

@@ -81,6 +81,7 @@ constexpr uint32_t kEndian = 0x01020304;
 //                                      packs the load declared
 //   (macro_packs NAME file ...)        the pack each macro the load defined came from
 //   (origins (file "source" tool-or-0) ...)   origins the load's files declared (D91)
+//   (definitions (NAME file line flag) ...)   where the load defined each macro (D178)
 struct Header {
     char magic[10];
     uint16_t version;
@@ -621,7 +622,7 @@ Ref<Array> record_of(const LoadSession& s) {
         autorun{Node(Symbol("autorun"))}, required{Node(Symbol("required"))},
         require{Node(Symbol("require"))}, levels{Node(Symbol("levels"))},
         packs{Node(Symbol("packs"))}, macro_packs{Node(Symbol("macro_packs"))},
-        origins{Node(Symbol("origins"))};
+        origins{Node(Symbol("origins"))}, definitions{Node(Symbol("definitions"))};
     for (const CacheFile& f : A::files(s)) {
         Vec<Node> entry{Node(String::make(f.path)), Node(f.size), Node(f.hash)};
         files.push_back(list(entry));
@@ -676,9 +677,14 @@ Ref<Array> record_of(const LoadSession& s) {
                         o.tool.empty() ? Node(0) : Node(o.tool)};
         origins.push_back(list(entry));
     }
+    for (const Definition& d : A::new_definitions(s)) {
+        Vec<Node> entry{Node(d.name), Node(d.file), Node(int64_t{d.line}),
+                        Node(int64_t{d.flag ? 1 : 0})};
+        definitions.push_back(list(entry));
+    }
     Vec<Node> meta{list(files),   list(before),      list(define),  list(undefine),
                    list(autorun), list(required),    list(require), list(levels),
-                   list(packs),   list(macro_packs), list(origins)};
+                   list(packs),   list(macro_packs), list(origins), list(definitions)};
     return Array::make_from({meta.data(), meta.size()});
 }
 
@@ -788,6 +794,16 @@ void replay(const Array& meta, LoadSession& s) {
             SessionAccess::add_origin(
                 s, Origin{(*o)[0].try_sym().value_or(Symbol()), Symbol((*o)[1].string()->view()),
                           (*o)[2].try_sym().value_or(Symbol())});
+        }
+    if (const Array* ds = meta.try_find("definitions"))
+        for (const Node& n : ds->values()) {
+            const Array* d = n.array();
+            if (!d || d->size() != 4) continue;
+            SessionAccess::add_definition(
+                s, Definition{(*d)[0].try_sym().value_or(Symbol()),
+                              (*d)[1].try_sym().value_or(Symbol()),
+                              static_cast<int32_t>((*d)[2].try_int().value_or(0)),
+                              (*d)[3].try_int().value_or(0) != 0});
         }
     if (const Array* m = meta.try_find("macro_packs"))
         for (uint32_t i = 1; i + 1 < m->size(); i += 2)

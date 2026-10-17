@@ -98,6 +98,16 @@ struct Origin {
     Symbol tool;    // what generated it: sheets-export; empty if not declared
 };
 
+// Where a load defined a name: a macro (`#define NAME`, `#define NAME (body)`, a top-level
+// `[NAME ...]`), or a script function its #autorun commands define (script.hpp,
+// script_functions). For a tool's completion, go-to-definition, and checks.
+struct Definition {
+    Symbol name;
+    Symbol file;
+    int32_t line = 0;
+    bool flag = false;  // a macro with no body: #define NAME
+};
+
 // State shared by all files read through it. Macros and defines persist from one file to
 // the next, as in the original; a fresh session starts empty. Copying a session copies
 // its defines, macros, include directories, reader, and limits.
@@ -143,6 +153,10 @@ public:
     [[nodiscard]] const Pack* pack_of(Symbol file) const noexcept;  // null: not a pack
     // The files that declared an origin, in the order they were read.
     [[nodiscard]] std::span<const Origin> origins() const noexcept;
+    // Every macro definition the session's reads made, in the order read, each where it is
+    // written: a name defined twice is listed twice, and one #undef'd stays listed
+    // (is_defined says which stand). Macros a host defines in code are not listed.
+    [[nodiscard]] std::span<const Definition> macro_definitions() const noexcept;
     [[nodiscard]] const Origin* origin_of(Symbol file) const noexcept;  // null: none
     // Warnings from the files read, in order (the one-way rule), until cleared.
     [[nodiscard]] std::span<const Error> warnings() const noexcept;

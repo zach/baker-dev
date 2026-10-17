@@ -281,6 +281,7 @@ struct LoadSession::State {
           pack_levels(a),
           packs(a),
           origins(a),
+          definitions(a),
           macro_pack(a),
           warnings(a),
           files(a),
@@ -297,6 +298,7 @@ struct LoadSession::State {
         pack_levels = o.pack_levels;
         packs = o.packs;
         origins = o.origins;
+        definitions = o.definitions;
         macro_pack = o.macro_pack;
         warnings = o.warnings;
         recorded = o.recorded;
@@ -306,6 +308,7 @@ struct LoadSession::State {
         required_from = o.required_from;
         packs_from = o.packs_from;
         origins_from = o.origins_from;
+        definitions_from = o.definitions_from;
         include_stack = o.include_stack;
         nodes = o.nodes;
         includes = o.includes;
@@ -323,6 +326,7 @@ struct LoadSession::State {
     Vec<Symbol> pack_levels;               // hardest first
     Vec<Pack> packs;                       // in the order they were read
     Vec<Origin> origins;                   // files that declared one, in the order read
+    Vec<Definition> definitions;           // macro definitions, in the order read
     HashMap<Symbol, uint32_t> macro_pack;  // the pack that defined each macro, by index
     Vec<Error> warnings;
     // What the last top-level read did, if recorded (record_for_cache).
@@ -333,6 +337,7 @@ struct LoadSession::State {
     size_t required_from = 0;
     size_t packs_from = 0;
     size_t origins_from = 0;
+    size_t definitions_from = 0;
     // Per top-level read.
     Vec<Str> include_stack;
     uint64_t nodes = 0;
@@ -533,7 +538,7 @@ private:
             truncate(f.start);
             if (body->height() > s_.limits.max_depth) return too_deep(f.line, f.begin);
             s_.define(*name, std::move(body));
-            defined(*name);
+            defined(*name, f.line, false);
             return true;
         }
 
@@ -545,7 +550,7 @@ private:
         switch (f.kind) {
             case Frame::DefineBody:
                 s_.define(f.name, std::move(arr));
-                defined(f.name);
+                defined(f.name, f.line, false);
                 return true;
             case Frame::Autorun:
                 s_.st_->autorun.emplace_back(std::move(arr), Type::Command);
@@ -709,8 +714,9 @@ private:
         return true;
     }
 
-    // Records which pack, if any, defined `name`.
-    void defined(Symbol name) {
+    // Records where `name` was defined, and which pack, if any, defined it.
+    void defined(Symbol name, int32_t line, bool flag) {
+        s_.st_->definitions.push_back({name, file_, line, flag});
         if (pack_ >= 0)
             s_.st_->macro_pack[name] = static_cast<uint32_t>(pack_);
         else
@@ -842,7 +848,7 @@ private:
                 return true;
             }
             s_.define(sym);
-            defined(sym);
+            defined(sym, name.line, true);
             return true;
         }
         if (d == "undef") {
@@ -1034,6 +1040,9 @@ const Pack* LoadSession::pack_of(Symbol file) const noexcept {
         if (p.file == file) return &p;
     return nullptr;
 }
+std::span<const Definition> LoadSession::macro_definitions() const noexcept {
+    return {st_->definitions.data(), st_->definitions.size()};
+}
 std::span<const Origin> LoadSession::origins() const noexcept {
     return {st_->origins.data(), st_->origins.size()};
 }
@@ -1142,6 +1151,13 @@ size_t SessionAccess::add_pack(LoadSession& s, const Pack& pack) {
     packs.push_back(std::move(p));
     return packs.size() - 1;
 }
+std::span<const Definition> SessionAccess::new_definitions(const LoadSession& s) noexcept {
+    const auto& d = s.st_->definitions;
+    return {d.data() + std::min(s.st_->definitions_from, d.size()), d.data() + d.size()};
+}
+void SessionAccess::add_definition(LoadSession& s, const Definition& definition) {
+    s.st_->definitions.push_back(definition);
+}
 std::span<const Origin> SessionAccess::new_origins(const LoadSession& s) noexcept {
     const auto& o = s.st_->origins;
     return {o.data() + std::min(s.st_->origins_from, o.size()), o.data() + o.size()};
@@ -1235,6 +1251,7 @@ Expected<Ref<Array>> read_string(std::string_view text, std::string_view name,
             st.required_from = st.required.size();
             st.packs_from = st.packs.size();
             st.origins_from = st.origins.size();
+            st.definitions_from = st.definitions.size();
         }
     }
     const Str file = detail::normalize_path(name);

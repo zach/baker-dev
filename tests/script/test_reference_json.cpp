@@ -1,11 +1,13 @@
 // The machine-readable reference, baker.reference/1.1 (dev/tool-surface-plan.md §6).
 #include <doctest.h>
+#include <baker/config.hpp>
 #include <baker/object.hpp>
 #include <baker/parse.hpp>
 #include <baker/script.hpp>
 #include <baker/std_interop.hpp>
 
 #include <string>
+#include <vector>
 #include "ok.hpp"
 
 using namespace baker;
@@ -117,4 +119,41 @@ TEST_CASE("given a session, the reference lists its packs and origins") {
                     R"j("requires": [], "owners": ["td"], "for": [], "stage": "custom"})j"));
     CHECK(
         has(json, R"j({"tool": "sheets-export", "source": "economy.xlsx", "file": "boss.dta"})j"));
+}
+
+TEST_CASE("script_functions lists the {func}s a load's #autorun defines, without running them") {
+    LoadSession session;
+    REQUIRE(
+        read_string("[HELPER {func helper ($x) $x}]\n"
+                    "#autorun {func spawn_wave ($n) {print $n}}\n"
+                    "#autorun {if 1 {func nested () 0}}\n"
+                    "#autorun {if 1 HELPER}\n"
+                    "#autorun {func spawn_wave () 0}\n",
+                    "boss.dta", session));
+    const List<Definition> fs = script_functions(session);
+    std::vector<std::string> got;
+    for (const Definition& d : fs)
+        got.push_back(std::string(d.name.str()) + "@" + std::string(d.file.str()) + ":" +
+                      std::to_string(d.line));
+    CHECK(got == std::vector<std::string>{"spawn_wave@boss.dta:2", "nested@boss.dta:3",
+                                          "helper@boss.dta:1", "spawn_wave@boss.dta:5"});
+    Context ctx;
+    CHECK_FALSE(ctx.has_func("spawn_wave"));  // nothing ran
+}
+
+TEST_CASE("the macros a layer brought go with the layer") {
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer_text("base.dta", "[SPEED 3]\n(speed SPEED)"));
+    REQUIRE(cfg.push_layer_text("mod.dta", "#define HARD\n(hard 1)"));
+    auto names = [&] {
+        std::vector<std::string> out;
+        for (const Definition& d : cfg.read_session().macro_definitions())
+            out.emplace_back(d.name.str());
+        return out;
+    };
+    CHECK(names() == std::vector<std::string>{"SPEED", "HARD"});
+    if constexpr (!kShipping) {
+        REQUIRE(cfg.remove_layer("mod.dta"));
+        CHECK(names() == std::vector<std::string>{"SPEED"});
+    }
 }

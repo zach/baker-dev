@@ -71,6 +71,11 @@ editor, a CI job) can register each function from its overloads with
   declared from its own reference.
   Any other type name is an error naming the function. The tool decides what to do then,
   for example to declare that parameter as `value`.
+- **The data's own vocabulary** comes from the load, not the reference:
+  `session.macro_definitions()` lists every macro the session's reads defined, with its
+  file and line, and `script_functions(session)` lists every `{func}` the load's
+  `#autorun` commands define, without running them. A Config's `read_session()` has both
+  for its layers.
 
 **A type** has `name`, `bases`, `methods`, `properties` and `handlers`.
 - A method has `name`, `status`, `replacement`, `doc`, `message` (the typed message it
