@@ -176,8 +176,22 @@ bool is_alpha(char c) noexcept {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
 }
 
-// "/", "C:/", or "C:" (a drive-relative prefix); 0 if none.
+// The length of "name://", a scheme an engine names a virtual root with ("user://"), or 0.
+// A scheme is a letter, then letters, digits, '+', '-' or '.'; at least two characters, so
+// a drive ("C://") is a drive.
+size_t scheme_length(std::string_view p) noexcept {
+    const size_t colon = p.find("://");
+    if (colon == std::string_view::npos || colon < 2 || !is_alpha(p[0])) return 0;
+    for (size_t i = 1; i < colon; ++i) {
+        const char c = p[i];
+        if (!is_alpha(c) && !(c >= '0' && c <= '9') && c != '+' && c != '-' && c != '.') return 0;
+    }
+    return colon + 3;
+}
+
+// "user://", "/", "C:/", or "C:" (a drive-relative prefix); 0 if none.
 size_t root_length(std::string_view p) noexcept {
+    if (const size_t scheme = scheme_length(p)) return scheme;
     if (p.size() >= 2 && is_alpha(p[0]) && p[1] == ':')
         return p.size() >= 3 && is_separator(p[2]) ? 3 : 2;
     return !p.empty() && is_separator(p[0]) ? 1 : 0;
@@ -219,9 +233,10 @@ Str normalize_path(std::string_view p) {
 }
 
 std::string_view parent_path(std::string_view p) noexcept {
+    const size_t root = root_length(p);
     size_t i = p.size();
-    while (i > 0 && !is_separator(p[i - 1])) --i;
-    if (i == 0) return {};
+    while (i > root && !is_separator(p[i - 1])) --i;
+    if (i <= root) return p.substr(0, root);  // the root is its own parent
     return i == 1 ? p.substr(0, 1) : p.substr(0, i - 1);
 }
 

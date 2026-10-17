@@ -5795,3 +5795,38 @@ a tool checking data must not do. The editor scanned file text for `#define`, `[
     `read_session()`.
 - **Docs.** `docs/reference-json.md`, under "Checking without the game".
 - **Core:** 13,926 → 13,983 lines.
+
+## D179. Paths with a scheme are kept as written, and are absolute
+
+*The baker-godot session's requirement note 0002, from plan C's runtime. Engines name
+files through virtual roots: one for packaged content, one for per-user data that version
+control never sees, others for mounted packages. A personal `local` layer belongs in the
+per-user root, and the project file should be able to say so:
+`(local "user://baker/local.dta" optional)`. Baker folded `user://baker/local.dta` to
+`user:/baker/local.dta`, and joined the project file's directory onto it.*
+
+- **Scheme paths** (`src/data/text.cpp`). A path that begins with a scheme, `name://`, has
+  that prefix as its root.
+  - **What counts as a scheme:** a letter, then letters, digits, `+`, `-` or `.`, at least
+    two characters in all. So `C:/data/a.dta`, and even `C://data`, stay a drive.
+  - **What follows:**
+    - `is_absolute_path` is true, so a project file's directory is not joined onto it, and
+      an include of one is not searched for.
+    - `normalize_path` keeps the `//`, and drops `..` at the root as it does for `/`.
+    - An include beside the file resolves under the same root (`user://baker/inc.dta`).
+  - **Where the path reaches.** Every path Baker handles goes through these helpers, so
+    the path reaches the reader, the writer and `Source::file` exactly as written.
+  - **Unreadable paths.** A reader that cannot open such a path reports a missing file, so
+    an optional layer is empty.
+- **`parent_path` keeps a root.** A root is now its own parent: `/a` → `/`, `C:/a` → `C:/`
+  (it was `C:`), `user://a` → `user://`.
+  - `find_project`'s stopping rule becomes one comparison, `up == dir`, for every kind of
+    root.
+- **Tests:**
+  - `tests/data/test_parse.cpp`: normalizing, `..` at a scheme root, parents, joins, and
+    three near misses (a drive with `//`, a space, a leading digit);
+  - `tests/data/test_project.cpp`: a project file below the root names a `user://` layer.
+    It is not joined; the Config reads it and an include beside it through a host reader;
+    `source()` names it as written; and an unreadable one is an empty optional layer.
+- **Docs.** The cookbook's project-file section.
+- **Core:** 13,983 → 13,993 lines.

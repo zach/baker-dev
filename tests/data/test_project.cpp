@@ -5,7 +5,10 @@
 
 #include "temp_dir.hpp"
 
+#include <algorithm>
+#include <map>
 #include <string>
+#include <vector>
 #include "ok.hpp"
 
 using namespace baker;
@@ -194,4 +197,43 @@ TEST_CASE("a project file's mistakes are located") {
         CHECK(std::string(p.error().message()).find(c.says) != std::string::npos);
     }
     CHECK_FALSE(read_project(dir.path("missing.dta")));
+}
+
+TEST_CASE("a project names a layer under a virtual root, kept as written") {
+    // A host's reader serves an engine's roots; the project file is not at the root.
+    std::map<std::string, std::string> files = {
+        {"game/baker-project.dta",
+         "(project (layers (default \"data/default.dta\")\n"
+         "                 (local \"user://baker/local.dta\" optional)))"},
+        {"game/data/default.dta", "(speed 1) (jump 2)"},
+        {"user://baker/local.dta", "#include tuned.dta\n(speed 5)"},
+        {"user://baker/tuned.dta", "(jump 7)"},
+    };
+    std::vector<std::string> reads;
+    const LoadSession::Reader reader = [&](std::string_view path, TextSink out) {
+        reads.emplace_back(path);
+        const auto it = files.find(std::string(path));
+        if (it == files.end()) return false;
+        out(it->second);
+        return true;
+    };
+    const Project p = ok(read_project("game/baker-project.dta", reader));
+    CHECK(p.layers[1].path == Symbol("user://baker/local.dta"));  // not joined, not folded
+
+    Config cfg({.tweaks = nullptr});
+    cfg.session().set_reader(reader);
+    REQUIRE(open_project(cfg, p));
+    CHECK(cfg.get<int>("speed") == 5);
+    CHECK(cfg.get<int>("jump") == 7);  // an include beside it, under the same root
+    CHECK(std::find(reads.begin(), reads.end(), "user://baker/tuned.dta") != reads.end());
+    const auto speed = cfg.source("speed");
+    REQUIRE(speed);
+    CHECK(speed->file == Symbol("user://baker/local.dta"));
+
+    // A host that cannot open the root reads an optional layer as empty.
+    files.erase("user://baker/local.dta");
+    Config without({.tweaks = nullptr});
+    without.session().set_reader(reader);
+    REQUIRE(open_project(without, p));
+    CHECK(without.get<int>("speed") == 1);
 }
