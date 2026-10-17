@@ -187,21 +187,66 @@ def built_reference(s):
            "the built reference is the game's reference --json")
 
 
-def headless_idle(s):
-    """A headless game serving its console paces its frames: it idles, and still answers."""
+def serve(s, *flags):
+    """A headless game serving its console, and a connection to it (None if it never came)."""
     with socket.socket() as probe:  # a free port
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
-    game = subprocess.Popen([s.game, "--data", "data", "--headless", "--console-port", str(port)],
-                            cwd=s.dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    game = subprocess.Popen([s.game, "--data", "data", "--headless", "--console-port", str(port),
+                             *flags], cwd=s.dir, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL)
+    for _ in range(100):
+        try:
+            return game, socket.create_connection(("127.0.0.1", port), timeout=5)
+        except OSError:
+            time.sleep(0.1)
+    return game, None
+
+
+def console_write(s):
+    """--console-write lets the console write a live edit to its line; without it, it cannot."""
+    default = s.dir / "data" / "default.dta"
+    original = default.read_text()
+    (s.dir / "data" / "agent.dta").write_text("")
     try:
-        conn = None
-        for _ in range(100):
+        for flags, allowed in (((), False), (("--console-write",), True)):
+            game, conn = serve(s, *flags)
             try:
-                conn = socket.create_connection(("127.0.0.1", port), timeout=5)
-                break
-            except OSError:
-                time.sleep(0.1)
+                expect(conn is not None, "the game's console accepts a connection")
+                if conn is None:
+                    continue
+                with conn, conn.makefile("rwb") as f:
+                    f.write(b"(1 {config.set fighters.kestrel.health 1234})\n"
+                            b"(2 {config.write_back fighters.kestrel.health})\n")
+                    f.flush()
+                    replies = []  # one JSON line each; blank lines between them
+                    while len(replies) < 2:
+                        line = f.readline()
+                        if not line:
+                            break
+                        if line.strip():
+                            replies.append(json.loads(line))
+                    first, second = (replies + [{}, {}])[:2]
+                expect(first.get("ok"), "config.set answers on the console")
+                written = default.read_text()
+                if allowed:
+                    expect(second.get("ok") and "(health 1234)" in written and
+                           len(written.splitlines()) == len(original.splitlines()),
+                           "--console-write: config.write_back writes the live value to its line")
+                else:
+                    expect(not second.get("ok") and written == original,
+                           "without --console-write the console cannot write files")
+            finally:
+                game.terminate()
+                game.wait(timeout=30)
+    finally:
+        default.write_text(original)
+
+
+def headless_idle(s):
+    """A headless game serving its console paces its frames: it idles, and still answers."""
+    game, conn = serve(s)
+    try:
         expect(conn is not None, "the headless game's console accepts a connection")
         if conn is None:
             return
@@ -238,6 +283,7 @@ def main():
     project_file(s)
     built_reference(s)
     headless_idle(s)
+    console_write(s)
     promote_patch(s)  # last: --write changes the copy's default.dta
     print(f"{len(FAILURES)} failures" if FAILURES else "all passed")
     return 1 if FAILURES else 0

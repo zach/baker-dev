@@ -23,8 +23,9 @@ namespace {
 [[noreturn]] void usage(const char* program, const char* problem) {
     std::fprintf(stderr,
                  "%s\nusage: %s [--data DIR] [--renderer auto|noop|d3d11|d3d12|vulkan|gl]\n"
-                 "          [--frames N] [--headless] [--console-port N] [--no-vsync]\n"
-                 "          [--step-hz N] [--frame-hz N] [--no-tools] [--screenshot PATH]\n",
+                 "          [--frames N] [--headless] [--console-port N] [--console-write]\n"
+                 "          [--no-vsync]"
+                 " [--step-hz N] [--frame-hz N] [--no-tools] [--screenshot PATH]\n",
                  problem, program);
     std::exit(2);
 }
@@ -123,6 +124,8 @@ AppOptions parse_args(int argc, char** argv, AppOptions o) {
             o.headless = true;
         } else if (!std::strcmp(a, "--console-port") && more) {
             o.console_port = static_cast<uint16_t>(number(argv[0], argv[++i], 0, 65535));
+        } else if (!std::strcmp(a, "--console-write")) {
+            o.console_write = true;
         } else if (!std::strcmp(a, "--no-vsync")) {
             o.vsync = false;
         } else if (!std::strcmp(a, "--step-hz") && more) {
@@ -156,6 +159,7 @@ int run(Game& game, const AppOptions& options) {
     } unbind{game, app.ctx_};
     const bool loaded =
         app.live_.open({.data_dir = options.data_dir,
+                        .console_write = options.console_write,
                         .changed = [&game](const baker::Config& c) { game.load(c); }});
     std::vector<std::string> log;
     if (app.live_.take_log(log))
