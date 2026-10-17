@@ -852,6 +852,24 @@ Str reference_json(const Context& ctx, const LoadSession* packs) {
 }
 }  // namespace
 
+namespace {
+
+void find_funcs(const Array& a, Vec<Definition>& out) {
+    if (a.size() >= 2 && a.tag() == Symbol("func"))
+        if (const auto name = a[1].try_sym()) out.push_back({*name, a.file(), a.line()});
+    for (const Node& n : a.values())
+        if (const Array* inner = n.array()) find_funcs(*inner, out);
+}
+
+}  // namespace
+
+List<Definition> script_functions(const LoadSession& session) {
+    Vec<Definition> out;
+    for (const Node& command : session.autorun())
+        if (const Array* a = command.array()) find_funcs(*a, out);
+    return List<Definition>(std::span<const Definition>(out.data(), out.size()));
+}
+
 void write_reference_json(const Context& ctx, TextSink out, const LoadSession* packs) {
     out(reference_json(ctx, packs));
 }

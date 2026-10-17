@@ -558,3 +558,42 @@ TEST_CASE("a pack's level must be one of the session's") {
     fs.files["r.dta"] = "(x 1)\n(pack r (level nowhere))";
     CHECK(fs.load("r.dta") == "((x 1) (pack r (level nowhere)))");
 }
+
+TEST_CASE("a session lists the macro definitions its reads made, where each is written") {
+    Files f;
+    f.files["main.dta"] =
+        "#define PC\n"
+        "[SPEED 3]\n"
+        "#include colors.dta\n"
+        "#define BIG (scale 2)\n"
+        "[SPEED 4]\n"
+        "#undef PC\n"
+        "(speed SPEED)\n";
+    f.files["colors.dta"] = "\n[RED 1 0 0]\n";
+    f.session.define(Symbol("HOST"));  // defined in code: not the data's
+    f.load("main.dta");
+    std::vector<std::string> got;
+    for (const Definition& d : f.session.macro_definitions())
+        got.push_back(std::string(d.name.str()) + "@" + std::string(d.file.str()) + ":" +
+                      std::to_string(d.line) + (d.flag ? " flag" : ""));
+    CHECK(got == std::vector<std::string>{"PC@main.dta:1 flag", "SPEED@main.dta:2",
+                                          "RED@colors.dta:2", "BIG@main.dta:4",
+                                          "SPEED@main.dta:5"});
+    CHECK_FALSE(f.session.is_defined(Symbol("PC")));  // listed, and #undef'd
+
+    // A load replayed from its cache lists the same definitions.
+    LoadSession bake;
+    bake.set_reader(f.session.reader());
+    bake.record_for_cache = true;
+    auto root = read_file("main.dta", bake);
+    REQUIRE(root);
+    std::string bytes;
+    REQUIRE(write_cache(**root, string_out(bytes), &bake));
+    LoadSession game;
+    REQUIRE(read_cache_bytes(bytes, "main.datb", game));
+    REQUIRE(game.macro_definitions().size() == 5);
+    CHECK(game.macro_definitions()[2].name == Symbol("RED"));
+    CHECK(game.macro_definitions()[2].file == Symbol("colors.dta"));
+    CHECK(game.macro_definitions()[2].line == 2);
+    CHECK(game.macro_definitions()[0].flag);
+}
