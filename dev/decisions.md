@@ -5892,3 +5892,26 @@ walked `Config::autorun()` itself.*
 - **Docs.** `docs/reference-json.md` names both calls, and says why a Config's come from
   `autorun()`.
 - **Core:** 14,027 → 14,026 lines.
+
+## D182. A stack's game can offer its console write-back, when asked to
+
+*The editor session's requirement note 0012. Its server shows a running game's live values
+in hover, over the loopback console. It offers "write the live value here" through the
+game's own `config.write_back`, so the edit is Baker's one-line diff with exact
+provenance, not text the editor makes up. The stacks never bound the Config's write tools
+(D156's opt-in): writing files stayed with the person at the panel. The owner chose an
+opt-in for this as well.*
+
+- **`--console-write`** (`AppOptions::console_write`, `LiveOptions::console_write`) makes
+  `Live::open` bind `bind_config_tools(ctx, cfg, {.allow_write = true})`, so
+  `config.write_back` and `config.promote` answer on the console.
+- **Off by default**, as before: on only when the person starting the game asks.
+- **Nothing else about the games changes.** The console stays on 127.0.0.1.
+- **Tests.** `stacks/tools/test_commands.py`'s `console_write`, on a copy of Duel's data:
+  - without the option, `config.write_back` after a `config.set` is refused, and
+    `default.dta` is untouched;
+  - with it, the live value is written to its line, and the file keeps its line count.
+  - The helper that starts a headless game and connects is now shared with
+    `headless_idle`. The console separates replies with blank lines, which the test
+    skips.
+- **Docs.** The `--console-write` row in `stacks/README.md`'s table.

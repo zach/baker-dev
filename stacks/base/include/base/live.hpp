@@ -42,6 +42,11 @@ struct LiveOptions {
     bool watch = true;     // false: reload only when asked (tests, the headless runner)
     bool local = true;     // false: leave out local.dta, so one developer's tuning cannot
                            // change a simulation's results or a check's findings
+    // Also bind config.write_back and config.promote for the console, so a tool (an
+    // editor's "write the live value here") can write a live edit to its line. Off unless
+    // the person starting the game asks (--console-write): writing files is otherwise the
+    // panel's.
+    bool console_write = false;
     // Called after the load and after each change to the stack, once #autorun has run.
     std::function<void(const baker::Config&)> changed{};
 };

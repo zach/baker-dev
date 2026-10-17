@@ -72,5 +72,6 @@ Options every stack's game takes:
 | `--frames N` | Quit after N frames |
 | `--screenshot PATH` | Write the last frame (frame 30 without `--frames`) as a PNG |
 | `--console-port N` | The remote console's port; 0 turns it off |
+| `--console-write` | The console may also write live edits to their files (`config.write_back`, `config.promote`), as an editor's "write the live value here" asks. Off by default: writing files is otherwise the panel's |
 | `--no-vsync`, `--step-hz N`, `--no-tools` | Present unthrottled; the simulation rate; start with the panels hidden |
 | `--frame-hz N` | At most N frames a second; 0: unpaced. By default a headless game without `--frames`, one serving its console, paces to the step rate, so an idle one costs a few percent of a core; every other run is unpaced |

@@ -40,13 +40,14 @@ struct AppOptions {
     uint32_t frames = 0;           // exit after this many frames; 0: run until closed
     bool headless = false;         // no window (SDL's dummy video driver) and the Noop renderer
     uint16_t console_port = 4555;  // the remote console on 127.0.0.1; 0: none
+    bool console_write = false;    // the console may write live edits back (LiveOptions)
     bool tools = true;             // the panels start shown (F1 toggles them)
     std::string screenshot{};  // a PNG of the last frame (of frame 30 without frames); empty: none
 };
 
 // A `data` directory beside the executable, if it holds default.dta, replaces the default
 // data_dir: that is how a packaged game finds its data. Then reads --data DIR, --renderer NAME,
-// --frames N, --headless, --console-port N, --no-vsync,
+// --frames N, --headless, --console-port N, --console-write, --no-vsync,
 // --step-hz N, --frame-hz N, --no-tools, and --screenshot PATH over `defaults`. Prints usage and
 // exits on a bad argument.
 [[nodiscard]] AppOptions parse_args(int argc, char** argv, AppOptions defaults);
