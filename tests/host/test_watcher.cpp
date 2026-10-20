@@ -20,9 +20,37 @@ using baker::test::TempDir;
 
 namespace {
 
-// Polls until the watcher reports a change, or two seconds pass: notifications arrive
-// promptly, stamps within their 100 ms interval.
-bool saw_change(Watcher& w) {
+// The files the watcher reports for the next change: waits up to two seconds for the first
+// report (notifications arrive promptly, stamps within their 100 ms interval), then keeps
+// polling briefly, since Windows reports one save as several notifications (the truncate,
+// the write, the size), which may complete in separate polls. Empty if nothing changed.
+struct Seen {
+    std::vector<std::string> files;
+    uint64_t newest_write_ns = 0;
+};
+Seen next_change(Watcher& w) {
+    Seen out;
+    for (int i = 0; i < 200 && out.files.empty(); ++i) {
+        if (!w.poll()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            continue;
+        }
+        for (int settle = 0; settle < 15; ++settle) {
+            for (const Symbol c : w.changed())
+                out.files.push_back(
+                    std::filesystem::path(std::string(c.str())).lexically_normal().string());
+            if (w.newest_write_ns() > out.newest_write_ns)
+                out.newest_write_ns = w.newest_write_ns();
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            (void)w.poll();
+        }
+    }
+    return out;
+}
+
+// Polls until the watcher reports a change, or two seconds pass: for stamps, which report
+// each change once.
+bool first_change(Watcher& w) {
     for (int i = 0; i < 200; ++i) {
         if (w.poll()) return true;
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -39,11 +67,10 @@ bool stays_quiet(Watcher& w) {
     return true;
 }
 
-bool reported(const Watcher& w, const std::string& path) {
-    for (const Symbol s : w.changed())
-        if (std::filesystem::path(std::string(s.str())).lexically_normal() ==
-            std::filesystem::path(path).lexically_normal())
-            return true;
+bool has(const Seen& seen, const std::string& path) {
+    const std::string want = std::filesystem::path(path).lexically_normal().string();
+    for (const std::string& c : seen.files)
+        if (c == want) return true;
     return false;
 }
 
@@ -68,10 +95,10 @@ TEST_CASE("the watcher sees the stack's files and nothing else") {
 
         // An included file is saved.
         dir.write("data/parts.dta", "(jump 3)\n");
-        REQUIRE(saw_change(w));
-        CHECK(reported(w, parts));
-        CHECK(w.newest_write_ns() > 0);
-        CHECK(w.newest_write_ns() <= baker::host::file_clock_now_ns());
+        const Seen saved = next_change(w);
+        CHECK(has(saved, parts));
+        CHECK(saved.newest_write_ns > 0);
+        CHECK(saved.newest_write_ns <= baker::host::file_clock_now_ns());
 
         // A swap file, and a data file nothing reads, beside them: nothing.
         dir.write("data/.default.dta.swp", "x");
@@ -80,16 +107,13 @@ TEST_CASE("the watcher sees the stack's files and nothing else") {
 
         // A missing optional layer's file appears; the project file is saved.
         dir.write("data/local.dta", "(speed 9)\n");
-        REQUIRE(saw_change(w));
-        CHECK(reported(w, dir.path("data/local.dta")));
+        CHECK(has(next_change(w), dir.path("data/local.dta")));
         dir.write("baker-project.dta", "(project (layers (default \"data/default.dta\")))\n");
-        REQUIRE(saw_change(w));
-        CHECK(reported(w, project));
+        CHECK(has(next_change(w), project));
 
         // A file is removed.
         std::filesystem::remove(dir.path("data/parts.dta"));
-        REQUIRE(saw_change(w));
-        CHECK(reported(w, parts));
+        CHECK(has(next_change(w), parts));
     }
 }
 
@@ -107,14 +131,13 @@ TEST_CASE("the watcher follows the stack when its files change") {
         // epoch moves, and an edit there is seen.
         const std::string shared = dir.write("shared/common.dta", "(lives 3)\n");
         dir.write("data/default.dta", "#include ../shared/common.dta\n(speed 1)\n");
-        REQUIRE(saw_change(w));
+        CHECK(has(next_change(w), base));
         REQUIRE(cfg.reload());
         REQUIRE(cfg.stack_files_epoch() != epoch);
         w.watch(cfg.stack_files());
         CHECK(w.watched() == 2);
         dir.write("shared/common.dta", "(lives 4)\n");
-        REQUIRE(saw_change(w));
-        CHECK(reported(w, shared));
+        CHECK(has(next_change(w), shared));
     }
 }
 
@@ -130,8 +153,7 @@ TEST_CASE("a file whose directory does not exist yet is checked by its stamp") {
         CHECK(w.by_stamp() == 1);
         CHECK(stays_quiet(w));
         dir.write("people/me/local.dta", "(speed 2)\n");  // makes the directories too
-        REQUIRE(saw_change(w));
-        CHECK(reported(w, dir.path("people/me/local.dta")));
+        CHECK(has(next_change(w), dir.path("people/me/local.dta")));
     }
 }
 
@@ -150,12 +172,12 @@ TEST_CASE("a path with a scheme is checked through the host's stamp hook") {
         CHECK(w.by_stamp() == 2);
         CHECK(stays_quiet(w));
         files["user://baker/local.dta"] = {200, 11, true};
-        REQUIRE(saw_change(w));
+        REQUIRE(first_change(w));
         CHECK(w.changed().size() == 1);
         CHECK(w.changed()[0] == Symbol("user://baker/local.dta"));
         CHECK(w.newest_write_ns() == 200);
         files["user://baker/gone.dta"] = {300, 1, true};  // appears
-        REQUIRE(saw_change(w));
+        REQUIRE(first_change(w));
         CHECK(w.changed()[0] == Symbol("user://baker/gone.dta"));
     }
 }

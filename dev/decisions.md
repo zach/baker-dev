@@ -6083,5 +6083,15 @@ repository, for the host code that every game rewrites.*
   - shipping inert.
   - **A quiet frame allocates nothing**, by the allocation counter, with a stamp check
     falling due within it.
+- **One save may report more than once.** Windows reports one save as several
+  notifications (the truncate, the write, the size), and they can complete in separate
+  polls. The second report costs one more reload, which finds the content unchanged and
+  does nothing. The tests collect every report of a save before they check for quiet,
+  which CI's Windows jobs showed was needed.
+- **Building on MSVC and libc++.**
+  - The code that runs in one build only sits in an `if constexpr` block, not after an
+    early `return`, which MSVC's `/W4 /WX` calls unreachable.
+  - libc++ has no `clock_cast`, so there a file time reaches the system clock through the
+    two clocks' offset now.
 - **Next:** the console (step 2). The stacks keep their own watcher until step 5 moves them
   onto the kit.
