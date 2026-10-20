@@ -121,8 +121,8 @@ and the game and every tool read it.
    (reference "build/reference.json") ; for tools: where the build writes the reference
    (layers                            ; bottom to top
       (default "data/default.dta")
-      (local "data/local.dta" optional)
-      (agent "data/agent.dta" optional)))
+      (local "data/local.dta" optional dev_only)
+      (agent "data/agent.dta" optional dev_only)))
 ```
 
 ```cpp
@@ -138,9 +138,15 @@ if (auto r = baker::open_project(cfg, *project); !r) return report(r.error());
   `source()`. Serve it from your reader. A reader that cannot open it reads an optional
   layer as empty.
 - **Layer flags:** `optional` makes a missing file an empty layer; `disabled` keeps a layer
-  in the stack, skipped by the merge, for a panel to toggle.
+  in the stack, skipped by the merge, for a panel to toggle; `dev_only` marks a layer for
+  development only (one person's tuning, an agent's proposal awaiting review), which a
+  shipping build never pushes even when its file is present.
+- **Packaging:** a build step that copies the data directory whole would ship those files
+  too. It reads the project instead and leaves out each layer whose `dev_only` is set, by
+  the path the project names; a file such a layer only `#include`s is the step's to know.
 - **Leaving layers out:** `open_project(cfg, project, {.skip = {"local"}})` leaves out one
-  person's own tuning, so a simulation or a check gives the same results on every machine.
+  person's own tuning, so a simulation or a check gives the same results on every machine;
+  `{.skip_dev_only = true}` leaves out every `dev_only` layer, as a shipping build does.
 - **Mistakes are located.** A key the format does not know is an error with its file,
   line and column, so a typo is found rather than ignored.
 - **Every entry keeps where it is written:** each layer's name and path (`name_at`,

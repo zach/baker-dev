@@ -25,8 +25,8 @@ DataStack data_stack(const std::string& data_dir) {
     auto in_data = [&](const char* f) { return baker::Symbol(data_dir + "/" + f); };
     const baker::ProjectLayer layers[] = {
         {.name = "default", .path = in_data("default.dta")},
-        {.name = "local", .path = in_data("local.dta"), .optional = true},
-        {.name = "agent", .path = in_data("agent.dta"), .optional = true}};
+        {.name = "local", .path = in_data("local.dta"), .optional = true, .dev_only = true},
+        {.name = "agent", .path = in_data("agent.dta"), .optional = true, .dev_only = true}};
     stack.built.pack_levels = baker::List<baker::ProjectEntry>(levels);
     stack.built.include_dirs = baker::List<baker::ProjectEntry>(dirs);
     stack.built.layers = baker::List<baker::ProjectLayer>(layers);
