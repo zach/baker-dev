@@ -6367,3 +6367,40 @@ repository, for the host code that every game rewrites.*
     changed nothing measurable.
 - **Size.** The stacks' live, watcher, tools and app files are 803 lines, from 1,397.
   `baker::host` is 1,251 of its 1,500.
+
+## D193. The console's sockets send at once; `config.clear` drops one live edit
+
+*Requirement notes 0013 and 0014, from the editor integration.*
+
+- **Pipelined requests (0013).** The note measured 60 pipelined requests at 48–60 ms on
+  the Duel stack. It describes a console that sends each reply as its own small write,
+  which Nagle's algorithm holds for the client's delayed acknowledgement. That was the
+  example console the stacks used before the host kit (D188). The kit's `Console` already
+  answers every complete line of a poll and sends the replies in one write.
+  - **Measured on the kit's console.** Duel, Release, headless at 60 Hz, ten batches of
+    `config.explain` requests. Sent in one write: 60 or 200 requests take 16 to 17 ms,
+    one frame; 1,000 take 14 to 20 ms; 4,000 take 18 to 38 ms. Sent as one write each,
+    60 or 200 take 33 ms, two frames. That delay is the client's own Nagle: its second
+    write waits for the first one's acknowledgement, and the requests land in two polls.
+  - **`TCP_NODELAY` on each client socket** anyway (`net::set_nodelay`, at accept), as the
+    note proposes. Then a later poll's write never waits on the acknowledgement of an
+    earlier one: the case of a batch whose replies outrun the socket's send buffer and
+    finish over several polls, or a client that holds acknowledgements longer. On Linux
+    loopback it measured no change (1,000 requests 15 to 20 ms against 14 to 20; 4,000, 18
+    to 38 against 24 to 36), since a client that keeps reading keeps acknowledgements
+    flowing. It costs nothing without a client.
+  - **No test.** A timing test would be as noisy as these numbers.
+- **`{config.clear PATH}` (0014)** drops one path's live edit, as `clear_scratch(path)`
+  does, so the value is the files' again, and the journal records the edit reverted.
+  - **What it returns.** 1 if there was an edit to drop, 0 if not; a path with no live
+    edit, or no value at all, is not an error.
+  - **No edit, no change.** A path with none changes nothing: `clear_scratch` would merge
+    and move the epoch, so the tool looks in `unsaved()` first.
+  - **No path, no wipe.** Clearing all of scratch is not offered; `{config.clear}` with no
+    path is an arity error, so a tool probing whether the command exists cannot drop every
+    edit.
+  - **Where it is bound.** In development builds, beside `config.set`, and not behind
+    `allow_write`, since it writes no file.
+  - **Its test:** dropping one of two edits, the journal's `reverted`, 0 twice with the
+    epoch unmoved, and the bare call failing with the other edit kept. The shipping test
+    checks it is not bound.

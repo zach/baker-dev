@@ -160,11 +160,16 @@ size_t Console::clients() const noexcept {
 void Console::poll() {
     Impl& im = *impl_;
     if (im.listener == net::kNoSocket) return;
-    for (net::socket_t s; (s = accept(im.listener, nullptr, nullptr)) != net::kNoSocket;)
-        if (net::set_nonblocking(s))
-            im.clients.push_back({s, {}, {}});
-        else
+    for (net::socket_t s; (s = accept(im.listener, nullptr, nullptr)) != net::kNoSocket;) {
+        if (!net::set_nonblocking(s)) {
             net::close_socket(s);
+            continue;
+        }
+        // A frame's replies are one write; the next frame's must not wait on the client's
+        // acknowledgement of it, or a tool's many requests take 40 ms a frame.
+        net::set_nodelay(s);
+        im.clients.push_back({s, {}, {}});
+    }
     for (size_t i = 0; i < im.clients.size();) {
         if (im.serve(im.clients[i])) {
             ++i;
