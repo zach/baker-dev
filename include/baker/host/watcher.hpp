@@ -15,13 +15,16 @@
 // costs one non-blocking call and allocates nothing. A file whose directory does not exist
 // yet, and every file on another system, is checked by its write time and size instead, at
 // most every 100 ms. A path with a scheme ("user://...") is checked through the host's
-// stamp hook, since it names no file on the disk.
+// stamp hook, since it names no file on the disk, unless the host's disk-path hook says
+// which file it is: then that file is watched as any other, and still reported by the path
+// the host gave.
 //
 // Under BAKER_SHIPPING it is inert: it watches nothing and poll() never reports a change.
 
 #include <baker/callback.hpp>
 #include <baker/config.hpp>
 #include <baker/symbol.hpp>
+#include <baker/text.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -41,6 +44,12 @@ struct FileStamp {
 // false if the path is not the hook's, and the disk is tried.
 using StampHook = Callback<bool(std::string_view path, FileStamp& out)>;
 
+// For a path a host names virtually ("res://data/tuning.dta", or one relative to its project
+// root): writes the file on the disk it is to `out` and returns true, or returns false if it
+// has none (a packaged archive's), and the stamp hook or the path as given is used. Asked
+// in watch(), never in poll().
+using DiskPathHook = Callback<bool(std::string_view path, TextSink out)>;
+
 // The time now, on the clock file write times are read with (nanoseconds since 1970): a
 // host gives it to its Config (set_time_source), so a reload's origin and its other stages
 // share one clock.
@@ -55,6 +64,8 @@ public:
 
     // The paths a host's stamp hook reaches; set it before watch(). Optional.
     void set_stamp_hook(StampHook hook);
+    // Where the host's paths are on the disk; set it before watch(). Optional.
+    void set_disk_path_hook(DiskPathHook hook);
 
     // Watches exactly `files` (a Config's stack_files()) and `more` (the project file, say),
     // replacing what it watched before; a directory already watched keeps its handle. A

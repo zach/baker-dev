@@ -100,6 +100,7 @@ struct Watcher::Impl {
     };
 
     StampHook hook;
+    DiskPathHook disk;
     Vec<Entry> entries;
     Vec<Own<Dir>> dirs;
     Vec<Symbol> changed;
@@ -288,6 +289,10 @@ void Watcher::set_stamp_hook(StampHook hook) {
     impl_->hook = std::move(hook);
 }
 
+void Watcher::set_disk_path_hook(DiskPathHook hook) {
+    impl_->disk = std::move(hook);
+}
+
 void Watcher::watch(std::span<const StackFile> files, std::span<const std::string_view> more) {
     Impl& im = *impl_;
     im.entries.clear();
@@ -304,13 +309,19 @@ void Watcher::Impl::watch(std::span<const StackFile> files,
             if (e.path == path) return;
         Impl::Entry e;
         e.path = path;
+        // The file the host says the path is, if it says.
+        Str on_disk;
+        const bool mapped = im.disk && im.disk(path.str(), {[](void* to, std::string_view text) {
+                                                                static_cast<Str*>(to)->append(text);
+                                                            },
+                                                            &on_disk});
         FileStamp hooked;
-        e.hooked = has_scheme(path.str()) ||
-                   (im.hook && im.hook(path.str(), hooked));  // the host's, wherever it is
+        e.hooked = !mapped && (has_scheme(path.str()) ||
+                               (im.hook && im.hook(path.str(), hooked)));  // the host's
         if (e.hooked) {
             if (im.hook) im.hook(path.str(), e.stamp);
         } else {
-            e.file = fs::path(path.str()).lexically_normal();
+            e.file = fs::path(mapped ? std::string_view(on_disk) : path.str()).lexically_normal();
             e.name = e.file.filename().native();
             fs::path dir = e.file.parent_path();
             if (dir.empty()) dir = ".";

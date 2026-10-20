@@ -182,6 +182,36 @@ TEST_CASE("a path with a scheme is checked through the host's stamp hook") {
     }
 }
 
+TEST_CASE("a host's virtual path is watched as the file it says it is") {
+    if constexpr (!kShipping) {
+        TempDir dir;
+        dir.write("data/tuning.dta", "(speed 3)\n");
+        Watcher w;
+        // "res://" is the project's root; "pack://" is in an archive, with no file.
+        w.set_disk_path_hook([&](std::string_view path, TextSink out) {
+            if (path.substr(0, 6) != "res://") return false;
+            out(dir.path(""));
+            out(path.substr(6));
+            return true;
+        });
+        w.set_stamp_hook([](std::string_view path, FileStamp& out) {
+            if (path.substr(0, 7) != "pack://") return false;
+            out = {100, 10, true};
+            return true;
+        });
+        const std::string_view paths[] = {"res://data/tuning.dta", "pack://data/base.dta"};
+        w.watch({}, paths);
+        CHECK(w.watched() == 2);
+        CHECK(w.by_stamp() == 1);  // the archive's file only
+        CHECK(stays_quiet(w));
+        dir.write("data/tuning.dta", "(speed 4)\n");
+        const Seen seen = next_change(w);
+        REQUIRE(seen.files.size() == 1);
+        CHECK(has(seen, "res://data/tuning.dta"));  // named as the host gave it
+        CHECK(seen.newest_write_ns > 0);
+    }
+}
+
 TEST_CASE("a quiet frame allocates nothing") {
     if constexpr (!kShipping) {
         TempDir dir;

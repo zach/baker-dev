@@ -23,9 +23,10 @@
 //   - runs every enabled layer's #autorun commands, then calls `changed`;
 //   - watches the stack's files and the project file, and serves the console on
 //     `console_port` if one is given.
-// After any change to the stack (a reload, a toggle from a panel, an edit through the
-// console) it runs #autorun again at the next begin_frame, then calls `changed`, where the
-// game reads its structured data.
+// After any change to the stack (a reload, a toggle from a panel, a layer pushed through
+// the console) it runs #autorun again at the next begin_frame, then calls `changed`, where
+// the game reads its structured data; after a live edit (epoch() moved) it calls `changed`
+// alone.
 //
 // The Config's clock is the files' (file_clock_now_ns), so a reload's origin is when its
 // file was saved, and loop_stats() measures from the save to the frame that showed it.
@@ -57,13 +58,17 @@ struct LiveOptions {
     // on past a layer that does not read.
     ProjectOptions open = ProjectOptions();
     // Reads the project file and the layers, if not from the disk (an engine's virtual
-    // roots); the watcher's stamp hook, for paths it cannot reach on the disk.
+    // roots); the watcher's hooks: where those paths are on the disk, and the stamps of
+    // those that are not.
     LoadSession::Reader reader{};
+    DiskPathHook disk_path{};
     StampHook stamp{};
     bool watch = true;           // false: reload only when asked (tests, a headless runner)
     uint16_t console_port = 0;   // 0: no console
     bool console_write = false;  // also bind config.write_back and config.promote
-    // After the load and after each change to the stack, once #autorun has run.
+    // After the load, after each change to the stack once #autorun has run, and at the
+    // next begin_frame after a live edit (a set(), from the game, a bound tweak, or the
+    // console; a clear_scratch(), a write-back, a restore).
     Callback<void(const Config&)> changed{};
     // Warnings, validator findings, failed reloads and #autorun commands, as they happen.
     Callback<void(const Error&)> log{};
