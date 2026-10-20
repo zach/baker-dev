@@ -54,8 +54,10 @@ int64_t eval_int(Context& ctx, const char* command) {
     return r->try_int().value_or(-1);
 }
 
-// A free port on 127.0.0.1, for the console.
+// A free port on 127.0.0.1, for the console. Winsock is started for the call, as nothing
+// else has started it yet.
 uint16_t free_port() {
+    (void)net::start();
     net::socket_t s = socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
@@ -65,6 +67,7 @@ uint16_t free_port() {
     (void)getsockname(s, reinterpret_cast<sockaddr*>(&addr), &size);
     const uint16_t port = ntohs(addr.sin_port);
     net::close_socket(s);
+    net::stop();
     return port;
 }
 
