@@ -30,6 +30,15 @@ DataStack data_stack(const std::string& data_dir) {
     stack.built.pack_levels = baker::List<baker::ProjectEntry>(levels);
     stack.built.include_dirs = baker::List<baker::ProjectEntry>(dirs);
     stack.built.layers = baker::List<baker::ProjectLayer>(layers);
+    // sim/ and metrics/ sit beside data/ (game-stacks.md §2.4).
+    auto beside = [&](const char* dir) {
+        return baker::Symbol(
+            (std::filesystem::path(data_dir).parent_path() / dir).generic_string());
+    };
+    const baker::ProjectEntry scenarios[] = {{.value = beside("sim")}};
+    const baker::ProjectEntry objectives[] = {{.value = beside("metrics")}};
+    stack.built.scenarios = baker::List<baker::ProjectEntry>(scenarios);
+    stack.built.objectives = baker::List<baker::ProjectEntry>(objectives);
     return stack;
 }
 

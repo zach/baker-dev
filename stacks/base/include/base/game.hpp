@@ -1,6 +1,6 @@
 // What a stack's game supplies (game-stacks.md §2, stacks/agent.md). No window, renderer,
-// or SDL here: the play loop (app.hpp) and the headless simulation (sim.hpp) both drive a
-// Game, and the simulation, its tests, and the tool commands link without a window.
+// or SDL here: the play loop (app.hpp) and the host kit's headless `sim` both drive a Game,
+// and the simulation, its tests, and the tool commands link without a window.
 #pragma once
 
 #include <baker/config.hpp>
