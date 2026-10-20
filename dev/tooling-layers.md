@@ -94,7 +94,7 @@ Baker's own tool surface has three tiers, set by the build and by the host's cal
 - **A frozen Config refuses edits even in development** unless `live_layers` lets the
   host's live-ops overlays through.
 
-## 4. The open question: a host kit
+## 4. A host kit
 
 - **The problem.** Three things in the stacks' `base` are not specific to any game, and
   every host rewrites them:
@@ -118,7 +118,9 @@ Baker's own tool surface has three tiers, set by the build and by the host's cal
      - The stacks' `base` and `examples/remote-console` would use it.
   3. **The commands only:** move the tool commands' shared code (argument parsing, the
      JSON they print) into the kit, and leave sockets and watchers to hosts.
-- **The owner decides.** Until then, option 1 holds.
+- **Decided: option 2** (D186). `baker::host` is planned in `dev/host-kit-plan.md`, with
+  the watcher, the console, the live loop, and the commands. Under `BAKER_SHIPPING` the
+  watcher and the console are inert.
 
 ## 5. Writing it for users
 

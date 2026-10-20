@@ -5985,3 +5985,25 @@ the integration plans), and each requirement note was placed by judgment.*
   - what the host does: watching through `stack_files`, carrying requests through
     `eval_request` on loopback, commands that need the game's functions, and policy;
   - how an external tool talks to a game.
+
+## D186. A host kit, `baker::host`, beside the core
+
+*The owner's decision on D184's open question. Option 2: an optional library in this
+repository, for the host code that every game rewrites.*
+
+- **The first version holds four pieces:**
+  - a watcher over `stack_files()` and the project file;
+  - the loopback console, moved from `examples/remote-console`;
+  - the live loop, from the stacks' `Live`, made general;
+  - the tool commands (`check`, `reference`, `diff`, `promote`, `eval`), with hooks for
+    the game's own functions and commands.
+- **Shipping.** Under `BAKER_SHIPPING` the watcher and the console are inert. The live loop
+  and the reading commands work.
+- **Where it lives.** `baker::host`, in `src/host/` and `include/baker/host/`, beside
+  `baker::shape`.
+  - It is under the core's rules, and its public headers pass the same gate.
+  - It has a 1,500-line budget of its own, and ships in every release.
+  - `baker::baker` does not link it.
+- **The plan** is `dev/host-kit-plan.md`: six steps, from the watcher to moving the stacks
+  onto the kit, with tests, measurements and acceptance criteria. The stacks' JSON is kept
+  byte for byte.
