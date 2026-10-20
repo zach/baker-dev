@@ -6390,3 +6390,20 @@ the list while it is walked, and listeners that notify each other back.*
   against the names' own 64 KB blocks that were never freed either.
 - **Tests.** `test_core`: four threads intern shared and private names while the table
   grows; shared names are one symbol, every name reads back; TSan in CI runs it.
+
+## D195. The lexer's atom-end test is a table
+
+*From the Game++ reading (`dev/gamepp-notes.md`, 0x20): a class table beats a chain of
+compares for a byte scan.*
+
+- **What changed.** `is_atom_end` (`src/data/text.hpp`) tested nine conditions a byte;
+  it indexes a 256-entry `constexpr` table. `lex_atom`'s loop is one load and a branch a
+  byte.
+- **Measured** (`bench_parse`, 4.2 MB, release, this container): 207–209 MB/s before
+  (after D193), 209–213 MB/s after, three runs each; under cachegrind the parse runs
+  4,072,722,831 instructions before and 3,926,411,030 after, 3.6% fewer. Allocations
+  unchanged.
+- **What remains** in the lexer, from the callgrind profile that found this: `lex_token`,
+  `lex_atom` and `classify_number` are 40% of a parse, `classify_number` scanning each
+  atom a second time. A one-pass lexer that classifies while it scans is the next
+  experiment, and a larger change.
