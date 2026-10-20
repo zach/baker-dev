@@ -6476,3 +6476,34 @@ repository, for the host code that every game rewrites.*
     written;
   - the host's sink gets eval's output.
   - The 30 stacks tests pass unchanged.
+
+## D200. A new watch list keeps an edit made since the last poll
+
+*Requirement note 0008, from the Godot integration.*
+
+- **What was wrong.** `Watcher::watch()` took a fresh stamp of every file. An edit made
+  between the last poll and the new list counted as already seen, and the live loop never
+  reloaded it until the next save. The list changes exactly when someone is busy with the
+  files:
+  - a write-back creates a missing layer's file, then the person edits it;
+  - an `#include` is added and the included file saved a moment later;
+  - a tool writes several files at once.
+  It shows first on a fresh machine, where a per-user layer's file and its directory do
+  not exist when the game starts.
+- **Now.**
+  - **A file that stays in the list keeps the stamp last seen of it.** If the file differs
+    from that stamp now, it is marked pending and reported at the next poll, with its write
+    time as the origin. This covers a file whose directory appeared, so that it moved from
+    stamps to the system's notifications, and a path the stamp hook answers for.
+  - **A file new to the list is stamped as now.**
+  - **The stamp follows what was reported.** A file watched through notifications updates
+    its stamp when a change to it is reported, so the comparison is against what was
+    reported, not against what `watch()` saw. A change both pending and notified is
+    reported once.
+- **Cost.** The comparison happens in `watch()`. `poll()` checks one flag before its usual
+  work, and a quiet frame still allocates nothing, per the existing test.
+- **Tests** (`test_watcher`, one case; both subcases fail on the previous watcher):
+  - a stamped file whose directory appears with its first save between two lists is
+    reported, and a file new to the list is not;
+  - a hooked path changed between the last poll and a new list is reported at the next
+    poll, once, with its write time.
