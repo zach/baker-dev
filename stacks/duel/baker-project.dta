@@ -6,5 +6,5 @@
    (reference "build/reference.json")   ; written by the build (stacks_reference)
    (layers
       (default "data/default.dta")
-      (local "data/local.dta" optional)   ; one developer's own tuning; sim and check skip it
-      (agent "data/agent.dta" optional)))
+      (local "data/local.dta" optional dev_only)   ; one developer's own tuning; sim and check skip it
+      (agent "data/agent.dta" optional dev_only)))

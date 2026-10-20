@@ -152,8 +152,8 @@ def project_file(s):
     try:
         (s.dir / "data" / "experiment.dta").write_text("(fighters (kestrel (width 9.5)))\n")
         project.write_text(original.replace(
-            '(agent "data/agent.dta" optional)',
-            '(agent "data/agent.dta" optional)\n      (experiment "data/experiment.dta")'))
+            '(agent "data/agent.dta" optional dev_only)',
+            '(agent "data/agent.dta" optional dev_only)\n      (experiment "data/experiment.dta")'))
         code, out, _ = s.run("check", agent="")
         r = json.loads(out)
         expect(code == 1 and len(r["shape_errors"]) == 1 and

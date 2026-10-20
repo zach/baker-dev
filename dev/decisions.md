@@ -6611,3 +6611,43 @@ compares for a byte scan.*
     reported, and a file new to the list is not;
   - a hooked path changed between the last poll and a new list is reported at the next
     poll, once, with its write time.
+
+## D204. Layers the project file marks for development only
+
+*Requirement note 0009, from the Godot integration.*
+
+- **The need.** Development layers sit beside the shipped data: one person's tuning, an
+  agent's proposal awaiting review. A packaging step that takes the data directory whole
+  takes them too, and an agent's proposal left on the machine that builds a release then
+  ships, unreviewed, above the default layer, and wins. `optional` is not the same thing:
+  an optional layer whose file is present loads in every build.
+- **`dev_only`** is a layer flag in the project file, beside `optional` and `disabled`, in
+  any order after the path: `(agent "data/agent.dta" optional dev_only)`.
+  `ProjectLayer::dev_only` carries it, and a Project built in code sets it the same way.
+  - **Shipping builds.** `open_project` never pushes such a layer under `BAKER_SHIPPING`,
+    whatever its file says. Development builds load it as before.
+  - **Packaging.** A packaging step lists the marked layers' files from `read_project`
+    alone, no Config: `for (l : project.layers) if (l.dev_only) exclude(l.path)`. The paths
+    are as the project names them; a file such a layer only `#include`s is the step's to
+    know, which the docs say.
+  - **Tools.** `ProjectOptions::skip_dev_only` leaves every marked layer out, as a shipping
+    build does: one option instead of a name each.
+- **The stacks** mark `local` and `agent` dev_only, in each project file and in
+  `base::data_stack`'s built stack for a packaged game.
+  - **Commands are unchanged.** They still leave out only `local`, by name: `check` and
+    `sim` exist to judge the agent's layer, so they do not use `skip_dev_only`.
+  - **One test line.** `stacks/tools/test_commands.py`, which rewrites the project file by
+    replacing the agent's line, matches the line's new text.
+  - **Packaging, not changed here.** The stacks' CI packaging step still copies `data/*`
+    whole into a Release build. That build is not a shipping one, so its marked layers
+    still load if their files ship; making that step read the project is a stacks change
+    for the owner to call.
+- **Docs.** The cookbook's project-file section gives the flag, the packaging pattern and
+  `skip_dev_only`, and `project.hpp`'s comment shows the loop.
+- **Tests** (`test_project`):
+  - the flag is read in either order after the path;
+  - the files to leave out are listed from the project alone;
+  - in a development build the marked layers load; under shipping they do not, with
+    their files present (the shipping matrix runs the same test);
+  - `skip_dev_only` leaves them out;
+  - the error for an unknown flag names `dev_only`.
