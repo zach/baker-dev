@@ -14,6 +14,7 @@ this says how they fit a studio's day. Each pattern links the example that runs 
 - [Linking a shipped game](#linking-a-shipped-game)
 - [Harness packs](#harness-packs)
 - [A developer console over `eval`](#a-developer-console-over-eval)
+- [Threads](#threads)
 - [Repro scripts](#repro-scripts)
 
 ## Group parameters under the code that owns them
@@ -590,6 +591,31 @@ people. Two calls give it what it needs:
   {"layer":"default","value":4.5,"standing":"shadowed","file":"default.dta","line":3},
   {"layer":"local","value":6,"standing":"wins","file":"local/me.dta","line":1}]}
 ```
+
+## Threads
+
+One thread changes a Config, its Context and their trees: the game's thread, between
+frames. Other threads may read, on these terms:
+
+- **Read through references.** Lookups return references into the tree, and a tweak's
+  read is one load, so a worker that reads by reference costs nothing extra.
+- **Copy a Node to keep it, and copy on the game's thread.** Every node of one load shares
+  one reference count, so copies made from several threads at once contend for one cache
+  line. Measured on one machine: 11.6 ns a copy on one thread, 85 ns per thread with two
+  threads, 158 ns with four. Copy what a worker needs before handing it over, then let it
+  read by reference.
+- **A reload is the frame's swap point.** It replaces the trees, on the game's thread. A
+  thread holding a raw `const Array&` across it reads a tree that has been freed; one
+  holding the `Ref<Array>` from `cfg.root()` keeps the old tree alive and reads it whole.
+  Each tweak is read atomically, but several tweaks read while a reload runs may mix old
+  values and new, so read a set of tweaks that must agree on the game's thread.
+- **Checks off the game's thread** take `cfg.checker()` (see
+  [Live ops](#tests-before-an-overlay-ships)).
+- **Symbols** may be made from any thread; the symbol table's reads take no lock.
+- **Script on a small stack.** `Context::set_stack_budget(bytes)` bounds how deep a script
+  may nest before it gets a Limit error instead of a stack overflow. The default, 256 KB,
+  suits a desktop or console thread; on a thread with a smaller stack (a handheld's worker,
+  a fiber of a job system) set it to well under that thread's stack size.
 
 ## Repro scripts
 
