@@ -6782,3 +6782,21 @@ scan instead of in a second pass, kept only if a parse ran at least 10% fewer in
     their files present (the shipping matrix runs the same test);
   - `skip_dev_only` leaves them out;
   - the error for an unknown flag names `dev_only`.
+
+## D205. The stacks' packages leave out their development layers
+
+*The owner's call on the follow-up D204 named.*
+
+- **What was wrong.** The CI step that packages each stack for Windows copied `data/*` whole.
+  An `agent.dta` or `local.dta` present on the machine that built the package would ship,
+  and the packaged game (a Release build, not a shipping one, with the stack built in code
+  for want of a project file) would load it above the default layer.
+- **`stacks_<game> dev-files`** prints the files of the layers the project marks
+  `dev_only`, one a line, as the project names them (`data/local.dta`, `data/agent.dta`).
+  It reads the project with Baker's `read_project`, as the game does, so the packaging step
+  needs no parser of its own and follows the project file as it changes.
+- **The package step** removes those files from the package after copying the data. It
+  first plants an agent layer, an agent's proposal left on the build machine, and fails if
+  the package still carries it. Simulated locally for Duel: a planted `agent.dta` and
+  `local.dta` are left out, and `default.dta` stays.
+- The command is in `stacks/agent.md`'s list.
