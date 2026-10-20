@@ -6356,3 +6356,37 @@ the list while it is walked, and listeners that notify each other back.*
   callbacks set each other and each runs once; a callback added from inside runs next
   time; a reload callback removes itself and another while notified, and a completion
   removes itself.
+
+## D193. The symbol table reads without its lock
+
+*From the Game++ reading (`dev/gamepp-notes.md`, 0x40–0x47, and the parse profile under
+0x20): remove the shared point rather than lock it faster.*
+
+- **What was wrong.** Every `Symbol(text)` took the table's mutex, to read as well as to
+  insert. Under callgrind a text parse spent 13% of its instructions interning (7.4% hashing
+  and probing, 4.2% in the mutex, 1.4% comparing), and with the symbols already interned
+  from the previous parse. From threads, interning serialized: 24 ns alone, 80 ns a call
+  with two threads, 193 ns with four (`intern_threads` driver, this container).
+- **Now.** The table is append-only and its entries immutable, so a read needs no lock:
+  a reader loads the current table, probes it, and either finds the entry or reaches an
+  empty slot; only then does it take the mutex, probe again (another thread may have
+  inserted it) and insert. Growth builds the new table under the lock and publishes it
+  whole; the old table is leaked, since a reader may still be probing it, and geometric
+  growth bounds the total. Slots are `std::atomic` pointers with acquire loads and release
+  stores; an entry is complete before the store that publishes it.
+- **Measured** (release, this container, best of 10 or 7, three runs each):
+
+  | | before | after |
+  |---|---:|---:|
+  | `bench_parse`, 4.2 MB of config text | 200–202 MB/s | 207–209 MB/s |
+  | `bench_lookup`, `find_float("key19")` by text | 17.1–18.3 ns | 14.6 ns |
+  | `bench_lookup`, `find_float("key19"_sym)` (D192) | 9.3 ns | 9.0 ns |
+  | `Symbol(text)` of an interned name, 1 thread | 23.7 ns | 8.4 ns |
+  | the same from 2 threads, per call per thread | 80.5 ns | 6.9 ns |
+  | the same from 4 threads | 193.3 ns | 7.3 ns |
+
+  Allocations per parse are unchanged (43). The table grows by leaking the old slots
+  array: for a program that interns 100,000 names, about 3 MB of slots over the lifetime,
+  against the names' own 64 KB blocks that were never freed either.
+- **Tests.** `test_core`: four threads intern shared and private names while the table
+  grows; shared names are one symbol, every name reads back; TSan in CI runs it.
