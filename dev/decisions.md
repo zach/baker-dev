@@ -6440,3 +6440,39 @@ repository, for the host code that every game rewrites.*
   - **baker-godot:** it can replace its own watcher with `Watcher` and the disk-path hook
     (0005), its console with `Console`, and its change tracking with `epoch()` (0006),
     keeping its own file access through its reader.
+
+## D195. The kit's commands read through the host's reader and write where it says
+
+*Requirement note 0007, from the Godot integration.*
+
+- **The need.** An engine runs the game's own binary as its tool, but names its files
+  through its own roots and owns the process's stdout: it prints its banner and messages
+  there. The kit's commands read the stack from the disk alone, and wrote only to stdout.
+- **`CommandHooks::reader`** is the same `LoadSession::Reader` Live and the Config take. The
+  commands open the project file and the layers through it, and `promote --patch` reads the
+  text it compares against through it, so a stack named under a virtual root reads the
+  same in a command as in the game. A patch's names are still relative to `patch_root`;
+  with a virtual root, a host sets `patch_root` to the directory on its disk the patch
+  applies from, or the "apply it from" hint names the root (`game:`).
+- **Where the output goes.** In order:
+  - `--output FILE` (`CommandLine::output`) writes it to a file; a failure to write it is
+    exit 2, as a patch that cannot be written already was.
+  - Otherwise `CommandHooks::output`, a sink the host routes.
+  - Otherwise stdout, as before.
+  - Messages for a person still go to stderr.
+- **How.** `run_command` gathers the output while the command runs (`out` appends to a
+  thread-local buffer) and sends it once the command is done. The exit statuses are as
+  they were. The commands' output is small (a report, a diff, a reference), so gathering
+  it costs nothing that matters.
+- **Why `--output`, not `--out`.** The note's integration uses `--out FILE` of its own,
+  and the stacks already read `--out DIR` for `sim`. The kit's flag must not take a name
+  hosts use, since `parse_command_line` consumes it before the host sees `rest`.
+- **Tests** (`tests/host/test_commands.py`, a new case; the test game has `--root DIR`, a
+  reader under `game://`, and `--to-stderr`, a host sink):
+  - check reports a shape error located in `game://data/agent.dta`;
+  - eval reads through the reader;
+  - `promote --patch` compares against what the reader reads;
+  - `--output` writes the report with stdout empty, and exits 2 for a path that cannot be
+    written;
+  - the host's sink gets eval's output.
+  - The 30 stacks tests pass unchanged.
