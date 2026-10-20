@@ -26,7 +26,8 @@ int main(int argc, char** argv) {
 | `stacks_app` | `app`, `render`, `tools` | SDL3 window and input, the bgfx renderer, Dear ImGui, the frame loop, the agent's commands |
 | `stacks_physics` | `physics` | Jolt, cross-platform deterministic: one world, two layers, single-threaded steps, a state hash |
 | `stacks_nav` | `nav` | Recast/Detour: tiled navigation meshes built from boxes, paths, abilities as link flags |
-| `stacks_baker_tools` | Baker's `examples/harness-imgui/panels.cpp` and `examples/remote-console/console.cpp` | Used as they are, not copied |
+| `stacks_baker_tools` | Baker's `examples/harness-imgui/panels.cpp` | Used as it is, not copied |
+| The console | Baker's host kit, `baker::host::Console` | Linked |
 
 - **`Live`** owns the Config and the layer stack of §2.3: `default.dta`, then `local.dta`
   (one developer's, ignored by git) and `agent.dta` (an agent's experiments), both

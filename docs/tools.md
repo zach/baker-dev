@@ -47,8 +47,8 @@ transport you choose carry Baker's tools: a socket, a pipe, an in-game console.
   changes, call `cfg.reload({.origin_ns = save_time})`, so that `loop_stats()` measures
   edit-to-see from the save.
 - **Carry requests.** A console server reads lines and answers with `eval_request`.
-  `examples/remote-console` is one, on 127.0.0.1. Keep it on loopback: it runs any command
-  it is sent.
+  `baker::host::Console` is one: on 127.0.0.1 only, polled once a frame, inert in shipping
+  builds. Keep any console on loopback: it runs any command it is sent.
 - **Offer commands** that need your game's own script functions: a check of the data, the
   reference (`write_reference_json` after your setup), a headless run. Only your game
   binary knows its functions, so these commands live in it.

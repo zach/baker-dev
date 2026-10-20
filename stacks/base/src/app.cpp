@@ -1,11 +1,11 @@
 #include "base/app.hpp"
 
-#include "console.hpp"  // Baker's examples/remote-console
-#include "panels.hpp"   // Baker's examples/harness-imgui
+#include "panels.hpp"  // Baker's examples/harness-imgui
 
 #include <SDL3/SDL.h>
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
+#include <baker/host/console.hpp>
 #include <baker/task.hpp>
 
 #include <algorithm>
@@ -205,10 +205,9 @@ int run(Game& game, const AppOptions& options) {
 
     std::unique_ptr<Tools> tools(new Tools);
     tools->shown = options.tools;
-    std::unique_ptr<Console> console;
+    std::unique_ptr<baker::host::Console> console;
     if (options.console_port) {
-        sockets_start();
-        console.reset(new Console(app.ctx_));
+        console.reset(new baker::host::Console(app.ctx_));
         if (console->listen(options.console_port))
             std::printf("console: 127.0.0.1:%u\n", unsigned{console->port()});
         else
@@ -298,7 +297,6 @@ int run(Game& game, const AppOptions& options) {
     }
 
     console.reset();
-    if (options.console_port) sockets_stop();
     app.renderer_.shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();

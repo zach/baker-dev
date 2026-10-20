@@ -548,9 +548,10 @@ fast: a boss-tuning harness, an economy harness. Packs give harnesses a structur
 the script stack. A console is that, fed from a text box or a socket:
 
 - Poll the socket once a frame, on the thread that owns the Context, so commands run
-  between frames like any other script. `examples/remote-console` does it in about a
-  hundred lines on BSD sockets and Winsock, listening on 127.0.0.1 only: a console runs any
-  command it is sent, so it is a development tool, not a shipped port.
+  between frames like any other script. The host kit's `baker::host::Console`
+  (`<baker/host/console.hpp>`) does it on BSD sockets and Winsock, listening on 127.0.0.1
+  only: a console runs any command it is sent, so it is a development tool, not a shipped
+  port, and under `BAKER_SHIPPING` it never listens. `examples/remote-console` uses it.
 - Name the input (`ctx.eval(line, "<console>")`) so errors say where they came from, and
   print `describe(error)` for the stack.
 - Bind what designers ask for as they ask for it; `check`'s demand report over the data
@@ -564,8 +565,9 @@ people. Two calls give it what it needs:
 
 - **`baker::eval_request(ctx, line, sink)`** answers a request, `(ID {command})`, with one
   line of JSON. The JSON holds the ID, the result's text, a JSON projection of the result,
-  or the error with its script stack (`docs/reply-json.md`). `examples/remote-console`
-  answers lines that begin with `(` this way and every other line as before.
+  or the error with its script stack (`docs/reply-json.md`). `baker::host::Console`
+  answers lines that begin with `(` this way and every other line as before. Every reply,
+  JSON or not, is its lines, then an empty line.
 - **`baker::bind_config_tools(ctx, cfg)`** registers the Config's tooling as script
   functions, so a console, an editor or an agent can ask the running game directly:
   - `{config.explain player.speed}`: every layer that sets the value, and which one wins;

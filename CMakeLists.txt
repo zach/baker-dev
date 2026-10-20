@@ -166,13 +166,16 @@ if(BAKER_BUILD_SHAPE)
 endif()
 
 # --- baker::host: the host kit (D186), what every host would write: the files the stack was
-#     read from, watched. Beside the core, not in it: it touches the operating system. Needs
+#     read from, watched; the loopback console. Beside the core, not in it: it touches the operating system. Needs
 #     baker::script; baker::baker does not link it.
 if(BAKER_BUILD_HOST AND BAKER_BUILD_SCRIPT)
-  add_library(baker_host src/host/watcher.cpp)
+  add_library(baker_host src/host/console.cpp src/host/watcher.cpp)
   add_library(baker::host ALIAS baker_host)
   baker_configure_library(baker_host)
   target_link_libraries(baker_host PUBLIC baker::script)
+  if(WIN32)
+    target_link_libraries(baker_host PRIVATE ws2_32)
+  endif()
 endif()
 
 # --- baker::baker: umbrella.
