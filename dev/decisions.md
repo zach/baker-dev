@@ -6304,3 +6304,33 @@ repository, for the host code that every game rewrites.*
       through script, and not on a quiet frame;
     - a stack named by `res://` paths, read through the reader and watched through the
       disk-path hook, reloads on a save, and its source still names `res://`.
+
+## D192. A symbol literal interns once per site
+
+*From the Game++ reading (`dev/gamepp-notes.md`, 0x21–0x27): interning a literal at
+every use is the string-pool trap.*
+
+- **What was wrong.** `"price"_sym` called `Symbol(std::string_view)` on every
+  evaluation: the table's mutex, a hash and a probe. On `bench_lookup`'s 20-child array
+  that is 17 ns a lookup, beside 6.5 ns with a Symbol held in a variable. Code written
+  the natural way paid it every frame, and so did an off-thread `LayerChecker` (D167)
+  queueing on the same mutex.
+- **Now.** `operator""_sym` is a literal operator template over `detail::SymbolLiteral`
+  (C++20 class-type template arguments). Each distinct literal is one instantiation,
+  which holds its Symbol in a function-local static, interned on the first call; after
+  that a call is the static's guard and one load. Call sites are spelled as before.
+  `Symbol(text)` still interns on every call, for text made at run time.
+- **Measured** (`bench_lookup`, release, this container, best of 7 × 2M calls):
+
+  | row | before | after |
+  |---|---:|---:|
+  | `find_float(key)`, a held Symbol | 6.47 ns | 6.5 ns |
+  | `find_float("key19"_sym)` | 17.03 ns | 9.30 ns |
+  | `find_float("key19")`, by `std::string_view` | 17.09 ns | 18.33 ns (noise) |
+
+  The 2.8 ns the literal still costs over a held Symbol is the guard check; a loop that
+  looks up the same key millions of times should still hold the Symbol.
+- **Compilers.** GCC 13, Clang 18 and MSVC 2022 accept the form; the matrix (C++23,
+  EASTL, shipping, sanitizers) and CI (MSVC, libc++, TSan) are the check.
+- **Tests.** The row above is in `bench_lookup`; the existing tests use `_sym`
+  throughout and exercise it.
