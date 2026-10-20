@@ -101,7 +101,10 @@ public:
     // Writes the current value back to the file it came from (Config::write_back).
     [[nodiscard]] Expected<void> write_back();
 
-    // Called after the value changes, on the thread that changed it.
+    // Called after the value changes, on the thread that changed it. A callback may set
+    // other tweaks, whose callbacks run in turn; a change it makes to this tweak, or to one
+    // whose callback sets this tweak back, does not notify this tweak again, so callbacks
+    // cannot loop. A callback added from inside a callback runs from the next change.
     void on_change(Callback<void()> callback);
 
 protected:

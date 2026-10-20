@@ -6476,3 +6476,107 @@ repository, for the host code that every game rewrites.*
     written;
   - the host's sink gets eval's output.
   - The 30 stacks tests pass unchanged.
+
+## D196. A symbol literal interns once per literal
+
+*From a reading of the book Game++ (sections 0x21–0x27): interning a literal at every
+use is the string-pool trap.*
+
+- **What was wrong.** `"price"_sym` called `Symbol(std::string_view)` on every
+  evaluation: the table's mutex, a hash and a probe. On `bench_lookup`'s 20-child array
+  that is 17 ns a lookup, beside 6.5 ns with a Symbol held in a variable. Code written
+  the natural way paid it every frame, and so did an off-thread `LayerChecker` (D167)
+  queueing on the same mutex.
+- **Now.** `operator""_sym` is a literal operator template over `detail::SymbolLiteral`
+  (C++20 class-type template arguments). Each distinct literal is one instantiation,
+  which holds its Symbol in a function-local static, interned on the first call (one
+  static per distinct text, shared by every site that spells it); after
+  that a call is the static's guard and one load. Call sites are spelled as before.
+  `Symbol(text)` still interns on every call, for text made at run time.
+- **Measured** (`bench_lookup`, release, this container, best of 7 × 2M calls):
+
+  | row | before | after |
+  |---|---:|---:|
+  | `find_float(key)`, a held Symbol | 6.47 ns | 6.5 ns |
+  | `find_float("key19"_sym)` | 17.03 ns | 9.30 ns |
+  | `find_float("key19")`, by `std::string_view` | 17.09 ns | 18.33 ns (noise) |
+
+  The 2.8 ns the literal still costs over a held Symbol is the guard check; a loop that
+  looks up the same key millions of times should still hold the Symbol.
+- **Compilers.** GCC 13, Clang 18 and MSVC 2022 accept the form; the matrix (C++23,
+  EASTL, shipping, sanitizers) and CI (MSVC, libc++, TSan) are the check.
+- **Tests.** The row above is in `bench_lookup`; the existing tests use `_sym`
+  throughout and exercise it.
+
+## D197. The symbol table reads without its lock
+
+*From a reading of the book Game++ (sections 0x40–0x47, and a parse profile prompted by
+0x20): remove the shared point rather than lock it faster.*
+
+- **What was wrong.** Every `Symbol(text)` took the table's mutex, to read as well as to
+  insert. Under callgrind a text parse spent 13% of its instructions interning (7.4% hashing
+  and probing, 4.2% in the mutex, 1.4% comparing), and with the symbols already interned
+  from the previous parse. From threads, interning serialized: 24 ns alone, 80 ns a call
+  with two threads, 193 ns with four (`intern_threads` driver, this container).
+- **Now.** The table is append-only and its entries immutable, so a read needs no lock:
+  a reader loads the current table, probes it, and either finds the entry or reaches an
+  empty slot; only then does it take the mutex, probe again (another thread may have
+  inserted it) and insert. Growth builds the new table under the lock and publishes it
+  whole; the old table is leaked, since a reader may still be probing it, and geometric
+  growth bounds the total. Slots are `std::atomic` pointers with acquire loads and release
+  stores; an entry is complete before the store that publishes it.
+- **Measured** (release, this container, best of 10 or 7, three runs each):
+
+  | | before | after |
+  |---|---:|---:|
+  | `bench_parse`, 4.2 MB of config text | 200–202 MB/s | 207–209 MB/s |
+  | `bench_lookup`, `find_float("key19")` by text | 17.1–18.3 ns | 14.6 ns |
+  | `bench_lookup`, `find_float("key19"_sym)` (D196) | 9.3 ns | 9.0 ns |
+  | `Symbol(text)` of an interned name, 1 thread | 23.7 ns | 8.4 ns |
+  | the same from 2 threads, per call per thread | 80.5 ns | 6.9 ns |
+  | the same from 4 threads | 193.3 ns | 7.3 ns |
+
+  Allocations per parse are unchanged (43). The table grows by leaking the old slots
+  array: for a program that interns 100,000 names, about 3 MB of slots over the lifetime,
+  against the names' own 64 KB blocks that were never freed either.
+- **Tests.** `test_core`: four threads intern shared and private names while the table
+  grows; shared names are one symbol, every name reads back; TSan in CI runs it.
+
+## D198. A tweak's callbacks may change the Config, and cannot loop
+
+*From a reading of the book Game++ (sections 0x2D and 0x55): a listener that changes the
+list while it is walked, and listeners that notify each other back.*
+
+- **What was wrong.** `TweakBase::notify` walked `on_change` by reference. A callback that
+  added a callback to the same tweak moved the table under the walk (undefined behaviour,
+  though no test did it). A callback that set a tweak whose callback set this one back
+  recursed until the stack ran out; the header said nothing about either.
+- **Now.** `notify` walks by index over the count at entry, so a callback added from
+  inside one runs from the next change; and a tweak being notified is not notified again
+  until its callbacks return, so two tweaks whose callbacks set each other each notify
+  once. The value still changes; only the second notification is elided. One `bool` in
+  the tweak's `Extra`, which only tweaks with callbacks have; one branch in `notify`, which
+  runs on a change, never on a read.
+- **Reload callbacks** already ran over a copy (`on_reload`) or by index with the count
+  re-read (`on_reload_complete`); a test now says so.
+- **Tests** (`test_config`): a callback sets another tweak, which notifies once; two
+  callbacks set each other and each runs once; a callback added from inside runs next
+  time; a reload callback removes itself and another while notified, and a completion
+  removes itself.
+
+## D199. The lexer's atom-end test is a table
+
+*From a reading of the book Game++ (section 0x20): a class table beats a chain of
+compares for a byte scan.*
+
+- **What changed.** `is_atom_end` (`src/data/text.hpp`) tested nine conditions a byte;
+  it indexes a 256-entry `constexpr` table. `lex_atom`'s loop is one load and a branch a
+  byte.
+- **Measured** (`bench_parse`, 4.2 MB, release, this container): 207–209 MB/s before
+  (after D197), 209–213 MB/s after, three runs each; under cachegrind the parse runs
+  4,072,722,831 instructions before and 3,926,411,030 after, 3.6% fewer. Allocations
+  unchanged.
+- **What remains** in the lexer, from the callgrind profile that found this: `lex_token`,
+  `lex_atom` and `classify_number` are 40% of a parse, `classify_number` scanning each
+  atom a second time. A one-pass lexer that classifies while it scans is the next
+  experiment, and a larger change.
