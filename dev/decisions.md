@@ -6041,3 +6041,57 @@ repository, for the host code that every game rewrites.*
 - **The plan** is `dev/host-kit-plan.md`: six steps, from the watcher to moving the stacks
   onto the kit, with tests, measurements and acceptance criteria. The stacks' JSON is kept
   byte for byte.
+
+## D187. The host kit, step 1: the target and the watcher
+
+*Step 1 of `dev/host-kit-plan.md` (D186).*
+
+- **The target.** `baker::host` (`BAKER_BUILD_HOST`, ON) is built when `baker::script` is,
+  and is not in `baker::baker`. Its pieces:
+  - `src/host/` and `include/baker/host/`;
+  - `tests/host/` and `baker_host_tests`.
+  - Its headers are under the header gate: `check_headers.py` now walks subdirectories,
+    and the header-alone test compiles `host/*.hpp` too.
+  - `tools/count_lines.py` reports its budget, 1,500 lines, outside the core's. The core
+    count does not change.
+- **`baker::host::Watcher`** watches exactly what it is given: `watch(cfg.stack_files(),
+  more)`, where `more` is the project file, say.
+  - **Notifications on directories.** It watches each file's directory through the
+    operating system, without recursion: inotify on Linux, `ReadDirectoryChangesW` on
+    Windows. It reports only the files in the list, so a swap file, or a data file nothing
+    reads, reloads nothing. That is the stacks' watcher, moved and narrowed.
+  - **Stamps.** A file whose directory does not exist yet is checked by its write time and
+    size, at most every 100 ms, as is every file on systems without notifications.
+    - If a watched directory goes away, its files move to stamps.
+    - A path with a scheme (`user://`) goes through the host's `StampHook`.
+  - **What a poll gives:** `poll()` once a frame, then `changed()` and `newest_write_ns()`,
+    on `file_clock_now_ns()`'s clock (since 1970), which a host also gives its Config as
+    its time source.
+  - **Watching again:** the host re-calls `watch` when `stack_files_epoch()` moves, and a
+    directory already watched keeps its handle.
+  - **It cannot fail:** a directory the system refuses falls back to stamps. So `watch`
+    returns nothing.
+  - **Under `BAKER_SHIPPING`** it watches nothing, and `poll()` never reports a change.
+- **Tests** (`tests/host/test_watcher.cpp`, six cases):
+  - an included file saved;
+  - a swap file and an unused data file ignored;
+  - a missing optional layer's file appearing;
+  - the project file saved, and a file removed;
+  - following the stack to an include in another directory after the epoch moves;
+  - a directory that does not exist yet, by stamp;
+  - the stamp hook for `user://` paths;
+  - shipping inert.
+  - **A quiet frame allocates nothing**, by the allocation counter, with a stamp check
+    falling due within it.
+- **One save may report more than once.** Windows reports one save as several
+  notifications (the truncate, the write, the size), and they can complete in separate
+  polls. The second report costs one more reload, which finds the content unchanged and
+  does nothing. The tests collect every report of a save before they check for quiet,
+  which CI's Windows jobs showed was needed.
+- **Building on MSVC and libc++.**
+  - The code that runs in one build only sits in an `if constexpr` block, not after an
+    early `return`, which MSVC's `/W4 /WX` calls unreachable.
+  - libc++ has no `clock_cast`, so there a file time reaches the system clock through the
+    two clocks' offset now.
+- **Next:** the console (step 2). The stacks keep their own watcher until step 5 moves them
+  onto the kit.

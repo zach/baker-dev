@@ -3,6 +3,7 @@ project(baker VERSION 0.1.1 LANGUAGES CXX)
 
 option(BAKER_BUILD_SCRIPT     "Build baker::script (evaluation, objects, tasks)" ON)
 option(BAKER_BUILD_SHAPE      "Build baker::shape (data-declared shapes, D84)" ON)
+option(BAKER_BUILD_HOST       "Build baker::host (the host kit: watcher, console, live loop, commands, D186)" ON)
 option(BAKER_BUILD_TESTS      "Build the test suite" ${PROJECT_IS_TOP_LEVEL})
 option(BAKER_ATOMIC_REFCOUNT  "Atomic refcounts (OFF: plain counters, single-threaded use only)" ON)
 option(BAKER_SHIPPING         "Freeze config and compile out dev instrumentation" OFF)
@@ -162,6 +163,16 @@ if(BAKER_BUILD_SHAPE)
   add_library(baker::shape ALIAS baker_shape)
   baker_configure_library(baker_shape)
   target_link_libraries(baker_shape PUBLIC baker::data)
+endif()
+
+# --- baker::host: the host kit (D186), what every host would write: the files the stack was
+#     read from, watched. Beside the core, not in it: it touches the operating system. Needs
+#     baker::script; baker::baker does not link it.
+if(BAKER_BUILD_HOST AND BAKER_BUILD_SCRIPT)
+  add_library(baker_host src/host/watcher.cpp)
+  add_library(baker::host ALIAS baker_host)
+  baker_configure_library(baker_host)
+  target_link_libraries(baker_host PUBLIC baker::script)
 endif()
 
 # --- baker::baker: umbrella.

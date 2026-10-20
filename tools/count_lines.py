@@ -68,14 +68,21 @@ def is_shape_header(p):
     return p.name.startswith("shape")
 
 
+def is_host_header(p):
+    return p.parent.name == "host"
+
+
 data = count(sources("src/data", lambda p: True) +
              sources("include/baker",
-                     lambda p: not is_script_header(p) and not is_shape_header(p)))
+                     lambda p: not is_script_header(p) and not is_shape_header(p) and
+                     not is_host_header(p)))
 shape = count(sources("src/shape", lambda p: True) + sources("include/baker", is_shape_header))
 script = count(sources("src/script", lambda p: True) +
-               sources("include/baker", is_script_header))
+               sources("include/baker", lambda p: is_script_header(p) and not is_host_header(p)))
+host = count(sources("src/host", lambda p: True) + sources("include/baker", is_host_header))
 print(f"baker::data   {data}")
 print(f"baker::script {script}")
 print(f"core total    {data + script} / {BUDGET} (soft budget)")
 print(f"baker::shape  {shape} / 600 (spec §6, outside the core)")
+print(f"baker::host   {host} / 1500 (the host kit, D186, outside the core)")
 sys.exit(0)
