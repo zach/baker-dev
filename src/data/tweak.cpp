@@ -70,6 +70,7 @@ size_t TweakRegistry::size() const noexcept {
 struct TweakBase::Extra {
     std::optional<Path> parsed;
     Vec<Callback<void()>> on_change;
+    bool notifying = false;  // a change made from inside a callback does not notify again
 };
 
 void TweakBase::attach() {
@@ -140,8 +141,13 @@ bool TweakBase::bind(const Array& root, const Callback<void(const Error&)>& warn
 }
 
 void TweakBase::notify() {
-    if (extra_)
-        for (const auto& f : extra_->on_change) f();
+    if (!extra_ || extra_->notifying) return;
+    extra_->notifying = true;
+    // By index, over the count at entry: a callback may add one (it runs next time), and
+    // the table may move when it does.
+    const size_t n = extra_->on_change.size();
+    for (size_t i = 0; i < n; ++i) extra_->on_change[i]();
+    extra_->notifying = false;
 }
 
 void TweakBase::on_change(Callback<void()> callback) {

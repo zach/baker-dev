@@ -6334,3 +6334,25 @@ every use is the string-pool trap.*
   EASTL, shipping, sanitizers) and CI (MSVC, libc++, TSan) are the check.
 - **Tests.** The row above is in `bench_lookup`; the existing tests use `_sym`
   throughout and exercise it.
+
+## D194. A tweak's callbacks may change the Config, and cannot loop
+
+*From the Game++ reading (`dev/gamepp-notes.md`, 0x2D and 0x55): a listener that changes
+the list while it is walked, and listeners that notify each other back.*
+
+- **What was wrong.** `TweakBase::notify` walked `on_change` by reference. A callback that
+  added a callback to the same tweak moved the table under the walk (undefined behaviour,
+  though no test did it). A callback that set a tweak whose callback set this one back
+  recursed until the stack ran out; the header said nothing about either.
+- **Now.** `notify` walks by index over the count at entry, so a callback added from
+  inside one runs from the next change; and a tweak being notified is not notified again
+  until its callbacks return, so two tweaks whose callbacks set each other each notify
+  once. The value still changes; only the second notification is elided. One `bool` in
+  the tweak's `Extra`, which only tweaks with callbacks have; one branch in `notify`, which
+  runs on a change, never on a read.
+- **Reload callbacks** already ran over a copy (`on_reload`) or by index with the count
+  re-read (`on_reload_complete`); a test now says so.
+- **Tests** (`test_config`): a callback sets another tweak, which notifies once; two
+  callbacks set each other and each runs once; a callback added from inside runs next
+  time; a reload callback removes itself and another while notified, and a completion
+  removes itself.
