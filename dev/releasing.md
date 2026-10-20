@@ -51,8 +51,11 @@ Versions: before 1.0.0, a minor version may change the API and a patch version d
 ## Setup, once
 
 - **The token.** A fine-grained personal access token for the repository zach/baker with
-  *Contents: read and write*, stored in baker-dev as the Actions secret
-  `BAKER_PUBLISH_TOKEN` (Settings > Secrets and variables > Actions).
+  *Contents: read and write* and *Workflows: read and write*, stored in baker-dev as the
+  Actions secret `BAKER_PUBLISH_TOKEN` (Settings > Secrets and variables > Actions). The
+  release carries zach/baker's own CI workflow, and GitHub refuses a push that creates or
+  changes a file in `.github/workflows/` without the second permission: 0.1.0's first
+  publish was rejected so, and nothing reached zach/baker until the token had it.
 - **The gate** (recommended). Settings > Environments > New environment `release`, with
   the owner as a required reviewer. The `publish` job then waits for an approval, even when
   the run was started with *publish* checked.
