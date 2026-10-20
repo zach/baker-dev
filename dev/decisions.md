@@ -5948,6 +5948,44 @@ replaced, which knows what the old token was.*
 - **Docs.** The write-back paragraph in `config.hpp`.
 - **Core:** 14,026 → 14,036 lines.
 
+## D184. Three tooling layers, written down
+
+*The owner asked where the line falls between development tools in Baker, tooling outside
+Baker, and the game itself, and whether there are three clear layers. There were, in
+practice, but the rules were scattered (D153, D156, `INTEGRATIONS.md`, `stacks/agent.md`,
+the integration plans), and each requirement note was placed by judgment.*
+
+- **`dev/tooling-layers.md`** defines the three layers:
+  - **Baker:** what needs Baker's meaning of the data, as data and hooks, with no I/O of
+    its own and nothing paid until it is called.
+  - **The host:** the operating system, the game's own code, and policy. The stacks'
+    `base` is the reference host.
+  - **External tools:** a separate process and repository that talks to a game only
+    through the project file, the versioned JSON documents, the console and the game's
+    commands.
+- **The placement test**, three questions asked in order:
+  - Would a second host have to copy Baker's rules? Then it is Baker's.
+  - Does it need the operating system, the game's code, or a policy choice? Then it is
+    the host's.
+  - Otherwise it is the external tool's.
+  - A need that seems to be both splits, as `stack_files` and the watcher that uses it
+    did (D180).
+- **Baker's own tiers**, as a table: always, shipping included; development builds; and
+  writing on request (`allow_write`). The table lists the Config tools that bind in each.
+- **An open question for the owner:** a host kit. The file watcher, the loopback console
+  server and the tool commands' shared code touch the operating system, so they are not
+  core. Every host rewrites them: the stacks, the Godot integration, and
+  `examples/remote-console`. The note lays out three options:
+  - leave them in hosts, which is what holds until decided;
+  - an optional host-kit library beside the core;
+  - the commands' shared code only.
+- **Users' half.** `docs/tools.md`, linked from the README, gives the user-facing part:
+  - the three parts and how to place a feature;
+  - what Baker gives tools, tier by tier;
+  - what the host does: watching through `stack_files`, carrying requests through
+    `eval_request` on loopback, commands that need the game's functions, and policy;
+  - how an external tool talks to a game.
+
 ## D185. Project options hold their skipped names
 
 *The baker-godot session's requirement note 0004, from plan C's step 3: a fault in 0.1.0.
@@ -5981,3 +6019,25 @@ the full expression that wrote it.*
   - Under ASan, the first case is the use after scope the old type allowed.
 - **0.1.0 has the fault.** The next release's changelog says so: build the options inside
   the call until then, as the published documentation shows.
+
+## D186. A host kit, `baker::host`, beside the core
+
+*The owner's decision on D184's open question. Option 2: an optional library in this
+repository, for the host code that every game rewrites.*
+
+- **The first version holds four pieces:**
+  - a watcher over `stack_files()` and the project file;
+  - the loopback console, moved from `examples/remote-console`;
+  - the live loop, from the stacks' `Live`, made general;
+  - the tool commands (`check`, `reference`, `diff`, `promote`, `eval`), with hooks for
+    the game's own functions and commands.
+- **Shipping.** Under `BAKER_SHIPPING` the watcher and the console are inert. The live loop
+  and the reading commands work.
+- **Where it lives.** `baker::host`, in `src/host/` and `include/baker/host/`, beside
+  `baker::shape`.
+  - It is under the core's rules, and its public headers pass the same gate.
+  - It has a 1,500-line budget of its own, and ships in every release.
+  - `baker::baker` does not link it.
+- **The plan** is `dev/host-kit-plan.md`: six steps, from the watcher to moving the stacks
+  onto the kit, with tests, measurements and acceptance criteria. The stacks' JSON is kept
+  byte for byte.
