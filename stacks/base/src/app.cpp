@@ -5,7 +5,6 @@
 #include <SDL3/SDL.h>
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
-#include <baker/host/console.hpp>
 #include <baker/task.hpp>
 
 #include <algorithm>
@@ -159,6 +158,7 @@ int run(Game& game, const AppOptions& options) {
     } unbind{game, app.ctx_};
     const bool loaded =
         app.live_.open({.data_dir = options.data_dir,
+                        .console_port = options.console_port,
                         .console_write = options.console_write,
                         .changed = [&game](const baker::Config& c) { game.load(c); }});
     std::vector<std::string> log;
@@ -205,14 +205,8 @@ int run(Game& game, const AppOptions& options) {
 
     std::unique_ptr<Tools> tools(new Tools);
     tools->shown = options.tools;
-    std::unique_ptr<baker::host::Console> console;
-    if (options.console_port) {
-        console.reset(new baker::host::Console(app.ctx_));
-        if (console->listen(options.console_port))
-            std::printf("console: 127.0.0.1:%u\n", unsigned{console->port()});
-        else
-            console.reset();
-    }
+    if (app.live_.console_port())
+        std::printf("console: 127.0.0.1:%u\n", unsigned{app.live_.console_port()});
 
     game.reset(0);
     int exit_code = game.start(app) ? 0 : 1;
@@ -240,8 +234,7 @@ int run(Game& game, const AppOptions& options) {
         if (elapsed > 0)
             fps = fps * 0.95f + static_cast<float>(1e9 / static_cast<double>(elapsed)) * 0.05f;
 
-        app.live_.begin_frame();
-        if (console) console->poll();
+        app.live_.begin_frame();  // reloads what was saved; answers the console
         for (int n = app.clock_.advance(elapsed); n > 0; --n) {
             game.step(app.clock_.step_seconds());
             app.ctx_.scheduler().tick(app.clock_.step_seconds());  // script tasks, in seconds
@@ -296,7 +289,6 @@ int run(Game& game, const AppOptions& options) {
         }
     }
 
-    console.reset();
     app.renderer_.shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();

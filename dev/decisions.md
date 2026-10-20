@@ -6304,3 +6304,66 @@ repository, for the host code that every game rewrites.*
       through script, and not on a quiet frame;
     - a stack named by `res://` paths, read through the reader and watched through the
       disk-path hook, reloads on a save, and its source still names `res://`.
+
+## D192. The host kit, step 5: the stacks run on the kit
+
+*Step 5 of `dev/host-kit-plan.md` (D186).*
+
+- **`base::Live` is now the stacks' conventions over `baker::host::Live`.** The kit's Live
+  leaves those conventions out on purpose (plan §3.3), so the stacks keep them in a
+  wrapper:
+  - **The stack.** `data_stack(data_dir)` gives two things. One is the path the kit finds
+    `baker-project.dta` from: the data directory, when the file is beside it, so a broken
+    project file is still reported as `baker-project.dta`. The other is the built stack
+    (`default`, optional `local` and `agent`, pack levels `engine`, `game`, `task`) for a
+    packaged game without one.
+  - **Leaving out `local.dta`** for a simulation or a check.
+  - **`{live.loop}`.**
+  - **The log as lines** for the panels and stderr.
+  - The class keeps its interface, so the app, `sim` and the stacks' Live tests are
+    unchanged. It is 202 lines against 252.
+- **`base::Watcher` is gone.** The kit's watcher watches exactly the files the stack read,
+  packs and includes among them, where the stacks' watched the data and packs
+  directories. Its tests went with it; the kit's own watcher tests cover the same cases,
+  on Windows too. The `Wine` note in the base README went with it.
+- **The console comes through Live.** `base::LiveOptions::console_port` passes the port to
+  the kit, which serves the console from `begin_frame()`. The app prints the port it
+  listens on, as before.
+- **The commands.** `base::main` now parses the line with `parse_command_line`. It reads
+  its own flags (`--data`, `--sim`, `--metrics`, `--out`, `--scenario`, `--seeds`,
+  `--step-hz`, compare's directories) from `rest`, and refuses anything else, as before.
+  `sim` and `compare` stay the stacks' own; everything else goes to `run_command`:
+  - **The hooks:** the `Game` (bind, unbind, load, reset); `extra_trees` (the scenarios and
+    objectives check reads, an objective that does not load being a located load
+    problem); the built stack; and `local` left out.
+  - **Paths:** the data directory is the project path and the patch root, so a patch
+    still names `default.dta` and applies from `data/`.
+  - `tools.cpp` is 301 lines against 576: check, reference, eval, diff, promote and the
+    unified diff moved out.
+- **Changes a person sees:**
+  - `diff`'s heading reads `layer 'agent' changes:` where it read `agent.dta changes:`.
+  - `promote --write` ends `layer 'agent' is unchanged`.
+  - An objective file that does not parse now gives check's JSON with the problem under
+    `load` (exit 2), where it printed only the message.
+  - `diff --layer` and `promote --from` name another layer.
+  - The kit's `command_help()` no longer names `--project`. A host names its own location
+    flag; the stacks' is `--data`, and the kit's test game prints `--project` itself.
+- **Tests.** All 30 stacks tests pass unchanged, `stacks_duel_commands`
+  (`test_commands.py`) included.
+- **The same bytes.** The duel from main and from this change, Release builds, each on its
+  own copy of the stack, ran the same 13 cases: check (clean, an agent layer, an undefined
+  call, a shape error, a broken file), reference and `--json`, eval and `--json`, diff,
+  promote, `promote --patch` and `sim --json`. Exit status, stdout, stderr and the patch
+  are identical, except `diff`'s heading.
+  - **A gap the comparison found.** The reference lost `{live.loop}`: `base::Live` bound it,
+    and the kit's commands do not go through `base::Live`. The stacks now bind it in the
+    commands' `bind` hook too, through one `bind_live_loop`.
+- **Edit-to-see on the cube.**
+  - **The method.** A Release build, headless at 60 frames a second, with 30 saves of
+    `local.dta` 250 ms apart, read through `{live.loop}`. Three runs, before and after.
+  - **Medians:** before 6.8, 11.2 and 3.8 ms; after 3.8, 7.0 and 7.7 ms.
+  - **Worst:** about 17 ms in every run, one frame.
+  - **Reading it.** The spread is which part of a 16.7 ms frame a save lands in; the move
+    changed nothing measurable.
+- **Size.** The stacks' live, watcher, tools and app files are 803 lines, from 1,397.
+  `baker::host` is 1,251 of its 1,500.

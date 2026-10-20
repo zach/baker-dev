@@ -89,7 +89,8 @@ struct CommandHooks {
 // its exit status; -1 if it is not one, for the host's own commands.
 [[nodiscard]] int run_command(const CommandLine& line, const CommandHooks& hooks);
 
-// The commands and flags above, one a line, for a host's usage text.
+// The commands and flags above, for a host's usage text. It leaves out --project, which a
+// host may read under a name of its own (a data directory, say) and set in CommandLine.
 [[nodiscard]] std::string_view command_help() noexcept;
 
 }  // namespace baker::host

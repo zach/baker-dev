@@ -22,28 +22,32 @@ int main(int argc, char** argv) {
 
 | Library | Files | What |
 |---|---|---|
-| `stacks_core` | `live`, `watcher`, `fixed_step`, `game`, `sim` | No window, no renderer: the headless simulation (`../agent.md`) and the tests |
-| `stacks_app` | `app`, `render`, `tools` | SDL3 window and input, the bgfx renderer, Dear ImGui, the frame loop, the agent's commands |
+| `stacks_core` | `live`, `fixed_step`, `game`, `sim` | No window, no renderer: the headless simulation (`../agent.md`) and the tests |
+| `stacks_app` | `app`, `render`, `tools` | SDL3 window and input, the bgfx renderer, Dear ImGui, the frame loop, the agent's commands (`sim`, `compare`, and the host kit's) |
 | `stacks_physics` | `physics` | Jolt, cross-platform deterministic: one world, two layers, single-threaded steps, a state hash |
 | `stacks_nav` | `nav` | Recast/Detour: tiled navigation meshes built from boxes, paths, abilities as link flags |
 | `stacks_baker_tools` | Baker's `examples/harness-imgui/panels.cpp` | Used as it is, not copied |
-| The console | Baker's host kit, `baker::host::Console` | Linked |
+| The loop, the watcher, the console, the commands | Baker's host kit, `baker::host` | Linked: `Live`, `Watcher`, `Console`, `run_command` |
 
-- **`Live`** owns the Config and the layer stack of §2.3: `default.dta`, then `local.dta`
-  (one developer's, ignored by git) and `agent.dta` (an agent's experiments), both
-  optional, then Baker's scratch. It sets the session's pack levels (`engine`, `game`,
-  `task`), adds the shape and `check` validators, and uses the file system's clock as the
-  Config's, so a reload's origin is its file's save time.
+- **`Live`** is the stacks' conventions over the host kit's `baker::host::Live`, which owns
+  the Config. The stack is the one `baker-project.dta` beside the data directory
+  describes, or without one the layer stack of §2.3: `default.dta`, then `local.dta` (one
+  developer's, ignored by git) and `agent.dta` (an agent's experiments), both optional,
+  then Baker's scratch, with pack levels `engine`, `game`, `task`. The kit adds the shape
+  and `check` validators and uses the file system's clock as the Config's, so a reload's
+  origin is its file's save time. The stacks add leaving out `local.dta` for a simulation
+  or a check, `{live.loop}`, and the log as lines the panels show.
 - **`Game::load`** is called after the load and after every change to the layer stack,
   once `#autorun` has run: a game copies its structured data (a roster, an economy) into
   its own arrays there. Tweaks need nothing. **`Game::ui`** draws a game's own windows every
   frame (a game played with the mouse); `Game::tools` only while the panels show.
 - **Packs** live in `<data>/../packs` (design §2.4); data files `#require` them by relative
-  path, and the watcher watches that directory too.
-- **`Watcher`** asks the operating system which `.dta` files changed
-  (`ReadDirectoryChangesW` on Windows, inotify on Linux), so a frame calls
-  `Config::reload` only after a save. Polling instead, as Baker's harness example does,
-  reads and hashes every file four times a second and adds up to 250 ms to every edit.
+  path.
+- **The kit's watcher** asks the operating system which of the files the stack read
+  changed (`ReadDirectoryChangesW` on Windows, inotify on Linux), packs and includes
+  among them, so a frame calls `Config::reload` only after a save. Polling instead, as
+  Baker's harness example does, reads and hashes every file four times a second and adds
+  up to 250 ms to every edit.
 - **`FixedStep`** counts integer nanoseconds: the same elapsed time gives the same steps at
   any frame rate. (Its first version summed seconds as doubles, and its own test caught 59
   steps at 144 Hz against 60 at 30 Hz.)
@@ -51,8 +55,8 @@ int main(int argc, char** argv) {
   screenshots), with no bgfx type in its header. It runs bgfx single-threaded. Its
   shaders are bgfx's own precompiled ones (the debug-draw lit fill and the ImGui shader,
   for every renderer), so the build runs no shader compiler.
-- **`run`** is the frame: events; `Live::begin_frame` (reload what was saved); the
-  remote console; fixed steps; ImGui panels (F1); draw; present; `Live::end_frame`, which
+- **`run`** is the frame: events; `Live::begin_frame` (reload what was saved, and answer
+  the remote console); fixed steps; ImGui panels (F1); draw; present; `Live::end_frame`, which
   calls `Config::mark_visible`, so `loop_stats()` measures save to presented frame.
 
 - **`Physics`** wraps what every Jolt game repeats: the one-time setup, static and moving
@@ -116,6 +120,5 @@ hashes every file of the layers); with one small file that is noise, and it is t
 place to look when a stack's data grows.
 
 Windows is also covered by CI's MSVC job, which builds the stacks and passes every test,
-the live-reload and watcher tests included, on a Windows runner. (Under Wine, a MinGW
-cross-build fails one watcher case, a file saved in a subdirectory that existed before
-watching began: Wine's emulation of recursive watches, since real Windows passes.)
+the live-reload tests included, on a Windows runner; Baker's own CI runs the kit's
+watcher tests there.
