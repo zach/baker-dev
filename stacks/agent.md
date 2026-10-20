@@ -17,7 +17,7 @@ stacks_cube sim [--scenario NAME]... [--seeds A-B] [--out DIR] [--json]
 stacks_cube compare BEFORE_DIR AFTER_DIR      which objectives moved between two --out
                                               directories, as JSON; exit 1 if one broke
 stacks_cube check                             baker::check over data, its #autorun script,
-                                              scenarios, metrics; baker.check/1.2 JSON with
+                                              scenarios, metrics; baker.check/1.3 JSON with
                                               passed, load and shape problems; exit 1 on any,
                                               or an undefined, unstubbed call; 2 if no load
 stacks_cube reference [--json]                the vocabulary: functions, shapes, packs (Markdown);

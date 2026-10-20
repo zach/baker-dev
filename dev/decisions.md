@@ -6800,3 +6800,49 @@ scan instead of in a second pass, kept only if a parse ran at least 10% fewer in
   the package still carries it. Simulated locally for Duel: a planted `agent.dta` and
   `local.dta` are left out, and `default.dta` stays.
 - The command is in `stacks/agent.md`'s list.
+
+## D206. `check` holds the data to the tweaks the game declares
+
+*Requirement note 0010, from the Godot integration.*
+
+- **The need.** A tweak declares a tunable: its path, its type, often its range or list.
+  `check` held data to shapes but not to tweaks, so a game declared each tunable twice or
+  its gate passed proposals that could not work. Three edits each passed `check` with exit
+  0: `(height "tall")` for a float tweak, `(height 1000)` against a range of 16 to 320, and
+  `(hieght 120)` beside `height`. The game then played on a default, or on a value its
+  designer ruled out, with nothing on the record.
+- **`check_tweaks(root, registry)`** (`<baker/tweak.hpp>`, the data library) holds a merged
+  tree to the registered tweaks. It changes no tweak: conversion goes through the tweak's
+  own `assign` without applying. It returns `TweakFindings`.
+  - **Errors.** A value that does not convert to its tweak's type (located, as the bind
+    warning was); a number outside the tweak's range; a symbol outside its `one_of`. The
+    data's own `(range ...)` and `(one_of ...)` after the value win over the code's, as they
+    do for panels.
+  - **Warning: a tweak whose path the data lacks.** The tweak keeps its default; a default
+    in code is a choice, so this never fails.
+  - **Warning: a key beside a group's tweaks that no tweak reads**, as a misspelled key
+    looks: `'hieght' in 'jump' is read by no tweak; its tweaks read air, buffer, height`.
+    - **Which groups.** Only groups below the top level, where some tweak reads a sibling,
+      so structured data and scenarios stay quiet.
+    - **Which keys count as read.** A child that leads to a deeper tweak (`air` for
+      `jump.air.time`) is read.
+    - **Order.** The names are sorted, so the message does not depend on the order of
+      registration.
+- **In the report.** `check()` of a Config fills `CheckReport::tweak_errors` and
+  `tweak_warnings` from the registry that Config binds (`Config::tweak_registry()`, new).
+  Tweak errors fail `ok()`. `baker.check/1.3` adds the two lists, the text form prints them
+  as `tweak:` and `tweak warning:` lines, and `docs/check-json.md` describes them. The
+  kit's and the stacks' `check` commands get them with no change of their own.
+- **Cost.** Nothing new on a tweak's path: the work is in `check`, which resolves each
+  tweak's path once and lists each group's children once.
+- **The stacks.** Their committed data passes their own tweaks. Stuntline has three
+  warnings: `chase_distance`, `chase_height` and `patience` have no value in the data and
+  run on their code defaults. That is the finding the warning exists for, and the stack's
+  to settle.
+- **Tests:**
+  - in `test_tweaks_json`: clean data, top-level structured data quiet, the note's three
+    edits (a conversion error, a range error located at its line, a misspelled key), a
+    missing tweak, the data's own range and list winning, and a list violation;
+  - in `test_check`: `check()` of a Config filling both lists, failing on the error, the
+    JSON's new list, and a Config without a registry staying quiet;
+  - the expected JSON documents moved to 1.3.
