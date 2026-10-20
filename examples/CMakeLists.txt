@@ -97,6 +97,18 @@ if(BAKER_BUILD_SCRIPT)
       target_link_libraries(baker_example_remote_console PRIVATE ws2_32)
     endif()
   endif()
+  # --- host: the host kit, a game's tooling from its main (D194).
+  if(TARGET baker::host)
+    add_executable(baker_example_host host/main.cpp)
+    target_link_libraries(baker_example_host PRIVATE baker::host)
+    if(BAKER_BUILD_TESTS)
+      baker_example_test(baker_example_host_check baker_example_host "^{${nl}  \"schema\": \"baker[.]check/1[.]2\",${nl}  \"passed\": true"
+        check --project ${CMAKE_CURRENT_SOURCE_DIR}/host)
+      baker_example_test(baker_example_host_play baker_example_host
+        "^player speed 4[.]5, 3 spawned${nl}$"
+        play --frames 3 --console-port 0 --project ${CMAKE_CURRENT_SOURCE_DIR}/host)
+    endif()
+  endif()
   if(BAKER_BUILD_TESTS)
     baker_example_test(baker_example_scripting baker_example_scripting "takes 2 arguments, given 1  [(]rules[.]dta:11[)]${nl}demand: 'play_sfx' is not defined.*grunt hp 60, brute hp 160, brute damage 9${nl}at difficulty 3: brute hp 240, damage 12${nl}on_enter:${nl}  spawn 3 grunt${nl}  spawn 1 brute${nl}[{]scaled 10[}] => 30.*'%' by zero.*  in [{]ratio[}]"
       ${CMAKE_CURRENT_SOURCE_DIR}/scripting/rules.dta)
