@@ -67,7 +67,7 @@ if(BAKER_BUILD_SCRIPT)
 endif()
 
 if(TARGET baker::host)
-  add_executable(baker_host_tests host/test_console.cpp host/test_watcher.cpp)
+  add_executable(baker_host_tests host/test_console.cpp host/test_live.cpp host/test_watcher.cpp)
   target_link_libraries(baker_host_tests PRIVATE baker::host baker_doctest_main
                         baker_alloc_counter)
   # White-box: the console's tests use its socket helpers for their client.
