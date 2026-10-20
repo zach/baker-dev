@@ -206,8 +206,9 @@ TEST_CASE("a host's virtual path is watched as the file it says it is") {
         CHECK(stays_quiet(w));
         dir.write("data/tuning.dta", "(speed 4)\n");
         const Seen seen = next_change(w);
-        REQUIRE(seen.files.size() == 1);
         CHECK(has(seen, "res://data/tuning.dta"));  // named as the host gave it
+        for (const std::string& f : seen.files)     // Windows may report a save more than once
+            CHECK(f == seen.files[0]);
         CHECK(seen.newest_write_ns > 0);
     }
 }

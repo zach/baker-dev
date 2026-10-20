@@ -241,20 +241,21 @@ TEST_CASE("Live watches a host's virtual paths as the files they are (D191)") {
         built.layers = List<ProjectLayer>(layers);
         Context ctx;
         Live live(ctx);
-        REQUIRE(live.open(
-            {.built = &built,
-             .reader = [&](std::string_view path, TextSink out) {
-                 const std::string file = on_disk(path);
-                 if (file.empty() || !std::filesystem::exists(file)) return false;
-                 out(st.dir.read(file.substr(root.size())));
-                 return true;
-             },
-             .disk_path = [&](std::string_view path, TextSink out) {
-                 const std::string file = on_disk(path);
-                 if (file.empty()) return false;
-                 out(file);
-                 return true;
-             }}));
+        REQUIRE(live.open({.built = &built,
+                           .reader =
+                               [&](std::string_view path, TextSink out) {
+                                   const std::string file = on_disk(path);
+                                   if (file.empty() || !std::filesystem::exists(file)) return false;
+                                   out(st.dir.read(file.substr(root.size())));
+                                   return true;
+                               },
+                           .disk_path =
+                               [&](std::string_view path, TextSink out) {
+                                   const std::string file = on_disk(path);
+                                   if (file.empty()) return false;
+                                   out(file);
+                                   return true;
+                               }}));
         REQUIRE(live.config().get<int>("speed") == 3);
         st.dir.write("data/default.dta", "(speed 4)\n");
         REQUIRE(frames_until(live, [&] { return live.config().get<int>("speed") == 4; }));
