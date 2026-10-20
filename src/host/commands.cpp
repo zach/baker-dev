@@ -463,8 +463,7 @@ std::string_view command_help() noexcept {
            "  eval [--seed N] [--json] \"{command}\"...\n"
            "                                 each command's result, one a line, on the game\n"
            "                                 reset with the seed (default 1); --json: one\n"
-           "                                 baker.reply/1.1 line each, as the console answers\n"
-           "every command also takes --project PATH\n";
+           "                                 baker.reply/1.1 line each, as the console answers\n";
 }
 
 }  // namespace baker::host

@@ -44,7 +44,8 @@ int main(int argc, char** argv) {
         std::printf("hello\n");
         return 0;
     }
-    std::fprintf(stderr, "unknown command\ncommands:\n%.*s",
+    std::fprintf(stderr,
+                 "unknown command\ncommands:\n%.*severy command also takes --project PATH\n",
                  int(baker::host::command_help().size()), baker::host::command_help().data());
     return baker::host::kCommandError;
 }
