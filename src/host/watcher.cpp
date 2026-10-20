@@ -30,7 +30,15 @@ namespace {
 // own epoch differs by library (libstdc++ counts from 2174), and a value at or above 2^63
 // would read as negative wherever it became a script integer.
 uint64_t clock_ns(fs::file_time_type t) noexcept {
+#ifdef _LIBCPP_VERSION
+    // libc++ has no clock_cast: through the two clocks' offset now, which is off by the
+    // microseconds between the two reads, alike for every time converted.
+    const auto sys = std::chrono::system_clock::now() +
+                     std::chrono::duration_cast<std::chrono::system_clock::duration>(
+                         t - fs::file_time_type::clock::now());
+#else
     const auto sys = std::chrono::clock_cast<std::chrono::system_clock>(t);
+#endif
     const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(sys.time_since_epoch());
     return ns.count() > 0 ? static_cast<uint64_t>(ns.count()) : 0;  // before 1970: unknown
 }
@@ -252,6 +260,8 @@ struct Watcher::Impl {
 #endif
     }
 
+    void watch(std::span<const StackFile> files, std::span<const std::string_view> more);
+
     void poll_stamps() {
         const uint64_t now = monotonic_ns();
         if (now < next_stamp_ns) return;
@@ -282,7 +292,12 @@ void Watcher::watch(std::span<const StackFile> files, std::span<const std::strin
     Impl& im = *impl_;
     im.entries.clear();
     im.changed.clear();
-    if constexpr (kShipping) return;
+    if constexpr (!kShipping) im.watch(files, more);  // shipping: inert
+}
+
+void Watcher::Impl::watch(std::span<const StackFile> files,
+                          std::span<const std::string_view> more) {
+    Impl& im = *this;
     Vec<Own<Impl::Dir>> kept;
     auto add = [&](Symbol path) {
         for (const Impl::Entry& e : im.entries)
@@ -316,9 +331,10 @@ bool Watcher::poll() {
     Impl& im = *impl_;
     im.changed.clear();
     im.newest_ns = 0;
-    if constexpr (kShipping) return false;
-    im.poll_system();
-    im.poll_stamps();
+    if constexpr (!kShipping) {  // shipping: inert
+        im.poll_system();
+        im.poll_stamps();
+    }
     return !im.changed.empty();
 }
 
