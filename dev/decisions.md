@@ -6846,3 +6846,24 @@ scan instead of in a second pass, kept only if a parse ran at least 10% fewer in
   - in `test_check`: `check()` of a Config filling both lists, failing on the error, the
     JSON's new list, and a Config without a registry staying quiet;
   - the expected JSON documents moved to 1.3.
+
+## D207. Plan A, the agent bridge, is closed
+
+*The owner's decision.*
+
+- **What happened.** The owner archived `baker-mcp` and its session. The MCP server showed
+  no benefit over what an agent already has: the game binary's commands and the
+  stacks-agent skill.
+- **Why that settles it.** This is the comparison the plan itself made its kill criterion
+  (`dev/integration-plans.md`, Plan A, A3): the server had to earn its place against the
+  CLI and the skill.
+- **What stays in Baker.** Everything the plan asked of Baker is used by the commands, the
+  editor integration and the stacks:
+  - `eval --json` and `baker.reply`;
+  - check's report and its gate;
+  - the reference JSON;
+  - `promote --patch`;
+  - the host kit's `run_command`.
+  Nothing in Baker depended on the server, so nothing is removed.
+- **The record.** Plan A's section and the summary table are marked closed. The
+  remaining integrations are the editor (B), Godot (C) and published overlays (D).

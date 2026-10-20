@@ -14,7 +14,7 @@ Oct 15, 2026. A proposal; the owner's first choices are in §8 and D153. Later c
 
 | Plan | What it is | Where it lives | First proof |
 |---|---|---|---|
-| **A. Agent bridge** | An MCP server that gives any agent client a Baker game's tools: `check`, the reference, values with their layer chain, the agent layer, A/B, runs, a guarded promote | `baker-mcp` (MIT), a thin adapter; the semantics live in Baker | An agent tunes Duel through the bridge as well as the stacks-agent skill does through the CLI, in fewer calls |
+| **A. Agent bridge** (closed, D207) | An MCP server that gives any agent client a Baker game's tools: `check`, the reference, values with their layer chain, the agent layer, A/B, runs, a guarded promote | `baker-mcp` (MIT), a thin adapter; the semantics live in Baker. Archived | An agent tunes Duel through the bridge as well as the stacks-agent skill does through the CLI, in fewer calls |
 | **B. Editor tooling** | A tree-sitter grammar, an LSP server driven by Baker's own `check`, and live values from the running game in the editor | `baker-editor` (MIT): grammar, server, VS Code extension | An error appears as you type; hover shows a value's layer chain and its live value |
 | **C. Baker for Godot** | A GDExtension: layers, provenance, and a value tuned while playing written back to its line | `baker-godot` (MIT) | A value tuned in a running Godot game reaches git as a one-line diff |
 | **D. Published overlays** | Versioned, checked overlays fetched by a shipped build, applied under a narrow policy, rolled back in one call, promoted to source when they stick | `baker-liveops` (MIT): publisher, client helper, a static-HTTPS backend, a Nakama backend | A shipped stack takes a balance overlay, refuses a bad one, and rolls back |
@@ -251,6 +251,11 @@ program, so the path outlives everything. About 15 lines and one test.
 ---
 
 ## 2. Plan A: the agent bridge
+
+**Status: closed** (D207). The owner archived `baker-mcp` and its session: the server showed
+no benefit over the CLI and the stacks-agent skill, which is the comparison this plan made its
+kill criterion. What it asked of Baker stays: the JSON forms of `check`, `eval` and the
+reference, `promote --patch`, and the host kit's commands.
 
 ### Goal and fit
 
