@@ -6144,3 +6144,58 @@ repository, for the host code that every game rewrites.*
   - inert under shipping.
 - **Docs.** The cookbook's console section and `docs/tools.md` name the kit's console, and
   the plan's note on the separator is corrected.
+
+## D189. The host kit, step 3: the live loop
+
+*Step 3 of `dev/host-kit-plan.md` (D186).*
+
+- **`baker::host::Live`** (`<baker/host/live.hpp>`) is the stacks' `base::Live`, made
+  general. It owns a Config, and `open(LiveOptions)` does the rest:
+  - **Finding the stack.** It finds the project file with `find_project` from a path at or
+    below the project's root, or takes a `Project` the host built (`built`), as a packaged
+    game does. With neither it is a `NotFound` error.
+  - **Opening it** with the host's `ProjectOptions`: `skip`, and `go_on`, whose problems go
+    to `load_errors()`.
+  - **Validators:** the check validator, and the shape validator when `baker::shape` is
+    built (`BAKER_HOST_SHAPE`).
+  - **Tools:** `bind_config_tools`, writing only with `console_write`.
+  - **Autorun:** it runs every enabled layer's `#autorun`, then calls `changed`.
+  - **Watching and the console:** it watches `stack_files()` and the project file, and
+    serves a `Console` on `console_port` if one is given.
+- **Each frame.** `begin_frame()`:
+  - answers the console;
+  - reloads with the watcher's newest save time as the origin;
+  - watches again when `stack_files_epoch()` moves (a new include, a layer pushed or
+    removed);
+  - after any change to the stack (`on_reload_complete`), runs `#autorun` again and calls
+    `changed`.
+  - `end_frame()` marks the frame visible. The Config's clock is `file_clock_now_ns`, so
+    edit-to-see runs from the save.
+- **Generalized from the stacks:**
+  - The stacks' `data/../baker-project.dta` rule is replaced by `find_project`.
+  - Their `local`/`agent` layers and `packs/` directory are whatever the project file says.
+  - Logging goes to a `Callback<void(const Error&)>` rather than a list of strings.
+  - The host's `reader` and the watcher's `stamp` hook carry an engine's virtual roots.
+  - `{live.loop}` stays the stacks' own: `config.loop` already gives the same numbers.
+- **A changed project file is reported, not applied.** Re-opening the stack means removing
+  every layer and resetting the session's levels, include directories and defines, which
+  the Config does not offer as one step. The log says to restart; a reopen can follow if a
+  host needs it.
+- **Cost of a quiet frame.** It allocates nothing (the allocation counter, with a console
+  and a watcher). It is 247 instructions in a release build, by cachegrind: 1,000 frames
+  against 11,000 in a small driver, 2,636,614 against 5,106,634, with one console and three
+  watched files. Its only system calls are the console's non-blocking `accept` and the
+  watcher's non-blocking `read`.
+- **Tests** (`tests/host/test_live.cpp`, seven cases):
+  - opening from a path below the root, with `#autorun` and the tools working;
+  - a built stack, and none at all;
+  - a broken layer stopping `open`, and reported with `go_on`;
+  - `skip`;
+  - a saved file reloaded with its origin, and `#autorun` redefining a function;
+  - a new include in another directory watched from the next frame on;
+  - a changed project file reported;
+  - the console answering, refusing `config.write_back` unless `console_write`, then
+    writing the line;
+  - a quiet frame allocating nothing;
+  - shipping opening the stack with no console.
+- **The stacks still use `base::Live`.** Step 5 moves them onto the kit.
