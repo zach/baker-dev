@@ -573,6 +573,8 @@ people. Two calls give it what it needs:
   - `{config.explain player.speed}`: every layer that sets the value, and which one wins;
   - `{config.set player.speed 6}`, `{config.toggle experiment}` and
     `{config.snapshot a}`: live edits and A/B;
+  - `{config.clear player.speed}`: drops that one live edit, so the value is the files'
+    again. It returns 1 if there was an edit, 0 if not;
   - `{config.journal}` and `{config.unsaved}`: what was tuned, and what was not kept.
 
   They are documented, so `reference` lists them and `check` checks calls to them. A
