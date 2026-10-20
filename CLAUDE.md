@@ -92,7 +92,9 @@ it with copyleft, source-available, commercial or NDA platforms. In this reposit
   which fails if a Context or Config reaches `operator new`.
 - **Benchmarks.** Measure before and after with `bench/` (`-DBAKER_BUILD_BENCH=ON`),
   against a git worktree of the previous commit on the same machine, with the same
-  benchmark files. Record numbers, regressions and noise included. When a row moves,
-  count instructions with cachegrind in a small driver before calling it code layout.
+  benchmark files (`tools/bench_compare.py` does both builds and interleaves the runs).
+  Record numbers, regressions and noise included. When a row moves, count instructions
+  before calling it code layout: `tools/count_instructions.py` runs fixed workloads under
+  cachegrind on both commits.
 - **CI** also runs MSVC, libc++, and TSan, which the local matrix cannot. Check it after
   each push.

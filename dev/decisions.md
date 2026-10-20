@@ -6611,3 +6611,79 @@ compares for a byte scan.*
     reported, and a file new to the list is not;
   - a hooked path changed between the last poll and a new list is reported at the next
     poll, once, with its write time.
+
+## D201. The Game++ reading's designs: instruction counts, threading docs, drop-in layers
+
+*The designs of the Game++ reading that D196 to D199 did not build, with the owner's
+decision on each.*
+
+- **Instruction counts: a local tool, not a CI gate.** The reading found cachegrind's counts
+  deterministic, run to run. But counts move with the compiler, so a committed baseline would
+  break whenever a CI runner's compiler is upgraded. Instead:
+  - **`tools/count/`** is a small CMake project, a driver of fixed workloads built against any
+    Baker tree, so both sides run the same driver source. The workloads:
+    - `parse`: 16 KB of config text;
+    - `lookup` and `lookup_text`: `find_float` on a 20-child array, by Symbol and by text;
+    - `set`: `Config::set`'s fast path;
+    - `frame`: a quiet frame of the host kit's `Live`.
+  - **`tools/count_instructions.py`** builds the driver against a base commit, in a worktree,
+    and against the working tree. It runs each case under cachegrind with N and 2N operations
+    and prints the difference over N as a Markdown table.
+  - **Deterministic.** On this commit against itself, every case is identical (parse
+    1,849,845; lookup 203; lookup_text 365; set 631; frame 197 instructions per operation).
+    A run takes about a minute.
+  - **A lesson from building it.** The first lookup case read its array with `find_array`,
+    which returns the value after the tag, so every lookup took the error path and counted
+    1,657 instructions. The driver now checks each case's first lookup and refuses to run
+    if it fails. Natively the corrected case takes 14 ns a lookup, against
+    `bench_lookup`'s 11 ns for the same key.
+  - **CLAUDE.md's Benchmarks rule** now names both tools.
+- **Threading docs.** The cookbook's new "Threads" section collects what was said only in
+  headers:
+  - read through references;
+  - copy a Node to keep it, on the game's thread: one count per load contends across
+    threads, as the reading measured: 11.6 ns a copy on one thread, 85 on two, 158 on four;
+  - a reload is the frame's swap point: a raw reference across it dangles, and a `Ref`
+    keeps the old tree;
+  - tweaks are read atomically one by one, not as a set;
+  - checks off the game's thread take `checker()`;
+  - symbols may be made from any thread;
+  - `set_stack_budget` on a thread with a small stack.
+- **Drop-in layers: deferred.** `dev/drop-in-layers-note.md` stays as the proposal, marked
+  deferred. The explicit list (the project file, `#include`, `push_layer`) remains the only
+  way a file joins the stack, until a host or an integration asks with a requirement note.
+  No one has asked, and the note's own main risk is a stray file joining the game.
+- **The one-pass lexer** is run as an experiment, with the bar the reading set: kept only if
+  a parse runs at least 10% fewer instructions, with an agreement test holding its number
+  grammar to `classify_number`'s. Its D-entry gives the result either way.
+
+## D202. The one-pass lexer: not built, its ceiling is under the bar
+
+*The experiment D201 started, from the Game++ reading: classify numbers during the atom
+scan instead of in a second pass, kept only if a parse ran at least 10% fewer instructions.*
+
+- **The profile first** (callgrind, `tools/count`'s `parse` case: 200 parses of 16 KB of
+  bench_parse's config text, RelWithDebInfo). Each function's own instructions:
+  - `lex_token`: 13.2%, of which the whitespace and comment skip is about 3.8%, about ten
+    instructions a byte of whitespace;
+  - `lex_atom`, the scan to the atom's end: 8.6%;
+  - `classify_number`: 5.8%;
+  - fast_float, the float conversion: 3.9%.
+  The tree-building half is the rest: `Parser::run` 12.1%, `read_string`'s own 11.8%,
+  `push` 6.6%, the arena, interning.
+- **The ceiling.** The proposal removes `classify_number`'s second pass and could put the
+  whitespace skip on a class table. If both cost nothing at all, a parse would save 9.6%.
+  A real version saves less:
+  - integers must still be accumulated, in the scan instead of after it;
+  - floats still go to fast_float;
+  - a table for whitespace saves part of ten instructions a byte, not all of them.
+  The bar cannot be met, so the experiment stopped at the measurement; nothing was written.
+- **Real data has fewer numbers, not more.** The reading expected tuning files to be more
+  numeric than the benchmark's text. Parsing the stacks' 20 KB of data, scenarios and
+  objectives (`baker_parse_corpus`, Release), `classify_number` is 4.4% of the parse,
+  against 6.5% on the benchmark's text.
+- **What remains true:** a number is read twice, once to find its end and once to classify
+  it. If a later profile (a larger, number-heavy load) puts `classify_number` above 10% of
+  a parse, the proposal is the right shape, with an agreement test against
+  `classify_number`'s grammar over the corpus and the fuzz regressions. The proposal's
+  text stays on the `gamepp-reading` branch.
