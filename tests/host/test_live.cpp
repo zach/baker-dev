@@ -8,6 +8,7 @@
 #include "temp_dir.hpp"
 
 #include <chrono>
+#include <filesystem>
 #include <string>
 #include <thread>
 #include <vector>
@@ -159,6 +160,36 @@ TEST_CASE("Live leaves out what it is told, and reports every broken layer with 
     CHECK(sim.config().layers().size() == 2);
 }
 
+TEST_CASE("Live tells the game of a live edit, the fast path's too (D191)") {
+    if constexpr (!kShipping) {
+        Stack st;
+        Context ctx;
+        Live live(ctx);
+        int changed = 0;
+        REQUIRE(live.open({.project = st.dir.path("data"),
+                           .watch = false,
+                           .changed = [&](const Config&) { ++changed; }}));
+        REQUIRE(changed == 1);
+        live.begin_frame();
+        CHECK(changed == 1);  // nothing happened
+        REQUIRE(live.config().set("speed", Node(5)));
+        REQUIRE(live.config().set("speed", Node(6)));  // the fast path
+        live.begin_frame();
+        CHECK(changed == 2);  // once a frame, however many edits
+        REQUIRE(live.config().set("speed", Node(7)));
+        live.begin_frame();
+        CHECK(changed == 3);
+        REQUIRE(eval_int(ctx, "{do {config.set speed 8} 1}") == 1);  // as the console does
+        live.begin_frame();
+        CHECK(changed == 4);
+        REQUIRE(live.config().clear_scratch());
+        live.begin_frame();
+        live.begin_frame();
+        CHECK(changed == 5);
+        CHECK(eval_int(ctx, "{speed_twice}") == 6);
+    }
+}
+
 TEST_CASE("Live reloads a saved file, with the save as its origin, and runs #autorun again") {
     if constexpr (!kShipping) {
         Stack st;
@@ -194,6 +225,41 @@ TEST_CASE("Live reloads a saved file, with the save as its origin, and runs #aut
         st.dir.write("baker-project.dta", std::string(kProject) + "; edited\n");
         CHECK(frames_until(other, [&] { return !logged.empty(); }));
         CHECK(logged.front().find("restart") != std::string::npos);
+    }
+}
+
+TEST_CASE("Live watches a host's virtual paths as the files they are (D191)") {
+    if constexpr (!kShipping) {
+        Stack st;
+        const std::string root = st.dir.path("");
+        const auto on_disk = [root](std::string_view path) {
+            return path.substr(0, 6) == "res://" ? root + std::string(path.substr(6))
+                                                 : std::string();
+        };
+        Project built;
+        const ProjectLayer layers[] = {{.name = "default", .path = "res://data/default.dta"}};
+        built.layers = List<ProjectLayer>(layers);
+        Context ctx;
+        Live live(ctx);
+        REQUIRE(live.open({.built = &built,
+                           .reader =
+                               [&](std::string_view path, TextSink out) {
+                                   const std::string file = on_disk(path);
+                                   if (file.empty() || !std::filesystem::exists(file)) return false;
+                                   out(st.dir.read(file.substr(root.size())));
+                                   return true;
+                               },
+                           .disk_path =
+                               [&](std::string_view path, TextSink out) {
+                                   const std::string file = on_disk(path);
+                                   if (file.empty()) return false;
+                                   out(file);
+                                   return true;
+                               }}));
+        REQUIRE(live.config().get<int>("speed") == 3);
+        st.dir.write("data/default.dta", "(speed 4)\n");
+        REQUIRE(frames_until(live, [&] { return live.config().get<int>("speed") == 4; }));
+        CHECK(live.config().source("speed")->file == Symbol("res://data/default.dta"));
     }
 }
 

@@ -6251,3 +6251,56 @@ repository, for the host code that every game rewrites.*
 - **Size.** `baker::host` is 1,231 lines of its 1,500, from 773.
 - **The stacks' commands are unchanged** until step 5 moves them onto the kit; their
   `test_commands.py` then compares the JSON byte for byte.
+
+## D191. The watcher maps virtual paths to disk files; every live edit moves the epoch
+
+*Requirement notes 0005 and 0006, from the Godot integration.*
+
+- **Mapping a host's paths to the disk (0005).**
+  - **The need.** Engines name files through virtual roots (a project root, a per-user
+    root) that are ordinary directories during development. A host whose stack names its
+    layers that way had to route every path through the stamp hook, so each file was
+    polled at most every 100 ms and the system's notifications went unused.
+  - **The hook.** `Watcher::set_disk_path_hook(DiskPathHook)`, where `DiskPathHook` is
+    `Callback<bool(std::string_view path, TextSink out)>`, the shape of the session's
+    reader. It writes the file on the disk a path is, or declines (a packaged archive's
+    file has none). A declined path goes to the stamp hook, or to the disk as given, as
+    before.
+  - **When it runs.** It is asked in `watch()`, never in `poll()`, so a quiet frame still
+    allocates nothing.
+  - **What is reported.** The watcher names a change by the path the host gave (in
+    `changed()`, and so in sources and reload records), not by the disk path.
+  - **In Live.** `LiveOptions::disk_path` passes the hook to Live's watcher, beside
+    `reader`.
+- **Every live edit moves `Config::epoch()` (0006).**
+  - **What was wrong.** The epoch moved only when the Config merged, so no `set()` moved
+    it: neither the first one into a path, which adds a scratch entry without a merge, nor
+    the fast path. The comment said only the fast path was left out.
+  - **Now.** Both increment it: one increment, with no allocation and no other work on
+    the fast path. `clear_scratch`, write-back, `promote` and `restore` already merged,
+    and so already moved it.
+  - **What a host does with it.** It compares `epoch()` once a frame to tell that what it
+    shows or caches is stale. That covers edits it did not make: a tool's
+    `{config.set ...}` through the console, or a bound tweak's.
+  - **Cost.** `bench_cache`'s fast-path set, three runs each (two samples a run), on the
+    same machine against a worktree of main: before, 60.8 to 68.4 ns; after, 61.8 to 67.1
+    ns. That is within the noise.
+  - **Independent of the journal.** It moves whether the edit journal is on or off. Under
+    `BAKER_SHIPPING`, where live edits are refused, they do not move it.
+  - **Telemetry is unaffected.** Each `ReloadRecord` keeps the epoch after its own change,
+    and `mark_visible` matches records by their stored epoch, so edits between a reload
+    and its frame do not disturb it.
+- **Live's `changed`.** `begin_frame()` calls `changed` once when the epoch moved without
+  a change to the stack, however many edits there were. It notes the epoch after `changed`
+  and `#autorun` return, so a value they set themselves does not call `changed` again.
+- **Tests.**
+  - The watcher: a `res://` path mapped to a temporary file is watched by notification
+    (`by_stamp()` counts only the archive's file), and its change is reported by the
+    `res://` name.
+  - The Config: every kind of live edit moves the epoch with the journal off, and taking a
+    snapshot does not. The existing fast-path test now expects one increment.
+  - Live:
+    - `changed` fires once a frame for edits made directly, through the fast path and
+      through script, and not on a quiet frame;
+    - a stack named by `res://` paths, read through the reader and watched through the
+      disk-path hook, reloads on a save, and its source still names `res://`.

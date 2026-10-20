@@ -41,6 +41,7 @@ struct Live::Impl {
         load_errors.clear();
         for (const Error& e : ctx.run_autorun(cfg.autorun().items())) problem(e);
         if (changed) changed(cfg);
+        seen = cfg.epoch();  // what #autorun and `changed` set is seen
     }
 
     Context& ctx;
@@ -51,7 +52,8 @@ struct Live::Impl {
     Callback<void(const Error&)> on_log;
     Symbol project_file;
     Vec<Error> load_errors;
-    uint64_t epoch = 0;
+    uint64_t epoch = 0;  // stack_files_epoch() when last watched
+    uint64_t seen = 0;   // the Config's epoch() when the game last read it
     bool watching = false;
     bool stack_changed = false;  // set after any change; #autorun runs again
 };
@@ -76,6 +78,7 @@ Expected<void> Live::open(const LiveOptions& options) {
     im.on_log = options.log;
     im.load_errors.clear();
     if (options.reader) im.cfg.session().set_reader(options.reader);
+    if (options.disk_path) im.watcher.set_disk_path_hook(options.disk_path);
     if (options.stamp) im.watcher.set_stamp_hook(options.stamp);
 
     // The stack: the nearest project file, or the one the host built.
@@ -150,7 +153,12 @@ void Live::begin_frame() {
     }
     // The stack read other files (a new #include, a layer pushed or removed): watch those.
     if (im.watching && im.cfg.stack_files_epoch() != im.epoch) im.rewatch();
-    if (im.stack_changed) im.autorun();
+    if (im.stack_changed) {
+        im.autorun();
+    } else if (im.cfg.epoch() != im.seen) {  // a live edit
+        if (im.changed) im.changed(im.cfg);
+        im.seen = im.cfg.epoch();
+    }
 }
 
 void Live::end_frame() noexcept {
