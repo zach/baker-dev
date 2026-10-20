@@ -6199,3 +6199,55 @@ repository, for the host code that every game rewrites.*
   - a quiet frame allocating nothing;
   - shipping opening the stack with no console.
 - **The stacks still use `base::Live`.** Step 5 moves them onto the kit.
+
+## D190. The host kit, step 4: the commands
+
+*Step 4 of `dev/host-kit-plan.md` (D186).*
+
+- **`<baker/host/commands.hpp>`** gives a game's binary the tool commands the stacks run:
+  `check`, `reference [--json]`, `eval [--seed N] [--json] "{command}"...`,
+  `diff [--layer L]` and `promote [--from L] [--to T] [--write | --patch FILE]`, each with
+  `--project PATH`. They live in the game's binary because only it has its script
+  functions; an editor, a CI gate or an agent with a shell calls them and reads Baker's JSON.
+- **The command line.** `parse_command_line` reads the command, the kit's flags and the
+  `{...}` arguments into a `CommandLine` of views into argv. Everything else goes to
+  `rest`, in order, so the host reads its own flags (a scenario file, say) from there. A
+  flag missing its value, or a seed that is not a number, is an error.
+- **What the game gives** (`CommandHooks`):
+  - `bind` and `unbind`, its script functions on a fresh Context;
+  - `changed`, its read of the structured data, as Live's;
+  - `reset`, its state from a seed, before `eval` runs;
+  - `extra_trees`, files it wants checked beside the data, or the located problem that
+    stops them reading;
+  - `built` and `open`: the stack without a project file, and how it opens (a check
+    leaves out one person's `local` layer).
+- **`run_command`** returns the exit status: 0, `kCommandFailed` (1) when something failed,
+  `kCommandError` (2) when it could not run. It returns -1 for a command that is not the
+  kit's, so the host runs its own; `command_help()` gives the lines for its usage text.
+- **Each command** opens the stack through `Live` without watching, so it reads exactly
+  what the running game reads.
+  - `check` writes baker.check/1.2. A call to an undefined function fails it (a typo, in
+    a tool's or an agent's edit) and is named on stderr. The shapes are checked over the
+    merged data when `baker::shape` is built. Data that does not load is still a report,
+    with exit 2.
+  - `reference --json` writes Baker's three documents as one object:
+    `{"reference", "tweaks", "shapes"}`.
+  - `eval --json` writes one baker.reply/1.1 line a command, numbered from 1.
+  - `promote --patch` writes the change as a unified diff for `git apply`, and nothing
+    else. Its names are relative to `patch_root`, else to the project file's directory.
+- **Shipping.** `diff` and `promote` refuse with exit 2; the others run.
+- **Tests.** `tests/host/game.cpp` is a small game binary over the kit, with a script
+  function, a global the reset sets, a `--scenario` flag through `rest` and
+  `extra_trees`, the `local` layer skipped, and a command of its own. Its stack is
+  `tests/host/stack/`. `tests/host/test_commands.py` (ctest `baker_host_commands`) runs:
+  - check: clean data, an undefined call, a value out of its shape's range, a layer that
+    does not load, the game's extra trees, and the skipped layer;
+  - reference, as Markdown and JSON;
+  - eval: on the game reset with the seed, and an error as a reply;
+  - diff, `promote --patch` (one line, its comment kept, nothing written) and
+    `promote --write`;
+  - the game's own command, an unknown command, a bad flag;
+  - under shipping, the refusals.
+- **Size.** `baker::host` is 1,231 lines of its 1,500, from 773.
+- **The stacks' commands are unchanged** until step 5 moves them onto the kit; their
+  `test_commands.py` then compares the JSON byte for byte.

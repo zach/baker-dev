@@ -76,6 +76,16 @@ if(TARGET baker::host)
     target_link_libraries(baker_host_tests PRIVATE ws2_32)
   endif()
   add_test(NAME baker_host_tests COMMAND baker_host_tests)
+  # The commands, through a game binary that uses them (D190).
+  add_executable(baker_host_test_game host/game.cpp)
+  target_link_libraries(baker_host_test_game PRIVATE baker::host)
+  find_package(Python3 COMPONENTS Interpreter)
+  if(Python3_FOUND)
+    add_test(NAME baker_host_commands
+             COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/host/test_commands.py
+                     $<TARGET_FILE:baker_host_test_game> ${CMAKE_CURRENT_SOURCE_DIR}/host/stack
+                     $<$<BOOL:${BAKER_SHIPPING}>:shipping>)
+  endif()
 endif()
 
 if(BAKER_BUILD_SHAPE)
