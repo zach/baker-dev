@@ -6095,3 +6095,52 @@ repository, for the host code that every game rewrites.*
     two clocks' offset now.
 - **Next:** the console (step 2). The stacks keep their own watcher until step 5 moves them
   onto the kit.
+
+## D188. The host kit, step 2: the console
+
+*Step 2 of `dev/host-kit-plan.md` (D186).*
+
+- **`baker::host::Console`** (`<baker/host/console.hpp>`) is `examples/remote-console`'s
+  console, moved into the kit:
+  - `listen(port)` on 127.0.0.1 only, with port 0 for any free port, and `port()`;
+  - `poll()` once a frame on the Context's thread;
+  - `clients()`.
+  - **The two kinds of line:** a request, `(ID {command})`, gets `eval_request`'s one line
+    of JSON; any other line gets the human reply.
+- **The protocol is written down as it was.** Every reply is its lines, then an empty line.
+  - The plan meant to drop the empty line after JSON replies. That would leave a client
+    that reads up to it (the example's own) waiting forever, while keeping it costs a tool
+    a skipped empty line.
+  - `\r\n` ends a line too.
+- **Changed from the example:**
+  - **Pending output.** Each client keeps its unsent replies and the console sends them
+    over the next polls. The example dropped a client whenever one `send` did not take a
+    whole reply, which a large reply (2 MB in the test) does.
+  - **No `SIGPIPE`.** On Linux, `send` passes `MSG_NOSIGNAL`, so a client gone mid-reply is
+    not a `SIGPIPE` that ends the game.
+  - **Winsock** starts and stops inside the kit, counted across consoles. A host no longer
+    calls `sockets_start`/`sockets_stop`.
+  - **The socket helpers** (`src/host/sockets.hpp`) are in `baker::host::net`, not the
+    global namespace.
+  - **One socket a console:** `listen` refuses a second time, and fails cleanly when the
+    port is taken.
+- **Under `BAKER_SHIPPING`,** `listen` returns false, so a shipped game opens no socket.
+- **A quiet poll allocates nothing:** a connected client sending nothing.
+- **Users.**
+  - `examples/remote-console` links `baker::host`. It keeps a client-side copy of the
+    socket helpers, since an example does not reach into `src/`, and its expected output
+    is unchanged. Built for shipping, it says it opens no console and exits, and its test
+    is registered only for other builds.
+  - The stacks' app links `baker::host` and uses the kit's console. Before, it compiled the
+    example's `console.cpp`. All 30 stacks tests pass, `test_commands.py`'s console cases
+    included.
+- **Tests** (`tests/host/test_console.cpp`):
+  - a person's line, a tool's request, and an error;
+  - a line arriving in pieces, and two lines at once;
+  - two clients, and one leaving;
+  - a 2 MB reply arriving whole;
+  - listening once, and a taken port;
+  - a quiet poll allocates nothing;
+  - inert under shipping.
+- **Docs.** The cookbook's console section and `docs/tools.md` name the kit's console, and
+  the plan's note on the separator is corrected.

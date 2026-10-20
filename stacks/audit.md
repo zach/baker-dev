@@ -29,7 +29,7 @@ fact each is the owner and the agent today.
 | Shapes and packs (`packs/game/*_core.dta`) | L2 | Engineers | Everyone, through `check` | Baker shapes | As the data files | Anyone, by pull request | 2 roles named per pack; 1 person | Mandated | Product |
 | The agent's commands (`sim`, `check`, `reference`, `diff`, `promote`, `eval`) | L1 | The base | The agent, engineers | Command line, Baker data out | `check` 0.01–0.09 s; `sim` one seed 0.01–1.05 s | Nobody: C++ (a new measure is a script word) | 1 | The agent's only way in | Custom-built |
 | Scenarios and objectives (`sim/*.dta`, `metrics/*.dta`) | L3 | The agent (scenarios), people (objectives) | The agent | Baker data | One `sim` run | The agent (scenarios); people, by pull request (objectives) | 1 | Not asked | Custom-built |
-| The remote console (`tools/console.py`, the console panel) | L1 | Baker (`examples/remote-console`) | The agent, engineers | One command per line | One frame | Anyone who writes script | 1 | Not asked | Product |
+| The remote console (`tools/console.py`, the console panel) | L1 | Baker (`baker::host::Console`) | The agent, engineers | One command per line | One frame | Anyone who writes script | 1 | Not asked | Product |
 | Ledger's economy sheet (`economy.xlsx` → `export_economy.py` → `economy.dta`) | L3 (adopted fled harness) | A systems designer | Systems designers | Spreadsheet → export | Export 0.07 s, then the data file's reload | Its owner | 1 | Yes, by design (D109) | Custom-built |
 | Game C++ (`stacks/*/`, the natives) | L2 | Gameplay engineers | Engineers | C++ | Rebuild 2–6 s, then a restart that loses the session's state | Engineers only | 1 | Mandated | Custom-built |
 

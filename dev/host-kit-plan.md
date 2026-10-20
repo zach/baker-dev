@@ -94,9 +94,10 @@ in this repository, for what every host rewrites.*
   - `poll()` once a frame;
   - a request line, `(ID {command})`, gets `eval_request`'s JSON reply;
   - a bare line gets the human reply.
-- **One change.** The reply separator becomes a documented part of the protocol: a bare
-  reply ends with an empty line, and a JSON reply does not. Today a client must skip blank
-  lines, as the stacks' test learned (D182).
+- **The reply separator is documented, not changed** (D188). Every reply, JSON or not,
+  is its lines, then an empty line. The plan first had JSON replies drop the empty line,
+  but the example's client and possibly other tools read up to it. Dropping it could leave
+  a client waiting forever, while keeping it costs a tool only a skipped empty line.
 - **The example keeps working.** `examples/remote-console` becomes a 40-line user of the
   kit.
 
