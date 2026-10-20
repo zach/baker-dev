@@ -92,12 +92,15 @@ cfg.on_reload(
   nothing is waiting. `cfg.loop_stats()` then gives, per file and per layer, the median and
   worst time from a saved edit to the frame that showed it, over the last 32 edits, with
   failed reloads counted (D92). Polling for changes does not dilute it.
-- **Watching files yourself.** `cfg.stack_files()` lists every file the layers were read
-  from: each layer's file, the files its `#include`s reached, and those they looked for and
-  missed, with the layer each belongs to and the path as the reader was given it. An engine
-  or editor that already watches files calls `reload()` only when one of these changes,
-  with the save's time as `origin_ns`. `cfg.stack_files_epoch()` moves whenever the list
-  does, so checking it costs one comparison a frame.
+- **Watching files.** The host kit's `baker::host::Live` does all of this: it watches the
+  stack's files, reloads with the save's time, and marks the frame visible ([Baker and
+  your tools](tools.md#the-host-kit)). To watch them yourself (an engine or editor that
+  already watches files), `cfg.stack_files()` lists every file the layers were read from:
+  each layer's file, the files its `#include`s reached, and those they looked for and
+  missed, with the layer each belongs to and the path as the reader was given it. Call
+  `reload()` only when one of these changes, with the save's time as `origin_ns`.
+  `cfg.stack_files_epoch()` moves whenever the list does, so checking it costs one
+  comparison a frame. `baker::host::Watcher` is the kit's watcher on its own.
 
 `examples/config` runs a reload that rebuilds the audio group and leaves the renderer alone.
 

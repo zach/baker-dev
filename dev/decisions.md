@@ -6404,3 +6404,39 @@ repository, for the host code that every game rewrites.*
   - **Its test:** dropping one of two edits, the journal's `reverted`, 0 twice with the
     epoch unmoved, and the bare call failing with the other edit kept. The shipping test
     checks it is not bound.
+
+## D194. The host kit, step 6: docs, the example, the integrations
+
+*Step 6 of `dev/host-kit-plan.md` (D186); the plan is done.*
+
+- **`examples/host`** is the acceptance's small host: one `main` of 64 lines, comments
+  included.
+  - **Commands.** With a command it runs the kit's commands, with `bind` its only hook;
+    `play [--frames N] [--console-port N]` is its own command.
+  - **Play.** It runs `Live` with the console, and its `changed` prints a tweak and how
+    many times the data's `#autorun` called the game's `spawn`.
+  - **Its stack:** a project file, a default layer with a shape, and an optional `local`.
+  - **Tests.** Two CTest cases: `check` writes a passing report, and three frames of
+    `play` print `player speed 4.5, 3 spawned`. Both run in shipping builds too, where the
+    stack still opens and no console listens.
+  - **A lesson it taught.** Its first `spawn` printed to stdout, which put a line ahead of
+    `check`'s JSON. A game's functions must keep stdout clean for the commands, so the
+    example counts instead, and `docs/tools.md` says a game's functions must print nothing
+    to stdout while a command runs.
+- **`docs/tools.md`** has a section on the host kit:
+  - what it is, how it is built (`BAKER_BUILD_HOST`), and what shipping turns off;
+  - a short part for each piece: `Live`, `Watcher` (with the disk-path and stamp hooks),
+    `Console`, and the commands, with a table of them;
+  - "What the host does" now says each duty has a ready-made form there.
+- **Elsewhere in the docs:**
+  - **The cookbook's watching-files bullet** points at `Live` first, then says how to
+    watch the files yourself.
+  - **The README** lists `baker::host` among the targets, `BAKER_BUILD_HOST` among the
+    options, and the kit among the features.
+- **The integrations are told** what they can drop once 0.2.0 ships:
+  - **The editor session:** a game that links the kit serves its console and its commands
+    the same way the stacks do, so the server can count on `config.clear` and on prompt
+    pipelined replies.
+  - **baker-godot:** it can replace its own watcher with `Watcher` and the disk-path hook
+    (0005), its console with `Console`, and its change tracking with `epoch()` (0006),
+    keeping its own file access through its reader.
