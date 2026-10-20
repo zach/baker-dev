@@ -75,6 +75,8 @@ const baker::Array* eggs = (*root)->try_get("menu.'bacon and eggs'");   // null 
 auto cals = eggs->find_int("calories");                       // one level, by tag
 ```
 
+A key written as text (`find_int("calories")`) is interned on every call; in a loop,
+write it as a literal, `find_int("calories"_sym)`, which interns once, or hold a `Symbol`.
 `Convert<T>` teaches lookups your own types; vectors, fixed arrays, and
 `std::string` (with `<baker/std_interop.hpp>`) are built in. When an array has several
 children with the same tag, lookup finds the first; `subarrays()` visits them all.
