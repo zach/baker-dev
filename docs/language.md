@@ -262,7 +262,9 @@ Shapes are declared in data, in one `(shapes ...)` container, each tagged by its
 - **Types:** `int`, `float`, `bool`, `symbol`, `string`, `any`, `(list T)`, or another
   shape's name.
 - **Metadata:** `range`, `step`, `kind`, `desc`, `note` (as a tweak's), and `optional`.
-  A field without `optional` is required.
+  A field without `optional` is required. A `symbol` or `(list symbol)` field may list the
+  symbols it allows, `(button symbol (one_of light heavy kick special))`, in the order a tool
+  should offer them; a later layer declaring the field again may add to the list.
 - **What a shape governs:** every array tagged with its name, anywhere in the tree. `(at
   ...)` narrows it to arrays whose ancestors' tags, from the root, are the ones listed;
   `*` matches any one tag. The example above governs each `(boss_phase ...)` in
@@ -285,8 +287,8 @@ Shapes are declared in data, in one `(shapes ...)` container, each tagged by its
   each shape by its name: a later layer adds a shape, adds a field, or retunes one
   field's range.
 
-Checking reports a field of the wrong type or out of range, or a required field missing,
-as an error, located by file, line, and path. A field the shape does not declare is a
+Checking reports a field of the wrong type, out of range or outside its `one_of`, or a
+required field missing, as an error, located by file, line, and path. A field the shape does not declare is a
 warning, so adding data never waits on its shape. Commands and variables are not checked:
 their values are unknown until they run.
 
