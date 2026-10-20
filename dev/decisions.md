@@ -5947,3 +5947,37 @@ replaced, which knows what the old token was.*
   - The corpus write-back test (every corpus value as one line) still passes.
 - **Docs.** The write-back paragraph in `config.hpp`.
 - **Core:** 14,026 → 14,036 lines.
+
+## D185. Project options hold their skipped names
+
+*The baker-godot session's requirement note 0004, from plan C's step 3: a fault in 0.1.0.
+`ProjectOptions::skip` was a `std::initializer_list`, whose array lives only to the end of
+the full expression that wrote it.*
+
+- **The fault.**
+  - **The failing code.** Options built in one statement and passed in the next read freed
+    memory: chosen by a condition, kept in a member, or returned from a helper, as in
+    `ProjectOptions o = skip_local ? ProjectOptions{.skip = {"local"}} : ProjectOptions{};`.
+  - **Why it went unseen.** No compiler warned. A debug build usually read the stale array
+    correctly.
+  - **What it cost.** An optimized export's scenario runs kept the `local` layer they
+    should have left out, so their results depended on the machine, which the option
+    exists to prevent.
+- **The fix.** `skip` is a `LayerNames`: up to eight `std::string_view`s held in the options
+  themselves.
+  - **Building it:** from a braced list, so `{.skip = {"local"}}` reads as before, or with
+    `add(name)`.
+  - **Lifetime:** the options are valid for as long as the strings the names view are.
+  - **Cost:** nothing allocates.
+  - **The default member initializer** is `LayerNames()`, not `{}`, which MSVC refuses
+    to list-initialize (C2797). D173's comment about it goes.
+- **Past eight names** a name is dropped, `add` returns false, and `open_project` refuses
+  the options before changing anything (`Refused`). Opening a stack with a layer it was
+  told to leave out would be the same fault again.
+- **Tests** (`tests/data/test_project.cpp`):
+  - options chosen by a condition in one statement and passed in the next;
+  - options returned from a helper, both ways;
+  - nine names refused, with nothing pushed.
+  - Under ASan, the first case is the use after scope the old type allowed.
+- **0.1.0 has the fault.** The next release's changelog says so: build the options inside
+  the call until then, as the published documentation shows.
