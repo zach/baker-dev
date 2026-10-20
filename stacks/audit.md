@@ -128,7 +128,7 @@ commodity).
 | --- | --- | --- | --- |
 | SDL3, bgfx, Dear ImGui, Jolt, Recast/Detour | L0–L1 | Commodity, adopted | Nothing in-house where the industry has converged |
 | Baker (data, layers, shapes, script, `check`, `loop_stats`) | L0 | Product | The library under every harness |
-| `Live`, `Watcher`, `FixedStep`, `Physics`, `NavMesh`, `sim` | L1 | Custom-built → product | Thin wrappers; `Watcher` is the OS's notifications, not a commodity rebuilt |
+| `Live`, `FixedStep`, `Physics`, `NavMesh`, `sim` | L1 | Custom-built → product | Thin wrappers; the loop, watcher, console and commands moved into Baker's host kit (`baker::host`), and `Live` is the stacks' conventions over it |
 | `tag_of`, RNG, `box`, `not_found`, `truthy` | L2, five or six copies | Custom-built, ready for product | §5: push up to the base and Baker |
 | `puzzle.*`, `track.*`, `duel.*`, `econ.*` | L2 | Custom-built | Each stack's vocabulary |
 | `hearth.*`, `world.*`, `mission.*`, `at_poi`, `flag`, `has_item` | L2 | Custom-built | Newest; the objective natives match §4.4 exactly |

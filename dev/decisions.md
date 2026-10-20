@@ -6305,10 +6305,182 @@ repository, for the host code that every game rewrites.*
     - a stack named by `res://` paths, read through the reader and watched through the
       disk-path hook, reloads on a save, and its source still names `res://`.
 
-## D192. A symbol literal interns once per site
+## D192. The host kit, step 5: the stacks run on the kit
 
-*From the Game++ reading (`dev/gamepp-notes.md`, 0x21–0x27): interning a literal at
-every use is the string-pool trap.*
+*Step 5 of `dev/host-kit-plan.md` (D186).*
+
+- **`base::Live` is now the stacks' conventions over `baker::host::Live`.** The kit's Live
+  leaves those conventions out on purpose (plan §3.3), so the stacks keep them in a
+  wrapper:
+  - **The stack.** `data_stack(data_dir)` gives two things. One is the path the kit finds
+    `baker-project.dta` from: the data directory, when the file is beside it, so a broken
+    project file is still reported as `baker-project.dta`. The other is the built stack
+    (`default`, optional `local` and `agent`, pack levels `engine`, `game`, `task`) for a
+    packaged game without one.
+  - **Leaving out `local.dta`** for a simulation or a check.
+  - **`{live.loop}`.**
+  - **The log as lines** for the panels and stderr.
+  - The class keeps its interface, so the app, `sim` and the stacks' Live tests are
+    unchanged. It is 202 lines against 252.
+- **`base::Watcher` is gone.** The kit's watcher watches exactly the files the stack read,
+  packs and includes among them, where the stacks' watched the data and packs
+  directories. Its tests went with it; the kit's own watcher tests cover the same cases,
+  on Windows too. The `Wine` note in the base README went with it.
+- **The console comes through Live.** `base::LiveOptions::console_port` passes the port to
+  the kit, which serves the console from `begin_frame()`. The app prints the port it
+  listens on, as before.
+- **The commands.** `base::main` now parses the line with `parse_command_line`. It reads
+  its own flags (`--data`, `--sim`, `--metrics`, `--out`, `--scenario`, `--seeds`,
+  `--step-hz`, compare's directories) from `rest`, and refuses anything else, as before.
+  `sim` and `compare` stay the stacks' own; everything else goes to `run_command`:
+  - **The hooks:** the `Game` (bind, unbind, load, reset); `extra_trees` (the scenarios and
+    objectives check reads, an objective that does not load being a located load
+    problem); the built stack; and `local` left out.
+  - **Paths:** the data directory is the project path and the patch root, so a patch
+    still names `default.dta` and applies from `data/`.
+  - `tools.cpp` is 301 lines against 576: check, reference, eval, diff, promote and the
+    unified diff moved out.
+- **Changes a person sees:**
+  - `diff`'s heading reads `layer 'agent' changes:` where it read `agent.dta changes:`.
+  - `promote --write` ends `layer 'agent' is unchanged`.
+  - An objective file that does not parse now gives check's JSON with the problem under
+    `load` (exit 2), where it printed only the message.
+  - `diff --layer` and `promote --from` name another layer.
+  - The kit's `command_help()` no longer names `--project`. A host names its own location
+    flag; the stacks' is `--data`, and the kit's test game prints `--project` itself.
+- **Tests.** All 30 stacks tests pass unchanged, `stacks_duel_commands`
+  (`test_commands.py`) included.
+- **The same bytes.** The duel from main and from this change, Release builds, each on its
+  own copy of the stack, ran the same 13 cases: check (clean, an agent layer, an undefined
+  call, a shape error, a broken file), reference and `--json`, eval and `--json`, diff,
+  promote, `promote --patch` and `sim --json`. Exit status, stdout, stderr and the patch
+  are identical, except `diff`'s heading.
+  - **A gap the comparison found.** The reference lost `{live.loop}`: `base::Live` bound it,
+    and the kit's commands do not go through `base::Live`. The stacks now bind it in the
+    commands' `bind` hook too, through one `bind_live_loop`.
+- **Edit-to-see on the cube.**
+  - **The method.** A Release build, headless at 60 frames a second, with 30 saves of
+    `local.dta` 250 ms apart, read through `{live.loop}`. Three runs, before and after.
+  - **Medians:** before 6.8, 11.2 and 3.8 ms; after 3.8, 7.0 and 7.7 ms.
+  - **Worst:** about 17 ms in every run, one frame.
+  - **Reading it.** The spread is which part of a 16.7 ms frame a save lands in; the move
+    changed nothing measurable.
+- **Size.** The stacks' live, watcher, tools and app files are 803 lines, from 1,397.
+  `baker::host` is 1,251 of its 1,500.
+
+## D193. The console's sockets send at once; `config.clear` drops one live edit
+
+*Requirement notes 0013 and 0014, from the editor integration.*
+
+- **Pipelined requests (0013).** The note measured 60 pipelined requests at 48–60 ms on
+  the Duel stack. It describes a console that sends each reply as its own small write,
+  which Nagle's algorithm holds for the client's delayed acknowledgement. That was the
+  example console the stacks used before the host kit (D188). The kit's `Console` already
+  answers every complete line of a poll and sends the replies in one write.
+  - **Measured on the kit's console.** Duel, Release, headless at 60 Hz, ten batches of
+    `config.explain` requests. Sent in one write: 60 or 200 requests take 16 to 17 ms,
+    one frame; 1,000 take 14 to 20 ms; 4,000 take 18 to 38 ms. Sent as one write each,
+    60 or 200 take 33 ms, two frames. That delay is the client's own Nagle: its second
+    write waits for the first one's acknowledgement, and the requests land in two polls.
+  - **`TCP_NODELAY` on each client socket** anyway (`net::set_nodelay`, at accept), as the
+    note proposes. Then a later poll's write never waits on the acknowledgement of an
+    earlier one: the case of a batch whose replies outrun the socket's send buffer and
+    finish over several polls, or a client that holds acknowledgements longer. On Linux
+    loopback it measured no change (1,000 requests 15 to 20 ms against 14 to 20; 4,000, 18
+    to 38 against 24 to 36), since a client that keeps reading keeps acknowledgements
+    flowing. It costs nothing without a client.
+  - **No test.** A timing test would be as noisy as these numbers.
+- **`{config.clear PATH}` (0014)** drops one path's live edit, as `clear_scratch(path)`
+  does, so the value is the files' again, and the journal records the edit reverted.
+  - **What it returns.** 1 if there was an edit to drop, 0 if not; a path with no live
+    edit, or no value at all, is not an error.
+  - **No edit, no change.** A path with none changes nothing: `clear_scratch` would merge
+    and move the epoch, so the tool looks in `unsaved()` first.
+  - **No path, no wipe.** Clearing all of scratch is not offered; `{config.clear}` with no
+    path is an arity error, so a tool probing whether the command exists cannot drop every
+    edit.
+  - **Where it is bound.** In development builds, beside `config.set`, and not behind
+    `allow_write`, since it writes no file.
+  - **Its test:** dropping one of two edits, the journal's `reverted`, 0 twice with the
+    epoch unmoved, and the bare call failing with the other edit kept. The shipping test
+    checks it is not bound.
+
+## D194. The host kit, step 6: docs, the example, the integrations
+
+*Step 6 of `dev/host-kit-plan.md` (D186); the plan is done.*
+
+- **`examples/host`** is the acceptance's small host: one `main` of 64 lines, comments
+  included.
+  - **Commands.** With a command it runs the kit's commands, with `bind` its only hook;
+    `play [--frames N] [--console-port N]` is its own command.
+  - **Play.** It runs `Live` with the console, and its `changed` prints a tweak and how
+    many times the data's `#autorun` called the game's `spawn`.
+  - **Its stack:** a project file, a default layer with a shape, and an optional `local`.
+  - **Tests.** Two CTest cases: `check` writes a passing report, and three frames of
+    `play` print `player speed 4.5, 3 spawned`. Both run in shipping builds too, where the
+    stack still opens and no console listens.
+  - **A lesson it taught.** Its first `spawn` printed to stdout, which put a line ahead of
+    `check`'s JSON. A game's functions must keep stdout clean for the commands, so the
+    example counts instead, and `docs/tools.md` says a game's functions must print nothing
+    to stdout while a command runs.
+- **`docs/tools.md`** has a section on the host kit:
+  - what it is, how it is built (`BAKER_BUILD_HOST`), and what shipping turns off;
+  - a short part for each piece: `Live`, `Watcher` (with the disk-path and stamp hooks),
+    `Console`, and the commands, with a table of them;
+  - "What the host does" now says each duty has a ready-made form there.
+- **Elsewhere in the docs:**
+  - **The cookbook's watching-files bullet** points at `Live` first, then says how to
+    watch the files yourself.
+  - **The README** lists `baker::host` among the targets, `BAKER_BUILD_HOST` among the
+    options, and the kit among the features.
+- **The integrations are told** what they can drop once 0.2.0 ships:
+  - **The editor session:** a game that links the kit serves its console and its commands
+    the same way the stacks do, so the server can count on `config.clear` and on prompt
+    pipelined replies.
+  - **baker-godot:** it can replace its own watcher with `Watcher` and the disk-path hook
+    (0005), its console with `Console`, and its change tracking with `epoch()` (0006),
+    keeping its own file access through its reader.
+
+## D195. The kit's commands read through the host's reader and write where it says
+
+*Requirement note 0007, from the Godot integration.*
+
+- **The need.** An engine runs the game's own binary as its tool, but names its files
+  through its own roots and owns the process's stdout: it prints its banner and messages
+  there. The kit's commands read the stack from the disk alone, and wrote only to stdout.
+- **`CommandHooks::reader`** is the same `LoadSession::Reader` Live and the Config take. The
+  commands open the project file and the layers through it, and `promote --patch` reads the
+  text it compares against through it, so a stack named under a virtual root reads the
+  same in a command as in the game. A patch's names are still relative to `patch_root`;
+  with a virtual root, a host sets `patch_root` to the directory on its disk the patch
+  applies from, or the "apply it from" hint names the root (`game:`).
+- **Where the output goes.** In order:
+  - `--output FILE` (`CommandLine::output`) writes it to a file; a failure to write it is
+    exit 2, as a patch that cannot be written already was.
+  - Otherwise `CommandHooks::output`, a sink the host routes.
+  - Otherwise stdout, as before.
+  - Messages for a person still go to stderr.
+- **How.** `run_command` gathers the output while the command runs (`out` appends to a
+  thread-local buffer) and sends it once the command is done. The exit statuses are as
+  they were. The commands' output is small (a report, a diff, a reference), so gathering
+  it costs nothing that matters.
+- **Why `--output`, not `--out`.** The note's integration uses `--out FILE` of its own,
+  and the stacks already read `--out DIR` for `sim`. The kit's flag must not take a name
+  hosts use, since `parse_command_line` consumes it before the host sees `rest`.
+- **Tests** (`tests/host/test_commands.py`, a new case; the test game has `--root DIR`, a
+  reader under `game://`, and `--to-stderr`, a host sink):
+  - check reports a shape error located in `game://data/agent.dta`;
+  - eval reads through the reader;
+  - `promote --patch` compares against what the reader reads;
+  - `--output` writes the report with stdout empty, and exits 2 for a path that cannot be
+    written;
+  - the host's sink gets eval's output.
+  - The 30 stacks tests pass unchanged.
+
+## D196. A symbol literal interns once per literal
+
+*From a reading of the book Game++ (sections 0x21–0x27): interning a literal at every
+use is the string-pool trap.*
 
 - **What was wrong.** `"price"_sym` called `Symbol(std::string_view)` on every
   evaluation: the table's mutex, a hash and a probe. On `bench_lookup`'s 20-child array
@@ -6317,7 +6489,8 @@ every use is the string-pool trap.*
   queueing on the same mutex.
 - **Now.** `operator""_sym` is a literal operator template over `detail::SymbolLiteral`
   (C++20 class-type template arguments). Each distinct literal is one instantiation,
-  which holds its Symbol in a function-local static, interned on the first call; after
+  which holds its Symbol in a function-local static, interned on the first call (one
+  static per distinct text, shared by every site that spells it); after
   that a call is the static's guard and one load. Call sites are spelled as before.
   `Symbol(text)` still interns on every call, for text made at run time.
 - **Measured** (`bench_lookup`, release, this container, best of 7 × 2M calls):
@@ -6335,31 +6508,9 @@ every use is the string-pool trap.*
 - **Tests.** The row above is in `bench_lookup`; the existing tests use `_sym`
   throughout and exercise it.
 
-## D194. A tweak's callbacks may change the Config, and cannot loop
+## D197. The symbol table reads without its lock
 
-*From the Game++ reading (`dev/gamepp-notes.md`, 0x2D and 0x55): a listener that changes
-the list while it is walked, and listeners that notify each other back.*
-
-- **What was wrong.** `TweakBase::notify` walked `on_change` by reference. A callback that
-  added a callback to the same tweak moved the table under the walk (undefined behaviour,
-  though no test did it). A callback that set a tweak whose callback set this one back
-  recursed until the stack ran out; the header said nothing about either.
-- **Now.** `notify` walks by index over the count at entry, so a callback added from
-  inside one runs from the next change; and a tweak being notified is not notified again
-  until its callbacks return, so two tweaks whose callbacks set each other each notify
-  once. The value still changes; only the second notification is elided. One `bool` in
-  the tweak's `Extra`, which only tweaks with callbacks have; one branch in `notify`, which
-  runs on a change, never on a read.
-- **Reload callbacks** already ran over a copy (`on_reload`) or by index with the count
-  re-read (`on_reload_complete`); a test now says so.
-- **Tests** (`test_config`): a callback sets another tweak, which notifies once; two
-  callbacks set each other and each runs once; a callback added from inside runs next
-  time; a reload callback removes itself and another while notified, and a completion
-  removes itself.
-
-## D193. The symbol table reads without its lock
-
-*From the Game++ reading (`dev/gamepp-notes.md`, 0x40–0x47, and the parse profile under
+*From a reading of the book Game++ (sections 0x40–0x47, and a parse profile prompted by
 0x20): remove the shared point rather than lock it faster.*
 
 - **What was wrong.** Every `Symbol(text)` took the table's mutex, to read as well as to
@@ -6380,7 +6531,7 @@ the list while it is walked, and listeners that notify each other back.*
   |---|---:|---:|
   | `bench_parse`, 4.2 MB of config text | 200–202 MB/s | 207–209 MB/s |
   | `bench_lookup`, `find_float("key19")` by text | 17.1–18.3 ns | 14.6 ns |
-  | `bench_lookup`, `find_float("key19"_sym)` (D192) | 9.3 ns | 9.0 ns |
+  | `bench_lookup`, `find_float("key19"_sym)` (D196) | 9.3 ns | 9.0 ns |
   | `Symbol(text)` of an interned name, 1 thread | 23.7 ns | 8.4 ns |
   | the same from 2 threads, per call per thread | 80.5 ns | 6.9 ns |
   | the same from 4 threads | 193.3 ns | 7.3 ns |
@@ -6391,16 +6542,38 @@ the list while it is walked, and listeners that notify each other back.*
 - **Tests.** `test_core`: four threads intern shared and private names while the table
   grows; shared names are one symbol, every name reads back; TSan in CI runs it.
 
-## D195. The lexer's atom-end test is a table
+## D198. A tweak's callbacks may change the Config, and cannot loop
 
-*From the Game++ reading (`dev/gamepp-notes.md`, 0x20): a class table beats a chain of
+*From a reading of the book Game++ (sections 0x2D and 0x55): a listener that changes the
+list while it is walked, and listeners that notify each other back.*
+
+- **What was wrong.** `TweakBase::notify` walked `on_change` by reference. A callback that
+  added a callback to the same tweak moved the table under the walk (undefined behaviour,
+  though no test did it). A callback that set a tweak whose callback set this one back
+  recursed until the stack ran out; the header said nothing about either.
+- **Now.** `notify` walks by index over the count at entry, so a callback added from
+  inside one runs from the next change; and a tweak being notified is not notified again
+  until its callbacks return, so two tweaks whose callbacks set each other each notify
+  once. The value still changes; only the second notification is elided. One `bool` in
+  the tweak's `Extra`, which only tweaks with callbacks have; one branch in `notify`, which
+  runs on a change, never on a read.
+- **Reload callbacks** already ran over a copy (`on_reload`) or by index with the count
+  re-read (`on_reload_complete`); a test now says so.
+- **Tests** (`test_config`): a callback sets another tweak, which notifies once; two
+  callbacks set each other and each runs once; a callback added from inside runs next
+  time; a reload callback removes itself and another while notified, and a completion
+  removes itself.
+
+## D199. The lexer's atom-end test is a table
+
+*From a reading of the book Game++ (section 0x20): a class table beats a chain of
 compares for a byte scan.*
 
 - **What changed.** `is_atom_end` (`src/data/text.hpp`) tested nine conditions a byte;
   it indexes a 256-entry `constexpr` table. `lex_atom`'s loop is one load and a branch a
   byte.
 - **Measured** (`bench_parse`, 4.2 MB, release, this container): 207–209 MB/s before
-  (after D193), 209–213 MB/s after, three runs each; under cachegrind the parse runs
+  (after D197), 209–213 MB/s after, three runs each; under cachegrind the parse runs
   4,072,722,831 instructions before and 3,926,411,030 after, 3.6% fewer. Allocations
   unchanged.
 - **What remains** in the lexer, from the callgrind profile that found this: `lex_token`,

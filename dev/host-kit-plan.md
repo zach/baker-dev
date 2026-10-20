@@ -3,6 +3,9 @@
 *The owner's decision on D184's open question (D186): an optional library beside the core,
 in this repository, for what every host rewrites.*
 
+**Status: done.** Steps 1 to 6 are D187 to D190, D192 and D194; D191 and D193 added what
+the Godot and editor integrations asked of it along the way.
+
 | Decision | Choice |
 |---|---|
 | Scope of the first version | The file watcher, the loopback console, the live loop, and the tool commands |

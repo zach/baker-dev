@@ -14,6 +14,7 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -42,6 +43,12 @@ inline bool set_nonblocking(socket_t s) {
 inline bool would_block() {
     return WSAGetLastError() == WSAEWOULDBLOCK;
 }
+// Each write goes out at once: without it, a write waits for the acknowledgement of the
+// last, which a client may hold back about 40 ms (Nagle's algorithm against delayed ACKs).
+inline void set_nodelay(socket_t s) {
+    const BOOL on = TRUE;
+    (void)setsockopt(s, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&on), sizeof on);
+}
 #else
 using socket_t = int;
 inline constexpr socket_t kNoSocket = -1;
@@ -57,6 +64,12 @@ inline bool set_nonblocking(socket_t s) {
 }
 inline bool would_block() {
     return errno == EWOULDBLOCK || errno == EAGAIN;
+}
+// Each write goes out at once: without it, a write waits for the acknowledgement of the
+// last, which a client may hold back about 40 ms (Nagle's algorithm against delayed ACKs).
+inline void set_nodelay(socket_t s) {
+    const int on = 1;
+    (void)setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &on, sizeof on);
 }
 #endif
 
