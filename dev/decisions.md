@@ -6687,3 +6687,58 @@ scan instead of in a second pass, kept only if a parse ran at least 10% fewer in
   a parse, the proposal is the right shape, with an agreement test against
   `classify_number`'s grammar over the corpus and the fuzz regressions. The proposal's
   text stays on the `gamepp-reading` branch.
+
+## D203. A field's allowed symbols: `(one_of ...)`
+
+*Requirement note 0015, from the editor integration.*
+
+- **The need.** A symbol field is the data's enumeration: a button, a damage type, a
+  behaviour, a material. Its allowed values lived in prose (`desc`) or in the code that
+  switches on them. So:
+  - a typo passed `check` and failed, or did nothing, in the game;
+  - an editor could offer only the values the data already used;
+  - an agent had to read the code to learn the choices.
+- **Shapes.** A `symbol` or `(list symbol)` field may list what it allows:
+  `(button symbol (one_of light heavy kick special))`.
+  - **Checking.** `check` reports a value outside the list as an error, as it reports one
+    outside a range: `'button' is 'lite', not one of light, heavy, kick, special`, located
+    by file, line and path. A list of symbols checks each element. Commands and variables
+    are not checked, as before.
+  - **Cost.** A list is checked by comparing interned symbols, a pointer compare each. A
+    field without a list pays one emptiness test per value.
+  - **Declared again.** A field adds the new list's symbols to the old, in the order
+    written, as the note asks ("a later layer may add a symbol").
+  - **Packs.** Adding a symbol to a harder pack's list loosens it (D145): a warning, and
+    the harder list holds.
+  - **Mistakes.** A list on a field of another type, or holding something other than
+    symbols, is a located declaration error.
+  - **`Field::one_of`** is a `List<Symbol>`, kept in the written order, and
+    `baker.shapes/1.1` writes it.
+- **Tweaks.** `TweakMeta::one_of`, a span of names in code, or `(one_of ...)` after the
+  value in data, whose list wins, as the data's range does. `TweakBase::one_of()` reads it,
+  `baker.tweaks/1.1` writes it, and the value's metadata strips it, as it strips the other
+  keys.
+  - **Metadata only, as a tweak's range is.** Nothing checks a tweak's value against its
+    range today; checking is the shapes' work. A tweak's list is for panels and editors to
+    offer, and a shape's list is what `check` enforces. The editor session is told so.
+- **Versions.** Both documents gain the `one_of` field, so both take a new minor version,
+  `baker.tweaks/1.1` and `baker.shapes/1.1`, by the documents' rule.
+  `docs/reference-json.md` describes the field.
+- **Duel** declares its enumerations instead of describing them:
+  - `button` lists `light heavy kick special` in place of a `desc` that named them in
+    prose;
+  - `guard` lists `mid low overhead`.
+  The data uses only these, as `fight.cpp` reads them; `(button lite)` in the agent's layer
+  now fails Duel's `check` with the error above. All 30 stacks tests pass.
+- **Measured** (`tools/bench_compare.py --bench layers_shape --runs 5`, against main):
+  every row of the shape-checking benchmark was the same or 2 to 4% faster, three of them
+  beyond the noise. Under cachegrind the whole benchmark runs 18,524,674,000 instructions
+  against 19,054,221,298 on main. That count is deterministic: main twice differs by 545
+  instructions. The fall is the compiler's arrangement of the check's value loop after the
+  change; the added work is one test per value. Not traced further.
+- **Tests:**
+  - shapes: a value and a list element outside their lists; values inside and a command,
+    which pass; a redeclaration adding in order; the JSON; the two declaration errors;
+    a softer pack adding a symbol;
+  - tweaks: the code's list and the data's, with the value read without its metadata;
+  - the two JSON documents' expected bytes at 1.1.
