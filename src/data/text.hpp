@@ -36,7 +36,6 @@ namespace baker::detail {
 void json_string(Str& out, std::string_view s);
 void json_names(Str& out, std::span<const Symbol> names);
 
-// Bytes that end an atom. Every byte <= 0x20 is whitespace.
 // The bytes that end an atom: control characters and space, the six brackets, a quote and
 // a comment. A table, so the lexer's scan is one load a byte.
 inline constexpr std::array<bool, 256> kAtomEnd = [] {

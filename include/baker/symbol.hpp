@@ -81,7 +81,7 @@ struct SymbolLiteral {
 }  // namespace detail
 
 inline namespace literals {
-// "price"_sym: interned once per site, on the first call, then one load. A literal in a
+// "price"_sym: interned once per distinct literal, on its first call, then one load. A literal in a
 // hot loop costs what a Symbol held in a variable costs; Symbol("price") interns each call.
 template <detail::SymbolLiteral S>
 Symbol operator""_sym() {

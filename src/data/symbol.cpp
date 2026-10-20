@@ -12,7 +12,7 @@ namespace {
 // allocator. Never destroyed: symbols are immortal, and leaking the table keeps them valid
 // during static destruction too.
 //
-// Reads take no lock (D193). Entries are immutable once published, slots only ever go from
+// Reads take no lock (D197). Entries are immutable once published, slots only ever go from
 // empty to an entry, and a grown table replaces the old one whole, so a reader probes the
 // table it loaded and either finds its symbol or reaches an empty slot. Only then does it
 // take the mutex, probe the current table again, and insert. A grown table keeps the one

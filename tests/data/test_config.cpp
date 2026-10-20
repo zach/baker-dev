@@ -503,7 +503,7 @@ TEST_CASE("callbacks may change the Config and their own lists while notified") 
         dir.write("d.dta", "(g (v 3))\n");
         REQUIRE(files.reload());
         CHECK(one == 1);  // removed
-        CHECK(two <= 1);  // removed by the first callback: at most the round it was removed in
+        CHECK(two == 1);  // ran in the round it was removed in: the round walks a copy
         CHECK(done == 1);
     }
 }
