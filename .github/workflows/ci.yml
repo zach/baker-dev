@@ -100,11 +100,17 @@ jobs:
         shell: bash
         run: |
           game=${{ matrix.game }}
+          # An agent's proposal left on the build machine, which must not ship.
+          echo "(planted_by_ci 1)" > stacks/$game/data/agent.dta
           mkdir -p package/data
           cp build-package/bin/stacks_$game.exe package/
           cp -r stacks/$game/data/* package/data/  # Wayfarer's regions/ too
           if [ -d stacks/$game/packs ]; then cp -r stacks/$game/packs package/; fi
           cp stacks/$game/package/README.txt package/
+          # The layers the project marks dev_only stay out, as the game reads the project.
+          (cd stacks/$game && ../../build-package/bin/stacks_$game.exe dev-files --data data) |
+            tr -d '\r' | while read -r file; do rm -f "package/$file"; done
+          test ! -e package/data/agent.dta
           cd package && ./stacks_$game.exe --headless --frames 60 --console-port 0
       - uses: actions/upload-artifact@v4
         with:

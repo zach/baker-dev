@@ -33,19 +33,21 @@ struct Options {
 };
 
 [[noreturn]] void usage(const char* problem) {
-    std::fprintf(stderr,
-                 "%s\n"
-                 "commands:\n"
-                 "  sim [--scenario NAME]... [--seeds A-B] [--out DIR] [--step-hz N] [--json]\n"
-                 "                                 --out also gets results.json (stacks.sim/1.1);\n"
-                 "                                 --json prints it instead of the text\n"
-                 "  compare BEFORE_DIR AFTER_DIR   which objectives moved between two --out\n"
-                 "                                 directories (stacks.compare/1.1); exit 1 if one "
-                 "broke\n"
-                 "%.*s"
-                 "every command also takes --data DIR, --sim DIR, --metrics DIR\n",
-                 problem, int(baker::host::command_help().size()),
-                 baker::host::command_help().data());
+    std::fprintf(
+        stderr,
+        "%s\n"
+        "commands:\n"
+        "  sim [--scenario NAME]... [--seeds A-B] [--out DIR] [--step-hz N] [--json]\n"
+        "                                 --out also gets results.json (stacks.sim/1.1);\n"
+        "                                 --json prints it instead of the text\n"
+        "  compare BEFORE_DIR AFTER_DIR   which objectives moved between two --out\n"
+        "                                 directories (stacks.compare/1.1); exit 1 if one "
+        "broke\n"
+        "  dev-files                      the files of the layers the project marks\n"
+        "                                 dev_only, one a line: what packaging leaves out\n"
+        "%.*s"
+        "every command also takes --data DIR, --sim DIR, --metrics DIR\n",
+        problem, int(baker::host::command_help().size()), baker::host::command_help().data());
     std::exit(kError);
 }
 
@@ -276,6 +278,21 @@ baker::host::CommandHooks hooks(Game& game, const Options& o, const DataStack& s
     return h;
 }
 
+// The files of the layers the project marks dev_only, as the project names them, one a line:
+// what a package must not carry, read the way the game reads its project.
+int dev_files(const Options& o) {
+    const DataStack stack = data_stack(o.data);
+    if (stack.project.empty()) return 0;  // no project file: nothing marked
+    auto project = baker::read_project(baker::find_project(stack.project).str());
+    if (!project) {
+        std::fprintf(stderr, "%s\n", std::string(baker::describe(project.error())).c_str());
+        return kError;
+    }
+    for (const baker::ProjectLayer& l : project->layers)
+        if (l.dev_only) std::printf("%s\n", l.path.c_str());
+    return 0;
+}
+
 }  // namespace
 
 int main(Game& game, int argc, char** argv, AppOptions defaults) {
@@ -289,6 +306,7 @@ int main(Game& game, int argc, char** argv, AppOptions defaults) {
     const Options o = parse(*line, resolved.data_dir);
     if (line->command == "sim") return sim(game, o);
     if (line->command == "compare") return compare(o);
+    if (line->command == "dev-files") return dev_files(o);
     const DataStack stack = data_stack(o.data);
     line->project = stack.project;
     line->patch_root = o.data;  // a patch applies from the data directory
