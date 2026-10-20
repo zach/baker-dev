@@ -4,7 +4,7 @@
 // agent with a shell calls `mygame check`, and the game answers with Baker's JSON. They
 // live in the game's binary because only it has its script functions.
 //
-//   check                          baker.check/1.2 JSON; exit 1 on an error, a load
+//   check                          baker.check/1.3 JSON; exit 1 on an error, a load
 //                                  problem, a shape error, or a call to an undefined
 //                                  function
 //   reference [--json]             the script vocabulary, as Markdown; --json:

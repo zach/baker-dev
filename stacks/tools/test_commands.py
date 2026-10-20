@@ -47,7 +47,7 @@ def check_gate(s):
         return code, json.loads(out)
 
     code, r = check("")
-    expect(code == 0 and r["passed"] and r["schema"] == "baker.check/1.2", "clean data passes")
+    expect(code == 0 and r["passed"] and r["schema"] == "baker.check/1.3", "clean data passes")
 
     code, r = check("#autorun {spawnn 1}\n")
     expect(code == 1 and not r["passed"], "a failing #autorun command fails the check")

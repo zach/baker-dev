@@ -486,7 +486,7 @@ int run_command(const CommandLine& line, const CommandHooks& hooks) {
 }
 
 std::string_view command_help() noexcept {
-    return "  check                          baker.check/1.2 JSON; exit 1 on an error, a load\n"
+    return "  check                          baker.check/1.3 JSON; exit 1 on an error, a load\n"
            "                                 problem, a shape error, or an undefined function\n"
            "  reference [--json]             the script vocabulary, as Markdown; --json:\n"
            "                                 {reference, tweaks, shapes} as Baker's JSON\n"
