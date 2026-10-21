@@ -144,12 +144,14 @@ through your file access, as `Live` does, for files under an engine's own roots.
 
 - **Files.** The project file (`baker-project.dta`) gives the stack. It names the reference
   JSON your build writes (`(reference "build/reference.json")`), the game binary that answers
-  the commands (`(tool ...)`), and its scenarios and objectives (`(scenarios ...)`,
-  `(objectives ...)`).
+  the commands (`(tool ...)`), the port its console listens on (`(console 4555)`, which
+  the game may use as its default while its own command line wins), and its scenarios and
+  objectives (`(scenarios ...)`, `(objectives ...)`).
 - **Documents.** [The reference](reference-json.md), [check's report](check-json.md),
   [the reply](reply-json.md) and [sim's results](sim-json.md) are versioned JSON. A field is added only with a new minor
   version.
 - **The console.** One request per line, one JSON reply per line, to a running game.
+  `{config.epoch}` says whether anything changed since a tool last asked.
 - **Commands.** Your game binary's own commands, run by the tool.
 
 A tool that checks data without the game reads the project file, then the reference, and

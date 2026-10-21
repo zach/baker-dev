@@ -7012,3 +7012,27 @@ the stacks move onto it, `compare` included.*
 - **Tests.** A game with a type, a derived type, a named object and a `vec2` function, and a
   tool declaring the same from descriptions, check one tree to identical errors and demand;
   the refusals name the type, method, base or object.
+
+## D212. Fixed-size lists describe their values; the console's epoch and port
+
+*Requirement notes 0019 and 0020, from the editor integration.*
+
+- **0019: fixed-size lists.** `Convert<std::array<T, N>>` declares `values`: N of T's value
+  type when T is one of Baker's single-value types (`std::array<float, 3>` is three
+  `float32`s), at compile time. A T of the game's own leaves `values` empty: its values
+  nest in each element, `((0 1) (2 3))`, and a flat list would describe the wrong layout.
+  The reference writes them (`baker.tweaks/1.2`, `baker.reference/1.2`, no new field), so a
+  tool registers such a tweak with `DescribedTweaks` and declares such a parameter. A test
+  checks the note's edits, `(color 0.9 0.5)` and `(color red 0.5 0.2)`, against a game's
+  tweak and a described copy, errors and warnings alike. A difference remains: the
+  converter takes exactly N values and a described tweak at least N, so a fourth value
+  passes the tool and fails the game. `std::vector` still declares none.
+- **0020: `{config.epoch}`.** A config tool answering `Config::epoch()`: a tool polls it
+  and asks for values again only when it moved. Nothing is kept that was not kept before.
+- **0020: `(console PORT)`.** `read_project` reads it into `Project::console_port` (0 when
+  absent) with its position; a port outside 1 to 65535, or not a number, is an error at its
+  line. A game may use it as its default; Baker does not open a console from it.
+- **The stacks** name a port each, Cube 4555 to Wayfarer 4561, and the base uses it unless
+  `--console-port` is given, so the seven run at once. `stacks/tools/console.py --stack DIR`
+  reads the port from a stack's project file. A packaged game has no project file and keeps
+  4555.

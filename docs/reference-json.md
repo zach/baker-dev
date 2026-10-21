@@ -149,7 +149,9 @@ A described tweak reads each value as the game's converter would with `Values::r
 `(aim 1)` where a `vec2` is wanted fails in the tool as it fails in the game. A description
 it cannot hold is an error naming the tweak: a type of the game's own with no `values`, a
 value type that is not one of Baker's, or a default that does not read as its types. A type
-whose count of values is the data's (a list) has no `values` and cannot be described yet.
+whose count of values is the data's (a `std::vector`) has no `values` and cannot be
+described yet. A fixed-size list of one of Baker's single-value types (`std::array<float, 3>`)
+declares its own: three `float32`s.
 
 ## `baker.shapes/1.1`
 

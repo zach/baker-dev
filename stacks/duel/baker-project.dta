@@ -6,6 +6,7 @@
    (reference "build/reference.json")   ; written by the build (stacks_reference)
    (scenarios "sim")                    ; what `sim` runs (agent.md)
    (objectives "metrics")               ; what it judges them by
+   (console 4556)                       ; the console's port, unless --console-port names one
    (layers
       (default "data/default.dta")
       (local "data/local.dta" optional dev_only)   ; one developer's own tuning; sim and check skip it

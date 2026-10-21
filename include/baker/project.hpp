@@ -11,6 +11,7 @@
 //      (defines PC)                       ; flags, as #ifdef sees them
 //      (reference "build/reference.json") ; for tools: where the build writes the reference
 //      (tool "build/bin/game")            ; for tools: the binary that runs the tool commands
+//      (console 4555)                     ; for tools: the port the game's console listens on
 //      (scenarios "sim")                  ; for tools: scenario files, or directories of them
 //      (objectives "metrics")             ; for tools: objective files, or directories
 //      (layers                            ; bottom to top
@@ -93,6 +94,10 @@ struct Project {
     // if the file names none. A game ignores them, and nothing here asks that they exist.
     Symbol tool;
     ProjectPosition tool_at{};
+    // (console 4555): the port the game's console listens on, for tools that talk to it, and
+    // for the game as its default; 0 if the file names none. A game's own command line wins.
+    uint16_t console_port = 0;
+    ProjectPosition console_at{};
     List<ProjectEntry> scenarios;
     List<ProjectEntry> objectives;
 };

@@ -39,7 +39,8 @@ struct AppOptions {
     double frame_hz = -1;
     uint32_t frames = 0;           // exit after this many frames; 0: run until closed
     bool headless = false;         // no window (SDL's dummy video driver) and the Noop renderer
-    uint16_t console_port = 4555;  // the remote console on 127.0.0.1; 0: none
+    uint16_t console_port = 4555;  // the remote console on 127.0.0.1; 0: none. The stack's
+                                   // project file's (console PORT) wins over this default
     bool console_write = false;    // the console may write live edits back (LiveOptions)
     bool tools = true;             // the panels start shown (F1 toggles them)
     std::string screenshot{};  // a PNG of the last frame (of frame 30 without frames); empty: none

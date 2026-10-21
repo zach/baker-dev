@@ -5,6 +5,7 @@
 #include <SDL3/SDL.h>
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
+#include <baker/project.hpp>
 #include <baker/task.hpp>
 
 #include <algorithm>
@@ -110,6 +111,7 @@ AppOptions parse_args(int argc, char** argv, AppOptions o) {
         const std::filesystem::path beside = std::filesystem::path(base) / "data";
         if (std::filesystem::exists(beside / "default.dta", ec)) o.data_dir = beside.string();
     }
+    bool port_given = false;
     for (int i = 1; i < argc; ++i) {
         const char* a = argv[i];
         const bool more = i + 1 < argc;
@@ -123,6 +125,7 @@ AppOptions parse_args(int argc, char** argv, AppOptions o) {
             o.headless = true;
         } else if (!std::strcmp(a, "--console-port") && more) {
             o.console_port = static_cast<uint16_t>(number(argv[0], argv[++i], 0, 65535));
+            port_given = true;
         } else if (!std::strcmp(a, "--console-write")) {
             o.console_write = true;
         } else if (!std::strcmp(a, "--no-vsync")) {
@@ -139,6 +142,12 @@ AppOptions parse_args(int argc, char** argv, AppOptions o) {
             usage(argv[0], "unknown argument");
         }
     }
+    // The stack's project file names its console's port, so tools know which game is which;
+    // the command line wins.
+    if (const DataStack stack = data_stack(o.data_dir); !port_given && !stack.project.empty())
+        if (auto project = baker::read_project(baker::find_project(stack.project).str());
+            project && project->console_port)
+            o.console_port = project->console_port;
     if (o.headless) o.renderer = RendererKind::Noop;
     if (o.frame_hz < 0) o.frame_hz = o.headless && !o.frames ? o.step_hz : 0;
     return o;

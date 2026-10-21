@@ -4,6 +4,7 @@
 #include <baker/parse.hpp>
 #include <baker/std_interop.hpp>
 
+#include <array>
 #include <string>
 #include <vector>
 #include "ok.hpp"
@@ -212,4 +213,34 @@ TEST_CASE("a description the registry cannot hold is an error naming the tweak")
     CHECK(std::string(bad_default.error().message()).find("default") != std::string::npos);
     CHECK(described.size() == 0);
     CHECK(reg.size() == 0);
+}
+
+TEST_CASE("a fixed-size list declares its value types, and a tool checks it as the game (D212)") {
+    TweakRegistry game;
+    Tweak<std::array<float, 3>> color{"cube.color", {0.9f, 0.5f, 0.2f}, {}, game};
+    TweakRegistry nested;
+    Tweak<std::array<Vec2, 2>> path{"cube.path", {}, {}, nested};
+    REQUIRE(color.value_types().size() == 3);
+    CHECK(path.value_types().empty());  // values nested in each element: not listed flat
+    std::string json;
+    write_json(game, string_out(json));
+    CHECK(json.find(
+              R"j("type": "fixed-size list", "values": ["float32", "float32", "float32"], )j") !=
+          std::string::npos);
+
+    TweakRegistry tool;
+    DescribedTweaks described(tool);
+    REQUIRE(described.add({.path = "cube.color",
+                           .type = "fixed-size list",
+                           .values = color.value_types(),
+                           .default_text = "(0.9 0.5 0.2)"}));
+    for (const char* text : {"(cube (color 0.9 0.5 0.2))\n", "(cube (color 0.9 0.5))\n",
+                             "(cube (color red 0.5 0.2))\n"}) {
+        CAPTURE(text);
+        const Ref<Array> root = ok(read_string(text, "d.dta"));
+        CHECK(messages(check_tweaks(*root, tool).errors) ==
+              messages(check_tweaks(*root, game).errors));
+        CHECK(messages(check_tweaks(*root, tool).warnings) ==
+              messages(check_tweaks(*root, game).warnings));
+    }
 }
