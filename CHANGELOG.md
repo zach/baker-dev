@@ -3,6 +3,23 @@
 Baker's releases, newest first. Versions follow [semantic versioning](https://semver.org);
 before 1.0.0, a minor version may change the API.
 
+## 0.4.0 - 2026-10-21
+
+- **New in the host kit: a scenario run your own loop advances.** `sim` steps your game
+  through `CommandHooks::step`, many steps inside one call. An engine that owns its main loop
+  advances its physics only inside that loop, so its game cannot step on demand.
+  `baker::host::SimRun` lets such a game run the kit's scenarios from its frames.
+  - **How it works.** It asks for a reset with each run's seed, which your world may take
+    several frames to do; call `ready()` when it is done. Then call `step()` once per fixed
+    step of `step_seconds()`.
+  - **What the kit still does.** It runs the scenario's commands when they are due, judges
+    the objectives, and writes the same output, with the same exit status, as `sim`.
+  - **Stopping.** `stop()` ends early: the run in progress is kept as not finished, and the
+    exit status is 2.
+  - **Cost.** A step with nothing due allocates nothing.
+- **Changed: `sim`'s JSON is `baker.sim/1.1`.** Each run gains `finished`, and the status may
+  be `"stopped"`. Readers of 1.0 keep working, since nothing was removed or renamed.
+
 ## 0.3.0 - 2026-10-21
 
 - **New: `check` holds the data to the tweaks your game declares.** A value a tweak cannot
