@@ -257,20 +257,6 @@ private:
 };
 
 namespace detail {
-template <class T>
-inline constexpr std::string_view kValueType[1] = {convert_info<T>().name};
-
-// Baker's type of each value a T is written as: Convert<T>::values if it declares them, the
-// type itself for one of Baker's single-value types, else none.
-template <class T>
-[[nodiscard]] constexpr std::span<const std::string_view> value_types() noexcept {
-    if constexpr (requires { std::span<const std::string_view>(Convert<T>::values); })
-        return Convert<T>::values;
-    else if constexpr (convert_info<T>().kind != ConvertKind::Compound)
-        return kValueType<T>;
-    else
-        return {};
-}
 
 template <class T>
 [[nodiscard]] constexpr bool atomic_tweak() noexcept {

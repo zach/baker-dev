@@ -485,7 +485,7 @@ namespace {
 
 // Whether value `i` reads as Baker's type `type`, as a game's Convert reads it with
 // Values::read; nullopt if `type` is not one of Baker's single-value types.
-std::optional<bool> reads_as(std::string_view type, const Values& v, size_t i) {
+std::optional<bool> reads_one(std::string_view type, const Values& v, size_t i) {
     auto as = [&]<class T>(std::type_identity<T>) {
         T out{};
         return v.read(i, out);
@@ -507,10 +507,25 @@ std::optional<bool> reads_as(std::string_view type, const Values& v, size_t i) {
     return std::nullopt;
 }
 
-bool bakers_type(std::string_view type) {
+}  // namespace
+
+namespace detail {
+
+bool value_type_known(std::string_view type) noexcept {
     const Node probe;
-    return reads_as(type, Values(std::span<const Node>(&probe, 1), nullptr), 0).has_value();
+    return reads_one(type, Values(std::span<const Node>(&probe, 1), nullptr), 0).has_value();
 }
+
+bool reads_as(std::span<const std::string_view> types, const Values& values) {
+    if (values.size() < types.size()) return false;
+    for (size_t i = 0; i < types.size(); ++i)
+        if (!reads_one(types[i], values, i).value_or(false)) return false;
+    return true;
+}
+
+}  // namespace detail
+
+namespace {
 
 // What a described tweak keeps: copies of its description, which TweakBase points into.
 struct DescribedParts {
@@ -565,9 +580,7 @@ public:
 
 private:
     bool assign(const Values& v, bool apply) override {
-        if (v.size() < type_views.size()) return false;
-        for (size_t i = 0; i < type_views.size(); ++i)
-            if (!reads_as(type_views[i], v, i).value_or(false)) return false;
+        if (!detail::reads_as({type_views.data(), type_views.size()}, v)) return false;
         if (apply) {
             current = ValueList();
             for (size_t i = 0; i < type_views.size(); ++i) current.push(v[i]);
@@ -616,14 +629,15 @@ Expected<void> DescribedTweaks::add(const TweakDescription& d) {
     // A type of Baker's is its own one value type; a game's names its own.
     const std::string_view own[1] = {d.type};
     const std::span<const std::string_view> types = !d.values.empty() ? d.values
-                                                    : bakers_type(d.type)
+                                                    : detail::value_type_known(d.type)
                                                         ? std::span(own)
                                                         : std::span<const std::string_view>();
     if (types.empty())
         return refuse("its type '" + Str(d.type) +
                       "' is not one of Baker's, and its description gives no value types");
     for (const std::string_view t : types)
-        if (!bakers_type(t)) return refuse("value type '" + Str(t) + "' is not one of Baker's");
+        if (!detail::value_type_known(t))
+            return refuse("value type '" + Str(t) + "' is not one of Baker's");
     // The default, as Baker text: one value bare, several in parentheses.
     auto tree =
         read_string(d.default_text.empty() ? std::string_view("0") : d.default_text, "default");

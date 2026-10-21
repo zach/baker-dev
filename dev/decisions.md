@@ -6979,3 +6979,36 @@ the stacks move onto it, `compare` included.*
 - **Cost.** Nothing on a tweak's read path: `value_types()` is a virtual used by the JSON
   and tools. A game that does not use `DescribedTweaks` gains one vtable entry per tweak
   type. The core is 14,492 lines of its 15,000.
+
+## D211. A tool declares the game's types, objects and value types from the reference
+
+*Requirement note 0018, from the editor integration (`dev/declared-types-note.md`).*
+
+- **The need.** A tool declares the game's functions from the reference (D175), but not its
+  types or named objects, so `{scheduler delay_task 2 {...}}` was not checked at all; and a
+  parameter of a game type (`vec2`) could not be declared, or took any value.
+- **Value types of a parameter.** A parameter's `values` come from `detail::value_types<T>()`
+  (D210, moved to `array.hpp`), an optional's from its value's. `baker.reference/1.2` writes
+  them on each parameter, `null` when the type does not say. `ParamDescription::values`
+  lets `declare` take a type it does not know; `check` holds a literal argument to the types
+  through `detail::reads_as`, reading an array as its contents as `Values::read` reads a
+  compound value. A declared parameter of one of Baker's types gets that type as its value
+  types, as the native has, so a declared function's reference entry stays the game's.
+- **Types and objects.** `Context::declare_type(name, bases, methods)` builds a type record
+  from `MethodDescription`s (each method's overloads built as `declare` builds a function's,
+  through one `build_described`), inherits its bases, which must be known, and registers it;
+  the Context owns and frees it. `Context::declare_object(name, type)` keeps a name and a
+  type, which `check` reads after live objects. A call on either fails at run time.
+- **The call path.** Putting `values` beside `match` grew `ParamInfo` from 32 to 48 bytes,
+  and the promoted overload row of `bench_call` slowed by 8.9% (47.8 to 52.0 ns, nine runs
+  a side, ranges apart), twice. So a parameter's type name and value types moved behind a
+  pointer, `ParamInfo::text` (a `ParamText`, static for natives), read through `type()`
+  and `values()`; `ParamInfo` is 32 bytes again. Against 3270a23, nine runs a side:
+  `{+ 1.5 2}` 47.9 to 46.8 ns, `{add 1 2}` 32.0 to 32.4, `{bob grow 0}` 62.0 to 61.8, all
+  within their ranges. `handle_all` moved 427 to 375 ns (ranges apart) and the no-Context
+  `handle` 8.6 to 7.5; the message path reads no parameter table, and `count_instructions`
+  has no message case to settle it, so it is recorded, not claimed. The parse, lookup,
+  set and frame instruction counts are unchanged.
+- **Tests.** A game with a type, a derived type, a named object and a `vec2` function, and a
+  tool declaring the same from descriptions, check one tree to identical errors and demand;
+  the refusals name the type, method, base or object.

@@ -27,6 +27,16 @@ before 1.0.0, a minor version may change the API.
     `static constexpr std::string_view values[] = {"float32", "float32"};`.
   - **`baker.tweaks/1.2`** adds `values`, Baker's type of each of a tweak's values, and
     `TweakBase::value_types()` gives the same in code.
+- **New: check calls on objects, and values of game types, without the game.** A tool can
+  now declare the rest of the reference, as it declares functions with `Context::declare`.
+  - `Context::declare_type` declares a type with its bases and methods, and
+    `Context::declare_object` a named object of it. `check` then holds
+    `{tank fire 3}` to the type's methods as the game's `check` does.
+  - A parameter of a type of the game's own, such as a `vec2`, is checked by the value
+    types its converter declares, so `{aim 1}` where a `vec2` is wanted is an error.
+  - **`baker.reference/1.2`** adds `values` to each parameter. `ParamDescription` takes it.
+  - **What breaks:** `detail::ParamInfo` keeps its type name behind `text`; read it with
+    `type()`. Only code that reads the parameter tables directly is affected.
 - **Changed: `sim`'s JSON is `baker.sim/1.1`.** Each run gains `finished`, and the status may
   be `"stopped"`. Readers of 1.0 keep working, since nothing was removed or renamed.
 
