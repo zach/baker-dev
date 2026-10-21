@@ -6920,3 +6920,33 @@ the stacks move onto it, `compare` included.*
     file in the source tree cannot know. A tool that builds the stack knows it;
   - every stack's `sim` and `check` tests pass on their own data, and `test_commands.py`
     checks the new schemas and that runs and broken objectives are located.
+
+## D209. A scenario run the host advances from its own loop: `SimRun`
+
+*Requirement note 0011, from the Godot integration (`dev/stepped-sim-note.md`).*
+
+- **The need.** `sim` stepped a game through `CommandHooks::step`, in a loop inside one
+  call. An engine that owns its main loop advances its physics only inside that loop, a
+  frame at a time, with no call that runs one step and comes back. A game in it could not
+  write `step` faithfully: stepping its systems from inside one call skipped the engine's
+  physics, and the runs were wrong and not repeatable. Such a game kept its own runner and
+  its own result format.
+- **`baker::host::SimRun`** (`<baker/host/commands.hpp>`) is a `sim` the host advances:
+  `wants()` says `Reset`, `Steps` or `Done`; the host resets its world with `seed()` over as
+  many frames as it takes and calls `ready()`; then it calls `step()` once per fixed step of
+  `step_seconds()`; at the end `status()` is the exit status and the output has gone where
+  `run_command` sends it. `stop()` ends early.
+- **One runner, two drivers.** The runner became `sim::Stepper` (`begin`, `advance`,
+  `judge`, `stop`); `simulate` is a loop over it. `sim` through `run_command` is a `SimRun`
+  driven with the hooks' `reset` and `step`, so both paths give the same runs, bytes and exit
+  status; a test checks the bytes, with a reset that takes three frames.
+- **Reset.** `SimRun` sets `$seed` and waits; it never calls `reset` or `step` itself.
+  Waiting counts no steps.
+- **Stopping.** The run in progress is kept with its steps, not finished and not judged;
+  runs not started are left out; status 2. `baker.sim/1.1` adds `finished` to each run and
+  `"stopped"` as a status; `results.dta` writes `(finished 0)` and `read_results` reads it.
+- **Cost.** A step with nothing due is a scheduler tick, a count and a compare; a test holds
+  it to no allocation. The kit is 2,299 lines; the owner raised its budget to 2,400.
+- **Output.** `run_command` and `SimRun` share one `send` for `--output`, the host's sink or
+  stdout. A `SimRun` call gathers what it prints while it runs, so calls spread over frames
+  write one output.
