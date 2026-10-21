@@ -41,6 +41,26 @@ network store. Nothing here costs anything until you call it.
 of text into one line of JSON (see [the reply format](reply-json.md)). Together they let any
 transport you choose carry Baker's tools: a socket, a pipe, an in-game console.
 
+### Text as a person types it
+
+An editor works on text that rarely parses, and checks it on every pause:
+
+- **Its structure.** `read_structure(text)` reads the text with the parser's own lexer and
+  gives back every token (with its kind and byte span), every bracket (its parent and its
+  tag) and every comment, even when the text does not parse. An unclosed bracket runs to the
+  end of the text, an unterminated string or comment ends there, and the problems are listed
+  beside the rest. It reads 2 MB in about 25 ms. The outline, folding, completion, hover, a
+  rename and a highlighter can all work from it, with no lexer of the tool's own.
+- **Values as Baker presents them.** `split_metadata(values)` separates a value from the
+  metadata after it, `(width 2 (range 0 10))`, and `presented_kind(values)` gives the kind a
+  value is shown as (its `(kind ...)`, or "color" for 3 or 4 numbers ranged 0 to 1). These
+  are the rules tweaks follow.
+- **Checking again after an edit.** Keep one Config, reading through a reader that serves
+  the open editors' text, and call `reload()` after each edit. It compares each layer's text
+  by hash and reads again only from the first layer whose text changed, upward, so an edit
+  to a small top layer above a 2 MB one reloads in about 2 ms where a fresh load takes about
+  57. The result, its errors included, is what a fresh load gives.
+
 ## What the host does
 
 Each of these has a ready-made form in [the host kit](#the-host-kit); a host with its own

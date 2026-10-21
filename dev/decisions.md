@@ -7134,3 +7134,52 @@ An argument that is not a string is an error at its line.
   `Context::has_type(name)` answers before asking.
 - **Paths.** Every `check_tweaks` finding carries its subject as its path: the tweak's, or
   for a stray key the key's own, group then key. The messages are unchanged.
+
+## D220. A tolerant read of text, for tools; the core's budget is 15,500
+
+*Requirement note 0021, from the editor integration. The owner raised the core's soft
+budget from 15,000 to 15,500 for this note and 0024.*
+
+- **The need.** An editor needs the structure of text that rarely parses: `(kestrel (hea`.
+  Each tool wrote its own lexer, a second copy of Baker's syntax that no test held to it.
+- **`read_structure(text, file)`** (`<baker/parse.hpp>`) runs the parser's own `Lexer` in a
+  tolerant mode (`tolerate`): each problem goes to a list and the lexing goes on; an
+  unterminated `/*` comment, string or quoted symbol runs to the end; an out-of-range
+  number and a lone `$` are tokens still. Comments are reported by span. On top, a
+  bracket walk records each bracket's parent, its tag (its first token when that is a
+  symbol), and whether it closed; an unclosed one runs to the end, a stray close is left
+  out, and a close of the wrong kind closes the innermost. A symbol this text defines as a
+  macro at the top level, `[NAME ...]`, is a `Macro` token where it is used. Nothing is
+  expanded and no include followed. It returns `List`s of tokens, brackets, comments and
+  errors, located as the parser's.
+- **The parser's path.** The lexer gains two pointers, tested only on a comment and on the
+  error paths. The parse instruction count went from 1,849,845 to 1,845,499 per document
+  (-0.23%, `count_instructions.py` against 47ee1fa); lookup is unchanged.
+- **Cost of a read.** 2,097,260 bytes, 549,454 tokens: 25.2 ms (best of seven, Release, this
+  machine); the editor's own lexer took about 30 ms for 2 MB.
+- **Tests.** The tokens, brackets and comments of text that parses; text being typed; an
+  unterminated string and comment; stray and mismatched closes; out-of-range numbers; a
+  macro and its uses; every corpus file that parses reads with no errors and every bracket
+  closed.
+
+## D221. A check after an edit reuses the layers whose text did not change: `reload()`
+
+*Requirement note 0024, from the editor integration; no new API, the owner's choice.*
+
+- **The need.** An editor checks the stack on every pause; on a 2 MB `default.dta` a check
+  read the whole stack each time, though the person typed in a ten-line `local.dta`.
+- **Already there.** A Config records, for each layer, the content hash of every file it
+  read through the reader (`Dep`). `reload()` reads each layer's files through the reader,
+  compares the hashes, and reads again only from the first layer whose text changed,
+  upward, since macros flow up. So a tool that keeps one Config and calls `reload()` after
+  each edit gets reuse keyed by text, with no file times; the Config is the cache, and the
+  tool bounds it by keeping it or not.
+- **Numbers.** A 2 MB `default.dta` with a one-line `local.dta`, read through an in-memory
+  reader: a fresh load 57.2 ms, a `reload()` after an edit to `local.dta` 2.0 ms (best of
+  five, Release); `default`'s tree is the same object after it.
+- **A cache across fresh Configs** was weighed and not built: it would have to fingerprint
+  the macros and defines each layer reads from the layers below, for the case of a tool that
+  cannot keep a Config, and none needs that yet.
+- **Tests.** After an edit to the top layer, the kept Config's merged tree and sources are a
+  fresh load's and the bottom layer was not read again; text that does not parse gives the
+  fresh load's error, and the next edit reads.
