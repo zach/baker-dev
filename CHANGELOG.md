@@ -17,6 +17,16 @@ before 1.0.0, a minor version may change the API.
   - **Stopping.** `stop()` ends early: the run in progress is kept as not finished, and the
     exit status is 2.
   - **Cost.** A step with nothing due allocates nothing.
+- **New: check data against the game's tweaks without the game.** A tool that has the game's
+  reference but not its code can now hold data to every tweak, including those of the game's
+  own types.
+  - **`DescribedTweaks`** (`<baker/tweak.hpp>`) registers a tweak from its description, as
+    `baker.tweaks` writes it, with one call for every type. `check_tweaks` then finds what
+    the game's own `check` finds: `(aim 1)` where a `vec2` is wanted fails in the tool too.
+  - **A type of your own** describes its values by declaring them in its converter:
+    `static constexpr std::string_view values[] = {"float32", "float32"};`.
+  - **`baker.tweaks/1.2`** adds `values`, Baker's type of each of a tweak's values, and
+    `TweakBase::value_types()` gives the same in code.
 - **Changed: `sim`'s JSON is `baker.sim/1.1`.** Each run gains `finished`, and the status may
   be `"stopped"`. Readers of 1.0 keep working, since nothing was removed or renamed.
 

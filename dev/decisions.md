@@ -6950,3 +6950,32 @@ the stacks move onto it, `compare` included.*
 - **Output.** `run_command` and `SimRun` share one `send` for `--output`, the host's sink or
   stdout. A `SimRun` call gathers what it prints while it runs, so calls spread over frames
   write one output.
+
+## D210. A tool registers tweaks from their descriptions: `DescribedTweaks`
+
+*Requirement note 0017, from the editor integration.*
+
+- **The need.** Since D206, `check` holds data to the game's tweaks. A tool that checks data
+  without the game (a language server, a CI checker, an agent's pre-flight check) has the
+  reference but not the code. It could make a `Tweak<T>` for each of Baker's types by
+  switching on the type name, but not for a type of the game's own: `(aim 1)` where a `vec2`
+  is wanted passed in the editor and failed in the game's `check`.
+- **Value types.** A converter may declare `values`, Baker's type of each value it reads:
+  `static constexpr std::string_view values[] = {"float32", "float32"}`. `TweakBase` gains
+  `value_types()`, from that, or the type itself for Baker's single-value types, else empty.
+  `baker.tweaks/1.2` writes it as `values` (null when empty). A type the game does not
+  describe keeps working as before.
+- **`DescribedTweaks`** (`<baker/tweak.hpp>`) owns tweaks made from `TweakDescription`s
+  (path, type, values, default as Baker text, range, step, desc, kind, group, dev_only,
+  one_of) and registers them with a registry. `add` is one call for every type. A described
+  tweak reads each value with `Values::read` into Baker's type, as a game's converter does,
+  so its findings are the game's: a test runs the note's edits against a game's registry and
+  a described copy and compares every message.
+- **Errors.** A type that is not Baker's with no `values`, a value type that is not
+  Baker's, or a default that does not read as its types is an error naming the tweak; the
+  tweak is not added.
+- **Not covered.** A list's count of values is the data's, so a list tweak has no
+  `values` and cannot be described yet.
+- **Cost.** Nothing on a tweak's read path: `value_types()` is a virtual used by the JSON
+  and tools. A game that does not use `DescribedTweaks` gains one vtable entry per tweak
+  type. The core is 14,492 lines of its 15,000.

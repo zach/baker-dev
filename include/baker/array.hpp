@@ -192,6 +192,9 @@ private:
 //
 //   template <> struct baker::Convert<Vec2> {
 //       static constexpr std::string_view name = "vec2";   // optional; used in errors
+//       // optional: Baker's type of each value, for the reference and tools that check
+//       // data without the game (DescribedTweaks)
+//       static constexpr std::string_view values[] = {"float32", "float32"};
 //       static bool from(const baker::Values& v, Vec2& out) {
 //           return v.size() >= 2 && v.read(0, out.x) && v.read(1, out.y);
 //       }
