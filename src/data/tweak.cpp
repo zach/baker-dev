@@ -229,18 +229,46 @@ std::string_view TweakBase::note() const {
     return text_value(meta_array(keys().note));
 }
 
+namespace {
+// The presentation rule, given the value, its kind and its range: a kind given wins; a
+// 3- or 4-number value ranged 0..1 is a color (after SeExpr's editor).
+std::string_view kind_of(std::span<const Node> values, std::string_view kind, TweakRange r) {
+    if (!kind.empty()) return kind;
+    if (values.size() != 3 && values.size() != 4) return {};
+    for (const Node& n : values)
+        if (!n.is_number()) return {};
+    return r.min == 0 && r.max == 1 ? "color" : std::string_view();
+}
+}  // namespace
+
 std::string_view TweakBase::kind() const {
-    if (const auto k = text_value(meta_array(keys().kind)); !k.empty()) return k;
-    if (!meta_.kind.empty()) return meta_.kind;
-    // A 3- or 4-number value ranged 0..1 is presented as a color (after SeExpr's editor).
-    if (bound_ && (count_ == 3 || count_ == 4)) {
-        bool numbers = true;
-        for (uint32_t i = 0; i < count_; ++i)
-            numbers = numbers && (*bound_)[first_ + i].is_number();
-        const TweakRange r = range();
-        if (numbers && r.min == 0 && r.max == 1) return "color";
+    std::string_view k = text_value(meta_array(keys().kind));
+    if (k.empty()) k = meta_.kind;
+    const std::span<const Node> values =
+        bound_ ? std::span<const Node>(bound_->nodes().subspan(first_, count_))
+               : std::span<const Node>();
+    return kind_of(values, k, range());
+}
+
+ValueMetadata split_metadata(const Values& all) noexcept {
+    const Values values = without_metadata(all);
+    return {values, all.nodes().subspan(values.size())};
+}
+
+std::string_view presented_kind(const Values& all, std::string_view kind,
+                                TweakRange range) noexcept {
+    const ValueMetadata vm = split_metadata(all);
+    for (const Node& n : vm.metadata) {
+        const Array& a = *n.try_array();
+        if (a[0].is(keys().kind) && a.size() >= 2) {
+            if (const auto s = a[1].try_sym()) kind = s->str();
+            if (const auto t = a[1].try_str()) kind = *t;
+        } else if (a[0].is(keys().range) && a.size() >= 3) {
+            const auto lo = a[1].try_float(), hi = a[2].try_float();
+            if (lo && hi) range = {*lo, *hi};
+        }
     }
-    return {};
+    return kind_of(vm.values.nodes(), kind, range);
 }
 
 namespace {
@@ -337,25 +365,29 @@ TweakFindings check_tweaks(const Array& root, const TweakRegistry& tweaks) {
     Vec<Error> errors, warnings;
     Vec<std::string_view> paths;
     tweaks.each([&](TweakBase& t) {
+        // Each finding names its tweak as its path, so a tool groups and locates it.
+        auto add = [&](Vec<Error>& list, Error e) {
+            e.set_path(t.path());
+            list.push_back(std::move(e));
+        };
         paths.push_back(t.path());
         const std::string_view path = t.path();
         detail::Resolved r;
         const auto status = detail::resolve(root, t.parsed(), r);
         if (status == detail::ResolveStatus::Missing) {
-            warnings.push_back(
-                make_error(ErrorCode::NotFound,
-                           "the data has no '" + Str(path) + "': the tweak keeps its default"));
+            add(warnings, make_error(ErrorCode::NotFound, "the data has no '" + Str(path) +
+                                                              "': the tweak keeps its default"));
             return;
         }
         if (status == detail::ResolveStatus::Malformed) {
-            errors.push_back(detail::get_error(root, t.parsed(), nullptr));
+            add(errors, detail::get_error(root, t.parsed(), nullptr));
             return;
         }
         const Values values = without_metadata(r.values);
         const Array* where = values.source();
         if (!t.assign(values, false)) {
             const detail::ConvertInfo want = t.info();
-            errors.push_back(detail::get_error(root, t.parsed(), &want));
+            add(errors, detail::get_error(root, t.parsed(), &want));
             return;
         }
         // The range and the list: the data's metadata, else the code's.
@@ -369,12 +401,12 @@ TweakFindings check_tweaks(const Array& root, const TweakRegistry& tweaks) {
         for (const Node& v : values) {
             const auto x = v.try_float();
             if (!range.empty() && x && (*x < range.min || *x > range.max))
-                errors.push_back(located(ErrorCode::Range,
-                                         "'" + Str(path) + "' is " + detail::text_of(v) +
-                                             ", outside its tweak's range " +
-                                             detail::text_of(Node(range.min)) + " to " +
-                                             detail::text_of(Node(range.max)),
-                                         where));
+                add(errors,
+                    located(ErrorCode::Range,
+                            "'" + Str(path) + "' is " + detail::text_of(v) +
+                                ", outside its tweak's range " + detail::text_of(Node(range.min)) +
+                                " to " + detail::text_of(Node(range.max)),
+                            where));
             // A symbol or a string against the texts; an integer against the choices.
             std::optional<std::string_view> text;
             if (const auto sym = v.try_sym()) text = sym->str();
@@ -384,10 +416,10 @@ TweakFindings check_tweaks(const Array& root, const TweakRegistry& tweaks) {
                              [&](Symbol n) { return n.str() == *text; })) {
                 Str names;
                 for (const Symbol n : one_of) names += (names.empty() ? "" : ", ") + Str(n.str());
-                errors.push_back(located(
-                    ErrorCode::Range,
-                    "'" + Str(path) + "' is '" + Str(*text) + "', not one of its tweak's " + names,
-                    where));
+                add(errors, located(ErrorCode::Range,
+                                    "'" + Str(path) + "' is '" + Str(*text) +
+                                        "', not one of its tweak's " + names,
+                                    where));
             }
             const auto number = v.try_int();
             if (!may.numbers.empty() && number && v.type() == Type::Int &&
@@ -398,10 +430,10 @@ TweakFindings check_tweaks(const Array& root, const TweakRegistry& tweaks) {
                     names += (names.empty() ? "" : ", ") + detail::decimal(c.value);
                     if (!c.name.empty()) names += " (" + Str(c.name) + ")";
                 }
-                errors.push_back(located(ErrorCode::Range,
-                                         "'" + Str(path) + "' is " + detail::text_of(v) +
-                                             ", not one of its tweak's " + names,
-                                         where));
+                add(errors, located(ErrorCode::Range,
+                                    "'" + Str(path) + "' is " + detail::text_of(v) +
+                                        ", not one of its tweak's " + names,
+                                    where));
             }
         }
     });
@@ -428,10 +460,13 @@ TweakFindings check_tweaks(const Array& root, const TweakRegistry& tweaks) {
             if (std::find(known.begin(), known.end(), tag) != known.end()) continue;
             Str read;
             for (const std::string_view c : known) read += (read.empty() ? "" : ", ") + Str(c);
-            warnings.push_back(located(ErrorCode::NotFound,
-                                       "'" + Str(tag) + "' in '" + Str(g) +
-                                           "' is read by no tweak; its tweaks read " + read,
-                                       child));
+            // Its path is the key's own: the group, then the key.
+            Error stray = located(ErrorCode::NotFound,
+                                  "'" + Str(tag) + "' in '" + Str(g) +
+                                      "' is read by no tweak; its tweaks read " + read,
+                                  child);
+            stray.set_path(Str(g) + "." + Str(tag));
+            warnings.push_back(std::move(stray));
         }
     }
     return {List<Error>({errors.data(), errors.size()}),

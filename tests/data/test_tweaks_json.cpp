@@ -297,3 +297,45 @@ TEST_CASE("string and integer tweaks take allowed values, checked and in the JSO
     Tweak<int> level2{"fighter.level", 1, {.choices = kLevels}, only};
     CHECK(messages(check_tweaks(*root, tool).errors) == messages(check_tweaks(*root, only).errors));
 }
+
+TEST_CASE("the metadata split and the color rule, for any value (D218)") {
+    const Ref<Array> root = ok(read_string(
+        "(width 2 (range 0 10) (desc \"w\"))\n(ball (kind ball) (pos 1 2))\n"
+        "(tint 1 0.5 0 (range 0 1))\n(sky 0.2 0.4 0.9)\n(spot 1 0.5 0 (kind angle) (range 0 1))\n",
+        "d.dta"));
+    auto values = [&](const char* key) { return root->try_find(Symbol(key))->values(); };
+    const ValueMetadata width = split_metadata(values("width"));
+    REQUIRE(width.values.size() == 1);
+    CHECK(width.values[0].try_int() == 2);
+    CHECK(width.metadata.size() == 2);
+    const ValueMetadata ball = split_metadata(values("ball"));  // (pos 1 2) is no metadata
+    CHECK(ball.values.size() == 2);
+    CHECK(ball.metadata.empty());
+
+    CHECK(presented_kind(values("tint")) == "color");
+    CHECK(presented_kind(values("sky")).empty());                 // no range 0..1
+    CHECK(presented_kind(values("sky"), {}, {0, 1}) == "color");  // the code's range
+    CHECK(presented_kind(values("spot")) == "angle");             // a kind given wins
+    CHECK(presented_kind(values("width"), "length") == "length");
+
+    // The same rule a tweak applies.
+    TweakRegistry reg;
+    Tweak<std::array<float, 3>> tint{"tint", {}, {}, reg};
+    Config cfg({.tweaks = &reg});
+    REQUIRE(cfg.push_layer("d", root));
+    CHECK(tint.kind() == presented_kind(values("tint")));
+}
+
+TEST_CASE("each tweak finding carries its subject as its path (D219)") {
+    TweakRegistry reg;
+    Tweak<float> gravity{"world.gravity", 9.8f, {.range = {0, 20}}, reg};
+    Tweak<float> wind{"world.wind", 0.f, {}, reg};
+    const TweakFindings f =
+        check_tweaks(*ok(read_string("(world (gravity 30) (gravty 9))\n", "d.dta")), reg);
+    REQUIRE(f.errors.size() == 1);
+    CHECK(f.errors[0].path() == "world.gravity");
+    std::vector<std::string> paths;
+    for (const Error& w : f.warnings) paths.emplace_back(w.path());
+    std::sort(paths.begin(), paths.end());
+    CHECK(paths == std::vector<std::string>{"world.gravty", "world.wind"});  // stray, missing
+}

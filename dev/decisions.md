@@ -7106,3 +7106,31 @@ file's directory as before, and `Project::tool_args` the arguments as written, i
 order. A tool runs them from the project file's directory, so a relative path among them
 names what it names there; Baker cannot tell which arguments are paths, so it joins none.
 An argument that is not a string is an error at its line.
+
+## D218. Baker's metadata and color rules, callable on any value
+
+*Requirement note 0022, from the editor integration.*
+
+- **The need.** A tool presenting data decides for every value whether its trailing arrays
+  are metadata, and whether it is a color. Baker decided both only for registered tweaks, so
+  a tool repeated the rules from the documentation and could differ.
+- **`split_metadata(values)`** (`<baker/tweak.hpp>`) gives the value and the trailing
+  metadata arrays as a tweak reads them (range, step, desc, note, kind, group, one_of, from
+  the end); `(ball (kind ball) (pos 1 2))` is all value. It returns views and allocates
+  nothing.
+- **`presented_kind(values, kind, range)`**: the data's `(kind ...)`, else `kind`; else
+  "color" for 3 or 4 numbers ranged 0..1 by the data's `(range ...)` else `range`.
+  `TweakBase::kind()` now calls the same rule (`kind_of`), so they cannot disagree; a test
+  compares a tweak's kind with the function's on the same data.
+
+## D219. Errors a tool tells apart without reading their words
+
+*Requirement note 0023, from the editor integration.*
+
+- **The need.** A tool matched words: "already" in `declare_type`'s refusal, quoted names in
+  `check_tweaks`'s findings.
+- **Codes.** `declare_type` and `declare_object` refuse a name already taken with
+  `ErrorCode::Refused`; everything else they refuse stays `ErrorCode::Type`.
+  `Context::has_type(name)` answers before asking.
+- **Paths.** Every `check_tweaks` finding carries its subject as its path: the tweak's, or
+  for a stray key the key's own, group then key. The messages are unchanged.

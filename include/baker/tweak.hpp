@@ -104,6 +104,22 @@ struct TweakFindings {
 // stays quiet.
 [[nodiscard]] TweakFindings check_tweaks(const Array& root, const TweakRegistry& tweaks);
 
+// A value written with metadata after it, read as a tweak's is: (width 2 (range 0 10)
+// (desc "w")) is the value 2 and the metadata (range 0 10) (desc "w"). Only the trailing
+// arrays tagged range, step, desc, note, kind, group or one_of are metadata, so in
+// (ball (kind ball) (pos 1 2)) everything is value: its last array is not one of them.
+// For a tool presenting data as Baker presents tweaks; it allocates nothing.
+struct ValueMetadata {
+    Values values;
+    std::span<const Node> metadata;  // each an array, in the order written
+};
+[[nodiscard]] ValueMetadata split_metadata(const Values& all) noexcept;
+// The kind a value is presented as: its (kind ...) metadata, else `kind`; else "color" for 3
+// or 4 numbers whose range, the metadata's (range ...) else `range`, is 0 to 1; else empty.
+// The rule TweakBase::kind() applies, for any value.
+[[nodiscard]] std::string_view presented_kind(const Values& all, std::string_view kind = {},
+                                              TweakRange range = {}) noexcept;
+
 class TweakBase {
 public:
     TweakBase(const TweakBase&) = delete;

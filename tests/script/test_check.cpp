@@ -847,3 +847,20 @@ TEST_CASE("a function with a body and a described signature checks and runs (D21
     CHECK(json.find(R"j({"type": "int", "kind": "value", "raw": false, "values": ["int"]})j") !=
           std::string::npos);
 }
+
+TEST_CASE("a tool tells a type already known from a refusal without reading words (D219)") {
+    Context ctx;
+    CHECK(ctx.has_type("Scheduler"));  // Baker's own, as every Context has it
+    CHECK_FALSE(ctx.has_type("Tank"));
+    const auto again = ctx.declare_type("Scheduler", {}, {});
+    REQUIRE_FALSE(again);
+    CHECK(again.error().code() == ErrorCode::Refused);
+    const Symbol unknown[] = {Symbol("Vehicle")};
+    const auto base = ctx.declare_type("Tank", unknown, {});
+    REQUIRE_FALSE(base);
+    CHECK(base.error().code() == ErrorCode::Type);
+    REQUIRE(ctx.declare_type("Tank", {}, {}));
+    CHECK(ctx.has_type("Tank"));
+    CHECK(ctx.declare_object("scheduler", "Tank").error().code() == ErrorCode::Refused);
+    CHECK(ctx.declare_object("t", "Plane").error().code() == ErrorCode::Type);
+}

@@ -880,7 +880,10 @@ Expected<void> Context::declare_type(Symbol name, std::span<const Symbol> bases,
             make_error(ErrorCode::Type, "cannot declare type " + quoted(name) + ": " + Str(why)));
     };
     if (name.empty()) return refuse("it has no name");
-    if (impl_->type_named(name)) return refuse("this Context already has a type of that name");
+    if (impl_->type_named(name))
+        return Unexpected(make_error(ErrorCode::Refused, "cannot declare type " + quoted(name) +
+                                                             ": this Context already has a "
+                                                             "type of that name"));
     Vec<const detail::TypeRecord*> found(impl_->alloc);
     for (const Symbol b : bases) {
         const detail::TypeRecord* t = impl_->type_named(b);
@@ -904,6 +907,10 @@ Expected<void> Context::declare_type(Symbol name, std::span<const Symbol> bases,
     return {};
 }
 
+bool Context::has_type(Symbol name) const noexcept {
+    return impl_->type_named(name) != nullptr;
+}
+
 Expected<void> Context::declare_object(Symbol name, Symbol type) {
     auto refuse = [&](std::string_view why) {
         return Unexpected(
@@ -913,7 +920,9 @@ Expected<void> Context::declare_object(Symbol name, Symbol type) {
         return refuse("its type " + quoted(type) + " is not a type this Context knows");
     if (impl_->find(name) || impl_->slot(impl_->named(name)) ||
         !impl_->declared_object(name).empty())
-        return refuse("it is already a function or an object");
+        return Unexpected(make_error(ErrorCode::Refused, "cannot declare object " + quoted(name) +
+                                                             ": it is already a function or an "
+                                                             "object"));
     impl_->declared_objects.emplace_back(name, type);
     return {};
 }
