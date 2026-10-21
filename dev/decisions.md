@@ -6920,3 +6920,95 @@ the stacks move onto it, `compare` included.*
     file in the source tree cannot know. A tool that builds the stack knows it;
   - every stack's `sim` and `check` tests pass on their own data, and `test_commands.py`
     checks the new schemas and that runs and broken objectives are located.
+
+## D209. A scenario run the host advances from its own loop: `SimRun`
+
+*Requirement note 0011, from the Godot integration (`dev/stepped-sim-note.md`).*
+
+- **The need.** `sim` stepped a game through `CommandHooks::step`, in a loop inside one
+  call. An engine that owns its main loop advances its physics only inside that loop, a
+  frame at a time, with no call that runs one step and comes back. A game in it could not
+  write `step` faithfully: stepping its systems from inside one call skipped the engine's
+  physics, and the runs were wrong and not repeatable. Such a game kept its own runner and
+  its own result format.
+- **`baker::host::SimRun`** (`<baker/host/commands.hpp>`) is a `sim` the host advances:
+  `wants()` says `Reset`, `Steps` or `Done`; the host resets its world with `seed()` over as
+  many frames as it takes and calls `ready()`; then it calls `step()` once per fixed step of
+  `step_seconds()`; at the end `status()` is the exit status and the output has gone where
+  `run_command` sends it. `stop()` ends early.
+- **One runner, two drivers.** The runner became `sim::Stepper` (`begin`, `advance`,
+  `judge`, `stop`); `simulate` is a loop over it. `sim` through `run_command` is a `SimRun`
+  driven with the hooks' `reset` and `step`, so both paths give the same runs, bytes and exit
+  status; a test checks the bytes, with a reset that takes three frames.
+- **Reset.** `SimRun` sets `$seed` and waits; it never calls `reset` or `step` itself.
+  Waiting counts no steps.
+- **Stopping.** The run in progress is kept with its steps, not finished and not judged;
+  runs not started are left out; status 2. `baker.sim/1.1` adds `finished` to each run and
+  `"stopped"` as a status; `results.dta` writes `(finished 0)` and `read_results` reads it.
+- **Cost.** A step with nothing due is a scheduler tick, a count and a compare; a test holds
+  it to no allocation. The kit is 2,299 lines; the owner raised its budget to 2,400.
+- **Output.** `run_command` and `SimRun` share one `send` for `--output`, the host's sink or
+  stdout. A `SimRun` call gathers what it prints while it runs, so calls spread over frames
+  write one output.
+
+## D210. A tool registers tweaks from their descriptions: `DescribedTweaks`
+
+*Requirement note 0017, from the editor integration.*
+
+- **The need.** Since D206, `check` holds data to the game's tweaks. A tool that checks data
+  without the game (a language server, a CI checker, an agent's pre-flight check) has the
+  reference but not the code. It could make a `Tweak<T>` for each of Baker's types by
+  switching on the type name, but not for a type of the game's own: `(aim 1)` where a `vec2`
+  is wanted passed in the editor and failed in the game's `check`.
+- **Value types.** A converter may declare `values`, Baker's type of each value it reads:
+  `static constexpr std::string_view values[] = {"float32", "float32"}`. `TweakBase` gains
+  `value_types()`, from that, or the type itself for Baker's single-value types, else empty.
+  `baker.tweaks/1.2` writes it as `values` (null when empty). A type the game does not
+  describe keeps working as before.
+- **`DescribedTweaks`** (`<baker/tweak.hpp>`) owns tweaks made from `TweakDescription`s
+  (path, type, values, default as Baker text, range, step, desc, kind, group, dev_only,
+  one_of) and registers them with a registry. `add` is one call for every type. A described
+  tweak reads each value with `Values::read` into Baker's type, as a game's converter does,
+  so its findings are the game's: a test runs the note's edits against a game's registry and
+  a described copy and compares every message.
+- **Errors.** A type that is not Baker's with no `values`, a value type that is not
+  Baker's, or a default that does not read as its types is an error naming the tweak; the
+  tweak is not added.
+- **Not covered.** A list's count of values is the data's, so a list tweak has no
+  `values` and cannot be described yet.
+- **Cost.** Nothing on a tweak's read path: `value_types()` is a virtual used by the JSON
+  and tools. A game that does not use `DescribedTweaks` gains one vtable entry per tweak
+  type. The core is 14,492 lines of its 15,000.
+
+## D211. A tool declares the game's types, objects and value types from the reference
+
+*Requirement note 0018, from the editor integration (`dev/declared-types-note.md`).*
+
+- **The need.** A tool declares the game's functions from the reference (D175), but not its
+  types or named objects, so `{scheduler delay_task 2 {...}}` was not checked at all; and a
+  parameter of a game type (`vec2`) could not be declared, or took any value.
+- **Value types of a parameter.** A parameter's `values` come from `detail::value_types<T>()`
+  (D210, moved to `array.hpp`), an optional's from its value's. `baker.reference/1.2` writes
+  them on each parameter, `null` when the type does not say. `ParamDescription::values`
+  lets `declare` take a type it does not know; `check` holds a literal argument to the types
+  through `detail::reads_as`, reading an array as its contents as `Values::read` reads a
+  compound value. A declared parameter of one of Baker's types gets that type as its value
+  types, as the native has, so a declared function's reference entry stays the game's.
+- **Types and objects.** `Context::declare_type(name, bases, methods)` builds a type record
+  from `MethodDescription`s (each method's overloads built as `declare` builds a function's,
+  through one `build_described`), inherits its bases, which must be known, and registers it;
+  the Context owns and frees it. `Context::declare_object(name, type)` keeps a name and a
+  type, which `check` reads after live objects. A call on either fails at run time.
+- **The call path.** Putting `values` beside `match` grew `ParamInfo` from 32 to 48 bytes,
+  and the promoted overload row of `bench_call` slowed by 8.9% (47.8 to 52.0 ns, nine runs
+  a side, ranges apart), twice. So a parameter's type name and value types moved behind a
+  pointer, `ParamInfo::text` (a `ParamText`, static for natives), read through `type()`
+  and `values()`; `ParamInfo` is 32 bytes again. Against 3270a23, nine runs a side:
+  `{+ 1.5 2}` 47.9 to 46.8 ns, `{add 1 2}` 32.0 to 32.4, `{bob grow 0}` 62.0 to 61.8, all
+  within their ranges. `handle_all` moved 427 to 375 ns (ranges apart) and the no-Context
+  `handle` 8.6 to 7.5; the message path reads no parameter table, and `count_instructions`
+  has no message case to settle it, so it is recorded, not claimed. The parse, lookup,
+  set and frame instruction counts are unchanged.
+- **Tests.** A game with a type, a derived type, a named object and a `vec2` function, and a
+  tool declaring the same from descriptions, check one tree to identical errors and demand;
+  the refusals name the type, method, base or object.
