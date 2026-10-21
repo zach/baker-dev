@@ -21,7 +21,7 @@
 //                                  runs the project's scenarios (all, or those named, by
 //                                  name or file name) for each seed, stepping the game
 //                                  (`step`) at N Hz (default 60), then judges them by its
-//                                  objectives; --json: baker.sim/1.1; --results: DIR gets
+//                                  objectives; --json: baker.sim/1.2; --results: DIR gets
 //                                  results.json and results.dta, what compare reads. Exit 1
 //                                  if an objective failed
 //   compare --before DIR --after DIR

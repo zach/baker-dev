@@ -7183,3 +7183,45 @@ budget from 15,000 to 15,500 for this note and 0024.*
 - **Tests.** After an edit to the top layer, the kept Config's merged tree and sources are a
   fresh load's and the bottom layer was not read again; text that does not parse gives the
   fresh load's error, and the next edit reads.
+
+## D222. A digest of a Config's data
+
+*Requirement note 0017 of the Godot integration; 64 bits, not cryptographic, the owner's
+choice.*
+
+- **The need.** Lockstep peers, replays, dedicated servers and saves must agree on the data.
+  A host hashing its own files differs from a host reading the same data another way, misses
+  live edits, and cannot tell two stacks that merge to the same values.
+- **`baker::digest(tree, seed)`** (`<baker/array.hpp>`) hashes a tree by value: each node
+  folds a type word, then its words (an integer's bits; a float's IEEE bits with -0.0 as 0.0
+  and every NaN as one; a text's length and its bytes eight to a word, little-endian,
+  zero-padded; an array's count and its elements), each into the state as
+  `state = splitmix64(state ^ word)`. Nothing depends on addresses, interning order or
+  byte order, so it is the same on every platform; a test pins one tree's value.
+- **`Config::digest()`** digests the merged tree; when scratch moved since the last merge,
+  it merges afresh, so a live edit counts. **`Config::stack_digest()`** chains each enabled
+  layer's name and tree, in order, then scratch's as "scratch". **`{config.digest}`** gives
+  the first as 16 hex digits.
+- **Cost.** Linear in the tree; what it allocates (a fresh merge, a name array) it frees.
+
+## D223. A scenario that ends on the game's own state, in the game's own steps
+
+*Requirement note 0018 of the Godot integration; `(steps N)` with the step's name as
+presentation, the owner's choice.*
+
+- **The need.** A turn-based or event-stepped game has no fixed length for a scenario and no
+  seconds: a match ends when a side loses. Its scenarios ran past their end, at a step rate
+  of one to make a second a turn, and could not say how long the outcome took.
+- **Forms.** `(steps N)` gives a length as a count, in place of `(seconds N)`; giving both is
+  an error. `(at step N {...})` runs before step N + 1, beside `(at SECONDS {...})`; a run
+  works out each `(at ...)`'s step once, by the same half-step rule as before, and orders
+  them by it. `(until {command})` is evaluated after each step, with `$steps` set; nonzero
+  ends the run (`Run::until`), a failure ends it as an error; the length is the ceiling.
+  `$steps` is set before the objectives are measured.
+- **The step's name.** The project's `(step_name turn)` (`Project::step_name`) labels the
+  results' `step_name` and `sim`'s text; it changes no count.
+- **`baker.sim/1.2`** adds `ended` (`"until"` or `"length"`) to each run and `step_name` at
+  the top; `results.dta` keeps `(until 1)`.
+- **Cost.** A step with no `(until ...)` is as before (the quiet-step allocation test still
+  holds); with one, one command a step.
+- **Size.** The core is 15,080 lines of its 15,500; the host kit 2,360 of 2,400.

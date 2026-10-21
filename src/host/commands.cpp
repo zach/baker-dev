@@ -90,6 +90,7 @@ Expected<void> read_book(const Loaded& l, sim::Book& book) {
         project = &read;
     }
     if (!project) return {};
+    book.step_name = project->step_name;
     for (const List<ProjectEntry>* list : {&project->objectives, &project->scenarios})
         for (const ProjectEntry& e : *list)
             if (auto r = book.read(e.value.str(), l.hooks.reader, l.hooks.list); !r) return r;
@@ -510,6 +511,10 @@ struct SimRun::Impl {
                 (!r.finished  ? "STOPPED"
                  : r.passed() ? "passed"
                               : "FAILED");
+        if (r.until)  // the game's own end, before its length
+            t += " (ended at " +
+                 Str(book.step_name.empty() ? std::string_view("step") : book.step_name.str()) +
+                 " " + detail::decimal(static_cast<int64_t>(r.steps)) + ")";
         for (const sim::ObjectiveResult& o : r.objectives)
             t += "  " + Str(o.name.str()) + " " +
                  (o.failed ? "(" + Str(to_string(o.error)) + ")"
@@ -544,7 +549,7 @@ struct SimRun::Impl {
                     " seeds: " + (m.pass ? "passed" : "FAILED") + "  " + Str(m.objective.str()) +
                     " " + sim::number_text(m.value) +
                     (m.failed ? "  " + Str(m.error.message()) : Str()) + "\n");
-        const Str json = sim::results_json(runs, medians);
+        const Str json = sim::results_json(runs, medians, book.step_name);
         if (line.json) out(json);
         status = stopped ? kCommandError : sim::all_passed(runs, medians) ? 0 : kCommandFailed;
         if (!line.results.empty()) {
@@ -783,7 +788,7 @@ std::string_view command_help() noexcept {
            "                                 baker.reply/1.1 line each, as the console answers\n"
            "  sim [--scenario NAME]... [--seed N | --seeds A-B] [--step-hz N] [--json]\n"
            "      [--results DIR]            the project's scenarios, judged by its objectives;\n"
-           "                                 --json: baker.sim/1.1; --results: what compare reads\n"
+           "                                 --json: baker.sim/1.2; --results: what compare reads\n"
            "  compare --before DIR --after DIR\n"
            "                                 which objectives moved: baker.compare/1\n"
            "every command also takes --output FILE: its output there, not on stdout\n";

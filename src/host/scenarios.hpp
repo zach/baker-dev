@@ -40,13 +40,16 @@ struct Objective {
 struct Scenario {
     struct At {
         double seconds = 0;
+        int64_t step = -1;  // (at step N ...): due at that step; else by its seconds
         Vec<Node> commands{};
     };
     Symbol name{};
     std::string_view desc{};
     double seconds = 10;
+    uint64_t steps = 0;        // (steps N): its length in steps, whatever the rate; else seconds
+    Node until{};              // (until {command}): ends the run after a step where it is nonzero
     Vec<Node> start{};         // before the first step
-    Vec<At> at{};              // in time order
+    Vec<At> at{};              // as written; a run orders them by the step each is due
     Vec<Symbol> objectives{};  // empty: every objective
     Symbol file{};
     int32_t line = 0;
@@ -54,6 +57,7 @@ struct Scenario {
 
 // A game's scenarios and objectives, and the trees that keep their commands.
 struct Book {
+    Symbol step_name{};  // the project's (step_name turn): how results name a step
     Vec<Objective> objectives{};
     Vec<Scenario> scenarios{};
     Vec<Ref<Array>> trees{};
@@ -82,6 +86,7 @@ struct Run {
     int32_t line = 0;
     uint64_t seed = 0, steps = 0;
     bool finished = true;  // false: stopped before its last step, and not judged
+    bool until = false;    // ended because its (until ...) held, before its length
     Vec<ObjectiveResult> objectives{};
     Vec<Error> errors{};  // a command of the scenario failed, or it names an unknown objective
 
@@ -116,7 +121,7 @@ public:
             double step_hz);
     void begin();
     void advance();
-    [[nodiscard]] bool done() const noexcept { return run_.steps >= total_; }
+    [[nodiscard]] bool done() const noexcept { return ended_ || run_.steps >= total_; }
     [[nodiscard]] double dt() const noexcept { return dt_; }
     [[nodiscard]] Run judge();
     [[nodiscard]] Run stop();
@@ -129,7 +134,9 @@ private:
     Run run_;
     double dt_ = 0;
     uint64_t total_ = 0;
+    bool ended_ = false;  // its (until ...) held
     size_t next_at_ = 0;
+    Vec<std::pair<uint64_t, const Scenario::At*>> due_;  // each (at ...)'s step, in order
 };
 
 // A whole run, stepping the game through `game.step`.
@@ -138,9 +145,9 @@ private:
 [[nodiscard]] Vec<Median> judge_medians(Context& ctx, const Book& book, const Vec<Run>& runs);
 [[nodiscard]] bool all_passed(const Vec<Run>& runs, const Vec<Median>& medians);
 
-// baker.sim/1.1: every run, sorted by scenario then seed, each located; the medians' verdicts;
+// baker.sim/1.2: every run, sorted by scenario then seed, each located; the medians' verdicts;
 // a tally per objective; and the status the exit code means.
-[[nodiscard]] Str results_json(Vec<Run> runs, const Vec<Median>& medians);
+[[nodiscard]] Str results_json(Vec<Run> runs, const Vec<Median>& medians, Symbol step_name = {});
 // The same runs and verdicts as data, which read_results reads back for compare.
 [[nodiscard]] Str results_dta(const Vec<Run>& runs, const Vec<Median>& medians);
 [[nodiscard]] Expected<void> read_results(std::string_view file, Vec<Run>& runs,

@@ -99,7 +99,7 @@ TEST_CASE("SimRun: the host advances each run; the output is sim's") {
     CHECK(resets == 2);
     CHECK(steps == 240);  // two seconds at 60 Hz, twice: waiting on a reset counts nothing
     CHECK(frames.output == sync.output);
-    CHECK(frames.output.find("\"schema\": \"baker.sim/1.1\"") != std::string::npos);
+    CHECK(frames.output.find("\"schema\": \"baker.sim/1.2\"") != std::string::npos);
 }
 
 TEST_CASE("SimRun: stopping keeps the run so far, not finished, and exits 2") {

@@ -149,6 +149,10 @@ Expected<Project> read_project(std::string_view path, const LoadSession::Reader&
                 args.emplace_back(arg);
             }
             p.tool_args = List<Symbol>(std::span<const Symbol>(args.data(), args.size()));
+        } else if (key == Symbol("step_name")) {
+            const auto name = part->size() == 2 ? (*part)[1].try_sym() : std::nullopt;
+            if (!name) return Unexpected(places.at(*part, "the step's name is (step_name NAME)"));
+            p.step_name = *name;
         } else if (key == Symbol("console")) {
             const std::optional<int64_t> port =
                 part->size() == 2 ? (*part)[1].try_int() : std::nullopt;
@@ -197,10 +201,11 @@ Expected<Project> read_project(std::string_view path, const LoadSession::Reader&
             p.layers =
                 List<ProjectLayer>(std::span<const ProjectLayer>(layers.data(), layers.size()));
         } else {
-            return Unexpected(places.at(*part, "a project has no '" + Str(key.str()) +
-                                                   "': it holds pack_levels, include_dirs, "
-                                                   "defines, reference, tool, console, scenarios, "
-                                                   "objectives, and layers"));
+            return Unexpected(
+                places.at(*part, "a project has no '" + Str(key.str()) +
+                                     "': it holds pack_levels, include_dirs, "
+                                     "defines, reference, tool, console, step_name, scenarios, "
+                                     "objectives, and layers"));
         }
     }
     if (!has_layers) return Unexpected(places.at(*root, "a project needs (layers ...)"));
