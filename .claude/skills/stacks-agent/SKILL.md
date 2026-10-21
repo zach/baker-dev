@@ -27,9 +27,9 @@ Then, with `G=build-stacks/bin/stacks_<game>`:
 |---|---|
 | `$G reference` | Every script function, global, shape, and pack: the words you may use. Read it first. `--json` gives the same, plus every tweak, as JSON. |
 | `$G check` | Errors, load problems, shape errors, and calls to undefined functions in data (its `#autorun` script too), scenarios, and metrics, as JSON. `passed` and exit 1 mean fix before anything else; the lists say what. |
-| `$G sim [--scenario NAME] [--seeds 1-20] [--out DIR]` | Runs scenarios headless and judges them by the objectives. Exit 0: all passed; 1: an objective failed; 2: something could not run. |
+| `$G sim [--scenario NAME] [--seeds 1-20] [--results DIR]` | Runs scenarios headless and judges them by the objectives. Exit 0: all passed; 1: an objective failed; 2: something could not run. |
 | `$G eval "{cmd}"...` | Commands on the data and the reset game, headless: a frame table, a search, a report. `--json` answers each as the console does (`{config.explain path}` included). |
-| `$G compare BEFORE AFTER` | Which objectives moved between two `sim --out` directories, as JSON; exit 1 if one broke. `sim --json` prints a run's results as JSON. |
+| `$G compare --before DIR --after DIR` | Which objectives moved between two `sim --results` directories, as JSON, each located by file and line; exit 1 if one broke. `sim --json` prints a run's results as JSON. |
 | `$G diff` | Exactly what `agent.dta` changes: path, old value, new value. |
 | `$G promote` | What promotion would write into `default.dta`. `--patch FILE` writes it as a diff a person can review and apply. **Never pass `--write`**: promotion is a person's decision. |
 | `python3 -I stacks/tools/console.py "{cmd}"` | A command in a game a person is running (127.0.0.1:4555). Use it only when asked to. `{config.explain path}` says which layer sets a value; `--json` prints the raw replies. |
@@ -41,13 +41,13 @@ and seed give the same result, so a failing seed is a reproduction.
 ## The loop
 
 1. **Read** `$G reference`, the objectives in `metrics/`, and the scenarios in `sim/`.
-2. **Baseline:** `$G sim --seeds 1-10 --out runs/before` before you change anything,
+2. **Baseline:** `$G sim --seeds 1-10 --results runs/before` before you change anything,
    over every scenario. Note what passes.
 3. **Change** `data/agent.dta` (or add a scenario or task pack). Keep each change small and
    say in a `;` comment why.
 4. **`$G check`**: exit 0, or fix it.
-5. **`$G sim --seeds 1-10 --out runs/after`** over the same seeds and every scenario, then
-   **`$G compare runs/before runs/after`**: it names each objective that broke (passed on a
+5. **`$G sim --seeds 1-10 --results runs/after`** over the same seeds and every scenario, then
+   **`$G compare --before runs/before --after runs/after`**: it names each objective that broke (passed on a
    scenario and seed, now fails; or, for an objective `(over median)`, its median over the
    seeds passed and now fails) and exits 1. A fix that breaks another objective is not done;
    that is the most common way a change fails review. `sim`'s exit status is the verdict:

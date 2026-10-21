@@ -6867,3 +6867,56 @@ scan instead of in a second pass, kept only if a parse ran at least 10% fewer in
   Nothing in Baker depended on the server, so nothing is removed.
 - **The record.** Plan A's section and the summary table are marked closed. The
   remaining integrations are the editor (B), Godot (C) and published overlays (D).
+
+## D208. Scenarios a tool can find and run: the kit's `sim` and `compare`
+
+*Requirement note 0016 (`dev/scenario-runner-note.md`); the owner's answers: the host kit,
+the stacks move onto it, `compare` included.*
+
+- **The need.** A tool (an editor's test view, CI, an agent) should find a game's scenarios
+  and objectives, run one by name with a seed, and read a located, versioned result,
+  without knowing the game. Until now only the stacks could, in their own format.
+- **The project file** gains three optional entries, read by `read_project`, ignored by
+  `open_project`, each relative to the project file: `(tool PATH)`, the binary that answers
+  the commands (`Project::tool`, `tool_at`); `(scenarios PATH...)` and
+  `(objectives PATH...)`, files or directories (`Project::scenarios`, `objectives`).
+- **The host kit's runner** (`src/host/scenarios.{hpp,cpp}`, internal):
+  - the stacks' `(scenario ...)` and `(objective ...)` forms, each kept with its file and
+    line, and a malformed form an error at its line;
+  - a run reset with the seed (`$seed`), its start commands, fixed steps through the new
+    `CommandHooks::step` with the scheduler ticked and each `(at ...)` run on time, then
+    each objective's measure and pass. Steps are counted from integer nanoseconds per
+    step, so a scenario takes the same steps everywhere;
+  - `(over median)` objectives judged once per scenario on the median over the seeds.
+- **Commands.** `sim [--scenario NAME]... [--seed N | --seeds A-B] [--step-hz N] [--json]
+  [--results DIR]` and `compare --before DIR --after DIR`. `--scenario` takes a scenario's
+  name or its file's stem. `--results` writes `results.json` and `results.dta`; `compare`
+  reads the `.dta` back, so the kit needs no JSON reader. Exit codes 0, 1, 2 as the other
+  commands.
+- **JSON.** `baker.sim/1` and `baker.compare/1` (`docs/sim-json.md`). Every run, objective,
+  median and compared objective carries `file` and `line`; a failed command or measure is a
+  problem in check's shape (code, file, line, column, path, message).
+- **`check`** reads the project's scenarios and objectives as extra trees, so their
+  commands are checked with the data (an agent writes them as it writes data). The test
+  game's own flag moved from `--scenario` to `--extra`, since the kit now owns the name.
+- **Size.** The runner is about 790 lines, not the note's 450: located errors, compare's
+  median verdicts and the results data it reads back. After trimming (a JSON error and
+  bool helper, one way to note a change in compare, a table of text options in the
+  parser), `baker::host` is 2,106 lines. The owner raised its budget to 2,200
+  (`tools/count_lines.py`).
+- **Tests.** `tests/host/test_scenarios.cpp` ports the stacks' runner tests onto a counter
+  game: steps and judging, start and `at` times, repeatability, located errors, a measure
+  that gives no number, a path that does not exist, results that read back located, and
+  medians with compare. `tests/host/test_commands.py` runs `sim` and `compare` through the
+  test game, whose stack gains a scenario and two objectives.
+- **The stacks** move onto it, as they moved onto the kit's other commands (D192):
+  - their project files name `(scenarios "sim")` and `(objectives "metrics")`, and the
+    stack built in code for a packaged game names the same directories beside its data;
+  - `base::Game::step` is the kit's `step`; `stacks/base`'s own runner (`sim.cpp`,
+    `sim.hpp`, `test_sim.cpp`, about 800 lines with its tests) is gone, with
+    `stacks.sim/1.1`, `stacks.compare/1.1`, and the `--sim`, `--metrics` and `--out`
+    flags. `compare` takes `--before` and `--after`;
+  - they name no `(tool ...)`: the binary's path is the build directory's, which a project
+    file in the source tree cannot know. A tool that builds the stack knows it;
+  - every stack's `sim` and `check` tests pass on their own data, and `test_commands.py`
+    checks the new schemas and that runs and broken objectives are located.

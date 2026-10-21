@@ -12,10 +12,11 @@ game plays as before:
 
 ```
 stacks_cube                                   play (the base's app)
-stacks_cube sim [--scenario NAME]... [--seeds A-B] [--out DIR] [--json]
-                                              --out also gets results.json (stacks.sim/1.1)
-stacks_cube compare BEFORE_DIR AFTER_DIR      which objectives moved between two --out
-                                              directories, as JSON; exit 1 if one broke
+stacks_cube sim [--scenario NAME]... [--seeds A-B] [--json] [--results DIR]
+                                              Baker's baker.sim/1 (docs/sim-json.md);
+                                              --results writes it and what compare reads
+stacks_cube compare --before DIR --after DIR  which objectives moved between two --results
+                                              directories, baker.compare/1; exit 1 if one broke
 stacks_cube check                             baker::check over data, its #autorun script,
                                               scenarios, metrics; baker.check/1.3 JSON with
                                               passed, load and shape problems; exit 1 on any,
@@ -94,7 +95,7 @@ pass, but a seed outside the band does not fail the run; the median's verdict do
    (over median)
    (measure {duel.win_rate 2})
    (pass {and {>= $value 0.15} {<= $value 0.5}}))
-; in the summary, and in medians.dta beside the runs with --out:
+; in the JSON's medians, and in results.dta with --results:
 (median duel.normal_vs_combo (scenario normal_vs_combo) (value 0.36) (seeds 3) (pass 1))
 ```
 

@@ -35,8 +35,7 @@ class Stack:
     def run(self, *args, agent=None):
         if agent is not None:
             (self.dir / "data" / "agent.dta").write_text(agent)
-        paths = ["--data", "data", "--sim", "sim", "--metrics", "metrics"]
-        p = subprocess.run([self.game, args[0], *paths, *args[1:]], cwd=self.dir,
+        p = subprocess.run([self.game, args[0], "--data", "data", *args[1:]], cwd=self.dir,
                            capture_output=True, text=True, timeout=600)
         return p.returncode, p.stdout, p.stderr
 
@@ -87,31 +86,35 @@ def eval_json(s):
 
 def sim_json(s):
     def sim(out, agent):
-        code, text, _ = s.run("sim", "--seeds", "1-1", "--out", out, "--json", agent=agent)
+        code, text, _ = s.run("sim", "--seeds", "1-1", "--results", out, "--json", agent=agent)
         return code, text
 
     code, first = sim("before", "")
     r = json.loads(first)
-    expect(code == 0 and r["schema"] == "stacks.sim/1.1" and r["status"] == "passed",
+    expect(code == 0 and r["schema"] == "baker.sim/1" and r["status"] == "passed",
            "sim --json: the results, passed")
     expect((s.dir / "before" / "results.json").read_text() == first,
-           "sim --out writes the same JSON to results.json")
+           "sim --results writes the same JSON to results.json")
     expect(sim("again", "")[1] == first, "sim --json: the same data gives the same bytes")
     keys = [(run["scenario"], run["seed"]) for run in r["runs"]]
     expect(keys == sorted(keys), "sim --json: runs sorted by scenario, then seed")
+    expect(all(run["file"].startswith("sim/") and run["line"] > 0 for run in r["runs"]),
+           "sim --json: each run located in the stack's sim/")
 
-    code, out, _ = s.run("compare", str(s.dir / "before"), str(s.dir / "again"))
+    code, out, _ = s.run("compare", "--before", "before", "--after", "again")
     expect(code == 0 and json.loads(out)["broke"] == 0, "compare: identical runs move nothing")
 
     sim("after", "(fighters (kestrel (health 50)))\n")
-    code, out, _ = s.run("compare", str(s.dir / "before"), str(s.dir / "after"))
+    code, out, _ = s.run("compare", "--before", "before", "--after", "after")
     c = json.loads(out)
     broke = [o["name"] for o in c["objectives"] if o["moved"] == "broke"]
-    expect(code == 1 and c["schema"] == "stacks.compare/1.1" and c["broke"] == len(broke) > 0,
+    expect(code == 1 and c["schema"] == "baker.compare/1" and c["broke"] == len(broke) > 0,
            "compare: a weaker fighter breaks objectives, and exits 1")
     first_broken = next(o for o in c["objectives"] if o["moved"] == "broke")
     expect(first_broken["changed"] and first_broken["changed"][0]["before"]
            and not first_broken["changed"][0]["after"], "compare: names the run that broke")
+    expect(first_broken["file"].startswith("metrics/") and first_broken["line"] > 0,
+           "compare: the objective that broke, located")
     s.run("check", agent="")
 
 
