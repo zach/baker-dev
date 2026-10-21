@@ -7012,3 +7012,174 @@ the stacks move onto it, `compare` included.*
 - **Tests.** A game with a type, a derived type, a named object and a `vec2` function, and a
   tool declaring the same from descriptions, check one tree to identical errors and demand;
   the refusals name the type, method, base or object.
+
+## D212. Fixed-size lists describe their values; the console's epoch and port
+
+*Requirement notes 0019 and 0020, from the editor integration.*
+
+- **0019: fixed-size lists.** `Convert<std::array<T, N>>` declares `values`: N of T's value
+  type when T is one of Baker's single-value types (`std::array<float, 3>` is three
+  `float32`s), at compile time. A T of the game's own leaves `values` empty: its values
+  nest in each element, `((0 1) (2 3))`, and a flat list would describe the wrong layout.
+  The reference writes them (`baker.tweaks/1.2`, `baker.reference/1.2`, no new field), so a
+  tool registers such a tweak with `DescribedTweaks` and declares such a parameter. A test
+  checks the note's edits, `(color 0.9 0.5)` and `(color red 0.5 0.2)`, against a game's
+  tweak and a described copy, errors and warnings alike. A difference remains: the
+  converter takes exactly N values and a described tweak at least N, so a fourth value
+  passes the tool and fails the game. `std::vector` still declares none.
+- **0020: `{config.epoch}`.** A config tool answering `Config::epoch()`: a tool polls it
+  and asks for values again only when it moved. Nothing is kept that was not kept before.
+- **0020: `(console PORT)`.** `read_project` reads it into `Project::console_port` (0 when
+  absent) with its position; a port outside 1 to 65535, or not a number, is an error at its
+  line. A game may use it as its default; Baker does not open a console from it.
+- **The stacks** name a port each, Cube 4555 to Wayfarer 4561, and the base uses it unless
+  `--console-port` is given, so the seven run at once. `stacks/tools/console.py --stack DIR`
+  reads the port from a stack's project file. A packaged game has no project file and keeps
+  4555.
+
+## D213. A function with a body and a described signature
+
+*Requirement note 0012 of the Godot integration (`dev/godot-notes-2-note.md`).*
+
+- **The need.** A host with a scripting language of its own binds that language's functions
+  at runtime, with no C++ signature to deduce; taking `Args` reads as "values...", so
+  `check` passed a call with any arguments.
+- **`Context::declare(name, overloads, body)`** is `declare` with a body: the description is
+  checked as `declare` checks it, `check` and the reference see it, and a call runs `body`
+  (`Callback<Expected<Node>(Args&)>`, kept in the declared function's own callable, so
+  nothing is added to a native's path).
+- **At a call.** Arity is the overload's, as for any function. Without a raw parameter, each
+  argument is evaluated once and held to its parameter, by its match or by the value types
+  of a type only described; a mismatch is the native's message ("argument 1 of 'f' is
+  symbol, not int") and the body does not run; the body gets the evaluated `Args`. With a raw
+  parameter, the body gets the arguments as written. The evaluated arguments sit in eight
+  stack slots and spill to the default allocator, as the call path's do, not in a `Vec`.
+
+## D214. Scenario directories listed through the host
+
+*Requirement note 0013 of the Godot integration.*
+
+- **The need.** The kit read a single scenarios file through the host's reader, but listed a
+  directory with the disk's calls, so in a game whose files are in an archive a directory
+  read nothing, and the shipped build's `sim` ran nothing.
+- **`CommandHooks::list`** lists a directory of the host's own files; the kit keeps the
+  `.dta` names, sorts them, and reads each through `reader`. Without it, or when it says
+  `dir` is not one of its directories, the disk's directory is read as before. An entry can
+  already name several files.
+- **Tests.** A book read through a lister serving files in any order reads them in name
+  order; without the lister the same directory reads nothing; the test game lists its
+  `game://` directories, and `sim --root` runs the stack's scenario directory through them.
+
+## D215. Allowed values for string and integer tweaks
+
+*Requirement note 0014 of the Godot integration.*
+
+- **The need.** Engines offer a choice among names in two forms, a string from a list or an
+  integer with named values. Only a symbol tweak carried a list, so a misspelled
+  `(attack "hevy")` passed `check`.
+- **Strings** take `TweakMeta::one_of` as symbols do, or `(one_of "light" "heavy")` after the
+  value. **Integers** take `TweakMeta::choices` (`TweakChoice{value, name}`), or
+  `(one_of (0 easy) (1 normal))`, a bare number being a choice without a name. The data's
+  list wins over the code's.
+- **`check_tweaks`** holds a symbol or a string to the texts and an integer to the choices,
+  located, naming the choices with their names; the tweak still takes any value.
+- **`baker.tweaks/1.3`.** `one_of` also lists a string tweak's strings; `choices` lists an
+  integer tweak's `{"value", "name"}`s. `TweakBase::choices()` gives them in code, with
+  names interned. `TweakDescription` takes `choices`, so a tool's described tweak checks
+  alike (a test compares them).
+
+## D216. The live loop's console on a free port
+
+*Requirement note 0015 of the Godot integration.*
+
+`LiveOptions::console_any_port` listens on a free port (`Console::listen(0)`), which
+`console_port()` reports, for a tool that starts several instances. A `console_port` of 0
+keeps meaning no console, and a shipping build opens none. A test opens two loops and gets
+two ports.
+
+## D217. The project's tool with arguments
+
+*Requirement note 0016 of the Godot integration.*
+
+`(tool "path" "argument"...)`: `Project::tool` is the binary, joined with the project
+file's directory as before, and `Project::tool_args` the arguments as written, interned, in
+order. A tool runs them from the project file's directory, so a relative path among them
+names what it names there; Baker cannot tell which arguments are paths, so it joins none.
+An argument that is not a string is an error at its line.
+
+## D218. Baker's metadata and color rules, callable on any value
+
+*Requirement note 0022, from the editor integration.*
+
+- **The need.** A tool presenting data decides for every value whether its trailing arrays
+  are metadata, and whether it is a color. Baker decided both only for registered tweaks, so
+  a tool repeated the rules from the documentation and could differ.
+- **`split_metadata(values)`** (`<baker/tweak.hpp>`) gives the value and the trailing
+  metadata arrays as a tweak reads them (range, step, desc, note, kind, group, one_of, from
+  the end); `(ball (kind ball) (pos 1 2))` is all value. It returns views and allocates
+  nothing.
+- **`presented_kind(values, kind, range)`**: the data's `(kind ...)`, else `kind`; else
+  "color" for 3 or 4 numbers ranged 0..1 by the data's `(range ...)` else `range`.
+  `TweakBase::kind()` now calls the same rule (`kind_of`), so they cannot disagree; a test
+  compares a tweak's kind with the function's on the same data.
+
+## D219. Errors a tool tells apart without reading their words
+
+*Requirement note 0023, from the editor integration.*
+
+- **The need.** A tool matched words: "already" in `declare_type`'s refusal, quoted names in
+  `check_tweaks`'s findings.
+- **Codes.** `declare_type` and `declare_object` refuse a name already taken with
+  `ErrorCode::Refused`; everything else they refuse stays `ErrorCode::Type`.
+  `Context::has_type(name)` answers before asking.
+- **Paths.** Every `check_tweaks` finding carries its subject as its path: the tweak's, or
+  for a stray key the key's own, group then key. The messages are unchanged.
+
+## D220. A tolerant read of text, for tools; the core's budget is 15,500
+
+*Requirement note 0021, from the editor integration. The owner raised the core's soft
+budget from 15,000 to 15,500 for this note and 0024.*
+
+- **The need.** An editor needs the structure of text that rarely parses: `(kestrel (hea`.
+  Each tool wrote its own lexer, a second copy of Baker's syntax that no test held to it.
+- **`read_structure(text, file)`** (`<baker/parse.hpp>`) runs the parser's own `Lexer` in a
+  tolerant mode (`tolerate`): each problem goes to a list and the lexing goes on; an
+  unterminated `/*` comment, string or quoted symbol runs to the end; an out-of-range
+  number and a lone `$` are tokens still. Comments are reported by span. On top, a
+  bracket walk records each bracket's parent, its tag (its first token when that is a
+  symbol), and whether it closed; an unclosed one runs to the end, a stray close is left
+  out, and a close of the wrong kind closes the innermost. A symbol this text defines as a
+  macro at the top level, `[NAME ...]`, is a `Macro` token where it is used. Nothing is
+  expanded and no include followed. It returns `List`s of tokens, brackets, comments and
+  errors, located as the parser's.
+- **The parser's path.** The lexer gains two pointers, tested only on a comment and on the
+  error paths. The parse instruction count went from 1,849,845 to 1,845,499 per document
+  (-0.23%, `count_instructions.py` against 47ee1fa); lookup is unchanged.
+- **Cost of a read.** 2,097,260 bytes, 549,454 tokens: 25.2 ms (best of seven, Release, this
+  machine); the editor's own lexer took about 30 ms for 2 MB.
+- **Tests.** The tokens, brackets and comments of text that parses; text being typed; an
+  unterminated string and comment; stray and mismatched closes; out-of-range numbers; a
+  macro and its uses; every corpus file that parses reads with no errors and every bracket
+  closed.
+
+## D221. A check after an edit reuses the layers whose text did not change: `reload()`
+
+*Requirement note 0024, from the editor integration; no new API, the owner's choice.*
+
+- **The need.** An editor checks the stack on every pause; on a 2 MB `default.dta` a check
+  read the whole stack each time, though the person typed in a ten-line `local.dta`.
+- **Already there.** A Config records, for each layer, the content hash of every file it
+  read through the reader (`Dep`). `reload()` reads each layer's files through the reader,
+  compares the hashes, and reads again only from the first layer whose text changed,
+  upward, since macros flow up. So a tool that keeps one Config and calls `reload()` after
+  each edit gets reuse keyed by text, with no file times; the Config is the cache, and the
+  tool bounds it by keeping it or not.
+- **Numbers.** A 2 MB `default.dta` with a one-line `local.dta`, read through an in-memory
+  reader: a fresh load 57.2 ms, a `reload()` after an edit to `local.dta` 2.0 ms (best of
+  five, Release); `default`'s tree is the same object after it.
+- **A cache across fresh Configs** was weighed and not built: it would have to fingerprint
+  the macros and defines each layer reads from the layers below, for the case of a tool that
+  cannot keep a Config, and none needs that yet.
+- **Tests.** After an edit to the top layer, the kept Config's merged tree and sources are a
+  fresh load's and the bottom layer was not read again; text that does not parse gives the
+  fresh load's error, and the next edit reads.

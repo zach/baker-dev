@@ -41,7 +41,10 @@ the change, and the top left shows the time from the save to that frame. F1 show
 hides Baker's panels: tweaks, console, loop times, layers, the edit journal, shapes, and
 snapshots. A value tuned in a panel can be saved back to its line in the file.
 
-The remote console listens on 127.0.0.1:4555; each line is a Baker command:
+The remote console listens on 127.0.0.1, on the port the stack's `baker-project.dta`
+names (Cube 4555, Duel 4556, Ledger 4557, Contraption 4558, Hearth 4559, Stuntline 4560,
+Wayfarer 4561), so several run at once; `--console-port` overrides it. Each line is a Baker
+command:
 
 ```sh
 printf '{cube.angle}\n' | nc 127.0.0.1 4555

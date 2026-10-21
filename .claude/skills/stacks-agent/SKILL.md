@@ -32,7 +32,7 @@ Then, with `G=build-stacks/bin/stacks_<game>`:
 | `$G compare --before DIR --after DIR` | Which objectives moved between two `sim --results` directories, as JSON, each located by file and line; exit 1 if one broke. `sim --json` prints a run's results as JSON. |
 | `$G diff` | Exactly what `agent.dta` changes: path, old value, new value. |
 | `$G promote` | What promotion would write into `default.dta`. `--patch FILE` writes it as a diff a person can review and apply. **Never pass `--write`**: promotion is a person's decision. |
-| `python3 -I stacks/tools/console.py "{cmd}"` | A command in a game a person is running (127.0.0.1:4555). Use it only when asked to. `{config.explain path}` says which layer sets a value; `--json` prints the raw replies. |
+| `python3 -I stacks/tools/console.py --stack stacks/<game> "{cmd}"` | A command in a game a person is running, on the port its project file names. Use it only when asked to. `{config.explain path}` says which layer sets a value; `--json` prints the raw replies. |
 
 `sim` and `check` see `default.dta` and `agent.dta`, never `local.dta`, so results do not
 depend on whose machine runs them. Nothing in a run reads the clock: the same data, scenario,
