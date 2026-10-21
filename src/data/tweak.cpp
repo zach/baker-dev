@@ -243,15 +243,47 @@ std::string_view TweakBase::kind() const {
     return {};
 }
 
-List<Symbol> TweakBase::one_of() const {
-    Vec<Symbol> out;
-    if (const Array* a = meta_array(keys().one_of)) {
-        for (const Node& n : a->values())
-            if (const auto s = n.try_sym()) out.push_back(*s);
-    } else {
-        for (const std::string_view s : meta_.one_of) out.emplace_back(s);
+namespace {
+// What a tweak may be, from (one_of ...) after its value if the data has it, else from its
+// code: symbols or strings, as text; integers, with their names.
+struct Allowed {
+    Vec<Symbol> texts;
+    Vec<TweakChoice> numbers;
+};
+Allowed allowed(const Array* data, const TweakMeta& code) {
+    Allowed out;
+    if (data) {
+        for (const Node& n : data->values()) {
+            if (const auto s = n.try_sym()) {
+                out.texts.push_back(*s);
+            } else if (const auto t = n.try_str()) {
+                out.texts.emplace_back(*t);
+            } else if (const auto i = n.try_int()) {
+                out.numbers.push_back({*i, {}});
+            } else if (const Array* c = n.try_array(); c && c->size() == 2 && (*c)[0].try_int()) {
+                std::string_view name;
+                if (const auto sym = (*c)[1].try_sym()) name = sym->str();
+                if (const auto str = (*c)[1].try_str()) name = Symbol(*str).str();  // interned
+                out.numbers.push_back({*(*c)[0].try_int(), name});
+            }
+        }
+        return out;
     }
-    return List<Symbol>({out.data(), out.size()});
+    for (const std::string_view s : code.one_of) out.texts.emplace_back(s);
+    for (const TweakChoice& c : code.choices) out.numbers.push_back(c);
+    return out;
+}
+}  // namespace
+
+List<Symbol> TweakBase::one_of() const {
+    const Allowed a = allowed(meta_array(keys().one_of), meta_);
+    return List<Symbol>({a.texts.data(), a.texts.size()});
+}
+
+List<TweakChoice> TweakBase::choices() const {
+    Allowed a = allowed(meta_array(keys().one_of), meta_);
+    for (TweakChoice& c : a.numbers) c.name = Symbol(c.name).str();  // the code's, interned
+    return List<TweakChoice>({a.numbers.data(), a.numbers.size()});
 }
 
 std::string_view TweakBase::group() const {
@@ -332,13 +364,8 @@ TweakFindings check_tweaks(const Array& root, const TweakRegistry& tweaks) {
             const auto lo = (*a)[1].try_float(), hi = (*a)[2].try_float();
             if (lo && hi) range = {*lo, *hi};
         }
-        Vec<Symbol> one_of;
-        if (const Array* a = trailing_meta(r.values, k.one_of)) {
-            for (const Node& n : a->values())
-                if (const auto sym = n.try_sym()) one_of.push_back(*sym);
-        } else {
-            for (const std::string_view name : t.meta_.one_of) one_of.emplace_back(name);
-        }
+        const Allowed may = allowed(trailing_meta(r.values, k.one_of), t.meta_);
+        const Vec<Symbol>& one_of = may.texts;
         for (const Node& v : values) {
             const auto x = v.try_float();
             if (!range.empty() && x && (*x < range.min || *x > range.max))
@@ -348,14 +375,32 @@ TweakFindings check_tweaks(const Array& root, const TweakRegistry& tweaks) {
                                              detail::text_of(Node(range.min)) + " to " +
                                              detail::text_of(Node(range.max)),
                                          where));
-            const auto sym = v.try_sym();
-            if (!one_of.empty() && sym &&
-                std::find(one_of.begin(), one_of.end(), *sym) == one_of.end()) {
+            // A symbol or a string against the texts; an integer against the choices.
+            std::optional<std::string_view> text;
+            if (const auto sym = v.try_sym()) text = sym->str();
+            if (const auto str = v.try_str()) text = *str;
+            if (!one_of.empty() && text &&
+                std::none_of(one_of.begin(), one_of.end(),
+                             [&](Symbol n) { return n.str() == *text; })) {
                 Str names;
                 for (const Symbol n : one_of) names += (names.empty() ? "" : ", ") + Str(n.str());
+                errors.push_back(located(
+                    ErrorCode::Range,
+                    "'" + Str(path) + "' is '" + Str(*text) + "', not one of its tweak's " + names,
+                    where));
+            }
+            const auto number = v.try_int();
+            if (!may.numbers.empty() && number && v.type() == Type::Int &&
+                std::none_of(may.numbers.begin(), may.numbers.end(),
+                             [&](const TweakChoice& c) { return c.value == *number; })) {
+                Str names;
+                for (const TweakChoice& c : may.numbers) {
+                    names += (names.empty() ? "" : ", ") + detail::decimal(c.value);
+                    if (!c.name.empty()) names += " (" + Str(c.name) + ")";
+                }
                 errors.push_back(located(ErrorCode::Range,
-                                         "'" + Str(path) + "' is '" + Str(sym->str()) +
-                                             "', not one of its tweak's " + names,
+                                         "'" + Str(path) + "' is " + detail::text_of(v) +
+                                             ", not one of its tweak's " + names,
                                          where));
             }
         }
@@ -393,7 +438,7 @@ TweakFindings check_tweaks(const Array& root, const TweakRegistry& tweaks) {
             List<Error>({warnings.data(), warnings.size()})};
 }
 
-// --- As JSON (baker.tweaks/1.2) ---
+// --- As JSON (baker.tweaks/1.3) ---
 
 namespace {
 // The tweak's values as one text: a single value bare, several in parentheses.
@@ -413,7 +458,7 @@ void write_json(const TweakRegistry& tweaks, TextSink text) {
     tweaks.each([&](const TweakBase& t) { ts.push_back(&t); });
     std::sort(ts.begin(), ts.end(),
               [](const TweakBase* a, const TweakBase* b) { return a->path() < b->path(); });
-    Str out = "{\n  \"schema\": \"baker.tweaks/1.2\",\n  \"tweaks\": [";
+    Str out = "{\n  \"schema\": \"baker.tweaks/1.3\",\n  \"tweaks\": [";
     for (size_t i = 0; i < ts.size(); ++i) {
         const TweakBase& t = *ts[i];
         ValueList def, cur;
@@ -460,6 +505,15 @@ void write_json(const TweakRegistry& tweaks, TextSink text) {
         out += ", \"one_of\": ";
         const List<Symbol> one_of = t.one_of();
         detail::json_names(out, one_of.items());
+        out += ", \"choices\": [";
+        const List<TweakChoice> choices = t.choices();
+        for (size_t k = 0; k < choices.size(); ++k) {
+            out += k ? ", {\"value\": " : "{\"value\": ";
+            out += detail::decimal(choices[k].value) + ", \"name\": ";
+            detail::json_string(out, choices[k].name);
+            out += '}';
+        }
+        out += ']';
         out += ", \"source\": ";
         std::optional<Source> source;
         if (t.bound())
@@ -537,6 +591,7 @@ struct DescribedParts {
           group_text(d.group) {
         for (const std::string_view t : types) type_names.emplace_back(t);
         for (const std::string_view o : d.one_of) one_of_names.emplace_back(o);
+        for (const TweakChoice& c : d.choices) choices.push_back({c.value, Symbol(c.name).str()});
         for (const Str& t : type_names) type_views.push_back(t.view());
         for (const Str& o : one_of_names) one_of_views.push_back(o.view());
         described = {.range = d.range,
@@ -545,11 +600,13 @@ struct DescribedParts {
                      .kind = kind_text.view(),
                      .group = group_text.view(),
                      .dev_only = d.dev_only,
-                     .one_of = {one_of_views.data(), one_of_views.size()}};
+                     .one_of = {one_of_views.data(), one_of_views.size()},
+                     .choices = {choices.data(), choices.size()}};
     }
     Str path_text, type_text, desc_text, kind_text, group_text;
     Vec<Str> type_names, one_of_names;
     Vec<std::string_view> type_views, one_of_views;
+    Vec<TweakChoice> choices;  // names interned
     TweakMeta described;
     ValueList fallback, current;
     bool has_current = false;

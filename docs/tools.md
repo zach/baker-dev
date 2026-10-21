@@ -88,6 +88,9 @@ built, the shape validator, binds the Config's tools, and runs every layer's `#a
 `changed` is called after the load, after each change to the stack once `#autorun` has
 run again, and after a live edit. The Config's clock is the files', so `loop_stats()`
 measures from the save to the frame that showed it. A quiet frame allocates nothing.
+`.console_any_port = true` serves the console on a free port instead, which
+`console_port()` reports: a tool that starts several instances of the game reads each one's
+port from it rather than choosing one first.
 
 ### `Watcher`: the files the stack was read from
 
@@ -144,7 +147,9 @@ through your file access, as `Live` does, for files under an engine's own roots.
 
 - **Files.** The project file (`baker-project.dta`) gives the stack. It names the reference
   JSON your build writes (`(reference "build/reference.json")`), the game binary that answers
-  the commands (`(tool ...)`), the port its console listens on (`(console 4555)`, which
+  the commands (`(tool ...)`, then any arguments the binary takes first, such as an engine's
+  `(tool "engine" "--path" "." "--")`, which a tool runs from the project file's directory),
+  the port its console listens on (`(console 4555)`, which
   the game may use as its default while its own command line wins), and its scenarios and
   objectives (`(scenarios ...)`, `(objectives ...)`).
 - **Documents.** [The reference](reference-json.md), [check's report](check-json.md),

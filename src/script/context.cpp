@@ -637,8 +637,9 @@ namespace {
 struct Declared {
     // `infos`: each parameter's kind, match, and raw, as checked; its type is `od`'s.
     Declared(const Allocator& a, Symbol n, const OverloadDescription& od,
-             const detail::ParamInfo* infos)
-        : name(n), params(a), names(a), values(a), texts(a), result(a) {
+             const detail::ParamInfo* infos, Callback<Expected<Node>(Args&)> b)
+        : name(n), params(a), names(a), values(a), texts(a), result(a), body(std::move(b)) {
+        for (size_t i = 0; i < od.params.size(); ++i) raw = raw || infos[i].raw;
         result = od.result;
         // A parameter's value types: the description's, or a type of Baker's own, as the
         // game's native parameter has them.
@@ -677,13 +678,59 @@ struct Declared {
     Vec<std::string_view> values;  // every parameter's value types, one after the other
     Vec<detail::ParamText> texts;  // what params point to
     Str result;
+    Callback<Expected<Node>(Args&)> body;  // none: declared only, for check
+    bool raw = false;                      // a parameter is passed as written
 };
 
-Expected<Node> call_declared(const void* callable, Args&) {
+// Whether an argument has a described parameter's type: by its match, or by the value types
+// of a type only described, read as Values::read reads a compound value.
+bool has_type(const detail::ParamInfo& p, const Node& v) {
+    if (p.match) return p.match(v, true);
+    if (p.values().empty()) return true;
+    const Array* a = v.try_array();
+    return detail::reads_as(
+        p.values(), a ? Values(a->nodes(), a) : Values(std::span<const Node>(&v, 1), nullptr));
+}
+
+Expected<Node> call_declared(const void* callable, Args& args) {
     const auto& d = *static_cast<const Declared*>(callable);
-    return Unexpected(make_error(ErrorCode::Refused, quoted(d.name) +
-                                                         " was declared from a description, "
-                                                         "and has no body to run"));
+    if (!d.body)
+        return Unexpected(make_error(ErrorCode::Refused, quoted(d.name) +
+                                                             " was declared from a description, "
+                                                             "and has no body to run"));
+    if (d.raw) return d.body(args);
+    // Each argument evaluated once and held to its parameter, as a native's: eight on the
+    // stack, more from the default allocator (not a Vec: see Impl::call).
+    const size_t n = args.size();
+    struct Spill {
+        Node* p = nullptr;
+        size_t n = 0;
+        ~Spill() {
+            for (size_t i = 0; i < n; ++i) p[i].~Node();
+            if (p) detail::default_free(p, n * sizeof(Node));
+        }
+    } spill;
+    Node small[8];
+    Node* values = small;
+    if (n > 8) {
+        spill.p = static_cast<Node*>(detail::default_alloc(n * sizeof(Node), alignof(Node)));
+        for (; spill.n < n; ++spill.n) ::new (spill.p + spill.n) Node();
+        values = spill.p;
+    }
+    for (size_t i = 0; i < n; ++i) {
+        auto v = args.eval(i);
+        if (!v) return v;
+        const detail::ParamInfo* p = i < d.params.size() ? &d.params[i] : nullptr;
+        if (p && p->kind != detail::ParamKind::Rest && !has_type(*p, *v))
+            return Unexpected(args.error("argument " +
+                                         detail::decimal(static_cast<int64_t>(i + 1)) + " of " +
+                                         quoted(args.name()) + " is " + Str(type_name(v->type())) +
+                                         ", not " + Str(p->type())));
+        values[i] = std::move(*v);
+    }
+    Args evaluated(args.context(), args.command(), values, n, 0, true, args.command().size() - n,
+                   args.self());
+    return d.body(evaluated);
 }
 
 using Match = bool (*)(const Node&, bool) noexcept;
@@ -759,7 +806,8 @@ bool registered_match(const Context::Impl& impl, std::string_view type, Match& m
 // cannot be, and then `built` is not to be added.
 std::optional<Str> build_described(Context::Impl& impl, Symbol name,
                                    std::span<const OverloadDescription> overloads,
-                                   Vec<detail::Overload>& built) {
+                                   Vec<detail::Overload>& built,
+                                   const Callback<Expected<Node>(Args&)>& body = {}) {
     if (overloads.empty()) return Str("it has no overloads");
     Vec<detail::ParamInfo> infos(impl.alloc);
     for (const OverloadDescription& od : overloads) {
@@ -793,7 +841,7 @@ std::optional<Str> build_described(Context::Impl& impl, Symbol name,
             }
         }
         o.callable =
-            detail::Shared::make_in<Declared>(impl.alloc, impl.alloc, name, od, infos.data());
+            detail::Shared::make_in<Declared>(impl.alloc, impl.alloc, name, od, infos.data(), body);
         const auto& d = *static_cast<const Declared*>(o.callable.get());
         o.thunk = &call_declared;
         o.params = std::span<const detail::ParamInfo>(d.params.data(), d.params.size());
@@ -806,6 +854,11 @@ std::optional<Str> build_described(Context::Impl& impl, Symbol name,
 }  // namespace
 
 Expected<FuncRef> Context::declare(Symbol name, std::span<const OverloadDescription> overloads) {
+    return declare(name, overloads, {});
+}
+
+Expected<FuncRef> Context::declare(Symbol name, std::span<const OverloadDescription> overloads,
+                                   const Callback<Expected<Node>(Args&)>& body) {
     auto refuse = [&](std::string_view why) {
         return Unexpected(
             make_error(ErrorCode::Type, "cannot declare " + quoted(name) + ": " + Str(why)));
@@ -813,7 +866,7 @@ Expected<FuncRef> Context::declare(Symbol name, std::span<const OverloadDescript
     // Every overload is built before any is added, so a description with a mistake adds
     // nothing.
     Vec<detail::Overload> built(impl_->alloc);
-    if (auto why = build_described(*impl_, name, overloads, built)) return refuse(*why);
+    if (auto why = build_described(*impl_, name, overloads, built, body)) return refuse(*why);
     Expected<FuncRef> ref = refuse("unreachable");
     for (detail::Overload& o : built)
         if (ref = add_overload(name, std::move(o)); !ref) return ref;

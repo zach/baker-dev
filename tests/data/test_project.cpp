@@ -143,7 +143,26 @@ TEST_CASE("a project names the tool binary, its scenarios and objectives (D208)"
     CHECK(cfg.get<int>("speed") == 1);
     CHECK(p.console_port == 0);  // none named
     const std::string bad = dir.write("bad.dta", "(project (tool) (layers (d \"d.dta\")))");
-    CHECK(std::string(read_project(bad).error().message()).find("(tool \"path\")") !=
+    CHECK(
+        std::string(read_project(bad).error().message()).find("(tool \"path\" \"argument\"...)") !=
+        std::string::npos);
+}
+
+TEST_CASE("a project's tool may take arguments of its own (D217)") {
+    TempDir dir;
+    const std::string file =
+        dir.write("baker-project.dta",
+                  "(project\n   (tool \"bin/engine\" \"--path\" \".\" \"--headless\" \"--\")\n"
+                  "   (layers (d \"d.dta\")))\n");
+    const Project p = ok(read_project(file));
+    CHECK(p.tool == Symbol(dir.path("bin/engine")));  // the binary is joined, as before
+    REQUIRE(p.tool_args.size() == 4);                 // the arguments are as written
+    CHECK(p.tool_args[0] == Symbol("--path"));
+    CHECK(p.tool_args[1] == Symbol("."));
+    CHECK(p.tool_args[3] == Symbol("--"));
+    const std::string bad =
+        dir.write("bad.dta", "(project (tool \"bin/engine\" 3) (layers (d \"d.dta\")))");
+    CHECK(std::string(read_project(bad).error().message()).find("arguments are strings") !=
           std::string::npos);
 }
 

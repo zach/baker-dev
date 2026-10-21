@@ -804,6 +804,15 @@ public:
     // error naming the function, and nothing is registered; so is an unknown kind.
     [[nodiscard]] Expected<FuncRef> declare(Symbol name,
                                             std::span<const OverloadDescription> overloads);
+    // As declare, with a body the host builds at runtime (a function of an embedded
+    // scripting language): check and the reference see the described parameters, and a call
+    // runs `body`. When no parameter is raw, each argument is evaluated once and held to its
+    // parameter's type before the body runs, as a native's would be, and the body reads them
+    // from `Args` already evaluated; with a raw one, the body gets them as written and
+    // evaluates what it needs.
+    [[nodiscard]] Expected<FuncRef> declare(Symbol name,
+                                            std::span<const OverloadDescription> overloads,
+                                            const Callback<Expected<Node>(Args&)>& body);
     // Declares a type from its description (the reference's `types`), for a tool that checks
     // without the game: its bases, each a type this Context already knows (native or
     // declared), and its methods. check() then holds a call on an object of the type to its

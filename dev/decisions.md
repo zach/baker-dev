@@ -7036,3 +7036,73 @@ the stacks move onto it, `compare` included.*
   `--console-port` is given, so the seven run at once. `stacks/tools/console.py --stack DIR`
   reads the port from a stack's project file. A packaged game has no project file and keeps
   4555.
+
+## D213. A function with a body and a described signature
+
+*Requirement note 0012 of the Godot integration (`dev/godot-notes-2-note.md`).*
+
+- **The need.** A host with a scripting language of its own binds that language's functions
+  at runtime, with no C++ signature to deduce; taking `Args` reads as "values...", so
+  `check` passed a call with any arguments.
+- **`Context::declare(name, overloads, body)`** is `declare` with a body: the description is
+  checked as `declare` checks it, `check` and the reference see it, and a call runs `body`
+  (`Callback<Expected<Node>(Args&)>`, kept in the declared function's own callable, so
+  nothing is added to a native's path).
+- **At a call.** Arity is the overload's, as for any function. Without a raw parameter, each
+  argument is evaluated once and held to its parameter, by its match or by the value types
+  of a type only described; a mismatch is the native's message ("argument 1 of 'f' is
+  symbol, not int") and the body does not run; the body gets the evaluated `Args`. With a raw
+  parameter, the body gets the arguments as written. The evaluated arguments sit in eight
+  stack slots and spill to the default allocator, as the call path's do, not in a `Vec`.
+
+## D214. Scenario directories listed through the host
+
+*Requirement note 0013 of the Godot integration.*
+
+- **The need.** The kit read a single scenarios file through the host's reader, but listed a
+  directory with the disk's calls, so in a game whose files are in an archive a directory
+  read nothing, and the shipped build's `sim` ran nothing.
+- **`CommandHooks::list`** lists a directory of the host's own files; the kit keeps the
+  `.dta` names, sorts them, and reads each through `reader`. Without it, or when it says
+  `dir` is not one of its directories, the disk's directory is read as before. An entry can
+  already name several files.
+- **Tests.** A book read through a lister serving files in any order reads them in name
+  order; without the lister the same directory reads nothing; the test game lists its
+  `game://` directories, and `sim --root` runs the stack's scenario directory through them.
+
+## D215. Allowed values for string and integer tweaks
+
+*Requirement note 0014 of the Godot integration.*
+
+- **The need.** Engines offer a choice among names in two forms, a string from a list or an
+  integer with named values. Only a symbol tweak carried a list, so a misspelled
+  `(attack "hevy")` passed `check`.
+- **Strings** take `TweakMeta::one_of` as symbols do, or `(one_of "light" "heavy")` after the
+  value. **Integers** take `TweakMeta::choices` (`TweakChoice{value, name}`), or
+  `(one_of (0 easy) (1 normal))`, a bare number being a choice without a name. The data's
+  list wins over the code's.
+- **`check_tweaks`** holds a symbol or a string to the texts and an integer to the choices,
+  located, naming the choices with their names; the tweak still takes any value.
+- **`baker.tweaks/1.3`.** `one_of` also lists a string tweak's strings; `choices` lists an
+  integer tweak's `{"value", "name"}`s. `TweakBase::choices()` gives them in code, with
+  names interned. `TweakDescription` takes `choices`, so a tool's described tweak checks
+  alike (a test compares them).
+
+## D216. The live loop's console on a free port
+
+*Requirement note 0015 of the Godot integration.*
+
+`LiveOptions::console_any_port` listens on a free port (`Console::listen(0)`), which
+`console_port()` reports, for a tool that starts several instances. A `console_port` of 0
+keeps meaning no console, and a shipping build opens none. A test opens two loops and gets
+two ports.
+
+## D217. The project's tool with arguments
+
+*Requirement note 0016 of the Godot integration.*
+
+`(tool "path" "argument"...)`: `Project::tool` is the binary, joined with the project
+file's directory as before, and `Project::tool_args` the arguments as written, interned, in
+order. A tool runs them from the project file's directory, so a relative path among them
+names what it names there; Baker cannot tell which arguments are paths, so it joins none.
+An argument that is not a string is an error at its line.

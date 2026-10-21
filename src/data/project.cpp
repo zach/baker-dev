@@ -137,10 +137,18 @@ Expected<Project> read_project(std::string_view path, const LoadSession::Reader&
                                            : p.include_dirs) = std::move(*list);
         } else if (key == Symbol("tool")) {
             std::string_view file;
-            if (part->size() != 2 || !text_of((*part)[1], file))
-                return Unexpected(places.at(*part, "the tool is (tool \"path\")"));
+            if (part->size() < 2 || !text_of((*part)[1], file))
+                return Unexpected(places.at(*part, R"(the tool is (tool "path" "argument"...))"));
             p.tool = joined(dir, file);
             p.tool_at = places.of(*part, 1);
+            Vec<Symbol> args;
+            for (size_t k = 2; k < part->size(); ++k) {
+                std::string_view arg;
+                if (!text_of((*part)[k], arg))
+                    return Unexpected(places.at(*part, "a tool's arguments are strings"));
+                args.emplace_back(arg);
+            }
+            p.tool_args = List<Symbol>(std::span<const Symbol>(args.data(), args.size()));
         } else if (key == Symbol("console")) {
             const std::optional<int64_t> port =
                 part->size() == 2 ? (*part)[1].try_int() : std::nullopt;
