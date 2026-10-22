@@ -12,6 +12,7 @@ option(BAKER_BUILD_BENCH      "Build benchmarks" OFF)
 option(BAKER_BUILD_EXAMPLES   "Build the examples" ${PROJECT_IS_TOP_LEVEL})
 option(BAKER_BUILD_HARNESS    "Build examples/harness-imgui (fetches Dear ImGui and GLFW)" OFF)
 option(BAKER_BUILD_FUZZERS    "Build libFuzzer targets (Clang only)" OFF)
+option(BAKER_BUILD_EXPERIMENTS "Build experiments/ (syntax sketches on branches; never shipped)" OFF)
 option(BAKER_USE_EASTL        "Internal containers from EASTL instead of the STL (D55, D61)" OFF)
 set(BAKER_SANITIZE "" CACHE STRING "Sanitizers to enable, e.g. address,undefined")
 
@@ -227,6 +228,10 @@ endif()
 
 if(BAKER_BUILD_EXAMPLES)
   add_subdirectory(examples)
+endif()
+
+if(BAKER_BUILD_EXPERIMENTS)
+  add_subdirectory(experiments)
 endif()
 
 if(BAKER_BUILD_BENCH)
