@@ -3,6 +3,9 @@
 # before committing: CI has more (MSVC, libc++, TSan), but most breakage shows here first.
 # Build directories go under $BAKER_MATRIX_DIR (default: build-matrix/, ignored by git).
 #
+# --quick runs clang-tidy and the shipping configuration alone: the two that most often fail
+# after the others pass. Run it first; it is not a substitute for the whole matrix.
+#
 # Clang's ASan runtime is often not installed; the asan configuration uses GCC.
 # The eastl and harness configurations need network access the first time, to fetch EASTL,
 # Dear ImGui, and GLFW; the harness also needs the X11 and OpenGL development headers.
@@ -21,8 +24,12 @@ declare -A cfg=(
   [eastl]="-DBAKER_USE_EASTL=ON"  # fetches EASTL at configure time
   [harness]="-DBAKER_BUILD_HARNESS=ON"  # fetches Dear ImGui and GLFW; needs X11 and GL headers
 )
+quick=0
+[ "${1:-}" = "--quick" ] && quick=1
 status=0
-for n in "${!cfg[@]}"; do
+names=("${!cfg[@]}")
+[ $quick = 1 ] && names=(ship debug)  # debug only for clang-tidy's compile commands
+for n in "${names[@]}"; do
   dir=$root/$n
   # Configured every time (cheap when nothing changed), so a changed flag, or a first
   # configure that failed, is not left behind; its errors count with the build's.
@@ -40,6 +47,7 @@ if command -v run-clang-tidy-18 >/dev/null; then
 else
   echo "tidy: run-clang-tidy-18 not installed; skipped"
 fi
+[ $quick = 1 ] && exit $status
 # The release dry run: the tree as tools/release/publish.py would publish it (dev/releasing.md).
 if out=$(python3 tools/release/publish.py check 2>&1); then
   echo "release: $(echo "$out" | tail -1)"

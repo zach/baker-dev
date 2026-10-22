@@ -12,6 +12,7 @@
 
 #include <string>
 #include <vector>
+#include "dev_only.hpp"
 #include "ok.hpp"
 
 using namespace baker;
@@ -281,8 +282,7 @@ TEST_CASE("a reload that finds nothing changed allocates nothing") {
     if (test::counting_allocations()) CHECK(scope.count() == 0);
 }
 
-TEST_CASE("a merge copies no session when the top layer's is unchanged (D129)") {
-    if constexpr (kShipping) return;  // shipping refuses toggling a layer
+BAKER_DEV_TEST_CASE("a merge copies no session when the top layer's is unchanged (D129)") {
     auto allocations_for = [](int macros) {
         TempDir dir;
         std::string defs;

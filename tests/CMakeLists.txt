@@ -132,6 +132,9 @@ find_package(Python3 COMPONENTS Interpreter)
 if(Python3_FOUND)
   add_test(NAME baker_header_allowlist
            COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/check_headers.py)
+  # A test that calls what shipping refuses handles shipping, or is a BAKER_DEV_TEST_CASE.
+  add_test(NAME baker_tests_handle_shipping
+           COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/check_tests.py)
 endif()
 file(GLOB baker_public_headers CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/include/baker/*.hpp)
 if(TARGET baker::host)

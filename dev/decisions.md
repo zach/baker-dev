@@ -7253,3 +7253,29 @@ the owner's choice.*
 - **Tests.** A record above an edit holds it and its other fields; a record with no edit
   beneath is read from `root()`; `root()` is the last merge until `apply_edits()`; a clear
   reverts it everywhere; `Live` applies before `changed`.
+
+## D225. A test of development alone says so, and a gate finds one that does not
+
+*Step 1 of `dev/tools-library-plan.md`.*
+
+- **The need.** A test of what shipping refuses (a live edit, a reload, toggling a layer,
+  write-back, promotion) passed in development and failed only in the shipping leg, after a
+  full matrix run. D221's test was one.
+- **`BAKER_DEV_TEST_CASE(name)`** (`tests/support/dev_only.hpp`): a `TEST_CASE` with
+  `doctest::skip(baker::kShipping)`. It compiles in every build, and shipping reports it
+  skipped. The eleven tests that began `if constexpr (kShipping) return;` use it (the plan
+  counted ten; `test_stats` was the eleventh).
+- **`tools/check_tests.py`**, run by `ctest` as `baker_tests_handle_shipping`. It fails a
+  plain `TEST_CASE` that calls `set`, `set_layer_enabled`, `toggle_layer`, `reload`,
+  `clear_scratch`, `write_back`, `write_back_to` or `promote` without handling shipping:
+  inside an `if constexpr` or `#if` on shipping, of either sense, or after an early return
+  on it.
+  - It is lexical. A `set(` whose first argument is not a literal or a path is taken for an
+    `Array`'s, and a helper's calls are not followed, so it misses some; a fixed test file
+    of the bad and good forms is caught as expected.
+  - On the tree it found one test that guarded a lambda's use and not its definition,
+    which now sits inside the guard, and one false positive (a `reload()` expected to
+    return false in both builds), marked `check_tests: ok`.
+- **`tools/local_matrix.sh --quick`** builds and tests shipping, and runs clang-tidy, alone.
+  Those two failed after the rest passed in most of this period's extra runs. It does not
+  replace the whole matrix before a commit.

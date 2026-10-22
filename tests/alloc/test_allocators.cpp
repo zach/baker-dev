@@ -11,6 +11,7 @@
 #include <baker/tweak.hpp>
 
 #include "alloc_counter.hpp"
+#include "dev_only.hpp"
 
 #include <atomic>
 #include <cstdio>
@@ -254,8 +255,7 @@ TEST_CASE("loose parameters are the Context's, and leave with the object (D98)")
     CHECK(mine.live_bytes == 0);
 }
 
-TEST_CASE("reloads free the trees they replace") {
-    if constexpr (baker::kShipping) return;  // reload is inert in shipping
+BAKER_DEV_TEST_CASE("reloads free the trees they replace") {
     Counting mine;
     const baker::Allocator alloc = mine.allocator();
     size_t steady = 0;
