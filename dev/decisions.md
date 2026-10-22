@@ -7296,3 +7296,20 @@ the owner's choice.*
   lacks) comes first. It is a cold call over a handful of entries.
 - **Tests.** Five tweaks registered in one order and in its reverse give the same errors and
   warnings, in that order. The two tests that sorted findings no longer do.
+
+## D228. `and_then` on `Expected`
+
+*Step 3 of `dev/tools-library-plan.md`.*
+
+- **The need.** Two `push_layer` calls in a row, or a read and then a push, took an early
+  return or a lambda for each step, because Baker's own `Expected` (C++20, where the
+  standard library has no `std::expected`) had no `and_then`. A C++23 build had it, so code
+  that used it built in one and not the other.
+- **The change.** `and_then(f)` on `Expected<T>` (`&`, `const&`, `&&`) and `Expected<void>`
+  (`const&`, `&&`), as `std::expected` gives it: `f` runs on the value, or with none for
+  `void`, and returns an `Expected` with the same error type; an error passes through and
+  `f` does not run. A different error type is a compile error, as in the standard. Header
+  only. `transform` and `or_else` wait for a caller.
+- **Tests.** One test runs in both builds (C++20's own, C++23's `std::expected`): a chain of
+  `void` steps that stops at the first error, an `int` chain that halves until odd, a
+  `const&` call to another value type, and a value to `void`.
