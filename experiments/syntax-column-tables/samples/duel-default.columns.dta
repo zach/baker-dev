@@ -1,0 +1,46 @@
+; Duel's data: the rules, the fighters and their frame data, the CPU's difficulties, and the
+; bots the simulation plays it against. Edit and save while it runs: the next frame fights
+; with the change. Tuning of your own goes in local.dta (not checked in).
+#require "../packs/game/duel_core.dta"
+
+(duel
+   (hit_pause 6 (range 0 30) (desc "Frames both fighters freeze on contact: the weight of a hit"))
+   (buffer 5 (range 1 20) (desc "Frames a press waits for its fighter to be able to act"))
+   (stun_decay 1 (range 0 10) (desc "Hitstun each hit of a combo loses, in frames"))
+   (stage_half_width 4 (range 2 20) (desc "Metres from the center to a wall"))
+   (start_gap 2 (range 0.5 10) (desc "Metres between the fighters at a round's start"))
+   (round_seconds 60 (range 5 600))
+   (ko_frames 90 (range 1 600) (desc "Frames from a knockout to the next round"))
+   (show_boxes 1))
+
+; The frame data as a sheet: one move a row, a cell under each column. A list cell is in
+; parentheses, _ is a field the move does not have, and the two optional fields a move
+; may add (crouching, guard) follow its cells as ordinary children.
+(fighters
+   (kestrel
+      (health 1000) (width 0.6) (height 1.8) (crouch_height 1.1)
+      (walk_forward 2.4) (walk_back 1.8)
+      (moves
+         #columns  (button  startup active recovery damage hitstun blockstun push cancels        hitbox)
+         (jab       light   4       2      7        30     12      9         0.12 (jab low_kick) (0.3 1.3 0.55 0.2))
+         (low_kick  kick    6       3      12       45     16      10        0.15 (palm)         (0.3 0.1 0.6 0.25) (crouching 1) (guard low))
+         (side_kick kick    7       3      14       60     17      11        0.2  _              (0.35 0.9 0.75 0.25))
+         (heavy     heavy   9       3      18       90     20      14        0.25 (palm)         (0.35 1.1 0.7 0.3))
+         (palm      special 12      4      24       120    30      12        0.6  _              (0.2 0.8 0.8 0.8)))))
+
+; The CPU: each difficulty is how fast it sees, how often it guards, punishes, and attacks.
+; Guarding, it stands, and crouches for a low only once it sees one: a reaction under about
+; 10 frames is faster than a person can react to a move (metrics/duel.dta).
+(cpu
+   #columns (reaction block punish aggression combo approach decide_every)
+   (easy     30       0.2   0.1    0.55       0.1   0.55     10)
+   (normal   20       0.4   0.6    0.85       0.35  0.6      8)
+   (hard     12       0.6   0.8    1          1     0.65     5))
+
+; Scripted players for the simulation: a newcomer who mashes, a defensive player who blocks
+; and punishes, and a player who knows the combos. Only the masher mashes.
+(bots
+   #columns (reaction block punish aggression combo mash approach decide_every)
+   (masher   40       0     0      0.1        0     0.05 0.7      12)
+   (turtle   10       0.9   1      0.5        0.8   _    0.35     8)
+   (combo    18       0.4   0.5    0.6        1     _    0.75     6))

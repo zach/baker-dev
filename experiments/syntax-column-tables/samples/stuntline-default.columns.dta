@@ -1,0 +1,45 @@
+; Stuntline's data: the car, the kit of track pieces, the tracks laid from it, and the AI
+; drivers. Edit and save while it runs; the race restarts on the new track.
+#require "../packs/game/stuntline_core.dta"
+
+(car
+   (mass 1500) (width 1.8) (height 0.4) (length 4)
+   (wheel_radius 0.3) (wheel_width 0.1)
+   (max_torque 900) (max_rpm 6000) (max_steer 30)
+   (suspension_min 0.3) (suspension_max 0.5) (suspension_frequency 1.5) (suspension_damping 0.5)
+   (grip 1))
+
+; The kit. A piece's in and out are connector types; a track lays pieces whose ends match.
+; A straight has a length, a ramp a length and a rise, a turn a radius and an angle: _ marks
+; the measures a kind of piece does not have.
+(pieces
+   #columns    (kind     length rise radius angle in   out)
+   (straight_20 straight 20     _    _      _     flat flat)
+   (straight_40 straight 40     _    _      _     flat flat)
+   (kicker_15   ramp     15     3    _      _     flat lip)
+   (gap_8       gap      8      _    _      _     lip  lip)
+   (gap_18      gap      18     _    _      _     lip  lip)
+   (landing_20  ramp     20     -3   _      _     lip  flat)
+   (left_45     turn     _      _    40     45    flat flat)
+   (right_45    turn     _      _    40     -45   flat flat)
+   (left_90     turn     _      _    30     90    flat flat)
+   (right_90    turn     _      _    30     -90   flat flat))
+
+; The tracks stay nested: a description and a list of pieces are not cells a row holds well.
+(tracks
+   (canyon_jump
+      (desc "A run-up, a jump over the canyon, and a banked left to the line")
+      (lay straight_40 kicker_15 gap_8 landing_20 left_90 straight_40)
+      (par 20))
+   (switchback
+      (desc "Bends to set up, then the jump")
+      (lay straight_20 left_45 right_90 left_45 straight_40 kicker_15 gap_18 landing_20 straight_20)
+      (par 25)))
+
+; AI drivers: the share of each corner's speed they take, how much their steering wanders,
+; and how far ahead they look.
+(drivers
+   #columns (pace noise look_ahead top_speed)
+   (rookie   0.75 0.15  10         30)
+   (pro      0.9  0.05  12         40)
+   (ace      1    0     14         50))
