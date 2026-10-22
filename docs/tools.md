@@ -148,7 +148,7 @@ int main(int argc, char** argv) {
 | `eval [--seed N] [--json] "{command}"...` | each command's result on the game reset with the seed; `--json`: one reply line each |
 | `diff [--layer L]` | what layer L (default `agent`) changes, value by value |
 | `promote [--from L] [--to T] [--write \| --patch FILE]` | what promoting L into T would write; `--write` writes; `--patch` writes a unified diff and nothing else |
-| `sim [--scenario NAME]... [--seed N \| --seeds A-B] [--step-hz N] [--json] [--results DIR]` | the project's scenarios run and judged by its objectives ([`baker.sim/1.1`](sim-json.md)); exit 1 when one fails |
+| `sim [--scenario NAME]... [--seed N \| --seeds A-B] [--step-hz N] [--json] [--results DIR]` | the project's scenarios run and judged by its objectives ([`baker.sim/1.2`](sim-json.md)); exit 1 when one fails |
 | `compare --before DIR --after DIR` | which objectives broke or were fixed between two `sim --results` ([`baker.compare/1`](sim-json.md)) |
 
 Each runs on a fresh Context with your functions bound (`CommandHooks::bind`), the stack

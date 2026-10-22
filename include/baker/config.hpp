@@ -431,6 +431,17 @@ public:
     // nothing until the next merge, and is not supported.
     [[nodiscard]] Ref<Array> layer_root(std::string_view name) const;
 
+    // A digest of the data, for hosts that must agree on it: lockstep peers, a replay, a
+    // save loaded under other data. 64 bits, the same on every platform and build for the
+    // same data and different when any value differs (detail in baker::digest). It finds a
+    // difference; it is not a cryptographic hash, and no defence against tampering.
+    // digest(): of the merged tree as the game reads it, live edits included, whatever
+    // layers produced it. stack_digest(): of each enabled layer's name and tree, in order,
+    // then scratch's: it moves when a layer is toggled or edited even if the values agree.
+    // Linear in the data; asked for, never on a frame's path.
+    [[nodiscard]] uint64_t digest() const;
+    [[nodiscard]] uint64_t stack_digest() const;
+
     // --- Reading. ---
     // The merged tree, including scratch as of the last full merge. Holding the Ref keeps
     // this version alive across reloads.

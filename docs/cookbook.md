@@ -630,6 +630,26 @@ frames. Other threads may read, on these terms:
   suits a desktop or console thread; on a thread with a smaller stack (a handheld's worker,
   a fiber of a job system) set it to well under that thread's stack size.
 
+## Agreeing on the data: lockstep, replays, saves
+
+Peers in a lockstep match send only their inputs and each computes the outcome, so they
+must hold the same data; a replay reproduces a match only on its data; a save may be loaded
+under other data. `cfg.digest()` is a 64-bit digest of the merged tree as the game reads
+it, live edits included, the same on every platform and build for the same values and
+different when any value differs. Compare it at a session's start, send it with a replay,
+store it in a save:
+
+```cpp
+if (peer.digest != cfg.digest()) refuse_match("the data differs");  // a layer, an edit
+```
+
+`cfg.stack_digest()` digests each enabled layer's name and tree in order: it tells two
+stacks apart that merge to the same values. `baker::digest(tree)` digests any tree, and
+`{config.digest}` gives the digest as 16 hex digits on the console. Values count by type
+and value, not by file, layout or comments; the encoding is fixed and documented in
+`array.hpp`. It finds a difference and is no defence against tampering: it is not a
+cryptographic hash.
+
 ## Repro scripts
 
 A command is already a serialized, parseable, evaluable value, so a sequence of console

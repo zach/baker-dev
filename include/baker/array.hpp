@@ -188,6 +188,15 @@ private:
     detail::NodeBuffer nodes_;
 };
 
+// A 64-bit digest of `tree` by value: numbers by type and value (-0.0 as 0.0, every NaN as
+// one), symbols and strings by type and text, arrays, commands and properties by type and
+// elements in order; not file names, lines or comments. The encoding is fixed: each value a
+// type word, then its words (a float's IEEE 754 bits; a text's length, then its bytes eight
+// to a word, little-endian, zero-padded; an array's count, then its elements), each folded
+// into the state as state = splitmix64(state ^ word) from 0. The same on every platform and
+// build, and stable within a major version. Not cryptographic. `seed` chains digests.
+[[nodiscard]] uint64_t digest(const Array& tree, uint64_t seed = 0) noexcept;
+
 // Convert<T>: how a lookup reads a T. Specialize it for your own types:
 //
 //   template <> struct baker::Convert<Vec2> {

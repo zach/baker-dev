@@ -91,7 +91,7 @@ def sim_json(s):
 
     code, first = sim("before", "")
     r = json.loads(first)
-    expect(code == 0 and r["schema"] == "baker.sim/1.1" and r["status"] == "passed",
+    expect(code == 0 and r["schema"] == "baker.sim/1.2" and r["status"] == "passed",
            "sim --json: the results, passed")
     expect((s.dir / "before" / "results.json").read_text() == first,
            "sim --results writes the same JSON to results.json")

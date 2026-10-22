@@ -106,6 +106,9 @@ struct Project {
     ProjectPosition console_at{};
     List<ProjectEntry> scenarios;
     List<ProjectEntry> objectives;
+    // (step_name turn): what one step of the game is called in sim's results, for a game
+    // that steps in turns or events; empty: "step". Presentation only.
+    Symbol step_name;
 };
 
 // Reads a project file, through `reader` if given (an editor's unsaved buffer), else from

@@ -166,6 +166,17 @@ TEST_CASE("a project's tool may take arguments of its own (D217)") {
           std::string::npos);
 }
 
+TEST_CASE("a project names its game's step, for sim's results (D223)") {
+    TempDir dir;
+    const Project p = ok(read_project(
+        dir.write("baker-project.dta", "(project (step_name turn) (layers (d \"d.dta\")))")));
+    CHECK(p.step_name == Symbol("turn"));
+    const auto bad = read_project(
+        dir.write("bad.dta", "(project (step_name \"turn\" x) (layers (d \"d.dta\")))"));
+    REQUIRE_FALSE(bad);
+    CHECK(std::string(bad.error().message()).find("(step_name NAME)") != std::string::npos);
+}
+
 TEST_CASE("a project names its console's port, for tools (D212)") {
     TempDir dir;
     const std::string file =

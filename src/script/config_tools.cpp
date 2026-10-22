@@ -258,6 +258,16 @@ Expected<void> bind_config_tools(Context& ctx, Config& cfg, const ConfigToolOpti
             },
             "Re-reads changed files now; returns 1 if anything changed.");
         bind(
+            "config.digest",
+            [tools]() -> Node {
+                char hex[17];
+                uint64_t d = tools->cfg.digest();
+                for (int i = 15; i >= 0; --i, d >>= 4) hex[i] = "0123456789abcdef"[d & 15];
+                return Node(std::string_view(hex, 16));
+            },
+            "The digest of the data as the game reads it, live edits included, as 16 hex "
+            "digits: the same on every machine with the same data.");
+        bind(
             "config.epoch",
             [tools]() -> Node { return Node(static_cast<int64_t>(tools->cfg.epoch())); },
             "A number that moves on every reload, layer change and live edit: a tool asks for "

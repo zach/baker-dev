@@ -1,4 +1,4 @@
-# Scenarios, `sim` and `compare`: schemas `baker.sim/1.1` and `baker.compare/1`
+# Scenarios, `sim` and `compare`: schemas `baker.sim/1.2` and `baker.compare/1`
 
 A scenario runs your game headless for a set number of seconds, then judges the run by its
 objectives. The host kit's `sim` command runs a project's scenarios and writes the results.
@@ -48,6 +48,30 @@ scenario and the seed.
 An objective `(over median)` does not fail a run. It is judged once per scenario, by its
 pass on the median of its values over the seeds run.
 
+### A game that steps in turns or events
+
+A game whose step is a turn, a tick or an event writes its scenarios in steps, and ends
+them on its own state:
+
+```dta
+(scenario siege (desc "The attacker breaks through")
+   (steps 40)                            ; at most 40 steps, whatever the rate
+   (at step 5 {board.reinforce red})     ; before the 6th step
+   (until {board.side_lost}))            ; after each step: nonzero ends the run
+(objective siege.turns (measure {+ $steps 0}) (pass {<= $value 12}))
+```
+
+- `(steps N)` gives a scenario's length as a count, in place of `(seconds N)`; a scenario
+  gives one of the two. `(at step N {...})` runs its commands before step N + 1, beside
+  `(at SECONDS {...})`.
+- `(until {command})` is evaluated after each step, with `$steps` set to the steps taken;
+  when it gives a nonzero number the run ends there, and is judged. The length is the
+  ceiling, so a run always ends; a run that reaches it is judged as before. A condition
+  that fails ends the run, which then fails.
+- `$steps` holds the steps a run took when its objectives are measured.
+- The project's `(step_name turn)` names a step in the results (`"step_name"`) and in
+  `sim`'s text, `walk seed 1: passed (ended at turn 12)`. It changes nothing a run counts.
+
 `check` reads the scenarios and objectives with the data, so a call to an undefined
 function or a wrong argument count in one is a check error.
 
@@ -59,8 +83,8 @@ my_game compare --before DIR --after DIR
 ```
 
 - `--scenario` picks a scenario by its name, or by its file's name without `.dta`.
-- `sim` prints a line per run, or, with `--json`, the `baker.sim/1.1` document.
-- `--results DIR` also writes `results.json` (`baker.sim/1.1`) and `results.dta`, which is
+- `sim` prints a line per run, or, with `--json`, the `baker.sim/1.2` document.
+- `--results DIR` also writes `results.json` (`baker.sim/1.2`) and `results.dta`, which is
   what `compare` reads.
 - `compare` writes `baker.compare/1`.
 - Both exit 0 when everything passed (`sim`) or nothing broke (`compare`), 1 when something
@@ -99,15 +123,16 @@ case baker::host::SimRun::Wants::Done:          // run.status() is the exit stat
   the status is 2.
 - A step with nothing due allocates nothing.
 
-## `baker.sim/1.1`
+## `baker.sim/1.2`
 
 ```json
 {
-  "schema": "baker.sim/1.1",
+  "schema": "baker.sim/1.2",
   "status": "passed",
+  "step_name": "step",
   "runs": [
     {"scenario": "walk", "file": "sim/walk.dta", "line": 2, "seed": 0, "steps": 120,
-     "finished": true, "passed": true, "errors": [], "objectives": [
+     "finished": true, "ended": "length", "passed": true, "errors": [], "objectives": [
        {"name": "scored", "file": "metrics/objectives.dta", "line": 4, "value": 0,
         "pass": false, "over": "median", "error": null},
        {"name": "steps", "file": "metrics/objectives.dta", "line": 2, "value": 120,
@@ -126,6 +151,9 @@ case baker::host::SimRun::Wants::Done:          // run.status() is the exit stat
 
 - `status` is `"passed"` or `"failed"`, as the exit code is 0 or 1, or `"stopped"` when a
   `SimRun` was stopped before its last run ended (exit 2).
+- `ended` is `"until"` when the scenario's `(until ...)` ended the run, `"length"`
+  otherwise; `steps` is how many it took. `step_name` at the top is what a step is called,
+  `"step"` unless the project names it. (Added in 1.2.)
 - `finished` is false for a run that was stopped. It has the steps it took, no objectives,
   and does not pass. (New in 1.1.)
 - `runs` are sorted by scenario, then seed. Each objective within a run is sorted by name.

@@ -685,6 +685,24 @@ bool Config::layer_enabled(std::string_view name) const {
     return at && impl_->layers[*at].options.enabled;
 }
 
+uint64_t Config::digest() const {
+    // A live edit is in scratch until the next full merge: merge afresh then.
+    return baker::digest(scratch_dirty_ ? *impl_->merged() : *root_);
+}
+
+uint64_t Config::stack_digest() const {
+    uint64_t d = 0;
+    auto layer = [&d](std::string_view name, const Array& tree) {
+        const Node n{Symbol(name)};
+        d = baker::digest(tree, baker::digest(*Array::make_copy(std::span<const Node>(&n, 1)), d));
+    };
+    for (const LayerState& l : impl_->layers)
+        if (l.options.enabled) layer(l.name.view(), *l.root);
+    if (impl_->scratch_enabled)
+        if (const Ref<Array> s = impl_->scratch_root()) layer("scratch", *s);
+    return d;
+}
+
 Ref<Array> Config::layer_root(std::string_view name) const {
     const auto at = impl_->find_layer(name);
     return at ? impl_->layers[*at].root : nullptr;

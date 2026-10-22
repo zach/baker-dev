@@ -173,7 +173,7 @@ TEST_CASE("sim: results are data that reads back, located") {
     CHECK(back[0].errors[0].message() == runs[0].errors[0].message());
 
     const std::string json(sim::results_json(runs, {}).view());
-    CHECK(json.find("\"schema\": \"baker.sim/1.1\"") != std::string::npos);
+    CHECK(json.find("\"schema\": \"baker.sim/1.2\"") != std::string::npos);
 }
 
 TEST_CASE("sim: an objective (over median) is judged by its median over a scenario's seeds") {
@@ -256,4 +256,65 @@ TEST_CASE("sim: a directory the host lists is read in name order, through its re
     sim::Book unlisted;  // without the lister, a directory only the host has reads nothing
     REQUIRE(unlisted.read("pak://sim", reader));
     CHECK(unlisted.scenarios.empty());
+}
+
+TEST_CASE("sim: a run ends on its game's condition, with its length as a ceiling (D223)") {
+    Fixture f;
+    // A turn-based game: one step a turn, so lengths and times are in steps.
+    REQUIRE_MESSAGE(f.load(R"(
+        (objective turns.taken (measure {+ $steps 0}) (pass {<= $value 12})))",
+                           R"((scenario race (steps 40)
+        (start {counter.rate 1})
+        (at step 5 {counter.rate 2})
+        (until {>= {counter.total} 0.25})))"),
+                    f.message());
+    Counter c;
+    baker::Context ctx;
+    c.bind(ctx);
+    // At 60 Hz, a step is 1/60: rate 1 for 5 steps, then 2, reaching 0.25 at step 10.
+    sim::Run r = sim::simulate(ctx, c.game(), f.book, f.book.scenarios[0], 1, 60);
+    CHECK(r.until);
+    CHECK(r.steps == 10);
+    REQUIRE(r.objectives.size() == 1);
+    CHECK(r.objectives[0].value == 10);  // $steps, for the measure
+    CHECK(r.passed());
+    // The same at another rate: (steps N) is a count, not a time.
+    sim::Run slow = sim::simulate(ctx, c.game(), f.book, f.book.scenarios[0], 1, 1);
+    CHECK(slow.steps == 1);  // a step of a whole second reaches 0.25 at once
+    CHECK(slow.until);
+
+    // A condition that never holds stops at the ceiling.
+    Fixture never;
+    REQUIRE(never.load("(objective n (measure {+ $steps 0}) (pass {1}))",
+                       "(scenario s (steps 7) (until {< 1 0}))"));
+    sim::Run ceiling = sim::simulate(ctx, c.game(), never.book, never.book.scenarios[0], 1, 60);
+    CHECK_FALSE(ceiling.until);
+    CHECK(ceiling.steps == 7);
+
+    // The results say how each run ended, and read back.
+    baker::Vec<sim::Run> runs;
+    runs.push_back(std::move(r));
+    runs.push_back(std::move(ceiling));
+    const std::string json(sim::results_json(runs, {}, baker::Symbol("turn")).view());
+    CHECK(json.find("\"step_name\": \"turn\"") != std::string::npos);
+    CHECK(json.find("\"ended\": \"until\"") != std::string::npos);
+    CHECK(json.find("\"ended\": \"length\"") != std::string::npos);
+    const std::string file =
+        f.dir.write("out/results.dta", std::string(sim::results_dta(runs, {}).view()));
+    baker::Vec<sim::Run> back;
+    baker::Vec<sim::Median> medians;
+    REQUIRE(sim::read_results(file, back, medians));
+    CHECK(back[0].until);
+    CHECK_FALSE(back[1].until);
+}
+
+TEST_CASE("sim: a scenario gives one length, and (at step N) or (at SECONDS)") {
+    Fixture both;
+    CHECK_FALSE(both.load(kMetrics, "(scenario s (seconds 1) (steps 60))"));
+    CHECK(both.message().find("one length") != std::string::npos);
+    Fixture bad_until;
+    CHECK_FALSE(bad_until.load(kMetrics, "(scenario s (steps 5) (until 1))"));
+    CHECK(bad_until.message().find("(until {command})") != std::string::npos);
+    Fixture bad_at;
+    CHECK_FALSE(bad_at.load(kMetrics, "(scenario s (steps 5) (at step x {counter.rate 1}))"));
 }

@@ -1168,3 +1168,43 @@ TEST_CASE(
     CHECK(kept.get<int>("b") == 6);
     CHECK(kept.layer_root("default").get() == below.get());
 }
+
+TEST_CASE("a digest of the data: by value, stable, and the stack's apart (D222)") {
+    auto tree = [](const char* text, const char* name = "a.dta") {
+        return ok(read_string(text, name));
+    };
+    const char* kGolden =
+        "(player (speed 4.5) (lives 3) (name \"Kestrel\") (team red) (pos -0.0 1))\n"
+        "{say hi}\n";
+    // The encoding is fixed: this value is the same on every platform and build.
+    CHECK(digest(*tree(kGolden)) == 0xf55df12c7d1466a3ULL);
+
+    // By value: the file, the layout and the comments are not part of it.
+    CHECK(digest(*tree("(a 1)\n(b (c x))\n")) ==
+          digest(*tree("; a comment\n(a 1)   (b\n  (c x))", "elsewhere/b.dta")));
+    CHECK(digest(*tree("(a 0.0)")) == digest(*tree("(a -0.0)")));
+    // Every value counts, with its type.
+    CHECK(digest(*tree("(a 1)")) != digest(*tree("(a 2)")));
+    CHECK(digest(*tree("(a 1)")) != digest(*tree("(a 1.0)")));
+    CHECK(digest(*tree("(a x)")) != digest(*tree("(a \"x\")")));
+    CHECK(digest(*tree("(a (b c))")) != digest(*tree("(a b c)")));
+
+    // A Config: two stacks that merge to the same values share digest() but not
+    // stack_digest(); a live edit and a toggle move them.
+    Config one({.tweaks = nullptr}), two({.tweaks = nullptr});
+    REQUIRE(one.push_layer("default", tree("(speed 4)\n(lives 3)\n")));
+    REQUIRE(two.push_layer("default", tree("(speed 9)\n(lives 3)\n")));
+    REQUIRE(two.push_layer("tuned", tree("(speed 4)\n")));
+    CHECK(one.digest() == two.digest());
+    CHECK(one.stack_digest() != two.stack_digest());
+    if constexpr (!kShipping) {
+        const uint64_t before = two.digest(), stack = two.stack_digest();
+        REQUIRE(two.set("speed", 5));
+        CHECK(two.digest() != before);  // a live edit is data the game reads
+        CHECK(two.stack_digest() != stack);
+        REQUIRE(two.set("speed", 4));
+        CHECK(two.digest() == before);  // back to the same values
+        REQUIRE(two.toggle_layer("tuned"));
+        CHECK(two.stack_digest() != stack);
+    }
+}
