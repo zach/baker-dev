@@ -8,6 +8,8 @@
 #include <baker/object.hpp>
 #include <baker/script.hpp>
 #include <baker/task.hpp>
+#include <baker/tools/console.hpp>
+#include <baker/tools/layers.hpp>
 #include <baker/tweak.hpp>
 
 #include "alloc_counter.hpp"
@@ -117,8 +119,9 @@ TEST_CASE("a Config allocates through its allocator, and nothing through operato
             ok = config.push_layer("base", "base.dta").has_value();
             ok = ok && config.push_layer("over", "over.dta").has_value();
             ok = ok && config.get<int>(baker::Path("window/width")).value_or(0) == 800;
-            ok = ok && config.explain(baker::Path("window/width")).has_value();
-            ok = ok && config.explain(baker::Path("speed")).has_value();  // the code default
+            ok = ok && baker::tools::explain(config, baker::Path("window/width")).has_value();
+            ok = ok && baker::tools::explain(config, baker::Path("speed"))
+                           .has_value();  // the code default
             const baker::LayerPolicy policy{.data_only = true, .existing_only = true};
             const auto checked = config.check_layer_text("hotfix", "(window (width 1024))", policy);
             ok = ok && checked.has_value() && checked->ok() && checked->effect.size() == 1;
@@ -127,7 +130,7 @@ TEST_CASE("a Config allocates through its allocator, and nothing through operato
                 const baker::ConfigSnapshot snap = config.snapshot();
                 ok = ok && config.reload().has_value();
                 ok = ok && config.restore(snap).has_value();
-                ok = ok && config.layer_effect("over").has_value();
+                ok = ok && baker::tools::layer_effect(config, "over").has_value();
             }
             ok = ok && !config.get<int>(baker::Path("missing")).has_value();  // an error record
             ok = ok && config.remove_layer("over").has_value();
@@ -203,7 +206,7 @@ TEST_CASE("a Context allocates through its allocator, and nothing through operat
             config.session().set_reader(&read_text);
             ok = ok && config.push_layer("base", "base.dta").has_value();
             baker::Context ctx(alloc);
-            ok = ok && baker::bind_config_tools(ctx, config).has_value();
+            ok = ok && baker::tools::bind_config_tools(ctx, config).has_value();
             ok = ok && ctx.eval("{config.explain window.width}").has_value();
             if constexpr (!baker::kShipping)
                 ok = ok && ctx.eval("{config.snapshot a} {config.restore a}").has_value();

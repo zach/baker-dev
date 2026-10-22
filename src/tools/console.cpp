@@ -1,9 +1,9 @@
 // bind_config_tools: a Config's tooling as script functions, for consoles, editors, and
-// agents (dev/tool-surface-plan.md §4). Each result is data, so it prints as Baker text and
+// agents. Each result is data, so it prints as Baker text and
 // projects to JSON through eval_request.
 
-#include <baker/config.hpp>
-#include <baker/script.hpp>
+#include <baker/tools/console.hpp>
+#include <baker/tools/layers.hpp>
 
 #include "common/containers.hpp"
 
@@ -36,6 +36,7 @@ struct Convert<Name> {
     }
 };
 
+namespace tools {
 namespace {
 
 Node text_node(std::string_view s) {
@@ -78,7 +79,7 @@ struct Tools {
 };
 
 Expected<Node> explain_node(Config& cfg, std::string_view path) {
-    auto entries = cfg.explain(Path(path));
+    auto entries = explain(cfg, Path(path));
     if (!entries) return Unexpected(std::move(entries).error());
     Vec<Node> out;
     for (const ExplainEntry& e : *entries) {
@@ -133,7 +134,7 @@ Expected<void> bind_config_tools(Context& ctx, Config& cfg, const ConfigToolOpti
     bind(
         "config.get",
         [tools](Name path) -> Expected<Node> {
-            auto entries = tools->cfg.explain(Path(path.text));
+            auto entries = explain(tools->cfg, Path(path.text));
             if (!entries) return Unexpected(std::move(entries).error());
             for (const ExplainEntry& e : *entries)
                 if (e.standing == Standing::Wins && e.layer != "code") return e.value;
@@ -173,7 +174,7 @@ Expected<void> bind_config_tools(Context& ctx, Config& cfg, const ConfigToolOpti
     bind(
         "config.effect",
         [tools](Name layer) -> Expected<Node> {
-            auto effect = tools->cfg.layer_effect(layer.text);
+            auto effect = layer_effect(tools->cfg, layer.text);
             if (!effect) return Unexpected(std::move(effect).error());
             Vec<Node> out;
             for (const LayerEffectEntry& e : *effect) {
@@ -192,7 +193,7 @@ Expected<void> bind_config_tools(Context& ctx, Config& cfg, const ConfigToolOpti
     bind(
         "config.diff",
         [tools](Name a, Name b) -> Expected<Node> {
-            auto diff = tools->cfg.diff(a.text, b.text);
+            auto diff = tools::diff(tools->cfg, a.text, b.text);
             if (!diff) return Unexpected(std::move(diff).error());
             Vec<Node> out;
             for (const DiffEntry& d : *diff) {
@@ -383,4 +384,5 @@ Expected<void> bind_config_tools(Context& ctx, Config& cfg, const ConfigToolOpti
     return status;
 }
 
+}  // namespace tools
 }  // namespace baker

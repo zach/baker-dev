@@ -5,12 +5,14 @@
 #include <baker/parse.hpp>
 #include <baker/script.hpp>
 #include <baker/std_interop.hpp>
+#include <baker/tools/reference.hpp>
 
 #include <string>
 #include <vector>
 #include "ok.hpp"
 
 using namespace baker;
+using namespace baker::tools;
 using baker::test::ok;
 
 namespace {

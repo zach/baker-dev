@@ -20,18 +20,15 @@ add_executable(baker_data_tests
   data/test_lookup.cpp
   data/test_m3b.cpp
   data/test_m10.cpp
-  data/test_explain.cpp
-  data/test_tweaks_json.cpp
   data/test_layer_check.cpp
   data/test_received_layers.cpp
   data/test_layer_checker.cpp
   data/test_project.cpp
   data/test_parse.cpp
   data/test_preprocessor.cpp
-  data/test_structure.cpp
   data/test_version.cpp
-  data/test_write.cpp
-  readiness_loop.cpp)
+  data/test_tweaks_json.cpp
+  data/test_write.cpp)
 target_link_libraries(baker_data_tests PRIVATE baker::data baker_parse_harness baker_doctest_main
                       baker_alloc_counter)
 # White-box tests of internal helpers (text.hpp).
@@ -56,15 +53,34 @@ if(BAKER_BUILD_SCRIPT)
     script/test_script_tasks.cpp
     script/test_stats.cpp
     script/test_tasks.cpp
-    script/test_request.cpp
-    script/test_config_tools.cpp
-    script/test_reference_json.cpp)
-  target_link_libraries(baker_script_tests PRIVATE baker::script baker_doctest_main
+    script/test_request.cpp)
+  # baker::tools too: some of script's tests read what a Context registers through the
+  # reference. The data tests, which also build without script, link no tools.
+  target_link_libraries(baker_script_tests PRIVATE baker::tools baker_doctest_main
                         baker_alloc_counter)
   target_compile_definitions(baker_script_tests PRIVATE
     BAKER_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
     BAKER_CORPUS_DIR="${PROJECT_SOURCE_DIR}/tests/corpus")
   add_test(NAME baker_script_tests COMMAND baker_script_tests)
+
+  # baker::tools: the reference and the JSON a game writes for tools, the layer tools, the
+  # console's config.* commands, the vocabulary declared from a reference, and the tolerant
+  # read of text.
+  add_executable(baker_tools_tests
+    tools/readiness_loop.cpp
+    tools/test_config_tools.cpp
+    tools/test_described.cpp
+    tools/test_explain.cpp
+    tools/test_layers.cpp
+    tools/test_reference_json.cpp
+    tools/test_structure.cpp)
+  target_link_libraries(baker_tools_tests PRIVATE baker::tools baker_doctest_main
+                        baker_alloc_counter)
+  target_include_directories(baker_tools_tests PRIVATE support)
+  target_compile_definitions(baker_tools_tests PRIVATE
+    BAKER_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+    BAKER_CORPUS_DIR="${PROJECT_SOURCE_DIR}/tests/corpus")
+  add_test(NAME baker_tools_tests COMMAND baker_tools_tests)
 endif()
 
 if(TARGET baker::host)
@@ -106,7 +122,7 @@ endif()
 if(BAKER_BUILD_SCRIPT)
   # Its own binary, because main installs the default allocator before anything runs (D61).
   add_executable(baker_alloc_tests alloc/main.cpp alloc/test_allocators.cpp)
-  target_link_libraries(baker_alloc_tests PRIVATE baker::script baker_doctest baker_alloc_counter)
+  target_link_libraries(baker_alloc_tests PRIVATE baker::tools baker_doctest baker_alloc_counter)
   add_test(NAME baker_alloc_tests COMMAND baker_alloc_tests)
 endif()
 
@@ -140,6 +156,9 @@ file(GLOB baker_public_headers CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/include/b
 if(TARGET baker::host)
   file(GLOB baker_host_headers CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/include/baker/host/*.hpp)
 endif()
+if(TARGET baker::tools)
+  file(GLOB baker_tools_headers CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/include/baker/tools/*.hpp)
+endif()
 set(baker_header_units)
 foreach(header ${baker_public_headers})
   get_filename_component(name ${header} NAME_WE)
@@ -154,11 +173,17 @@ foreach(header ${baker_host_headers})
   file(CONFIGURE OUTPUT ${unit} CONTENT "#include <baker/host/${name}.hpp>\n")
   list(APPEND baker_header_units ${unit})
 endforeach()
+foreach(header ${baker_tools_headers})
+  get_filename_component(name ${header} NAME_WE)
+  set(unit ${CMAKE_CURRENT_BINARY_DIR}/header_alone/tools_${name}.cpp)
+  file(CONFIGURE OUTPUT ${unit} CONTENT "#include <baker/tools/${name}.hpp>\n")
+  list(APPEND baker_header_units ${unit})
+endforeach()
 add_library(baker_header_alone OBJECT ${baker_header_units})
 if(TARGET baker::host)
   target_link_libraries(baker_header_alone PRIVATE baker::host)
 elseif(BAKER_BUILD_SCRIPT)
-  target_link_libraries(baker_header_alone PRIVATE baker::script)
+  target_link_libraries(baker_header_alone PRIVATE baker::tools)
 else()
   target_link_libraries(baker_header_alone PRIVATE baker::data)
 endif()

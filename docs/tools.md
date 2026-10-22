@@ -32,20 +32,29 @@ network store. Nothing here costs anything until you call it.
 
 | Available | What |
 |---|---|
-| **Always**, shipping builds included | Reading and provenance (`source`, `explain`), `check` and its JSON, the reference JSON, the project file (`read_project`, `open_project`, `find_project`), `stack_files()`, `Context::declare`, `script_functions`, `macro_definitions`, received layers checked under a `LayerPolicy` |
+| **Always**, shipping builds included | Reading and provenance (`source`, `tools::explain`), `check` and its JSON, the reference JSON, the project file (`read_project`, `open_project`, `find_project`), `stack_files()`, `Context::declare`, `tools::script_functions`, `macro_definitions`, received layers checked under a `LayerPolicy` |
 | **Development builds** | Live edits (`Config::set`, `Tweak<T>::set`), `reload()`, layer toggles, the scratch layer and its journal, `loop_stats()`, snapshots |
-| **When you ask** (`bind_config_tools(ctx, cfg, {.allow_write = true})`), development builds | Writing a live edit back to its file: `write_back`, `write_back_to`, `promote` |
+| **When you ask** (`tools::bind_config_tools(ctx, cfg, {.allow_write = true})`), development builds | Writing a live edit back to its file: `write_back`, `write_back_to`, `promote` |
 
-`bind_config_tools` makes the Config's tools script functions (`config.explain`,
+`tools::bind_config_tools` makes the Config's tools script functions (`config.explain`,
 `config.set`, ...), binding only those the build allows, and `eval_request` turns one line
 of text into one line of JSON (see [the reply format](reply-json.md)). Together they let any
 transport you choose carry Baker's tools: a socket, a pipe, an in-game console.
+
+**Where they live.** What only a tool calls, or the host kit on a tool's behalf, is the
+`baker::tools` library, in `<baker/tools/...>` and namespace `baker::tools`: the reference
+and the check report as JSON, `explain`, `layer_effect` and `diff`, the console's
+`config.*` commands, the vocabulary declared from a reference (`DescribedTweaks`,
+`declare_type`, `declare_object`), `script_functions` and `read_structure`. A tool links it
+directly; a game links it only through the host kit, which uses it. What a game runs on its
+own data stays in the core: `check`, `source`, write-back, the tweaks' JSON (so a data-only
+program can write it), `split_metadata` and `presented_kind`.
 
 ### Text as a person types it
 
 An editor works on text that rarely parses, and checks it on every pause:
 
-- **Its structure.** `read_structure(text)` reads the text with the parser's own lexer and
+- **Its structure.** `tools::read_structure(text)` reads the text with the parser's own lexer and
   gives back every token (with its kind and byte span), every bracket (its parent and its
   tag) and every comment, even when the text does not parse. An unclosed bracket runs to the
   end of the text, an unterminated string or comment ends there, and the problems are listed
@@ -73,7 +82,7 @@ file system, console or command line does them with Baker's calls directly.
 - **Carry requests.** A console server reads lines and answers with `eval_request`. Keep
   any console on loopback: it runs any command it is sent.
 - **Offer commands** that need your game's own script functions: a check of the data, the
-  reference (`write_reference_json` after your setup), a headless run. Only your game
+  reference (`tools::write_reference_json` after your setup), a headless run. Only your game
   binary knows its functions, so these commands live in it.
 - **Decide policy:**
   - which tools to bind, and whether to allow writes;

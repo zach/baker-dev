@@ -6,6 +6,10 @@
 #include <baker/script.hpp>
 #include <baker/std_interop.hpp>
 #include <baker/std_script.hpp>
+#include <baker/tools/console.hpp>
+#include <baker/tools/described.hpp>
+#include <baker/tools/reference.hpp>
+#include <baker/tools/std_tools.hpp>
 
 #include <algorithm>
 #include <cstdlib>
@@ -18,6 +22,7 @@
 #include "temp_dir.hpp"
 
 using namespace baker;
+using namespace baker::tools;
 using baker::test::ok;
 
 namespace {
@@ -740,9 +745,9 @@ TEST_CASE("types, objects and game value types declared from the reference check
     const MethodDescription unit_methods[] = {{"move", move_o}, {"hold", hold_o}};
     const MethodDescription tank_methods[] = {{"fire", fire_o}};
     const Symbol tank_bases[] = {Symbol("Unit")};
-    REQUIRE(tool.declare_type("Unit", {}, unit_methods));
-    REQUIRE(tool.declare_type("Tank", tank_bases, tank_methods));
-    REQUIRE(tool.declare_object("tank", "Tank"));
+    REQUIRE(declare_type(tool, "Unit", {}, unit_methods));
+    REQUIRE(declare_type(tool, "Tank", tank_bases, tank_methods));
+    REQUIRE(declare_object(tool, "tank", "Tank"));
     const OverloadDescription aim_o[] = {{move, "nothing"}};
     REQUIRE(tool.declare("aim", aim_o));
 
@@ -773,7 +778,7 @@ TEST_CASE("types, objects and game value types declared from the reference check
 TEST_CASE("a type or object description check cannot hold is refused, naming it") {
     Context ctx;
     const Symbol unknown_base[] = {Symbol("Vehicle")};
-    auto r = ctx.declare_type("Tank", unknown_base, {});
+    auto r = declare_type(ctx, "Tank", unknown_base, {});
     REQUIRE_FALSE(r);
     CHECK(std::string(r.error().message()).find("'Tank'") != std::string::npos);
     CHECK(std::string(r.error().message()).find("'Vehicle'") != std::string::npos);
@@ -781,19 +786,19 @@ TEST_CASE("a type or object description check cannot hold is refused, naming it"
     const ParamDescription bad[] = {{"vec3"}};  // a game type with no value types
     const OverloadDescription bad_o[] = {{bad, "nothing"}};
     const MethodDescription methods[] = {{"move", bad_o}};
-    r = ctx.declare_type("Tank", {}, methods);
+    r = declare_type(ctx, "Tank", {}, methods);
     REQUIRE_FALSE(r);
     CHECK(std::string(r.error().message()).find("'move'") != std::string::npos);
 
-    REQUIRE(ctx.declare_type("Tank", {}, {}));
-    CHECK_FALSE(ctx.declare_type("Tank", {}, {}));  // already a type
-    auto o = ctx.declare_object("tank", "Plane");
+    REQUIRE(declare_type(ctx, "Tank", {}, {}));
+    CHECK_FALSE(declare_type(ctx, "Tank", {}, {}));  // already a type
+    auto o = declare_object(ctx, "tank", "Plane");
     REQUIRE_FALSE(o);
     CHECK(std::string(o.error().message()).find("'Plane'") != std::string::npos);
     REQUIRE(ctx.func("boom", [] {}));
-    CHECK_FALSE(ctx.declare_object("boom", "Tank"));  // already a function
-    REQUIRE(ctx.declare_object("tank", "Tank"));
-    CHECK_FALSE(ctx.declare_object("tank", "Tank"));  // already an object
+    CHECK_FALSE(declare_object(ctx, "boom", "Tank"));  // already a function
+    REQUIRE(declare_object(ctx, "tank", "Tank"));
+    CHECK_FALSE(declare_object(ctx, "tank", "Tank"));  // already an object
 }
 
 TEST_CASE("a function with a body and a described signature checks and runs (D213)") {
@@ -850,17 +855,17 @@ TEST_CASE("a function with a body and a described signature checks and runs (D21
 
 TEST_CASE("a tool tells a type already known from a refusal without reading words (D219)") {
     Context ctx;
-    CHECK(ctx.has_type("Scheduler"));  // Baker's own, as every Context has it
-    CHECK_FALSE(ctx.has_type("Tank"));
-    const auto again = ctx.declare_type("Scheduler", {}, {});
+    CHECK(has_type(ctx, "Scheduler"));  // Baker's own, as every Context has it
+    CHECK_FALSE(has_type(ctx, "Tank"));
+    const auto again = declare_type(ctx, "Scheduler", {}, {});
     REQUIRE_FALSE(again);
     CHECK(again.error().code() == ErrorCode::Refused);
     const Symbol unknown[] = {Symbol("Vehicle")};
-    const auto base = ctx.declare_type("Tank", unknown, {});
+    const auto base = declare_type(ctx, "Tank", unknown, {});
     REQUIRE_FALSE(base);
     CHECK(base.error().code() == ErrorCode::Type);
-    REQUIRE(ctx.declare_type("Tank", {}, {}));
-    CHECK(ctx.has_type("Tank"));
-    CHECK(ctx.declare_object("scheduler", "Tank").error().code() == ErrorCode::Refused);
-    CHECK(ctx.declare_object("t", "Plane").error().code() == ErrorCode::Type);
+    REQUIRE(declare_type(ctx, "Tank", {}, {}));
+    CHECK(has_type(ctx, "Tank"));
+    CHECK(declare_object(ctx, "scheduler", "Tank").error().code() == ErrorCode::Refused);
+    CHECK(declare_object(ctx, "t", "Plane").error().code() == ErrorCode::Type);
 }

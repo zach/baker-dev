@@ -154,14 +154,68 @@ That is about 1,770 lines, plus their headers. It leaves the core near 13,300.
 Methods become free functions that take what they work on:
 
 - `Config::explain(path)` → `tools::explain(const Config&, path)`; the same for
-  `layer_effect` and `diff`;
+  `layer_effect` and `diff`, and their entry types (`ExplainEntry`, `Standing`,
+  `LayerEffectEntry`, `DiffEntry`) move with them;
 - `Context::declare_type(...)` → `tools::declare_type(Context&, ...)`; the same for
-  `declare_object` and `has_type`.
+  `declare_object` and `has_type`, and `MethodDescription` moves with them;
+- `write_reference_json`, `write_json(const CheckReport&)` and
+  `write_json(const TweakRegistry&)`, `bind_config_tools`, `DescribedTweaks`,
+  `TweakDescription`, `read_structure` and its `Text*` types, `split_metadata` and
+  `presented_kind` become `baker::tools::` names in `<baker/tools/...>` headers.
 
-They reach the internals through the private headers they already use
-(`config_impl.hpp`, `script/internal.hpp`). Those headers are not public, so the public
-headers stay inside D55's standard headers. Every caller in the repository changes, as the
-rules ask.
+Every caller in the repository changes, as the rules ask: the kit, the stacks, the
+examples, the tests and the benchmarks.
+
+### How the tools reach the internals (design note, Oct 22)
+
+Reading the code for this step found what the first draft of this section missed.
+
+- **Private members.** `explain`, `layer_effect` and `diff` read `Config::Impl`, and
+  `declare_type` and `declare_object` read `Context::Impl` and call its private
+  `add_overload`. Each class gains one friend, `detail::ToolsAccess`, a struct in a private
+  header (`src/common/tools_access.hpp`) whose static functions hand the tools library the
+  `Impl`. It follows `detail::SessionAccess` (`src/data/session.hpp`), which already does this for
+  `LoadSession`.
+  Public headers name it only in the friend line, so they stay inside D55's headers.
+- **What the declared types are stays in the core.** `Context::Impl` keeps
+  `declared_types` and `declared_objects`, because `check()` holds calls to them. Only the
+  functions that fill them move. `build_described`, now file-local to `context.cpp`, is
+  declared in `script/internal.hpp` so both `declare` (core) and `declare_type` (tools)
+  build overloads with it.
+- **The lexer.** `read_structure` reads text with the parser's own `Lexer`, a class in an
+  anonymous namespace in `parse.cpp`. It moves, unchanged and still defined in its class
+  (inline), to a private header `src/data/lexer.hpp` in `baker::detail`, which `parse.cpp`
+  and the tools' `structure.cpp` include. This is the one change near a hot path: the
+  `parse` instruction count must not move.
+- **The kind rule.** `presented_kind` and `TweakBase::kind()` share `kind_of`, file-local to
+  `tweak.cpp`. It is declared in a private header (`src/data/tweak_internal.hpp`) so the
+  rule stays written once.
+- **JSON helpers.** The tools use `detail::json_string` and the other JSON writers the
+  core shares between data, script and shape. They stay in the core, which writes JSON of
+  its own too.
+
+### Review (acton-review, Oct 22)
+
+- **The lexer's move is the one load-path risk.** In `parse.cpp`'s anonymous namespace the
+  `Lexer` has internal linkage, which lets GCC inline its single-caller members freely; in
+  a shared header it has external linkage and may be inlined differently. Evidence
+  required: the `parse` count equal before and after. Plan B: keep its internal linkage
+  (an anonymous namespace inside the private header, which only `parse.cpp` and
+  `structure.cpp` include), or leave `read_structure` in the core.
+- **`ToolsAccess` adds no indirection:** inline static functions returning the `Impl` the
+  methods reached through the same `impl_` pointer, on tool paths only.
+- **The rule matches D100's option C,** which D100 costed: about 36 KB less tooling in a
+  default-flags shipping game, nothing with `--gc-sections`, and the core's lines. Measure
+  D100's minimal game before and after, default flags, and record it.
+- **Tool-only state stays in `Context::Impl`** (`declared_types`, `declared_objects`):
+  cold vectors `check()` reads, never on the call path. Accepted as it is.
+
+### Tests
+
+The tests of what moves (`test_reference_json`, `test_config_tools`, `test_structure`,
+`test_tweaks_json` and the declared-type tests in `test_check`) move to `tests/tools/`, a
+`baker_tools_tests` executable. The core's test executables then link no tools code, which
+shows the core builds and passes without it.
 
 ### Budgets
 
@@ -172,9 +226,28 @@ rules ask.
 ### Proof
 
 - `ctest`'s header gates cover `include/baker/tools/`.
-- `tools/count` shows parse, lookup, set, frame and the new call and message cases
-  unchanged, to within noise in instructions. The split moves no hot code.
+- `tools/count_instructions.py --base HEAD~1` shows every case unchanged, `parse` above
+  all (the lexer's move): instruction counts are exact, so "unchanged" means equal, not
+  within noise.
+- A game that links `baker::baker` alone builds and links with no tools code, and D100's
+  minimal game is measured before and after with default flags.
 - The release script, the manifest and `publish.py check` ship the new directory.
+
+### As built (D231)
+
+Where the build differs from the sections above:
+
+- **Stayed in the core:** the tweaks' JSON (`write_json(const TweakRegistry&)`), since a
+  data-only program writes it and cannot link `baker::tools`; `split_metadata` and
+  `presented_kind`, which share their rule with `TweakBase::kind()`; `value_type_known` and
+  `reads_as`, which declared functions use at a call; `check` and its text report, now in
+  `src/script/check.cpp`.
+- **No `BAKER_BUILD_TOOLS` option:** that name already switches the command-line
+  utilities. The library builds with `baker::script`, as the kit does.
+- **The lexer** keeps its internal linkage inside `src/data/lexer.hpp` (plan B): with
+  external linkage the parse ran 1.5% more instructions.
+- **Tests:** the data tests link no tools. The script tests and the allocation tests link
+  `baker::tools`, since they read the reference.
 
 ## 7. Step 7: `--baker-` before the kit's flags (item 4)
 

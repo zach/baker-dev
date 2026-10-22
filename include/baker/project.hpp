@@ -84,7 +84,7 @@ struct Project {
     List<ProjectEntry> pack_levels;   // hardest first; empty: the session's stay
     List<ProjectEntry> include_dirs;  // joined with the project file's directory
     List<ProjectEntry> defines;       // flags
-    // Where the game's build writes its reference (write_reference_json), joined with the
+    // Where the game's build writes its reference (tools::write_reference_json), joined with the
     // project file's directory; empty if the file names none. For tools that check data
     // without the game: a game ignores it, and nothing here reads it or asks that it exist.
     Symbol reference;

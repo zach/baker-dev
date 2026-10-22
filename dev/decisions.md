@@ -7361,3 +7361,75 @@ the owner's choice.*
   faster `handle_all` and no-Context `handle` were code layout, not a change to their path.
   From D211 to 28fe7c7 none of these cases moves. Instructions per operation, cachegrind,
   Release, GCC 13.
+
+## D231. `baker::tools`: what only tools call is a library of its own
+
+*Step 6 of `dev/tools-library-plan.md`; the owner's choice of a separate library (§12 Q2),
+its design note §6, held to acton-review there.*
+
+- **The need.** The core grew past 15,000 lines mostly with code a game never runs: the
+  reference, the layer tools, the console's commands, the vocabulary a tool declares from a
+  reference, the tolerant read of text. The kit's budget was raised four times. D100 had
+  accepted tooling in the core, and costed this library as its option C.
+- **The rule.** `baker::tools` holds what only a tool, or the host kit on a tool's behalf,
+  calls. A game links it only with the kit; a tool links it directly.
+- **What moved,** into `src/tools/`, `<baker/tools/...>` and `namespace baker::tools`:
+  - `reference`, `write_reference`, `write_reference_json`, `write_json(const
+    CheckReport&)` and `script_functions` (`reference.hpp`), from `reference.cpp`, whose
+    `check` stays in the script library as `check.cpp`;
+  - `explain`, `layer_effect`, `diff` and `ExplainEntry`, `Standing`, `DiffEntry`
+    (`layers.hpp`), Config methods before, free functions now (`LayerEffectEntry` stays in
+    the core, which `check_layer`'s report uses);
+  - `bind_config_tools` (`console.hpp`);
+  - `DescribedTweaks`, `TweakDescription`, `MethodDescription`, `declare_type`,
+    `declare_object`, `has_type` (`described.hpp`), Context methods before;
+  - `read_structure` and its `Text*` types (`structure.hpp`);
+  - `to_json(report)` and `reference(ctx)` as strings (`std_tools.hpp`).
+- **What stayed,** and why: the tweaks' JSON, which a data-only program writes and cannot
+  link the tools for (the docs promise it); `split_metadata` and `presented_kind`, which
+  share their rule with `TweakBase::kind()`; `value_type_known` and `reads_as`, which a
+  declared function's call uses; `check` and its text report, which a game runs on what it
+  loads.
+- **The internals.** `detail::ToolsAccess` (`src/tools/access.hpp`) is the one friend of
+  `Config`, `Context` and `TweakBase`, as `SessionAccess` is `LoadSession`'s: inline
+  functions returning what the methods reached through the same pointer. `build_described`
+  is declared in `script/internal.hpp` for `Context::declare` and `declare_type` both.
+- **The lexer** moved to `src/data/lexer.hpp` for `parse.cpp` and `read_structure`. With
+  external linkage the parse ran 1.52% more instructions (1,845,498 to 1,873,501); inside an
+  anonymous namespace in the private header it keeps the internal linkage it had, and the
+  count is equal again (plan B of the review). The comment spans it records are its own
+  `LexComment`, so the core names no tools type.
+- **Counts.** Core 15,146 → 13,783 (data 10,011 → 9,590, script 5,135 → 4,193);
+  `baker::tools` 1,477 of its 2,500; the kit 2,361 → 2,365 (includes).
+- **Instructions** (`count_instructions.py --base HEAD`): parse, lookup, set, call,
+  overload, declared, message, message_loose, handle_all and frame equal. `lookup_text` ran
+  8 fewer (374 → 366, −2.1%); its loop is in the driver's `main()`, not isolated as the
+  script cases are, and nothing on its path changed: the driver's code generation.
+- **Size.** D100's minimal shipping game (load, read, a tweak, a function, an object,
+  `eval`; GCC 13, static libraries), the program's text:
+
+  | flags | before | after | change |
+  |---|---:|---:|---:|
+  | `-O2` (D100's) | 801,568 | 776,828 | −24.2 KB |
+  | `-O2`, function sections, `--gc-sections` | 522,365 | 521,733 | −0.6 KB |
+  | `-O3` (CMake's Release) | 907,486 | 889,306 | −17.8 KB |
+  | `-O3`, function sections, `--gc-sections` | 578,850 | 586,042 | +7.0 KB |
+
+  As D100 expected: smaller with default flags, about the same with sections. At `-O3`
+  with sections it grew: `context.cpp`'s and `parse.cpp`'s error paths (`type_error`
+  +1,587 bytes, `arity_message` +1,020, `add_overload` +1,011, `too_deep` +896) inline
+  more of the file-local helpers that now have fewer callers. Recorded, not chased: error
+  paths only, and the instruction counts are equal.
+- **No `BAKER_BUILD_TOOLS` option:** the name already switches the command-line utilities.
+  The library builds with `baker::script`, as the kit does.
+- **Tests.** `baker_tools_tests` holds the tests of what moved (the reference JSON, the
+  console's commands, `explain`, the layer tools, the described vocabulary, the text read,
+  the readiness loop). The data tests link no tools and still pass in the data-only build;
+  the script and allocation tests link `baker::tools`, since they read the reference. The
+  header gates cover `include/baker/tools/`. `docs/script-reference.md` is regenerated
+  (its header names `baker::tools::reference()`).
+- **Also fixed:** the release manifest did not ship `tools/check_tests.py` (D225), which
+  `ctest` runs, so the published repository's tests would have failed; it does now.
+- **For hosts and tools,** every caller changes: `tools::explain(cfg, path)`,
+  `tools::declare_type(ctx, ...)`, `tools::write_reference_json(...)`,
+  `#include <baker/tools/...>`, and link `baker::tools` (the kit brings it).

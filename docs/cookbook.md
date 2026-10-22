@@ -160,7 +160,7 @@ if (auto r = baker::open_project(cfg, *project); !r) return report(r.error());
   layer that reads and returns a `ProjectProblem` (the layer's name and its error) for each
   one that does not. A layer that does not read is left out, and the layers above it read
   over the ones below. Without `go_on`, as a game opens it, the first error stops it.
-- **The reference** names where the game's build writes `write_reference_json`, for tools
+- **The reference** names where the game's build writes `tools::write_reference_json`, for tools
   that check data without the game. `read_project` returns the path in `Project::reference`
   and does not ask that it exist; a game ignores it.
 - **Finding the project:** `find_project(path)` returns the nearest `baker-project.dta`
@@ -214,15 +214,15 @@ Put a variant in its own layer and flip it:
 cfg.push_layer("boss-faster", "config/experiments/boss-faster.dta");
 cfg.toggle_layer("boss-faster");               // A
 cfg.toggle_layer("boss-faster");               // B
-auto changes = cfg.layer_effect("boss-faster"); // what it actually changes
-auto ab = cfg.diff("boss-slower", "boss-faster");
+auto changes = baker::tools::layer_effect(cfg, "boss-faster"); // what it actually changes
+auto ab = baker::tools::diff(cfg, "boss-slower", "boss-faster");
 ```
 
 A disabled layer keeps its place and is skipped by merging, provenance, and write-back.
 Live tuning goes to the `scratch` layer, so "my tuning versus the files" is also a toggle:
 `cfg.toggle_layer("scratch")`.
 
-`source()` names the layer a value comes from; `cfg.explain(path)` names every layer that
+`source()` names the layer a value comes from; `tools::explain(cfg, path)` names every layer that
 has a say, bottom to top. Each entry gives the layer, its value, its file and line, and how
 it stands:
 
@@ -508,11 +508,13 @@ How a game delivers content after it ships (dev/background/content-updates.md):
 Baker's libraries are static, and the tools share them with the runtime (D100). A game
 pays only for what it links:
 
-- **Tools in their own files cost nothing.** `check`, its JSON, the reference, and
-  `find_repeats` are in object files a game never references, so the linker leaves them
-  out: 0 bytes.
-- **`Config`'s tools come with `Config`.** Write-back, `promote`, `diff`, and
-  `layer_effect` share an object file with the loader. With GCC or Clang, compile with
+- **Tools are a library of their own.** The reference, the check report's JSON, the layer
+  tools (`explain`, `layer_effect`, `diff`), the console's `config.*` commands and the
+  other functions only tools call are `baker::tools`, which a game links only with the host
+  kit. `check` and `find_repeats` are in object files a game never references, so the
+  linker leaves them out: 0 bytes.
+- **Write-back comes with `Config`.** Write-back and `promote` share an object file with
+  the loader. With GCC or Clang, compile with
   `-ffunction-sections -fdata-sections` and link with `-Wl,--gc-sections`, and the linker
   drops the ones the game never calls. MSVC's release defaults (`/O2` implies `/Gy`, and
   the linker uses `/OPT:REF` unless given `/DEBUG`) already do.
@@ -582,7 +584,7 @@ people. Two calls give it what it needs:
   or the error with its script stack (`docs/reply-json.md`). `baker::host::Console`
   answers lines that begin with `(` this way and every other line as before. Every reply,
   JSON or not, is its lines, then an empty line.
-- **`baker::bind_config_tools(ctx, cfg)`** registers the Config's tooling as script
+- **`baker::tools::bind_config_tools(ctx, cfg)`** registers the Config's tooling as script
   functions, so a console, an editor or an agent can ask the running game directly:
   - `{config.explain player.speed}`: every layer that sets the value, and which one wins;
   - `{config.set player.speed 6}`, `{config.toggle experiment}` and

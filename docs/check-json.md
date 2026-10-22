@@ -1,7 +1,7 @@
 # `check`'s JSON output: schema `baker.check/1`
 
-`baker::write_json(report, sink, &session)` (or `to_json(report, &session)` with
-`<baker/std_script.hpp>`) writes a `CheckReport` as one JSON object, so a studio can keep it
+`baker::tools::write_json(report, sink, &session)` (or `to_json(report, &session)` with
+`<baker/tools/std_tools.hpp>`) writes a `CheckReport` as one JSON object, so a studio can keep it
 as a build artifact and diff it from one milestone to the next (spec §5, D95). The text form
 (`write(report, sink)`) holds the same data for people.
 
@@ -9,7 +9,7 @@ as a build artifact and diff it from one milestone to the next (spec §5, D95). 
 baker::CheckReport report;
 const baker::Array* trees[] = {game.get(), level.get()};
 baker::check(trees, ctx, report, {.packs = &cfg.read_session()});
-std::ofstream("check.json") << baker::to_json(report, &cfg.read_session());
+std::ofstream("check.json") << baker::tools::to_json(report, &cfg.read_session());
 ```
 
 `tests/script/check_expected.json` is a complete example, checked byte for byte by the test

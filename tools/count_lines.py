@@ -72,17 +72,24 @@ def is_host_header(p):
     return p.parent.name == "host"
 
 
+def is_tools_header(p):
+    return p.parent.name == "tools"
+
+
 data = count(sources("src/data", lambda p: True) +
              sources("include/baker",
                      lambda p: not is_script_header(p) and not is_shape_header(p) and
-                     not is_host_header(p)))
+                     not is_host_header(p) and not is_tools_header(p)))
 shape = count(sources("src/shape", lambda p: True) + sources("include/baker", is_shape_header))
 script = count(sources("src/script", lambda p: True) +
-               sources("include/baker", lambda p: is_script_header(p) and not is_host_header(p)))
+               sources("include/baker", lambda p: is_script_header(p) and not is_host_header(p) and
+                       not is_tools_header(p)))
 host = count(sources("src/host", lambda p: True) + sources("include/baker", is_host_header))
+tools = count(sources("src/tools", lambda p: True) + sources("include/baker", is_tools_header))
 print(f"baker::data   {data}")
 print(f"baker::script {script}")
 print(f"core total    {data + script} / {BUDGET} (soft budget)")
 print(f"baker::shape  {shape} / 600 (spec §6, outside the core)")
 print(f"baker::host   {host} / 2400 (the host kit, D186, D208, D209, outside the core)")
+print(f"baker::tools  {tools} / 2500 (what only tools and the kit call, D231, outside the core)")
 sys.exit(0)

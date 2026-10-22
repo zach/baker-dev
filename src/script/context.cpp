@@ -802,12 +802,12 @@ bool registered_match(const Context::Impl& impl, std::string_view type, Match& m
     return false;
 }
 
-// Builds each overload of `name` from its description into `built`; why not, if one
-// cannot be, and then `built` is not to be added.
-std::optional<Str> build_described(Context::Impl& impl, Symbol name,
-                                   std::span<const OverloadDescription> overloads,
-                                   Vec<detail::Overload>& built,
-                                   const Callback<Expected<Node>(Args&)>& body = {}) {
+}  // namespace
+
+std::optional<Str> detail::build_described(Context::Impl& impl, Symbol name,
+                                           std::span<const OverloadDescription> overloads,
+                                           Vec<detail::Overload>& built,
+                                           const Callback<Expected<Node>(Args&)>& body) {
     if (overloads.empty()) return Str("it has no overloads");
     Vec<detail::ParamInfo> infos(impl.alloc);
     for (const OverloadDescription& od : overloads) {
@@ -851,8 +851,6 @@ std::optional<Str> build_described(Context::Impl& impl, Symbol name,
     return std::nullopt;
 }
 
-}  // namespace
-
 Expected<FuncRef> Context::declare(Symbol name, std::span<const OverloadDescription> overloads) {
     return declare(name, overloads, {});
 }
@@ -866,65 +864,12 @@ Expected<FuncRef> Context::declare(Symbol name, std::span<const OverloadDescript
     // Every overload is built before any is added, so a description with a mistake adds
     // nothing.
     Vec<detail::Overload> built(impl_->alloc);
-    if (auto why = build_described(*impl_, name, overloads, built, body)) return refuse(*why);
+    if (auto why = detail::build_described(*impl_, name, overloads, built, body))
+        return refuse(*why);
     Expected<FuncRef> ref = refuse("unreachable");
     for (detail::Overload& o : built)
         if (ref = add_overload(name, std::move(o)); !ref) return ref;
     return ref;
-}
-
-Expected<void> Context::declare_type(Symbol name, std::span<const Symbol> bases,
-                                     std::span<const MethodDescription> methods) {
-    auto refuse = [&](std::string_view why) {
-        return Unexpected(
-            make_error(ErrorCode::Type, "cannot declare type " + quoted(name) + ": " + Str(why)));
-    };
-    if (name.empty()) return refuse("it has no name");
-    if (impl_->type_named(name))
-        return Unexpected(make_error(ErrorCode::Refused, "cannot declare type " + quoted(name) +
-                                                             ": this Context already has a "
-                                                             "type of that name"));
-    Vec<const detail::TypeRecord*> found(impl_->alloc);
-    for (const Symbol b : bases) {
-        const detail::TypeRecord* t = impl_->type_named(b);
-        if (!t) return refuse("its base " + quoted(b) + " is not a type this Context knows");
-        found.push_back(t);
-    }
-    Vec<Vec<detail::Overload>> built(impl_->alloc);
-    for (const MethodDescription& m : methods) {
-        built.emplace_back(impl_->alloc);
-        if (auto why = build_described(*impl_, m.name, m.overloads, built.back()))
-            return refuse("method " + quoted(m.name) + ": " + *why);
-    }
-    detail::TypeRecord* type = detail::new_type_record(name.str());
-    for (const detail::TypeRecord* b : found) detail::inherit(*type, *b);
-    for (size_t i = 0; i < methods.size(); ++i)
-        for (detail::Overload& o : built[i])
-            (void)detail::add_method(*type, methods[i].name, std::move(o));
-    type->sort();
-    impl_->declared_types.push_back(type);
-    add_type(*type);
-    return {};
-}
-
-bool Context::has_type(Symbol name) const noexcept {
-    return impl_->type_named(name) != nullptr;
-}
-
-Expected<void> Context::declare_object(Symbol name, Symbol type) {
-    auto refuse = [&](std::string_view why) {
-        return Unexpected(
-            make_error(ErrorCode::Type, "cannot declare object " + quoted(name) + ": " + Str(why)));
-    };
-    if (!impl_->type_named(type))
-        return refuse("its type " + quoted(type) + " is not a type this Context knows");
-    if (impl_->find(name) || impl_->slot(impl_->named(name)) ||
-        !impl_->declared_object(name).empty())
-        return Unexpected(make_error(ErrorCode::Refused, "cannot declare object " + quoted(name) +
-                                                             ": it is already a function or an "
-                                                             "object"));
-    impl_->declared_objects.emplace_back(name, type);
-    return {};
 }
 
 FuncRef& FuncRef::doc(std::string_view text) {

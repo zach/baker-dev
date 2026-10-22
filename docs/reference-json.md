@@ -5,7 +5,7 @@ and other tools that should not scrape the Markdown reference:
 
 | Document | Written by | Library |
 |---|---|---|
-| `baker.reference/1.2` | `baker::write_reference_json(ctx, sink, &session)` | `baker::script` |
+| `baker.reference/1.2` | `baker::tools::write_reference_json(ctx, sink, &session)` | `baker::tools` |
 | `baker.tweaks/1.3` | `baker::write_json(registry, sink)` | `baker::data` |
 | `baker.shapes/1.1` | `baker::shape::write_json(shapes, sink)` | `baker::shape` |
 
@@ -14,7 +14,7 @@ does not depend on shapes. A tool that wants all three can wrap them in one obje
 
 ```cpp
 std::string json;
-baker::write_reference_json(ctx, baker::string_out(json), &cfg.read_session());
+baker::tools::write_reference_json(ctx, baker::string_out(json), &cfg.read_session());
 ```
 
 ## Stability
@@ -81,10 +81,10 @@ editor, a CI job) can register each function from its overloads with
   `check` and the reference see the described parameters, and a call runs `body`. When no
   parameter is raw, each argument is evaluated once and held to its parameter's type
   first, as a native's is.
-- **Types and objects.** `Context::declare_type(name, bases, methods)` declares a type from
+- **Types and objects.** `tools::declare_type(ctx, name, bases, methods)` declares a type from
   its entry in `types`: its bases (each a type the Context already knows, so declare bases
   first) and each method as a `MethodDescription`, a name and its overloads.
-  `Context::declare_object(name, type)` declares an entry of `objects`. `check` then holds
+  `tools::declare_object(ctx, name, type)` declares an entry of `objects`. `check` then holds
   `{tank fire 3}` to the type's methods and its bases' as it would for the game: a wrong
   argument count or literal type is an error, and a method the type does not have is in
   `demand`. Neither runs: a call on a declared object fails as a call on an undefined name
@@ -92,9 +92,10 @@ editor, a CI job) can register each function from its overloads with
   `values`, a name already taken) is an error naming the type, method or object.
 - **The data's own vocabulary** comes from the load, not the reference:
   `session.macro_definitions()` lists every macro the session's reads defined, with its
-  file and line, and `script_functions(session.autorun())` lists every `{func}` the load's
+  file and line, and `tools::script_functions(session.autorun())` lists every `{func}` the load's
   `#autorun` commands define, without running them. For a Config, the macros are on
-  `cfg.read_session()`, and the functions come from `script_functions(cfg.autorun().items())`,
+  `cfg.read_session()`, and the functions come from
+  `tools::script_functions(cfg.autorun().items())`,
   since a Config keeps its enabled file layers' commands apart from its sessions.
 
 **A type** has `name`, `bases`, `methods`, `properties` and `handlers`.
@@ -130,7 +131,7 @@ registers each tweak from its description, then runs `check_tweaks`:
 
 ```cpp
 baker::TweakRegistry registry;
-baker::DescribedTweaks tweaks(registry);
+baker::tools::DescribedTweaks tweaks(registry);
 for (const auto& t : reference_tweaks)   // read from the JSON by the tool
     if (auto added = tweaks.add({.path = t.path, .type = t.type, .values = t.values,
                                  .default_text = t.default_text, .range = t.range,

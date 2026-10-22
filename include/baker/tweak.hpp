@@ -49,6 +49,9 @@ namespace baker {
 
 class Config;
 class TweakRegistry;
+namespace detail {
+struct ToolsAccess;  // baker::tools' way to the internals (src/tools/access.hpp)
+}
 struct Source;
 
 struct TweakRange {
@@ -182,6 +185,7 @@ protected:
 private:
     friend class TweakRegistry;
     friend class Config;
+    friend struct detail::ToolsAccess;
     friend TweakFindings check_tweaks(const Array& root, const TweakRegistry& tweaks);
 
     // Reads the values as T and, if `apply`, stores them; false if they do not convert.
@@ -248,47 +252,6 @@ private:
 // over the code's), and, while a config supplies it, where the value came from. For tools
 // and agents.
 void write_json(const TweakRegistry& tweaks, TextSink out);
-
-// A tweak as the reference describes it (baker.tweaks), for a tool that has the game's
-// reference but not its code.
-struct TweakDescription {
-    std::string_view path{};
-    std::string_view type{};  // Baker's ("float32", "symbol") or the game's own ("vec2")
-    // Baker's type of each value, as the reference's "values" lists them: needed for a type
-    // of the game's own, implied for one of Baker's.
-    std::span<const std::string_view> values{};
-    std::string_view default_text{};  // the code's default, as Baker text: "2.5", "(0 1)"
-    TweakRange range{};
-    double step = 0;
-    std::string_view desc{};
-    std::string_view kind{};
-    std::string_view group{};
-    bool dev_only = false;
-    std::span<const std::string_view> one_of{};
-    std::span<const TweakChoice> choices{};
-};
-
-// Tweaks a tool makes from their descriptions, registered with `registry`, so that
-// check_tweaks holds data to them as the game holds data to its own: a language server, a CI
-// checker, an agent's pre-flight check. No code reads them; they hold copies of what they
-// are given, and unregister when the set goes.
-class DescribedTweaks {
-public:
-    explicit DescribedTweaks(TweakRegistry& registry);
-    ~DescribedTweaks();
-    DescribedTweaks(const DescribedTweaks&) = delete;
-    DescribedTweaks& operator=(const DescribedTweaks&) = delete;
-
-    // The same call for every type. An error naming the tweak if its type is not Baker's and
-    // it gives no value types, if a value type is not one of Baker's, or if its default does
-    // not read as them.
-    [[nodiscard]] Expected<void> add(const TweakDescription& tweak);
-    [[nodiscard]] size_t size() const noexcept;
-
-private:
-    struct Impl;
-    Impl* impl_;
-};
 
 namespace detail {
 

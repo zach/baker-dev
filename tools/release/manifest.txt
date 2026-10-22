@@ -23,6 +23,7 @@ bench/**
 tools/baker_bake.cpp
 tools/parse_corpus.cpp
 tools/check_headers.py
+tools/check_tests.py
 tools/check_readme.py
 
 # The user documentation, all of it; the development documents are in dev/, which never ships.

@@ -357,13 +357,6 @@ TEST_CASE("source names a generated file's origin and tool (D91)") {
     s = *cfg.source("shop.tax");  // written by hand
     CHECK(s.origin.empty());
     CHECK(s.tool.empty());
-    // Layer tooling reports it too.
-    const auto effect = *cfg.layer_effect("default");
-    const auto price = std::find_if(effect.begin(), effect.end(), [](const LayerEffectEntry& e) {
-        return e.path == Symbol("econ.price");
-    });
-    REQUIRE(price != effect.end());
-    CHECK(price->source.tool == Symbol("sheets-export"));
 }
 
 #if !BAKER_SHIPPING  // reload is inert under BAKER_SHIPPING (tested below)

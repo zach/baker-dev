@@ -2,6 +2,8 @@
 
 #include <baker/host/commands.hpp>
 #include <baker/host/live.hpp>
+#include <baker/tools/layers.hpp>
+#include <baker/tools/reference.hpp>
 #include <baker/tweak.hpp>
 
 #include "common/containers.hpp"
@@ -99,7 +101,7 @@ Expected<void> read_book(const Loaded& l, sim::Book& book) {
 
 int report_check(CheckReport& report, const Loaded& l, const LoadSession* packs) {
     report.load = List<Error>(l.live.load_errors());
-    write_json(report, stdout_sink(), packs);
+    tools::write_json(report, stdout_sink(), packs);
     out("\n");
     return report.ok() ? 0 : kCommandFailed;
 }
@@ -120,7 +122,7 @@ int check(const CommandLine& line, const CommandHooks& hooks) {
     const Config& cfg = l.live.config();
     auto unreadable = [&](const Error& e) {
         report.load = List<Error>(std::span<const Error>(&e, 1));
-        write_json(report, stdout_sink(), &cfg.read_session());
+        tools::write_json(report, stdout_sink(), &cfg.read_session());
         out("\n");
         err(describe(e));
         err("\n");
@@ -168,14 +170,14 @@ int reference(const CommandLine& line, const CommandHooks& hooks) {
     if (!load(l, line)) return kCommandError;
     const Config& cfg = l.live.config();
     if (!line.json) {
-        baker::reference(l.ctx, stdout_sink(), &cfg.read_session());
+        tools::reference(l.ctx, stdout_sink(), &cfg.read_session());
         return 0;
     }
     // The three documents in one object: the vocabulary, the tweaks, and the shapes the
     // enabled layers declare.
     Str ref, tweaks, shapes = "null";
-    write_reference_json(l.ctx, detail::str_out(ref), &cfg.read_session());
-    write_json(TweakRegistry::global(), detail::str_out(tweaks));
+    tools::write_reference_json(l.ctx, detail::str_out(ref), &cfg.read_session());
+    baker::write_json(TweakRegistry::global(), detail::str_out(tweaks));
 #if BAKER_HOST_SHAPE
     shape::Set set;
     shape::Report report;
@@ -232,7 +234,7 @@ int eval(const CommandLine& line, const CommandHooks& hooks) {
 
 // One line per value the layer sets: path, the value below it, its value, where.
 int print_effect(const Config& cfg, std::string_view layer, std::string_view heading) {
-    auto effect = cfg.layer_effect(layer);
+    auto effect = tools::layer_effect(cfg, layer);
     if (!effect) {
         err(to_string(effect.error()));
         err("\n");
