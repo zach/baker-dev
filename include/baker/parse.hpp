@@ -20,6 +20,15 @@
 //   #undef N
 //   #autorun {command}   collect the command into LoadSession::autorun
 //   [N node ...]         at the top level of a file: define macro N
+//   (#layer HEAD form*)  a layer block (BAKER_INLINE_LAYERS, a prototype): the forms are
+//                        lifted out of the tree into LoadSession::blocks(), for a Config to
+//                        push as the sub-layer FILE:NAME directly above the file. HEAD is
+//                        NAME or (NAME (when COND) (disabled)); COND is a define name,
+//                        (not C), (and C...) or (or C...), read against the defines as
+//                        #ifdef reads them. Inside a tagged array, the forms are wrapped in
+//                        its tags, so (renderer (#layer hh (shadows 0))) holds the tree
+//                        (renderer (shadows 0)). A block holds data: no directive but
+//                        #remove inside it (dev/syntax-inline-layers-design.md).
 //
 // Packs (spec §1, D80). A file whose first form is
 //   (pack name (level L) (requires other ...)
@@ -108,6 +117,19 @@ struct Definition {
     bool flag = false;  // a macro with no body: #define NAME
 };
 
+#if BAKER_INLINE_LAYERS
+// A layer block a file declared, (#layer HEAD form*) above: its forms, lifted out of the
+// tree, in the tags that enclosed it.
+struct Block {
+    Symbol name;
+    Symbol file;
+    int32_t line = 0;
+    bool disabled = false;  // (disabled) in its head: off until a host enables it
+    bool holds = true;  // its (when COND) against the defines when it was read; true without one
+    Ref<Array> tree;    // the forms, wrapped in the enclosing tags; a root array
+};
+#endif
+
 // State shared by all files read through it. Macros and defines persist from one file to
 // the next, as in the original; a fresh session starts empty. Copying a session copies
 // its defines, macros, include directories, reader, and limits.
@@ -145,6 +167,11 @@ public:
     // #autorun commands, in load order.
     [[nodiscard]] std::span<const Node> autorun() const noexcept;
     void clear_autorun();
+#if BAKER_INLINE_LAYERS
+    // The layer blocks the files read through this session declared, in the order read.
+    [[nodiscard]] std::span<const Block> blocks() const noexcept;
+    void clear_blocks();
+#endif
 
     // The pack levels, hardest first: {"engine", "game", "task"}.
     void set_pack_levels(std::initializer_list<Symbol> levels);

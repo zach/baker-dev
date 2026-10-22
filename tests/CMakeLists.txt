@@ -21,6 +21,7 @@ add_executable(baker_data_tests
   data/test_m3b.cpp
   data/test_m10.cpp
   data/test_explain.cpp
+  data/test_inline_layers.cpp
   data/test_tweaks_json.cpp
   data/test_layer_check.cpp
   data/test_received_layers.cpp
