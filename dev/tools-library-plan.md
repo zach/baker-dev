@@ -64,8 +64,8 @@ full matrix run. That happened in D221.
 between two builds of the same game. Every test comparing more than one finding sorts
 first, and a CI diff of `check --json` shows moves that are not changes.
 
-- **The change.** Sort both lists by file, line, column, then path. That is the order the
-  rest of `check` already uses.
+- **The change.** Sort both lists by file, line, column, then message. (As built, D227:
+  `check --json` already sorted them this way, so the gap was only in the C++ lists.)
 - **Cost.** A check is cold, so the sort costs nothing that matters.
 - **Tests.** The sorting in the tests is deleted. A new test registers tweaks in reverse
   order and expects the same JSON.

@@ -7279,3 +7279,20 @@ the owner's choice.*
 - **`tools/local_matrix.sh --quick`** builds and tests shipping, and runs clang-tidy, alone.
   Those two failed after the rest passed in most of this period's extra runs. It does not
   replace the whole matrix before a commit.
+
+## D227. Tweak findings in one order
+
+*Step 2 of `dev/tools-library-plan.md`.*
+
+- **The need.** `check_tweaks`, and so a `CheckReport`'s `tweak_errors` and
+  `tweak_warnings`, listed findings in the order the tweaks were registered, which two
+  builds of one game need not share. An editor showing them, and a test comparing more than
+  one, saw them move; tests sorted them first.
+- **What the plan had wrong.** It said `check --json` would diff cleanly after this. It
+  already did: its writer sorts every list of problems by file, line, column, then message
+  (`docs/check-json.md`). The gap was only in the C++ lists.
+- **The change.** Both lists are sorted in that same order, so a host reading them and a
+  tool reading the JSON see one order. A finding with no place (a tweak whose path the data
+  lacks) comes first. It is a cold call over a handful of entries.
+- **Tests.** Five tweaks registered in one order and in its reverse give the same errors and
+  warnings, in that order. The two tests that sorted findings no longer do.

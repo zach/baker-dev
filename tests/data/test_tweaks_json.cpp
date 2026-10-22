@@ -4,9 +4,10 @@
 #include <baker/parse.hpp>
 #include <baker/std_interop.hpp>
 
-#include <algorithm>
 #include <array>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 #include "ok.hpp"
 
@@ -262,7 +263,6 @@ TEST_CASE("string and integer tweaks take allowed values, checked and in the JSO
     CHECK(
         run("(fighter (attack \"heavy\") (level 2) (team 0 (one_of (0 red) (1 blue))))\n").empty());
     auto bad = run("(fighter (attack \"hevy\") (level 5) (team 3 (one_of (0 red) 1)))\n");
-    std::sort(bad.begin(), bad.end());  // in the registry's order otherwise
     REQUIRE(bad.size() == 3);
     CHECK(bad[0] == "'fighter.attack' is 'hevy', not one of its tweak's light, heavy, kick");
     CHECK(bad[1] == "'fighter.level' is 5, not one of its tweak's 0 (easy), 1 (normal), 2 (hard)");
@@ -336,6 +336,32 @@ TEST_CASE("each tweak finding carries its subject as its path (D219)") {
     CHECK(f.errors[0].path() == "world.gravity");
     std::vector<std::string> paths;
     for (const Error& w : f.warnings) paths.emplace_back(w.path());
-    std::sort(paths.begin(), paths.end());
-    CHECK(paths == std::vector<std::string>{"world.gravty", "world.wind"});  // stray, missing
+    CHECK(paths == std::vector<std::string>{"world.wind", "world.gravty"});  // missing, stray
+}
+
+TEST_CASE(
+    "tweak findings come in check --json's order, whatever order the tweaks were registered in") {
+    const auto findings = [](bool reversed) {
+        TweakRegistry reg;
+        std::vector<std::unique_ptr<Tweak<int>>> tweaks;
+        const char* paths[] = {"b.speed", "a.speed", "c.size", "a.count", "b.mass"};
+        for (size_t i = 0; i < 5; ++i)
+            tweaks.push_back(std::make_unique<Tweak<int>>(paths[reversed ? 4 - i : i], 0,
+                                                          TweakMeta{.range = {0, 10}}, reg));
+        const TweakFindings f = check_tweaks(
+            *ok(read_string(
+                "(a (speed 11) (count 12) (cuont 1)) (b (speed 13)) (c (size 1) (sise 2))\n",
+                "d.dta")),
+            reg);
+        return std::pair(messages(f.errors), messages(f.warnings));
+    };
+    const auto forward = findings(false);
+    CHECK(forward == findings(true));
+    REQUIRE(forward.first.size() == 3);
+    CHECK(forward.first[0].find("'a.count'") != std::string::npos);
+    CHECK(forward.first[2].find("'b.speed'") != std::string::npos);
+    REQUIRE(forward.second.size() == 3);
+    CHECK(forward.second[0].find("'b.mass'") != std::string::npos);  // missing: no place
+    CHECK(forward.second[1].find("'cuont'") != std::string::npos);   // read by no tweak
+    CHECK(forward.second[2].find("'sise'") != std::string::npos);
 }

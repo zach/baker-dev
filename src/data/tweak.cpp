@@ -469,6 +469,16 @@ TweakFindings check_tweaks(const Array& root, const TweakRegistry& tweaks) {
             warnings.push_back(std::move(stray));
         }
     }
+    // In check --json's order, by file, line, column, then message: the same report whatever
+    // order the tweaks were registered in.
+    auto by_place = [](const Error& a, const Error& b) {
+        if (a.file() != b.file()) return a.file().str() < b.file().str();
+        if (a.line() != b.line()) return a.line() < b.line();
+        if (a.column() != b.column()) return a.column() < b.column();
+        return a.message() < b.message();
+    };
+    std::sort(errors.data(), errors.data() + errors.size(), by_place);
+    std::sort(warnings.data(), warnings.data() + warnings.size(), by_place);
     return {List<Error>({errors.data(), errors.size()}),
             List<Error>({warnings.data(), warnings.size()})};
 }
