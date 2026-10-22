@@ -184,11 +184,11 @@ TEST_CASE("a layer removes a key from the layers below with (key #remove) (D143)
 
     // A layer read from a cache keeps its removals: the flag is in the array header.
     auto layer = ok(read_string("(menu (debug_menu #remove))", "tu.dta"));
-    CHECK(layer->has_removal());
+    CHECK(layer->has_marker());
     std::string bytes;
     REQUIRE(write_cache(*layer, string_out(bytes)));
     auto cached = ok(read_cache_bytes(bytes, "tu.datb"));
-    CHECK(cached->has_removal());
+    CHECK(cached->has_marker());
     CHECK(to_string(*merge(*ok(read_string("(menu (debug_menu 1) (x 2))", "b.dta")), *cached)) ==
           "((menu (x 2)))");
 

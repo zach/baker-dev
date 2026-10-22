@@ -453,8 +453,8 @@ private:
         int32_t line;
         Symbol name;  // DefineBody
         char open = '(';
-        uint32_t begin = 0;    // offset of the opening bracket
-        bool removes = false;  // holds #remove, which must be its one value (D143)
+        uint32_t begin = 0;   // offset of the opening bracket
+        bool marker = false;  // holds a layer verb or pin: its form is checked at close (D143)
     };
     struct Cond {
         bool active;         // tokens in the current branch are read
@@ -564,7 +564,9 @@ private:
                         t.line, t.begin);
         frames_.pop_back();
         std::span<Node> kids(scratch_.data() + f.start, scratch_.size() - f.start);
-        if (f.removes && kids.size() != 2) return bad_remove(f.line, f.begin);
+        if (f.marker)
+            if (const char* hint = detail::marker_form_error(kids))
+                return fail(ErrorCode::Directive, hint, f.line, f.begin);
 
         if (f.kind == Frame::MacroDef) {
             const auto name = kids.empty() ? std::nullopt : kids[0].try_sym();
@@ -580,7 +582,7 @@ private:
             return true;
         }
 
-        Ref<Array> arr = arena_.make_array(kids, file_, f.line);
+        Ref<Array> arr = arena_.make_array(kids, file_, f.line, f.marker);
         record(arr, f.start, f.begin, t.end);
         truncate(f.start);
         if (arr->height() > s_.limits.max_depth) return too_deep(f.line, f.begin);
@@ -834,23 +836,22 @@ private:
         return true;
     }
 
-    // `(key #remove)`: the marker is the tagged array's one value (D143).
-    bool bad_remove(int32_t line, uint32_t at) {
-        return fail(ErrorCode::Directive, "#remove is written as a key's only value: (key #remove)",
-                    line, at);
-    }
-    bool removal(const Token& t) {
+    // A layer verb or pin (`#remove`, `#append`, `#drop`, `#was`): a symbol in a tagged
+    // array's value run, where the slot rule allows it (D143, markers.hpp). The array it
+    // stands in must be tagged, which is known here; the rest of its form is checked when
+    // the array closes.
+    bool marker(const Token& t, detail::Marker m) {
         FrameInfo& f = frames_.back();
-        if (f.kind != Frame::Array || scratch_.size() != f.start + 1 ||
-            !scratch_[f.start].try_sym())
-            return bad_remove(t.line, t.begin);
-        f.removes = true;
-        return push(Node(remove_marker()), here(t));
+        if (f.kind != Frame::Array || scratch_.size() == f.start || !scratch_[f.start].try_sym())
+            return fail(ErrorCode::Directive, detail::marker_hint(m), t.line, t.begin);
+        f.marker = true;
+        return push(Node(detail::marker_symbol(m)), here(t));
     }
 
     bool directive(const Token& t) {
         const std::string_view d = t.text;
-        if (d == "remove") return removal(t);
+        if (const detail::Marker m = detail::marker_named(d); m != detail::Marker::None)
+            return marker(t, m);
         if (d == "ifdef" || d == "ifndef") return conditional(t, true);
         if (d == "else" || d == "endif") return else_or_endif(t);
         if (d == "include" || d == "include_opt" || d == "merge" || d == "require") {

@@ -2,7 +2,7 @@
 
 #include "common/containers.hpp"
 
-#include "merge.hpp"
+#include "markers.hpp"
 #include "text.hpp"
 
 #include <charconv>
@@ -18,9 +18,10 @@ char close_of(Type t) noexcept {
     return t == Type::Command ? '}' : t == Type::Property ? ']' : ')';
 }
 
-// `marker`: the slot is a key's only value, where #remove reads back bare (D143).
-void put_symbol(Str& out, std::string_view s, bool marker = false) {
-    if (detail::is_bare_symbol(s) || (marker && s == detail::remove_marker().str())) {
+// `bare`: a layer verb or pin in a run the parser takes it in, printed as the directive
+// it was read from (D143).
+void put_symbol(Str& out, std::string_view s, bool bare = false) {
+    if (bare || detail::is_bare_symbol(s)) {
         out += s;
     } else {
         out += '\'';
@@ -29,10 +30,11 @@ void put_symbol(Str& out, std::string_view s, bool marker = false) {
     }
 }
 
-// Whether `a[i]` is where the parser takes #remove: the second of two in a parenthesized
-// array whose first is a symbol.
-bool marker_slot(const Node& n, const Array& a, uint32_t i) noexcept {
-    return n.type() == Type::Array && a.size() == 2 && i == 1 && a[0].try_sym();
+// Whether `a` (node `n`) is a run the parser takes markers in: a parenthesized array that
+// holds one, in the form the slot rule reads. Elsewhere a marker's symbol is quoted, so
+// that it reads back as the symbol it is.
+bool marker_run(const Node& n, const Array& a) noexcept {
+    return n.type() == Type::Array && a.has_marker() && !detail::marker_form_error(a.nodes());
 }
 
 void put_atom(Str& out, const Node& n, bool marker = false) {
@@ -50,7 +52,10 @@ void put_atom(Str& out, const Node& n, bool marker = false) {
             if (text.find_first_of(".eEni") == Str::npos) out += ".0";
             break;
         }
-        case Type::Symbol: put_symbol(out, n.try_sym()->str(), marker); break;
+        case Type::Symbol:
+            put_symbol(out, n.try_sym()->str(),
+                       marker && detail::marker_of(n) != detail::Marker::None);
+            break;
         case Type::String:
             out += '"';
             for (char c : n.string()->view()) {
@@ -88,9 +93,10 @@ bool put_flat(Str& out, const Node& n, size_t limit, bool marker = false) {
     }
     out += open_of(n.type());
     const Array& a = *n.array();
+    const bool run = marker_run(n, a);
     for (uint32_t i = 0; i < a.size(); ++i) {
         if (i > 0) out += ' ';
-        if (!put_flat(out, a[i], limit, marker_slot(n, a, i))) return false;
+        if (!put_flat(out, a[i], limit, run)) return false;
     }
     out += close_of(n.type());
     return out.size() <= limit;
@@ -110,13 +116,14 @@ void put_pretty(Str& out, const Node& n, size_t indent, const WriteOptions& o,
     out.resize(mark);
     const size_t step = o.indent > 0 ? static_cast<size_t>(o.indent) : 0;
     const Array& a = *n.array();
+    const bool run = marker_run(n, a);
     out += open_of(n.type());
     for (uint32_t i = 0; i < a.size(); ++i) {
         if (i > 0) {
             out += '\n';
             out.append(indent + step, ' ');
         }
-        put_pretty(out, a[i], indent + step, o, marker_slot(n, a, i));
+        put_pretty(out, a[i], indent + step, o, run);
     }
     out += close_of(n.type());
 }

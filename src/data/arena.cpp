@@ -100,7 +100,7 @@ void Arena::adopt(Node* slot, Node&& n, bool building) {
     deps_[dep_count_++] = &target;
 }
 
-Ref<Array> Arena::make_array(std::span<Node> nodes, Symbol file, int32_t line) {
+Ref<Array> Arena::make_array(std::span<Node> nodes, Symbol file, int32_t line, bool marker) {
     if (nodes.size() > UINT32_MAX) std::abort();
     const auto size = static_cast<uint32_t>(nodes.size());
     uint32_t offset = 0;
@@ -109,7 +109,7 @@ Ref<Array> Arena::make_array(std::span<Node> nodes, Symbol file, int32_t line) {
     Node* d = a->data();
     if (size == 0) ::new (d) Node();
     for (uint32_t i = 0; i < size; ++i) adopt(d + i, std::move(nodes[i]));
-    a->finish();
+    a->finish(marker);
     own_retain();
     return Ref<Array>::adopt(a);
 }

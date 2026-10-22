@@ -454,7 +454,8 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
     before.set_reader(vread);
     Vec<Error> refusals;
     for (const Leaf& leaf : leaves) {
-        if (leaf.values.size() == 1 && leaf.values[0].is(detail::remove_marker())) {
+        if (leaf.values.size() == 1 &&
+            leaf.values[0].is(detail::marker_symbol(detail::Marker::Remove))) {
             // Writing (key #remove) beside the key's children would not parse (D143).
             refusals.push_back(refused("promote cannot write the removal of " +
                                        quoted(Path(leaf.path)) +
@@ -626,7 +627,9 @@ Expected<List<ExplainEntry>> Config::explain(const Path& path) const {
     auto add = [&](Symbol layer, const Held& h, const Source& source, bool enabled) {
         subtree = subtree || h.subtree;
         if (!h.value && !h.marker) return;
-        ExplainEntry e{layer, h.marker ? Node(detail::remove_marker()) : pack(h.nodes), source};
+        ExplainEntry e{
+            layer, h.marker ? Node(detail::marker_symbol(detail::Marker::Remove)) : pack(h.nodes),
+            source};
         if (!enabled) {
             e.standing = Standing::Disabled;
         } else if (decided) {

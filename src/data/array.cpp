@@ -1,6 +1,7 @@
 #include <baker/array.hpp>
 
 #include "arena.hpp"
+#include "markers.hpp"
 #include "text.hpp"
 
 #include <bit>
@@ -46,7 +47,7 @@ Ref<Array> Array::make_from(std::span<Node> nodes, Symbol file, int32_t line) {
     Array* a = allocate(size, file, line);
     Node* d = a->data();
     for (uint32_t i = 0; i < size; ++i) new (d + i) Node(std::move(nodes[i]));
-    a->finish();
+    a->finish(detail::holds_marker({d, size}));
     return Ref<Array>::adopt(a);
 }
 
@@ -56,13 +57,13 @@ Ref<Array> Array::make_copy(std::span<const Node> nodes, Symbol file, int32_t li
     Array* a = allocate(size, file, line);
     Node* d = a->data();
     for (uint32_t i = 0; i < size; ++i) new (d + i) Node(nodes[i]);
-    a->finish();
+    a->finish(detail::holds_marker(nodes));
     return Ref<Array>::adopt(a);
 }
 
-void Array::finish() noexcept {
+void Array::finish(bool marker) noexcept {
     uint16_t h = 0;
-    uint16_t below = 0;  // the children's flags, for kHasRemoval (D143)
+    uint16_t below = marker ? kHasMarker : 0;  // ORed with the children's flags (D143)
     uint32_t* tags = tag_run();
     for (uint32_t i = 0; i < size_; ++i) {
         if (const Array* a = data()[i].array()) {
@@ -72,11 +73,7 @@ void Array::finish() noexcept {
         tags[i] = tag_key(data()[i]);
     }
     height_ = above(h);
-    if (size_ == 2 && data()[1].type() == Type::Symbol) {
-        static const Symbol marker("#remove");
-        if (data()[1].is(marker)) below = kHasRemoval;
-    }
-    flags_ = static_cast<uint16_t>(flags_ | (below & kHasRemoval));
+    flags_ = static_cast<uint16_t>(flags_ | (below & kHasMarker));
 }
 
 void Array::set(size_t i, Node node) noexcept {
@@ -85,7 +82,7 @@ void Array::set(size_t i, Node node) noexcept {
     if (h > height_) height_ = h;
     flags_ = static_cast<uint16_t>(flags_ & ~kSortedForLookup);
     if (const Array* a = node.array())
-        flags_ = static_cast<uint16_t>(flags_ | (a->flags_ & kHasRemoval));
+        flags_ = static_cast<uint16_t>(flags_ | (a->flags_ & kHasMarker));
     tag_run()[i] = tag_key(node);
     detail::Owner& owner = detail::owner_of(this);
     if (owner.kind != detail::kArena) {

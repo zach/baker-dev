@@ -37,21 +37,61 @@ bool same_nodes(const Vec<Node>& merged, const Array& src) noexcept {
     return true;
 }
 
-// `a` without its (key #remove) children, at any depth: what a layer adds to the stack keeps
-// none (D143). Only an array with has_removal() needs it.
-Ref<Array> without_removals(const Array& a, Arena* arena) {
+// `a` without its markers, at any depth: what a layer adds to the stack keeps none (D143).
+// A (key #remove) or (key #drop ...) child is left out, (key #append v...) becomes
+// (key v...), and a row's #was pins go. Null when `a` itself is left out. Only an array
+// with has_marker() needs it.
+Ref<Array> without_markers(const Array& a, Arena* arena) {
+    const Marker verb = verb_of(a);
+    if (verb == Marker::Remove || verb == Marker::Drop) return nullptr;
     Vec<Node> kept;
     kept.reserve(a.size());
-    for (const Node& n : a) {
+    bool pinned = false;  // past #was: the pins go, trailing tagged children stay
+    for (size_t i = 0; i < a.size(); ++i) {
+        const Node& n = a[i];
+        if (i == 1 && verb == Marker::Append) continue;
+        if (marker_of(n) == Marker::Was) {
+            pinned = true;
+            continue;
+        }
+        if (pinned && !is_tagged(n)) continue;
         const Array* c = n.type() == Type::Array ? n.array() : nullptr;
-        if (c && is_removal(*c)) continue;
-        if (c && c->has_removal())
-            kept.emplace_back(without_removals(*c, arena));
-        else
-            kept.push_back(n);
+        if (c && c->has_marker()) {
+            if (Ref<Array> clean = without_markers(*c, arena)) kept.emplace_back(std::move(clean));
+            continue;
+        }
+        kept.push_back(n);
     }
     return arena ? arena->make_array(kept, a.file(), a.line())
                  : Array::make_from(kept, a.file(), a.line());
+}
+
+// (key #append v...) or (key #drop v...) over dst's run from `dst_first`: the operands
+// (src from 2) go after dst's nodes, or each removes the first node of dst structurally
+// equal to it (a tuple is restated as written). Spans move with the nodes. Returns
+// whether dst changed.
+bool apply_verb(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const Array& src,
+                Marker verb, SourceMap* map) {
+    bool changed = false;
+    for (size_t j = 2; j < src.size(); ++j) {
+        if (verb == Marker::Append) {
+            dst.push_back(src[j]);
+            if (spans) {
+                const SourceSpan* sp = map->span(src, j);
+                spans->push_back(sp ? *sp : SourceSpan{});
+            }
+            changed = true;
+            continue;
+        }
+        for (size_t i = dst_first; i < dst.size(); ++i)
+            if (structurally_equal(dst[i], src[j])) {
+                dst.erase(dst.begin() + static_cast<ptrdiff_t>(i));
+                if (spans) spans->erase(spans->begin() + static_cast<ptrdiff_t>(i));
+                changed = true;
+                break;
+            }
+    }
+    return changed;
 }
 
 // The index of a wide array's tags, in a level's tables: the first child with each tag.
@@ -117,6 +157,12 @@ bool merge_into(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const 
         ~Depth() { --s.depth_; }
     } depth(scratch);
     MergeScratch::Level& level = scratch.level(scratch.depth_);
+    // A verb in the incoming key's first slot replaces the Overwrite rule for this level:
+    // the array is the verb's application, its other nodes the operands, so nothing below
+    // is merged key by key (dev/syntax-layer-markers-design.md).
+    if (policy == MergePolicy::Overwrite && src_first == 1)
+        if (const Marker verb = verb_of(src); verb == Marker::Append || verb == Marker::Drop)
+            return apply_verb(dst, spans, dst_first, src, verb, map);
     bool changed = false;
     if (policy == MergePolicy::Overwrite && has_values(src, src_first)) {
         // The incoming values replace the existing ones; tagged children stay to merge. In
@@ -133,7 +179,9 @@ bool merge_into(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const 
             }
         dst.resize(dst_first);
         if (spans) spans->resize(dst_first);
-        for (size_t j = src_first; j < src.size(); ++j)
+        // The values are those before #was; its pins are what the row was written against.
+        const size_t src_end = src.has_marker() ? was_at(src.nodes()) : src.size();
+        for (size_t j = src_first; j < src_end; ++j)
             if (!is_tagged(src[j])) {
                 dst.push_back(src[j]);
                 if (spans) {
@@ -167,10 +215,12 @@ bool merge_into(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const 
         if (!sa) continue;
         const Symbol tag = sa->tag();
         if (tag.empty() && policy == MergePolicy::Overwrite) continue;  // a value, handled above
-        if (is_removal(*sa)) {  // #merge fills in; only a layer removes
+        const Marker verb = verb_of(*sa);
+        if (verb == Marker::Remove) {  // #merge fills in; only a layer removes
             removes = removes || policy == MergePolicy::Overwrite;
             continue;
         }
+        if (verb != Marker::None && policy == MergePolicy::FillMissing) continue;  // or composes
         size_t found = dst.size();
         if (!tag.empty() && indexed) {
             found = index.find(tag, dst.size());
@@ -184,11 +234,16 @@ bool merge_into(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const 
             }
         }
         if (found == dst.size()) {
+            Node added = src[j];
+            if (policy == MergePolicy::Overwrite && sa->has_marker()) {
+                // A key new to the stack is resolved against nothing: #drop adds nothing,
+                // #append adds its operands, and no marker reaches the tree (D143).
+                Ref<Array> clean = without_markers(*sa, arena);
+                if (!clean) continue;
+                added = Node(std::move(clean));
+            }
             if (!tag.empty() && indexed) index.add(tag, dst.size());
-            if (policy == MergePolicy::Overwrite && sa->has_removal())
-                dst.emplace_back(without_removals(*sa, arena));
-            else
-                dst.push_back(src[j]);
+            dst.push_back(std::move(added));
             if (spans) {
                 const SourceSpan* sp = map->span(src, j);
                 spans->push_back(sp ? *sp : SourceSpan{});
