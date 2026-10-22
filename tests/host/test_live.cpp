@@ -302,6 +302,24 @@ TEST_CASE("the console on a free port, which console_port() reports (D216)") {
     }
 }
 
+TEST_CASE("after a live edit, the game's read of the whole tree sees it (D224)") {
+    if constexpr (!kShipping) {
+        Stack st;
+        Context ctx;
+        Live live(ctx);
+        int64_t seen = 0;
+        REQUIRE(live.open(
+            {.project = st.dir.path("data"), .watch = false, .changed = [&seen](const Config& c) {
+                 seen = c.root()->get<int64_t>("speed").value_or(-1);
+             }}));
+        CHECK(seen == 3);
+        REQUIRE(live.config().set("speed", 7));
+        live.begin_frame();  // applies the edit before `changed`
+        live.end_frame();
+        CHECK(seen == 7);
+    }
+}
+
 TEST_CASE("a quiet frame allocates nothing") {
     if constexpr (!kShipping) {
         Stack st;

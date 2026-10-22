@@ -386,6 +386,19 @@ struct Config::Impl {
         return nullptr;
     }
 
+    // Whether a live edit waits in scratch at a path below `path`: a record or table read
+    // there would miss it in the last full merge.
+    [[nodiscard]] bool edits_beneath(const Path& path) const noexcept {
+        if (!scratch_enabled) return false;
+        for (const ScratchEntry& e : scratch) {
+            if (e.path.size() <= path.size()) continue;
+            bool under = true;
+            for (size_t i = 0; under && i < path.size(); ++i) under = e.path[i] == path[i];
+            if (under) return true;
+        }
+        return false;
+    }
+
     // The current value at `path`: scratch first, then the merged tree.
     bool current(const Config& c, const Path& path, Vec<Node>& out) const;
 

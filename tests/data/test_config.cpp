@@ -1208,3 +1208,47 @@ TEST_CASE("a digest of the data: by value, stable, and the stack's apart (D222)"
         CHECK(two.stack_digest() != stack);
     }
 }
+
+namespace {
+struct UnitRecord {
+    int64_t price = -1, hp = -1;
+};
+}  // namespace
+
+template <>
+struct baker::Convert<UnitRecord> {
+    static constexpr std::string_view name = "unit";
+    static bool from(const Values& v, UnitRecord& out) {
+        for (const Node& n : v)
+            if (const Array* a = n.try_array(); a && a->size() == 2) {
+                if ((*a)[0].is("price")) out.price = (*a)[1].try_int().value_or(-1);
+                if ((*a)[0].is("hp")) out.hp = (*a)[1].try_int().value_or(-1);
+            }
+        return true;
+    }
+};
+
+TEST_CASE("a read of a record or table above a live edit sees it (D224)") {
+    if constexpr (kShipping) return;  // live edits are refused
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer(
+        "default", ok(read_string("(units (tank (price 40) (hp 100)) (scout (price 10) (hp 30)))\n",
+                                  "d.dta"))));
+    REQUIRE(cfg.set("units.tank.price", 45));
+    CHECK(cfg.get<int>("units.tank.price") == 45);  // the field, as before
+    // The record and the table above it: the edit, and nothing else changed.
+    const UnitRecord tank = ok(cfg.get<UnitRecord>("units.tank"));
+    CHECK(tank.price == 45);
+    CHECK(tank.hp == 100);
+    const UnitRecord scout = ok(cfg.get<UnitRecord>("units.scout"));  // no edit beneath
+    CHECK(scout.price == 10);
+    // root() is the last full merge until the edits are applied.
+    CHECK(cfg.root()->get<int>("units.tank.price") == 40);
+    cfg.apply_edits();
+    CHECK(cfg.root()->get<int>("units.tank.price") == 45);
+    CHECK(cfg.root()->get<int>("units.tank.hp") == 100);
+    cfg.apply_edits();  // nothing pending: nothing to do
+    // A clear goes back to the files' value everywhere.
+    REQUIRE(cfg.clear_scratch("units.tank.price"));
+    CHECK(ok(cfg.get<UnitRecord>("units.tank")).price == 40);
+}

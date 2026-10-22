@@ -106,7 +106,8 @@ live.end_frame();                  // the frame that shows a reload
 packaged game), opens the stack, adds the check validator and, when `baker::shape` is
 built, the shape validator, binds the Config's tools, and runs every layer's `#autorun`.
 `changed` is called after the load, after each change to the stack once `#autorun` has
-run again, and after a live edit. The Config's clock is the files', so `loop_stats()`
+run again, and after a live edit, which it applies first (`Config::apply_edits()`), so a
+game that reads whole records or tables from `root()` sees the edit. The Config's clock is the files', so `loop_stats()`
 measures from the save to the frame that showed it. A quiet frame allocates nothing.
 `.console_any_port = true` serves the console on a free port instead, which
 `console_port()` reports: a tool that starts several instances of the game reads each one's
