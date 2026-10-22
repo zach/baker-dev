@@ -3,7 +3,7 @@
 Windows PC prototypes built on Baker, one stack per kind of creative work, for focused
 agent-assisted development. The design is `dev/background/game-stacks.md`; this directory
 is its code. It is a separate CMake project that uses Baker from this repository, and it
-lives outside `src/`: Baker's line budget and core rules do not cover it.
+lives outside `src/`: Baker's core rules do not cover it.
 
 | Directory | What | Status |
 |---|---|---|

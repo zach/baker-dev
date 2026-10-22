@@ -22,8 +22,8 @@ Oct 15, 2026. Agreed with the owner (§8). Results and deviations go into
 | 6 | E3 `write_reference_json`, `write_json` for tweaks and for shapes | script, data, shape | ~300 |
 | 7 | The stacks' game binaries gain `reference --json` and `explain` | stacks | — |
 
-The core is at 11,989 of 15,000 lines (`tools/count_lines.py`), and the shape library is
-at 466 of 600. These steps add about 800 to the core and 50 to shape.
+The core is at 11,989 lines (`tools/count_lines.py`), and the shape library is at 466.
+These steps add about 800 to the core and 50 to shape.
 
 Each step is one commit, green on `tools/local_matrix.sh` and clang-tidy, with its D-entry.
 

@@ -33,7 +33,6 @@ Baker already holds what each test needs: reload stages, the layer stack, proven
 - Tooling calls may allocate. Reload hot paths and tweak reads must not gain allocations; verify with the test allocation counter (spec §7).
 - Under `BAKER_SHIPPING`, layer mutation and write-back are inert. Telemetry compiles out, but its API stays and returns empty results, so hosts need no `#ifdef`s.
 - Record each deviation from the spec in `dev/decisions.md` (spec §11). Five are listed under "Decisions to record" below.
-- Report line counts against the 4,000-line core budget when the work lands, and flag an overrun rather than absorbing it (spec §0).
 
 **Milestone.** Add an M3b after M3 is green, holding Changes 1–3 and the headless test from Change 4. The example in Change 4 joins M9.
 

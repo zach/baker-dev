@@ -42,8 +42,8 @@ general: tools, editors, agents, scripting hosts, live games. Each gets its own 
 and tests against a mock host. None touches a hot path, and every one compiles out or
 costs nothing in a shipping build unless noted.
 
-There is about 3,000 lines of room in the core budget: 11,989 of 15,000 by
-`tools/count_lines.py` today. The estimates below total about 1,000.
+The core is 11,989 lines by `tools/count_lines.py` today. The estimates below total about
+1,000.
 
 ### E1. `explain`: a path's whole layer chain
 

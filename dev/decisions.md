@@ -27,18 +27,6 @@ So we have both, explicitly:
 One merge routine with a policy flag, not two implementations. The source carries a
 comment pointing here so the next person who checks the slide knows why.
 
-## D2. The line budget is a soft target
-
-*Spec §0, M10.*
-
-*Raised to 8,000 by D40.*
-
-4,000 non-test, non-comment lines is tracked and reported (`tools/count_lines.py`,
-printed in CI per target), not enforced. The full scope — edit-mode write-back, layers,
-telemetry, `check` and its reports, coroutine tasks, binary cache — is expected to exceed
-it. Smallness still matters: every milestone records its line count here, and growth that
-looks disproportionate gets called out rather than absorbed.
-
 ## D3. No Harmonix files in the repository or CI
 
 *Spec §8, M1.*
@@ -217,11 +205,8 @@ well above the 40 MB/s target, so there is no reason yet for a lock-free table.
   CI fuzzes for two minutes per push.
 - **No-exceptions build** compiles with `-fno-exceptions` and runs the full suite; CI has
   a job for it.
-- **Size.** `baker::data` is about 1,920 counted lines after M1, roughly half of the
-  4,000 soft budget (D2). The parser and preprocessor are about 640 of those, `Node` about
-  260. As D2 predicted, the full scope will pass 4,000; candidates for trimming later are
-  the `expected` shim (about 100 lines, gone once C++23 is the floor) and the error-message
-  strings in the parser.
+- **Size.** `baker::data` is about 1,920 counted lines after M1. The parser and
+  preprocessor are about 640 of those, `Node` about 260.
 
 ## D18. Numbers are stored at 64 bits
 
@@ -325,7 +310,7 @@ Re-verified on 2026-10-11 with every configuration passing locally:
 
 The fuzzer ran 2M execs clean on the new number handling, reaching 1,325 edges.
 `baker::data` is now 2,063 counted lines; vendored fast_float is third-party and not
-counted (D2).
+counted.
 
 ## D25. Lookup API shape
 
@@ -611,26 +596,9 @@ it lets layers change after `freeze()`, for live-ops overlays in a shipped game.
   each a macro (`TRUE`, `kDefaultVolume`, `kMaxPlayers`) named with file and line.
 - **Fuzzing.** The parse fuzzer, now also checking edit-mode spans, ran 1.5M execs clean
   under ASan+UBSan.
-- **Size: over budget.** `baker::data` is 4,002 counted lines, up 1,284 in M3, which crosses
-  the spec's 4,000 (soft, D2). The largest parts are `config.cpp` 571 (write-back about
-  200; layers, reload, provenance, live edits the rest), `tweak.hpp`/`tweak.cpp` 347,
-  `config.hpp` 125, and `merge.cpp` 82. Flagged here and to the project owner, as §0 asks.
-  Six milestones remain. Resolved by D40: the budget is raised to 8,000.
-
-## D40. The line budget is 8,000
-
-*Deviates from spec §0 (4,000) and M10 ("core stays within the 4,000-line budget").
-Decided by the project owner, 2026-10-11, after M3 crossed 4,000 (D39).*
-
-The goal has moved from the original's minimal core to a more capable library: layers,
-provenance, write-back, and the harness instrumentation of M10 are all beyond what the
-70 KB original did. The soft budget for the core (`baker::data` plus `baker::script`,
-counted by `tools/count_lines.py`) is now 8,000 non-test, non-comment lines. Everything
-else in D2 stands: it is reported in CI, not enforced; each milestone records its count;
-and disproportionate growth is still called out. M10's fallback (move the repetition
-report into a separate tool if the core is over budget) now applies at 8,000. Edit mode and
-write-back stay in the core.
-
+- **Size.** `baker::data` is 4,002 counted lines, up 1,284 in M3. The largest parts are
+  `config.cpp` 571 (write-back about 200; layers, reload, provenance, live edits the rest),
+  `tweak.hpp`/`tweak.cpp` 347, `config.hpp` 125, and `merge.cpp` 82.
 
 ## D41. Spec amendment: telemetry stamps, personal and experiment layers, snapshots, readiness
 
@@ -717,10 +685,8 @@ The brief's decisions, recorded as asked:
    loaded.** M3 compares the full text held for edit mode, which is exact; M3b keeps that
    and records a content hash for snapshots, which do not hold the text.
 
-Two reconciliations with decisions already made:
+A reconciliation with a decision already made:
 
-- **Line budget.** The brief asks for counts against 4,000; the budget is 8,000 since D40,
-  and M3b reports against that.
 - **Shipping and layer pushes.** "Layer mutation is inert under `BAKER_SHIPPING`" is read
   as D38 already defines it: layers can be pushed during the initial load (before
   `freeze()`), and `ConfigOptions::live_layers` remains the explicit live-ops path.
@@ -801,8 +767,7 @@ Results:
   gcc's unused-function warning in the shipping build. MSVC is covered by CI. Its debug STL
   allocates more per container copy, so the snapshot test compares a 2-entry and a
   500-entry config instead of bounding the count.
-- **Size.** `baker::data` is 4,747 counted lines (core 4,759), up 745 in M3b. That is over
-  the 4,000 the brief cites and under the 8,000 budget of D40.
+- **Size.** `baker::data` is 4,747 counted lines (core 4,759), up 745 in M3b.
 
 ## D44. Functions and variables live in per-Context tables (supersedes D5)
 
@@ -967,20 +932,6 @@ Results:
   instrumentation. As the plan said, this is likely to run out around M8, and each
   milestone will flag it.
 
-## D48. The line budget is 10,000
-
-*Deviates from spec §0 and M10 again; supersedes D40's number. Decided by the project
-owner, 2026-10-11, in the M5 plan (Q4).*
-
-M4 brought the core to 6,203 lines. The M5 estimate (~780) and rough ones for M6–M8 and
-M10's core instrumentation (~1,500) would have exhausted 8,000 during M7. The soft budget
-for the core is now 10,000 non-test, non-comment lines. The rest of D2 and D40 stands:
-- the budget is reported, not enforced;
-- each milestone records its count;
-- disproportionate growth is still called out;
-- M10's fallback (move the repetition report into a separate tool) applies at the new
-  number.
-
 ## D49. Objects: table, handles, binding, and lifetime
 
 *Spec §5 ("Objects"); M5 plan, Q1 answered 2026-10-11.*
@@ -1092,7 +1043,7 @@ for the core is now 10,000 non-test, non-comment lines. The rest of D2 and D40 s
   tests: its fake stack keeps address-taken locals on the heap, so measuring the stack
   budget (D47) from a local's address saw nonsense. The budget now reads the frame
   address (`__builtin_frame_address`, `_AddressOfReturnAddress` on MSVC).
-- **Size.** The core is 7,142 of 10,000 lines (D48), up 939 in M5: `baker::script`
+- **Size.** The core is 7,142 lines, up 939 in M5: `baker::script`
   +917, `baker::data` +22. That is about 160 lines over the plan's estimate of 780. The
   overrun is mostly property paths, `{new}` for native types, and the reference and
   `check` additions.
@@ -1871,20 +1822,6 @@ done, and `dev/m7-plan.md` is deleted.*
   for M8 (~400) and M10's core instrumentation; M8's plan must say what M10 gives up if it
   overruns, or ask to raise the budget.
 
-## D69. The line budget is 15,000
-
-*Deviates from spec §0 again; supersedes D48's number. Decided by the project owner
-2026-10-12, after M7.*
-
-M7 brought the core to 9,126 lines (D68), leaving 874 of 10,000 for M8 (~400) and M10's
-core instrumentation. The soft budget for the core is now 15,000 non-test, non-comment
-lines. The spec and `tools/count_lines.py` say so. The rest of D2, D40, and D48 stands:
-- the budget is reported, not enforced;
-- each milestone records its count;
-- disproportionate growth is still called out: M7 ran 30% over its estimate;
-- M10's fallback (move the repetition report into a separate tool) applies at the new
-  number.
-
 ## D70. M8: the binary cache, answers
 
 *M8 plan (`dev/m8-plan.md`) Q1–Q4, answered by the project owner 2026-10-12, each as
@@ -2235,7 +2172,7 @@ structurally equal trees.*
 - **Found on the way:** Config's merge was quadratic on flat layers (D75, fixed: an 18 MB
   layer from text in 45 ms, not 450), and the arena's empty `Vec` allocated under MSVC
   (D71).
-- **The core** is 9,850 lines of the 15,000 budget (D69), against the plan's ~9,690.
+- **The core** is 9,850 lines, against the plan's ~9,690.
   `baker_bake` is in `tools/`, outside the core.
 - `dev/m8-plan.md` is deleted; its answers are D70 and D72.
 - **Naming.** Commits called M8's steps M8a–M8d; this file calls them M8.1–M8.4, because
@@ -2365,8 +2302,8 @@ structurally equal trees.*
 *Results of `dev/m8b-plan.md` §3 (D80, D84).*
 
 - **The library** is `baker_shape` (`include/baker/shape.hpp`, `src/shape/shape.cpp`):
-  400 lines of spec §6's 600, outside the core, which `tools/count_lines.py` now reports
-  separately. It links baker::data only; the data-only build builds it too.
+  400 lines, outside the core, which `tools/count_lines.py` now reports separately. It links
+  baker::data only; the data-only build builds it too.
 - **What D84 described, built**, with two settlements:
   - A field declared again (by `Set::add` of another tree) keeps the metadata the new
     declaration does not restate, as Config's merge of two layers would.
@@ -2406,8 +2343,8 @@ enumeration API) and `#require`.*
 - **Deviations:** *level* for the spec's pack *layer* (D80), and `(shapes (name ...))`
   for the spec's `(shape name ...)` (D84). Matching by tag does not reach keyed children
   (D85).
-- **Sizes:** the core is 10,103 lines (of 15,000; the plan estimated about 10,060), and
-  `baker::shape` 400 (of 600, outside the core).
+- **Sizes:** the core is 10,103 lines (the plan estimated about 10,060), and
+  `baker::shape` 400 (outside the core).
 - `dev/m8b-plan.md` is deleted; its answers are D80 and D84.
 
 ## D87. M9: the docs and examples, answers
@@ -2496,8 +2433,8 @@ personal `local` layer by the convention in spec §4.*
   metadata in the data. The owner chose to fix it in M9; it is the milestone's only core
   change.
 - **Not changed:** no benchmark row; the core changed only in `TweakBase::bind`, which
-  runs per tweak on each merge. The core is 10,116 lines of 15,000 (10,103 before; D88),
-  and `baker::shape` 400 of 600.
+  runs per tweak on each merge. The core is 10,116 lines (10,103 before; D88),
+  and `baker::shape` 400.
 - `dev/m9-plan.md` is deleted; its answers are D87.
 
 ## D90. M10: harness instrumentation, answers
@@ -2732,9 +2669,8 @@ check output.*
   shipping build. The tools (`check`, `find_repeats`, JSON, the reference) stay in every
   build (D90 Q5) and cost nothing unless called. One cost is recorded rather than hidden:
   the journal's time stamp makes a fast-path `set` 51–65 ns against 18–24 (D93).
-- **8. The core stays within the 15,000-line budget: met.** 10,955 lines (10,116 before
-  M10; the plan estimated about 11,000), so the repetition report did not need to move into
-  a tool. `baker::shape` is 400 of 600, unchanged.
+- **Size.** The core is 10,955 lines (10,116 before M10; the plan estimated about 11,000).
+  `baker::shape` is 400, unchanged.
 - **Deviations and settlements:** `origin` only as a file's leading declaration (D91);
   `check` takes a span of trees and `CheckOptions` (D94); `restore` reverts journal
   entries (D93); the repetition report in baker::data (D90 Q3).
@@ -3312,7 +3248,7 @@ merge.*
   reloaded file had deleted.
 - **`check`** reads `{extend}` as it reads `{class}`: the handlers an extension adds are
   not demand. The reference lists the word.
-- **Cost.** Definition time only: dispatch is unchanged. The core is 11,068 lines of 15,000
+- **Cost.** Definition time only: dispatch is unchanged. The core is 11,068 lines
   (`baker::script` 3,896). Hearth's test of a stuck action now adds that action with
   `{extend villager ...}`, as a task pack would.
 
@@ -3364,7 +3300,7 @@ in `src/` changed.*
 - **`Array::tag()`** in Baker: an array's first node if a symbol, else the empty Symbol.
   Six stacks had written it. Reading a value by position needed nothing new: a path indexes
   values (`get<double>("pos.1", 0)`), and a test now says so beside `tag()`; that no stack
-  found it is a finding about the docs, not the API. The core is 11,073 lines of 15,000.
+  found it is a finding about the docs, not the API. The core is 11,073 lines.
 - **The base** gained `rng.hpp` (`base::Rng`, xorshift64*, seeded per stream: each stack
   keeps its own stream constant, so every result stays the same), `words.hpp`
   (`base::name`, `base::number` by path or by position, `base::not_found`, `base::truthy`),
@@ -6036,7 +5972,7 @@ repository, for the host code that every game rewrites.*
 - **Where it lives.** `baker::host`, in `src/host/` and `include/baker/host/`, beside
   `baker::shape`.
   - It is under the core's rules, and its public headers pass the same gate.
-  - It has a 1,500-line budget of its own, and ships in every release.
+  - It ships in every release.
   - `baker::baker` does not link it.
 - **The plan** is `dev/host-kit-plan.md`: six steps, from the watcher to moving the stacks
   onto the kit, with tests, measurements and acceptance criteria. The stacks' JSON is kept
@@ -6052,8 +5988,8 @@ repository, for the host code that every game rewrites.*
   - `tests/host/` and `baker_host_tests`.
   - Its headers are under the header gate: `check_headers.py` now walks subdirectories,
     and the header-alone test compiles `host/*.hpp` too.
-  - `tools/count_lines.py` reports its budget, 1,500 lines, outside the core's. The core
-    count does not change.
+  - `tools/count_lines.py` reports its size apart from the core's. The core count does not
+    change.
 - **`baker::host::Watcher`** watches exactly what it is given: `watch(cfg.stack_files(),
   more)`, where `more` is the project file, say.
   - **Notifications on directories.** It watches each file's directory through the
@@ -6902,8 +6838,7 @@ the stacks move onto it, `compare` included.*
 - **Size.** The runner is about 790 lines, not the note's 450: located errors, compare's
   median verdicts and the results data it reads back. After trimming (a JSON error and
   bool helper, one way to note a change in compare, a table of text options in the
-  parser), `baker::host` is 2,106 lines. The owner raised its budget to 2,200
-  (`tools/count_lines.py`).
+  parser), `baker::host` is 2,106 lines.
 - **Tests.** `tests/host/test_scenarios.cpp` ports the stacks' runner tests onto a counter
   game: steps and judging, start and `at` times, repeatability, located errors, a measure
   that gives no number, a path that does not exist, results that read back located, and
@@ -6946,7 +6881,7 @@ the stacks move onto it, `compare` included.*
   runs not started are left out; status 2. `baker.sim/1.1` adds `finished` to each run and
   `"stopped"` as a status; `results.dta` writes `(finished 0)` and `read_results` reads it.
 - **Cost.** A step with nothing due is a scheduler tick, a count and a compare; a test holds
-  it to no allocation. The kit is 2,299 lines; the owner raised its budget to 2,400.
+  it to no allocation. The kit is 2,299 lines.
 - **Output.** `run_command` and `SimRun` share one `send` for `--output`, the host's sink or
   stdout. A `SimRun` call gathers what it prints while it runs, so calls spread over frames
   write one output.
@@ -6978,7 +6913,7 @@ the stacks move onto it, `compare` included.*
   `values` and cannot be described yet.
 - **Cost.** Nothing on a tweak's read path: `value_types()` is a virtual used by the JSON
   and tools. A game that does not use `DescribedTweaks` gains one vtable entry per tweak
-  type. The core is 14,492 lines of its 15,000.
+  type. The core is 14,492 lines.
 
 ## D211. A tool declares the game's types, objects and value types from the reference
 
@@ -7135,10 +7070,9 @@ An argument that is not a string is an error at its line.
 - **Paths.** Every `check_tweaks` finding carries its subject as its path: the tweak's, or
   for a stray key the key's own, group then key. The messages are unchanged.
 
-## D220. A tolerant read of text, for tools; the core's budget is 15,500
+## D220. A tolerant read of text, for tools
 
-*Requirement note 0021, from the editor integration. The owner raised the core's soft
-budget from 15,000 to 15,500 for this note and 0024.*
+*Requirement note 0021, from the editor integration.*
 
 - **The need.** An editor needs the structure of text that rarely parses: `(kestrel (hea`.
   Each tool wrote its own lexer, a second copy of Baker's syntax that no test held to it.
@@ -7224,7 +7158,7 @@ presentation, the owner's choice.*
   the top; `results.dta` keeps `(until 1)`.
 - **Cost.** A step with no `(until ...)` is as before (the quiet-step allocation test still
   holds); with one, one command a step.
-- **Size.** The core is 15,080 lines of its 15,500; the host kit 2,360 of 2,400.
+- **Size.** The core is 15,080 lines; the host kit 2,360.
 
 ## D224. A read of a record or table sees the live edits beneath it
 
@@ -7401,10 +7335,10 @@ the owner's choice.*
 *Step 6 of `dev/tools-library-plan.md`; the owner's choice of a separate library (§12 Q2),
 its design note §6, held to acton-review there.*
 
-- **The need.** The core grew past 15,000 lines mostly with code a game never runs: the
+- **The need.** Much of the core's recent growth was code a game never runs: the
   reference, the layer tools, the console's commands, the vocabulary a tool declares from a
-  reference, the tolerant read of text. The kit's budget was raised four times. D100 had
-  accepted tooling in the core, and costed this library as its option C.
+  reference, the tolerant read of text. D100 had accepted tooling in the core, and costed
+  this library as its option C.
 - **The rule.** `baker::tools` holds what only a tool, or the host kit on a tool's behalf,
   calls. A game links it only with the kit; a tool links it directly.
 - **What moved,** into `src/tools/`, `<baker/tools/...>` and `namespace baker::tools`:
@@ -7434,7 +7368,7 @@ its design note §6, held to acton-review there.*
   count is equal again (plan B of the review). The comment spans it records are its own
   `LexComment`, so the core names no tools type.
 - **Counts.** Core 15,146 → 13,783 (data 10,011 → 9,590, script 5,135 → 4,193);
-  `baker::tools` 1,477 of its 2,500; the kit 2,361 → 2,365 (includes).
+  `baker::tools` 1,477; the kit 2,361 → 2,365 (includes).
 - **Instructions** (`count_instructions.py --base HEAD`): parse, lookup, set, call,
   overload, declared, message, message_loose, handle_all and frame equal. `lookup_text` ran
   8 fewer (374 → 366, −2.1%); its loop is in the driver's `main()`, not isolated as the

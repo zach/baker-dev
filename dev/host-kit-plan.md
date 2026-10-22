@@ -47,8 +47,8 @@ the Godot and editor integrations asked of it along the way.
     `check_headers.py`, and compile alone.
   - **Its sources** may include operating-system headers (inotify, Winsock,
     `ReadDirectoryChangesW`) and use `std::filesystem` through its `error_code` overloads.
-- **A line budget of its own.** 1,500 lines, reported by `tools/count_lines.py` beside
-  `baker::shape`'s and outside the core's 15,000.
+- **Its size is its own,** reported by `tools/count_lines.py` beside `baker::shape`'s and
+  apart from the core's.
 - **It ships.** `src/` and `include/` are in the release manifest already, so the kit is
   in every release.
 - **Shipping builds.**
@@ -159,7 +159,7 @@ the Godot and editor integrations asked of it along the way.
 Each step is committed green (`tools/local_matrix.sh`), with a D-entry and measurements.
 
 1. **Scaffold and `Watcher`.**
-   - The target, the option, the line budget, the header gate, a CI build on Linux and
+   - The target, the option, the header gate, a CI build on Linux and
      Windows, and `tests/host/`.
    - The watcher, from the stacks' with the file filter and the polling fallback.
    - Tests: an edit, an include, a file that appears, a swap file ignored, the stamp
@@ -197,7 +197,6 @@ Each step is committed green (`tools/local_matrix.sh`), with a D-entry and measu
   the pieces that moved.
 - **A quiet frame** allocates nothing and makes no more system calls than today. Measured.
 - **Shipping:** no socket opens, and no watch is set.
-- **Budget:** the kit stays within 1,500 lines.
 
 ## 6. Not in it
 

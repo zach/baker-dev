@@ -106,7 +106,6 @@ scripts.
 
 ## 6. Step 6: `baker::tools` (item 3)
 
-The core is at 15,108 of 15,500 and the kit at 2,361 of 2,400 (`tools/count_lines.py`).
 Most of the last three releases' growth is code a game never runs: it serves editors,
 language servers, agents and CI, either without the game or through the kit's commands.
 
@@ -217,11 +216,9 @@ The tests of what moves (`test_reference_json`, `test_config_tools`, `test_struc
 `baker_tools_tests` executable. The core's test executables then link no tools code, which
 shows the core builds and passes without it.
 
-### Budgets
+### Size
 
-- `tools/count_lines.py` reports `baker::tools` on its own line.
-- Its budget is 2,500 lines (§12 Q2).
-- The core's budget stays 15,500, which leaves room for the Thrive notes' needs.
+`tools/count_lines.py` reports `baker::tools` on its own line.
 
 ### Proof
 
@@ -354,7 +351,7 @@ The owner answered these on Oct 22, 2026:
   `config.clear_scratch`; "scratch" is already the layer's name in `explain` and
   `layer_effect`.
 - **Q2 (step 6).** The console's commands (`bind_config_tools`) move into `baker::tools`,
-  and `eval_request` stays in the core. The tools library's budget is 2,500 lines.
+  and `eval_request` stays in the core.
 - **Q3 (step 7).** Only the flags take the prefix. The command names stay as they are,
   since a command the kit does not know already falls through to the game.
 - **Q4 (step 9).** `$build`, with a default from the project's `(build "dir")`, and

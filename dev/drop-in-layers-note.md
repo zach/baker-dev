@@ -4,9 +4,8 @@
 operators dropped files into a folder during a live match, and behaviour modules that join a
 running game when a file appears. A proposal; nothing is built.*
 
-**Status: deferred** (D201). The owner's decision: keep the explicit list (the project file,
-`#include`, `push_layer`) as the only way a file joins the stack, and build this when a host
-or an integration asks for it with a requirement note.
+**Status: superseded** by `dev/layer-directory-note.md` (Oct 22, 2026), which hosts with
+mods and plugin packs asked for. Deferred before that (D201).
 
 ## The need
 
@@ -46,7 +45,7 @@ A project entry that names a directory rather than a file:
 ## Cost and risks
 
 - The core gains nothing: this is the project file (`project.hpp`), the host kit's `Live`,
-  and the watcher. The host kit's budget is 1,500 lines (D186).
+  and the watcher.
 - A directory listing is a system call per `watch()`, never per `poll()`, so a quiet
   frame still allocates nothing (D189's rule).
 - The risk is the one the book names for its data-driven engine: a file nobody meant to
