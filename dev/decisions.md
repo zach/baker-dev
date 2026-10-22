@@ -7280,6 +7280,40 @@ the owner's choice.*
   Those two failed after the rest passed in most of this period's extra runs. It does not
   replace the whole matrix before a commit.
 
+## D226. A number is written as the same text on every platform
+
+*Requirement note 0020 of the Godot integration.*
+
+- **The need.** Where the standard library lacks a double `std::to_chars` (Apple's, for
+  older deployment targets), `format_double_fallback` writes every number: write-back,
+  promotion, patches, JSON, the reference. It printed the shortest `%g` that reads back,
+  and `%g` takes an exponent when the precision is below the digits before the point, so
+  120.0 was written `(height 1.2e+02)` on a Mac and `(height 120.0)` elsewhere. The value
+  read back the same; the data's text changed form with whose machine wrote it last.
+- **The fallback now writes `std::to_chars`'s plain form**, byte for byte:
+  - the fewest significant digits that read back, and of those the nearest. At each count
+    `%.*e` gives the nearest digits, and when they do not read back, their neighbours one
+    unit away in the last digit are tried. Where the doubles around a value are unevenly
+    spaced, at a power of two, a neighbour can read back where the nearest does not
+    (7.1202363472230444e-307 is one);
+  - fixed or scientific, whichever is shorter, fixed on a tie, with an exponent of at least
+    two digits (`1e-05`);
+  - a whole number in fixed form written with its exact digits (`%.0f`), as `to_chars`
+    writes it: 2^60 is `1152921504606846976`, not the shortest digits and zeros.
+  - The digits are read from `%e`'s output whatever the locale's decimal point, and `%.0f`
+    prints none, so the text stays locale-independent.
+- **Tests.**
+  - Wherever `std::to_chars` has doubles, the fallback must give the same text for each
+    whole number to ±20,000 (also over 100, over 8, and times 1,000 and 10^15), each power of
+    two and its neighbours, each power of ten times 1 to 9 and its neighbours, and 100,000
+    random doubles. That is every CI platform: GCC, Clang, libc++ and MSVC.
+  - Fixed strings run on Apple too: `120`, `1e-05`, `1e+16`, `1152921504606846976`.
+  - Before the change, the comparison fails at 120. A prototype matched libstdc++'s
+    `to_chars` on 3.8 million values.
+- **Cost.** Up to 17 `snprintf` and parse rounds a number, as before, plus one `%.0f` for
+  a large whole number. It is used only where `to_chars` is missing, and only for writing,
+  never on a read path.
+
 ## D227. Tweak findings in one order
 
 *Step 2 of `dev/tools-library-plan.md`.*
