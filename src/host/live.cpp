@@ -156,6 +156,7 @@ void Live::begin_frame() {
     if (im.stack_changed) {
         im.autorun();
     } else if (im.cfg.epoch() != im.seen) {  // a live edit
+        im.cfg.apply_edits();                // so the game's reads of records and tables see it
         if (im.changed) im.changed(im.cfg);
         im.seen = im.cfg.epoch();
     }

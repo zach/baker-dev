@@ -7225,3 +7225,31 @@ presentation, the owner's choice.*
 - **Cost.** A step with no `(until ...)` is as before (the quiet-step allocation test still
   holds); with one, one command a step.
 - **Size.** The core is 15,080 lines of its 15,500; the host kit 2,360 of 2,400.
+
+## D224. A read of a record or table sees the live edits beneath it
+
+*Requirement note 0019 of the Godot integration; `apply_edits()` and reads above an edit,
+the owner's choice.*
+
+- **The need.** After `set("units.tank.price", 45)`, a read of the field gave 45, but a read
+  of `units.tank` or `units`, and `root()`, gave the old record until the next full merge.
+  A game that builds a unit from its record, or lists a table in a menu, ran on two versions
+  of its data at once.
+- **`Config::apply_edits()`** merges the pending edits into `root()`; nothing to do when
+  there are none. `Live` calls it before `changed` after a live edit, so the game's reads of
+  its structured data, whole or not, see the edit on the next frame.
+- **Reads above an edit before that.** `get<T>(path)`, while an edit waits beneath `path`,
+  reads from a fresh merge (`edits_beneath`, `with_edits`), so a record or table read gives
+  every edited field and nothing else changed. A `T` that keeps views into the tree must be
+  read after `apply_edits()` instead, which the header says. Const reads never change the
+  Config, so reads from other threads stay as safe as before.
+- **The fast path.** `set()` of a path already in scratch is as before: it retunes its
+  tweaks with no merge and no allocation. A `get` with no edit pending is unchanged; with
+  one pending, a read of the edited path itself is as before, and only a read above it pays
+  the merge.
+- **Cost.** `apply_edits()` on a 2 MB tree: 1.99 ms (best of seven, Release); on a small
+  tree, 0.4 µs. A person dragging a slider in a 2 MB game pays it once a frame while they
+  drag.
+- **Tests.** A record above an edit holds it and its other fields; a record with no edit
+  beneath is read from `root()`; `root()` is the last merge until `apply_edits()`; a clear
+  reverts it everywhere; `Live` applies before `changed`.

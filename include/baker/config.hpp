@@ -443,24 +443,37 @@ public:
     [[nodiscard]] uint64_t stack_digest() const;
 
     // --- Reading. ---
-    // The merged tree, including scratch as of the last full merge. Holding the Ref keeps
-    // this version alive across reloads.
+    // The merged tree, including scratch as of the last full merge or apply_edits(): a live
+    // edit since is in get() and not here until then. Holding the Ref keeps this version
+    // alive across reloads.
     [[nodiscard]] Ref<Array> root() const noexcept { return root_; }
+    // Merges the live edits made since the last full merge into root(), so every reader of
+    // the tree sees them: between frames, before the game reads its structured data (Live
+    // does, before `changed`). Nothing to do when there are none.
+    void apply_edits();
+    // A value as the game reads it, live edits included. A record or a table above a live
+    // edit not yet applied is read from a fresh merge, so it holds the edit; a T that keeps
+    // views into the tree (std::string_view, Values) must not be read so, and should be read
+    // after apply_edits().
     template <class T>
     [[nodiscard]] Expected<T> get(const Path& path) const {
         Values v;
-        if (scratch_dirty_)
+        if (scratch_dirty_) {
             if (const ScratchHit hit = scratch_values(path, v); hit != ScratchHit::None)
                 return from_scratch<T>(path, hit, v);
+            if (edits_beneath(path)) return with_edits()->get<T>(path);
+        }
         return root_->get<T>(path);
     }
     template <class T>
     [[nodiscard]] Expected<T> get(const Path& path, T fallback) const {
         Values v;
-        if (scratch_dirty_)
+        if (scratch_dirty_) {
             if (const ScratchHit hit = scratch_values(path, v); hit != ScratchHit::None)
                 return hit == ScratchHit::PastEnd ? std::move(fallback)
                                                   : from_scratch<T>(path, hit, v);
+            if (edits_beneath(path)) return with_edits()->get<T>(path, std::move(fallback));
+        }
         return root_->get<T>(path, std::move(fallback));
     }
     [[nodiscard]] Expected<Source> source(const Path& path) const;
@@ -595,6 +608,8 @@ private:
     // an element past the end of a scratch value, which hides the layers' longer one.
     enum class ScratchHit : uint8_t { None, Found, PastEnd };
     [[nodiscard]] ScratchHit scratch_values(const Path& path, Values& out) const noexcept;
+    [[nodiscard]] bool edits_beneath(const Path& path) const noexcept;
+    [[nodiscard]] Ref<Array> with_edits() const;  // a fresh merge, live edits included
     // `info` null: past the end.
     [[nodiscard]] static Error scratch_error(const Path& path, const detail::ConvertInfo* info);
     template <class T>

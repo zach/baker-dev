@@ -687,7 +687,7 @@ bool Config::layer_enabled(std::string_view name) const {
 
 uint64_t Config::digest() const {
     // A live edit is in scratch until the next full merge: merge afresh then.
-    return baker::digest(scratch_dirty_ ? *impl_->merged() : *root_);
+    return baker::digest(scratch_dirty_ ? *with_edits() : *root_);
 }
 
 uint64_t Config::stack_digest() const {
@@ -709,6 +709,20 @@ Ref<Array> Config::layer_root(std::string_view name) const {
 }
 
 // --- Reading ---
+
+bool Config::edits_beneath(const Path& path) const noexcept {
+    return impl_->edits_beneath(path);
+}
+
+Ref<Array> Config::with_edits() const {
+    return impl_->merged();
+}
+
+void Config::apply_edits() {
+    if (!scratch_dirty_) return;
+    root_ = impl_->merged();
+    scratch_dirty_ = false;
+}
 
 Config::ScratchHit Config::scratch_values(const Path& path, Values& out) const noexcept {
     const ScratchEntry* e = impl_->scratch_entry(path);
