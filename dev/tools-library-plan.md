@@ -359,3 +359,53 @@ The owner answered these on Oct 22, 2026:
   since a command the kit does not know already falls through to the game.
 - **Q4 (step 9).** `$build`, with a default from the project's `(build "dir")`, and
   `Project::tool_path(dir)` for a tool that passes its own.
+
+## 13. The 0.6.0 changelog, drafted (step 10)
+
+For `CHANGELOG.md` when the owner asks for the release; it covers `main`'s merges since
+0.5.0 (the digest, steps, live reads, number text) and this branch.
+
+```markdown
+## 0.6.0 - DATE
+
+- **Breaking:**
+  - **`baker::tools`** is a new library for what only tools call; a game links it only with
+    the host kit, which brings it. Move to `<baker/tools/...>` and `baker::tools::`:
+    `write_reference_json`, `reference`, `write_reference`, `write_json(const CheckReport&)`,
+    `script_functions` (`reference.hpp`); `explain`, `layer_effect`, `diff` and their entry
+    types (`layers.hpp`), now free functions taking the Config; `bind_config_tools`
+    (`console.hpp`); `DescribedTweaks`, `TweakDescription`, `MethodDescription`,
+    `declare_type`, `declare_object`, `has_type` (`described.hpp`), the last three free
+    functions taking the Context; `read_structure` and its types (`structure.hpp`);
+    `to_json(report)` and `reference(ctx)` as strings (`std_tools.hpp`). Link
+    `baker::tools` in a tool that uses them without the kit. The core is about 1,400 lines
+    smaller, and a shipped game about 24 KB smaller with default link flags.
+  - **The host kit's flags begin `--baker-`:** `--baker-json`, `--baker-seeds`,
+    `--baker-project`, and the rest. Any other flag is the game's, and an unknown `--baker-`
+    flag is an error. Command names are unchanged.
+  - **The console's `{config.clear PATH}` is `{config.clear_scratch PATH}`,** as C++ names it.
+  - **A converter's `values` are exact unless it says otherwise:** one that reads more than
+    its listed value types declares `static constexpr baker::ValueCount count =
+    baker::ValueCount::AtLeast;` (or `Any`). Tools now refuse four values for a
+    `std::array<float, 3>`, as the game does.
+- **New:**
+  - **`Config::digest()` and `stack_digest()`:** 64-bit digests of the data, the same on
+    every platform, for lockstep peers, replays and saves.
+  - **Scenarios in a game's own steps:** `(steps N)`, `(at step N ...)` and `(until
+    {command})`, `$steps`, and the project's `(step_name turn)`; `baker.sim/1.2` says how a
+    run ended.
+  - **Live edits reach reads above them:** a record or table read while an edit is pending
+    beneath it sees the edit; `Config::apply_edits()` folds edits into `root()`, and the
+    host kit's live loop calls it.
+  - **List tweaks and parameters are described:** `std::vector<T>` declares its element's
+    value type, any number of them, so a tool checks a list as the game reads it.
+    `baker.reference/1.3` and `baker.tweaks/1.4` add `count`.
+  - **`(tool "$build/bin/my_game")`** in a project file, with `(build "dir")` as the
+    default and `Project::tool_path(dir)` to resolve it.
+  - **`and_then`** on `Expected`, in C++20 builds as in C++23.
+- **Fixed:**
+  - Numbers are written as the same text on every platform: a Mac build wrote 120.0 as
+    `1.2e+02`.
+  - A tweak check lists its findings in file, line and column order, whatever order the
+    tweaks were registered in.
+```
