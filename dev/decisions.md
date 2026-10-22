@@ -7313,3 +7313,16 @@ the owner's choice.*
 - **Tests.** One test runs in both builds (C++20's own, C++23's `std::expected`): a chain of
   `void` steps that stops at the first error, an `int` chain that halves until odd, a
   `const&` call to another value type, and a value to `void`.
+
+## D229. Clearing a live edit has one name: `clear_scratch`
+
+*Step 4 of `dev/tools-library-plan.md`; the name is the owner's choice.*
+
+- **The need.** C++ has `Config::clear_scratch(path)`; the console had `{config.clear
+  PATH}`. Every other console command takes its C++ name, so a person moving between them
+  reached for the one that did not exist.
+- **The change.** The console's command is `{config.clear_scratch PATH}`; `config.clear` is
+  gone, with no alias (breaking changes are allowed). "Scratch" is the live-edit layer's
+  name in `explain` and `layer_effect` already. Its tests, the cookbook and the header's
+  list of commands follow. A tool that sent `config.clear` (an editor, an agent's server)
+  sends the new name from the release that carries this.
