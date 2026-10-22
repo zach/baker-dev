@@ -204,6 +204,7 @@ struct ParamText {
     // Baker's type of each value the parameter reads (Convert<T>::values for a compound
     // type), for the reference and for check without the game; empty when it does not say.
     std::span<const std::string_view> values;
+    ValueCount count = ValueCount::Exact;  // how many it reads (Convert<T>::count)
 };
 struct ParamInfo {
     const ParamText* text;
@@ -214,6 +215,7 @@ struct ParamInfo {
 
     [[nodiscard]] std::string_view type() const noexcept { return text->type; }
     [[nodiscard]] std::span<const std::string_view> values() const noexcept { return text->values; }
+    [[nodiscard]] ValueCount count() const noexcept { return text->count; }
 };
 
 template <class P>
@@ -569,7 +571,9 @@ template <class P>
 }
 
 template <class P>
-inline constexpr ParamText kParamText{Param<P>::type(), param_values<P>()};
+inline constexpr ParamText kParamText{
+    Param<P>::type(), param_values<P>(),
+    value_count<typename OptionalOf<std::remove_cvref_t<P>>::type>()};
 
 // The parameter descriptions of a signature, built at compile time: no allocation.
 template <class... P>
@@ -719,8 +723,9 @@ struct ParamDescription {
     std::string_view kind = "value";
     bool raw = false;
     // Baker's type of each value, as the reference writes them: what lets a type of the
-    // game's own ("vec2") be checked without the game.
+    // game's own ("vec2") be checked without the game; and how many it takes.
     std::span<const std::string_view> values{};
+    ValueCount count = ValueCount::Exact;
 };
 struct OverloadDescription {
     std::span<const ParamDescription> params;

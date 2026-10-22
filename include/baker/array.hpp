@@ -229,6 +229,16 @@ private:
 template <class T>
 struct Convert;
 
+// How many values a converter takes, beside the value types it declares
+// (Convert<T>::values), for a tool that checks data without the game:
+//   static constexpr ValueCount count = ValueCount::Any;
+// A converter that declares values and no count takes exactly those.
+enum class ValueCount : uint8_t {
+    Exact,    // one value of each type, in order, and no more
+    AtLeast,  // one of each type, in order, then any more, which it reads or leaves
+    Any,      // any number, zero included, each of the one type (or groups of the types)
+};
+
 namespace detail {
 
 // How a lookup failure is described.
@@ -288,12 +298,24 @@ template <class T>
         return {};
 }
 
+// How many values a T takes: Convert<T>::count if it says, else exactly its value types.
+template <class T>
+[[nodiscard]] constexpr ValueCount value_count() noexcept {
+    if constexpr (requires { ValueCount(Convert<T>::count); })
+        return Convert<T>::count;
+    else
+        return ValueCount::Exact;
+}
+
 // Whether `type` is one of Baker's single-value types: "int8" to "uint64", "int", "float32",
 // "float", "bool", "symbol", "string", or "value" (any one value).
 [[nodiscard]] bool value_type_known(std::string_view type) noexcept;
-// Whether `values` hold a value of each of `types` in order, as a Convert that reads them
-// with Values::read would take them; false if a type is not one of Baker's.
-[[nodiscard]] bool reads_as(std::span<const std::string_view> types, const Values& values);
+// Whether `values` are what `types` and `count` describe, each read as a Convert that reads
+// it with Values::read would take it; false if a type is not one of Baker's.
+[[nodiscard]] bool reads_as(std::span<const std::string_view> types, ValueCount count,
+                            const Values& values);
+// "exact", "at_least" or "any", as the JSON documents write a count.
+[[nodiscard]] std::string_view count_name(ValueCount count) noexcept;
 
 // The double nearest the shortest decimal that reads back as `f`: 0.7f gives 0.7.
 [[nodiscard]] double float_to_decimal_double(float f) noexcept;

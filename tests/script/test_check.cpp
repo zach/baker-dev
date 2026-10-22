@@ -771,7 +771,8 @@ TEST_CASE("types, objects and game value types declared from the reference check
     std::string json;
     write_reference_json(game, string_out(json));
     CHECK(json.find(R"j({"type": "vec2", "kind": "value", "raw": false, )j"
-                    R"j("values": ["float32", "float32"]})j") != std::string::npos);
+                    R"j("values": ["float32", "float32"], "count": "exact"})j") !=
+          std::string::npos);
     CHECK_FALSE(tool.eval("{tank hold}", "run.dta"));
 }
 
@@ -849,8 +850,42 @@ TEST_CASE("a function with a body and a described signature checks and runs (D21
     std::string json;
     write_reference_json(ctx, string_out(json));
     CHECK(json.find(R"j({"name": "player.move", "tier": "native")j") != std::string::npos);
-    CHECK(json.find(R"j({"type": "int", "kind": "value", "raw": false, "values": ["int"]})j") !=
-          std::string::npos);
+    CHECK(json.find(R"j({"type": "int", "kind": "value", "raw": false, "values": ["int"], )j"
+                    R"j("count": "exact"})j") != std::string::npos);
+}
+
+TEST_CASE("a described parameter takes as many values as its count says (D233)") {
+    Context ctx;
+    static constexpr std::string_view kInt[] = {"int"};
+    static constexpr std::string_view kPair[] = {"float32", "float32"};
+    int64_t total = 0;
+    const ParamDescription list[] = {{"list", "value", false, kInt, ValueCount::Any}};
+    const OverloadDescription list_o[] = {{list, "int"}};
+    REQUIRE(ctx.declare("sum", list_o, [&](Args& a) -> Expected<Node> {
+        total = 0;
+        if (const Array* xs = a.raw(0).try_array())
+            for (const Node& x : xs->nodes()) total += x.try_int().value_or(0);
+        return Node(total);
+    }));
+    const ParamDescription pair[] = {{"vec2", "value", false, kPair}};  // exact, the default
+    const OverloadDescription pair_o[] = {{pair, "nothing"}};
+    REQUIRE(ctx.declare("aim", pair_o, [](Args&) -> Expected<Node> { return Node(); }));
+
+    const auto tree =
+        parse("{sum (1 2 3)}\n{sum (1 x)}\n{sum ()}\n{aim (1 2)}\n{aim (1 2 3)}\n", "scenario.dta");
+    const CheckReport r = check(*tree, ctx);
+    REQUIRE(r.errors.size() == 2);
+    CHECK(r.errors[0].line() == 2);  // a symbol in a list of ints
+    CHECK(r.errors[1].line() == 5);  // three values where a vec2 takes two
+
+    REQUIRE(ctx.eval("{sum (4 5 6)}", "t"));
+    CHECK(total == 15);
+    CHECK_FALSE(ctx.eval("{sum (4 five)}", "t"));
+    CHECK_FALSE(ctx.eval("{aim (1 2 3)}", "t"));
+
+    std::string json;
+    write_reference_json(ctx, string_out(json));
+    CHECK(json.find(R"j("values": ["int"], "count": "any")j") != std::string::npos);
 }
 
 TEST_CASE("a tool tells a type already known from a refusal without reading words (D219)") {

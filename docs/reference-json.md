@@ -1,12 +1,12 @@
-# The vocabulary as JSON: `baker.reference/1.2`, `baker.tweaks/1.3`, `baker.shapes/1.1`
+# The vocabulary as JSON: `baker.reference/1.3`, `baker.tweaks/1.4`, `baker.shapes/1.1`
 
 Three documents describe what a program's data and script may say, for editors, agents,
 and other tools that should not scrape the Markdown reference:
 
 | Document | Written by | Library |
 |---|---|---|
-| `baker.reference/1.2` | `baker::tools::write_reference_json(ctx, sink, &session)` | `baker::tools` |
-| `baker.tweaks/1.3` | `baker::write_json(registry, sink)` | `baker::data` |
+| `baker.reference/1.3` | `baker::tools::write_reference_json(ctx, sink, &session)` | `baker::tools` |
+| `baker.tweaks/1.4` | `baker::write_json(registry, sink)` | `baker::data` |
 | `baker.shapes/1.1` | `baker::shape::write_json(shapes, sink)` | `baker::shape` |
 
 They are separate so that a data-only program can write its tweaks and the script library
@@ -29,11 +29,11 @@ They follow `check`'s rules (`check-json.md`):
   or changed only with a new major version.
 - **Numbers.** Ranges and steps are written as Baker prints floats (`0.5`, `10.0`).
 
-## `baker.reference/1.2`
+## `baker.reference/1.3`
 
 | Field | Contents |
 |---|---|
-| `schema` | `"baker.reference/1.2"` |
+| `schema` | `"baker.reference/1.3"` |
 | `functions` | every function with at least one overload |
 | `types` | every native type made known to the Context |
 | `script_classes` | classes only script defined (`{class Name ...}` with no native type) |
@@ -53,7 +53,10 @@ They follow `check`'s rules (`check-json.md`):
   - `params`, each with `type`, `kind` (`"value"`, `"raw"`, `"optional"` or `"rest"`),
     `raw` (passed unevaluated) and `values`: Baker's type of each value the parameter reads,
     `["int"]` for an `int`, `["float32", "float32"]` for a `vec2` whose `Convert` declares
-    `values`, `null` when the type does not say (added in 1.2);
+    `values`, `null` when the type does not say (added in 1.2); and `count`, how many
+    values it takes: `"exact"` (one of each type, no more), `"at_least"` (one of each,
+    then any more) or `"any"` (any number of the one type, as a `std::vector`), `null`
+    with no `values` (added in 1.3);
   - `result`;
   - `min_args`;
   - `max_args`, which is `null` when the overload takes the rest of its arguments.
@@ -104,7 +107,7 @@ editor, a CI job) can register each function from its overloads with
 - A property has `name`, `type` and `doc`.
 - `handlers` names the script handlers that `{class}` or `{extend}` attached.
 
-## `baker.tweaks/1.3`
+## `baker.tweaks/1.4`
 
 `tweaks` lists every tweak in the registry, by path. Each one has:
 
@@ -113,6 +116,7 @@ editor, a CI job) can register each function from its overloads with
 | `path` | as the tweak was declared: `player.speed` |
 | `type` | the value's type as errors name it: `"float32"`, `"int32"`, `"bool"`, or your own (`"vec2"`) |
 | `values` | Baker's type of each value: `["float32"]`, or `["float32", "float32"]` for a `vec2` whose `Convert` declares `values`; `null` when the type does not say (added in 1.2) |
+| `count` | how many values it takes, as a parameter's `count`: `"exact"`, `"at_least"` or `"any"` (`["symbol"]` and `"any"` for a `std::vector<Symbol>`); `null` with no `values` (added in 1.4) |
 | `default` | the code's default, as Baker text |
 | `value` | the current value, as Baker text |
 | `bound` | whether the data supplies the value |
@@ -152,13 +156,21 @@ template <> struct baker::Convert<Vec2> {
 };
 ```
 
-A described tweak reads each value as the game's converter would with `Values::read`, so
-`(aim 1)` where a `vec2` is wanted fails in the tool as it fails in the game. A description
-it cannot hold is an error naming the tweak: a type of the game's own with no `values`, a
-value type that is not one of Baker's, or a default that does not read as its types. A type
-whose count of values is the data's (a `std::vector`) has no `values` and cannot be
-described yet. A fixed-size list of one of Baker's single-value types (`std::array<float, 3>`)
-declares its own: three `float32`s.
+A converter that takes its values and no more needs nothing else: its `count` is
+`"exact"`. One that takes more says so, `static constexpr baker::ValueCount count =
+baker::ValueCount::AtLeast;`, or `Any` for any number of its one type, as `std::vector`
+does.
+
+A described tweak reads each value as the game's converter would with `Values::read`, and
+takes as many as its `count` says (give it in the description, `.count`), so `(aim 1)`
+where a `vec2` is wanted fails in the tool as it fails in the game, and so does
+`(color 0.9 0.5 0.2 0.1)` where a `std::array<float, 3>` is. A description it cannot hold
+is an error naming the tweak: a type of the game's own with no `values`, a value type that
+is not one of Baker's, or a default that does not read as its types. A fixed-size list of
+one of Baker's single-value types (`std::array<float, 3>`) declares its own, three
+`float32`s, exactly; a `std::vector` of one declares its type, any number of them, so a
+list tweak is described and checked as the rest are. A parameter of a declared function
+takes the same `count` in its `ParamDescription`.
 
 ## `baker.shapes/1.1`
 

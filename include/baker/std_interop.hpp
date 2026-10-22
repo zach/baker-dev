@@ -81,21 +81,6 @@ struct Convert<std::string> {
     static void to(const std::string& v, ValueList& out) { out.push(Node(String::make(v))); }
 };
 
-// Every value, each read as T: (tags fast loud blue) as std::vector<Symbol>.
-template <class T>
-struct Convert<std::vector<T>> {
-    static constexpr std::string_view name = "list";
-    static bool from(const Values& v, std::vector<T>& out) {
-        out.assign(v.size(), T{});
-        for (size_t i = 0; i < v.size(); ++i)
-            if (!v.read(i, out[i])) return false;
-        return true;
-    }
-    static void to(const std::vector<T>& v, ValueList& out) {
-        for (const T& x : v) out.add(x);
-    }
-};
-
 namespace detail {
 // N of T's value type, for a T of one value of Baker's type; none for any other T, whose
 // values nest in each element and cannot be listed flat.
@@ -110,6 +95,25 @@ template <class T, size_t N>
     }
 }
 }  // namespace detail
+
+// Every value, each read as T: (tags fast loud blue) as std::vector<Symbol>.
+template <class T>
+struct Convert<std::vector<T>> {
+    static constexpr std::string_view name = "list";
+    // Any number of T's value type, for a T of one value: {"symbol"} for std::vector<Symbol>.
+    // None for a T of several, whose values nest in each element.
+    static constexpr auto values = detail::repeated_value_types<T, 1>();
+    static constexpr ValueCount count = ValueCount::Any;
+    static bool from(const Values& v, std::vector<T>& out) {
+        out.assign(v.size(), T{});
+        for (size_t i = 0; i < v.size(); ++i)
+            if (!v.read(i, out[i])) return false;
+        return true;
+    }
+    static void to(const std::vector<T>& v, ValueList& out) {
+        for (const T& x : v) out.add(x);
+    }
+};
 
 // Exactly N values, each read as T: (color 1 0.5 0) as std::array<float, 3>.
 template <class T, size_t N>

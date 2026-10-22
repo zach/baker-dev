@@ -7461,3 +7461,40 @@ keep theirs (§12 Q3).*
   the kit's command tests pass with the new names.
 - **For tools.** An editor, a CI job or an agent's server that runs a game's commands passes
   `--baker-json`, `--baker-seeds` and the rest from the release that carries this.
+
+## D233. How many values a described value takes: exact, at least, or any
+
+*Step 8 of `dev/tools-library-plan.md` (its items 5 and 6).*
+
+- **The need.** A converter's `values` named one type per value, and a tool read that as
+  "at least these": `std::array<float, 3>` takes exactly three, so `(color 0.9 0.5 0.2
+  0.1)` passed a tool's check and failed in the game (D212). And `std::vector<T>` had no
+  `values`, so a list tweak or parameter could not be described or checked at all (D210).
+- **`baker::ValueCount { Exact, AtLeast, Any }`**, beside `Convert<T>::values`: a converter
+  says `static constexpr ValueCount count = ...;`, and one that gives `values` and no count
+  takes exactly them. `Any` is any number of the one value type (or of groups of the
+  types), zero included.
+  - `Convert<std::vector<T>>` declares its element's value type, for an element of one
+    value of Baker's, with `Any`: `{"symbol"}` for `std::vector<Symbol>`. An element of
+    several values still gives none: they nest in each element and cannot be listed flat.
+  - `std::array<T, N>` keeps its N types and is now held to exactly N.
+- **Where the count goes.** `detail::reads_as(types, count, values)` takes it, and so does
+  every caller: `check`'s literal-argument check, a declared function's call, and
+  `DescribedTweaks`. `ParamText` (what the reference and check read, never the call) gains
+  `count`, so `ParamInfo`, the table a call reads, stays at 32 bytes. `TweakBase` gains
+  `value_count()` (one virtual beside `types()`; no tweak read calls it).
+  `ParamDescription` and `TweakDescription` take `.count`.
+- **The JSON.** Each parameter (`baker.reference/1.3`) and each tweak (`baker.tweaks/1.4`)
+  has `"count"`: `"exact"`, `"at_least"` or `"any"`, `null` with no `values`. New fields,
+  so new minor versions.
+- **Behaviour that changes.** A game's own converter that declares `values` and reads more
+  than them must now say `AtLeast` (or `Any`), or a tool calls the extra values wrong; the
+  game itself is unchanged, since only tools read the count. `check` now holds a literal
+  list passed to a native `std::vector` parameter to its element's type. The stacks' 30
+  tests pass unchanged.
+- **Tests.** D212's fixed-size list now includes the four-value case it had to leave out,
+  and tool and game agree on it; a `std::vector<int>` tweak is described, written and
+  checked as the game's, a non-integer inside the list included, with the same JSON; a
+  declared parameter with `Any` takes `(1 2 3)` and `()` and refuses `(1 x)` in `check` and
+  at a call, and an exact `vec2` refuses three values.
+- **Instructions.** Every case of `count_instructions.py` equal against 36b2bb8.

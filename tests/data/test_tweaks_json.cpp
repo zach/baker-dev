@@ -1,4 +1,4 @@
-// The tweaks as JSON, baker.tweaks/1.3, and the data held to them (D203, D206, D210).
+// The tweaks as JSON, baker.tweaks/1.4, and the data held to them (D203, D206, D210).
 #include <doctest.h>
 #include <baker/config.hpp>
 #include <baker/parse.hpp>
@@ -50,19 +50,21 @@ TEST_CASE("the tweaks as JSON: type, default, value, metadata, and source") {
     REQUIRE(cfg.push_layer("default", ok(read_string("(player (speed 6))\n", "d.dta"))));
     std::string json;
     write_json(reg, string_out(json));
-    CHECK(json ==
-          "{\n  \"schema\": \"baker.tweaks/1.3\",\n  \"tweaks\": [\n"
-          R"j(    {"path": "player.lives", "type": "int32", "values": ["int32"], "default": "3", )j"
-          R"j("value": "3", )j"
-          R"j("bound": false, "range": null, "step": 0.0, "desc": "", "kind": "", )j"
-          R"j("group": "player", "dev_only": true, "one_of": [], "choices": [], "source": null},)j"
-          "\n"
-          R"j(    {"path": "player.speed", "type": "float32", "values": ["float32"], )j"
-          R"j("default": "4.0", "value": "6.0", )j"
-          R"j("bound": true, "range": [0.0, 10.0], "step": 0.5, "desc": "Run speed", )j"
-          R"j("kind": "", "group": "player", "dev_only": false, "one_of": [], "choices": [], )j"
-          R"j("source": {"layer": "default", "file": "d.dta", "line": 1}})j"
-          "\n  ]\n}\n");
+    CHECK(
+        json ==
+        "{\n  \"schema\": \"baker.tweaks/1.4\",\n  \"tweaks\": [\n"
+        R"j(    {"path": "player.lives", "type": "int32", "values": ["int32"], "count": "exact", )j"
+        R"j("default": "3", )j"
+        R"j("value": "3", )j"
+        R"j("bound": false, "range": null, "step": 0.0, "desc": "", "kind": "", )j"
+        R"j("group": "player", "dev_only": true, "one_of": [], "choices": [], "source": null},)j"
+        "\n"
+        R"j(    {"path": "player.speed", "type": "float32", "values": ["float32"], "count": "exact", )j"
+        R"j("default": "4.0", "value": "6.0", )j"
+        R"j("bound": true, "range": [0.0, 10.0], "step": 0.5, "desc": "Run speed", )j"
+        R"j("kind": "", "group": "player", "dev_only": false, "one_of": [], "choices": [], )j"
+        R"j("source": {"layer": "default", "file": "d.dta", "line": 1}})j"
+        "\n  ]\n}\n");
 }
 
 TEST_CASE("a symbol tweak's allowed symbols, from the code or the data (D203)") {
@@ -148,12 +150,16 @@ TEST_CASE("a tweak's value types, in the JSON, from Convert's values (D210)") {
     Tweak<Vec2> aim{"player.aim", Vec2{0, 1}, {}, reg};
     Tweak<std::vector<int>> waves{"waves", {}, {}, reg};
     CHECK(aim.value_types().size() == 2);
-    CHECK(waves.value_types().empty());  // a list's count is the data's: no value types
+    REQUIRE(waves.value_types().size() == 1);  // a list: any number of its one type
+    CHECK(waves.value_types()[0] == "int32");
+    CHECK(waves.value_count() == ValueCount::Any);
+    CHECK(aim.value_count() == ValueCount::Exact);
     std::string json;
     write_json(reg, string_out(json));
-    CHECK(json.find(R"j("type": "vec2", "values": ["float32", "float32"], )j") !=
+    CHECK(json.find(R"j("type": "vec2", "values": ["float32", "float32"], "count": "exact", )j") !=
           std::string::npos);
-    CHECK(json.find(R"j("type": "list", "values": null, )j") != std::string::npos);
+    CHECK(json.find(R"j("type": "list", "values": ["int32"], "count": "any", )j") !=
+          std::string::npos);
 }
 
 TEST_CASE("the metadata split and the color rule, for any value (D218)") {
@@ -198,7 +204,8 @@ TEST_CASE("each tweak finding carries its subject as its path (D219)") {
 }
 
 TEST_CASE(
-    "tweak findings come in check --baker-json's order, whatever order the tweaks were registered in") {
+    "tweak findings come in check --baker-json's order, whatever order the tweaks were registered "
+    "in") {
     const auto findings = [](bool reversed) {
         TweakRegistry reg;
         std::vector<std::unique_ptr<Tweak<int>>> tweaks;

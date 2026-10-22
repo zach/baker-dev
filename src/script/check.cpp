@@ -90,10 +90,11 @@ struct Checker {
 
     // A literal argument against the value types of a parameter of a type only described,
     // as Values::read reads a compound value: an array as its contents, else the one value.
-    static bool reads_values(std::span<const std::string_view> types, const Node& n) {
+    static bool reads_values(const detail::ParamInfo& p, const Node& n) {
         const Array* a = n.try_array();
         return detail::reads_as(
-            types, a ? Values(a->nodes(), a) : Values(std::span<const Node>(&n, 1), nullptr));
+            p.values(), p.count(),
+            a ? Values(a->nodes(), a) : Values(std::span<const Node>(&n, 1), nullptr));
     }
 
     // Whether `o` accepts every literal argument of `command`, from index `first`.
@@ -104,7 +105,7 @@ struct Checker {
             if (p.kind == detail::ParamKind::Rest) return true;
             if (evaluable(command[i + first])) continue;
             if (p.match ? !p.match(command[i + first], true)
-                        : !p.values().empty() && !reads_values(p.values(), command[i + first]))
+                        : !p.values().empty() && !reads_values(p, command[i + first]))
                 return false;
         }
         return true;

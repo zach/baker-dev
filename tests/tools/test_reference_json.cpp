@@ -1,4 +1,4 @@
-// The machine-readable reference, baker.reference/1.2 (dev/tool-surface-plan.md §6).
+// The machine-readable reference, baker.reference/1.3 (dev/tool-surface-plan.md §6).
 #include <doctest.h>
 #include <baker/config.hpp>
 #include <baker/object.hpp>
@@ -49,7 +49,7 @@ TEST_CASE("the reference as JSON lists functions, types, classes, globals, and p
                  "{class Ghost (haunt () 1)}",
                  "lib.dta"));
     const std::string json = reference_json(ctx);
-    CHECK(json.rfind("{\n  \"schema\": \"baker.reference/1.2\",\n  \"functions\": [", 0) == 0);
+    CHECK(json.rfind("{\n  \"schema\": \"baker.reference/1.3\",\n  \"functions\": [", 0) == 0);
     CHECK(json == reference_json(ctx));  // the same bytes, run to run
     CHECK(json.back() == '\n');
 
@@ -57,8 +57,9 @@ TEST_CASE("the reference as JSON lists functions, types, classes, globals, and p
     CHECK(has(json, R"j({"name": "spawn", "tier": "native", "status": "normal", )j"
                     R"j("replacement": "", "doc": "", "file": "", "line": 0, "overloads": )j"
                     R"j([{"params": [{"type": "symbol", "kind": "value", "raw": false, )j"
-                    R"j("values": ["symbol"]}, {"type": "int", "kind": "optional", )j"
-                    R"j("raw": false, "values": ["int"]}], )j"
+                    R"j("values": ["symbol"], "count": "exact"}, )j"
+                    R"j({"type": "int", "kind": "optional", )j"
+                    R"j("raw": false, "values": ["int"], "count": "exact"}], )j"
                     R"j("result": "int", "min_args": 1, "max_args": 2}]})j"));
     // A script function, with where it is defined.
     CHECK(has(json, R"j({"name": "twice", "tier": "script",)j"));

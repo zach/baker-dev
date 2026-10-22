@@ -483,7 +483,7 @@ TweakFindings check_tweaks(const Array& root, const TweakRegistry& tweaks) {
             List<Error>({warnings.data(), warnings.size()})};
 }
 
-// --- As JSON (baker.tweaks/1.3) ---
+// --- As JSON (baker.tweaks/1.4) ---
 
 namespace {
 // The tweak's values as one text: a single value bare, several in parentheses.
@@ -503,7 +503,7 @@ void write_json(const TweakRegistry& tweaks, TextSink text) {
     tweaks.each([&](const TweakBase& t) { ts.push_back(&t); });
     std::sort(ts.begin(), ts.end(),
               [](const TweakBase* a, const TweakBase* b) { return a->path() < b->path(); });
-    Str out = "{\n  \"schema\": \"baker.tweaks/1.3\",\n  \"tweaks\": [";
+    Str out = "{\n  \"schema\": \"baker.tweaks/1.4\",\n  \"tweaks\": [";
     for (size_t i = 0; i < ts.size(); ++i) {
         const TweakBase& t = *ts[i];
         ValueList def, cur;
@@ -515,14 +515,15 @@ void write_json(const TweakRegistry& tweaks, TextSink text) {
         detail::json_string(out, t.type_name());
         out += ", \"values\": ";
         if (const auto types = t.value_types(); types.empty()) {
-            out += "null";
+            out += "null, \"count\": null";
         } else {
             out += '[';
             for (size_t k = 0; k < types.size(); ++k) {
                 if (k) out += ", ";
                 detail::json_string(out, types[k]);
             }
-            out += ']';
+            out += "], \"count\": ";
+            detail::json_string(out, detail::count_name(t.value_count()));
         }
         out += ", \"default\": ";
         detail::json_string(out, values_text(def));
@@ -615,11 +616,27 @@ bool value_type_known(std::string_view type) noexcept {
     return reads_one(type, Values(std::span<const Node>(&probe, 1), nullptr), 0).has_value();
 }
 
-bool reads_as(std::span<const std::string_view> types, const Values& values) {
-    if (values.size() < types.size()) return false;
-    for (size_t i = 0; i < types.size(); ++i)
+bool reads_as(std::span<const std::string_view> types, ValueCount count, const Values& values) {
+    const size_t n = types.size();
+    if (count == ValueCount::Any) {
+        if (n == 0 || values.size() % n != 0) return n == 0;
+        for (size_t i = 0; i < values.size(); ++i)
+            if (!reads_one(types[i % n], values, i).value_or(false)) return false;
+        return true;
+    }
+    if (values.size() < n || (count == ValueCount::Exact && values.size() != n)) return false;
+    for (size_t i = 0; i < n; ++i)
         if (!reads_one(types[i], values, i).value_or(false)) return false;
     return true;
+}
+
+std::string_view count_name(ValueCount count) noexcept {
+    switch (count) {
+        case ValueCount::Exact: return "exact";
+        case ValueCount::AtLeast: return "at_least";
+        case ValueCount::Any: return "any";
+    }
+    return "exact";
 }
 
 }  // namespace detail

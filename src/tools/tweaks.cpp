@@ -25,7 +25,8 @@ struct DescribedParts {
           type_text(d.type),
           desc_text(d.desc),
           kind_text(d.kind),
-          group_text(d.group) {
+          group_text(d.group),
+          counted(d.count) {
         for (const std::string_view t : types) type_names.emplace_back(t);
         for (const std::string_view o : d.one_of) one_of_names.emplace_back(o);
         for (const TweakChoice& c : d.choices) choices.push_back({c.value, Symbol(c.name).str()});
@@ -45,6 +46,7 @@ struct DescribedParts {
     Vec<std::string_view> type_views, one_of_views;
     Vec<TweakChoice> choices;  // names interned
     TweakMeta described;
+    ValueCount counted;  // how many values it takes
     ValueList fallback, current;
     bool has_current = false;
 };
@@ -74,10 +76,11 @@ public:
 
 private:
     bool assign(const Values& v, bool apply) override {
-        if (!detail::reads_as({type_views.data(), type_views.size()}, v)) return false;
+        if (!detail::reads_as({type_views.data(), type_views.size()}, counted, v)) return false;
         if (apply) {
             current = ValueList();
-            for (size_t i = 0; i < type_views.size(); ++i) current.push(v[i]);
+            const size_t n = counted == ValueCount::Exact ? type_views.size() : v.size();
+            for (size_t i = 0; i < n; ++i) current.push(v[i]);
             has_current = true;
         }
         return true;
@@ -85,7 +88,8 @@ private:
     void reset() override { has_current = false; }
     [[nodiscard]] detail::ConvertInfo info() const noexcept override {
         using K = detail::ConvertKind;
-        if (type_views.size() != 1) return {type_text.view(), K::Compound};
+        if (type_views.size() != 1 || counted != ValueCount::Exact)
+            return {type_text.view(), K::Compound};
         const std::string_view t = type_views[0];
         if (t == "float32" || t == "float") return {type_text.view(), K::Float};
         if (t.find("int") != std::string_view::npos) return {type_text.view(), K::Int};
@@ -94,6 +98,7 @@ private:
     [[nodiscard]] std::span<const std::string_view> types() const noexcept override {
         return {type_views.data(), type_views.size()};
     }
+    [[nodiscard]] ValueCount count() const noexcept override { return counted; }
 };
 
 }  // namespace
@@ -137,7 +142,8 @@ Expected<void> DescribedTweaks::add(const TweakDescription& d) {
         read_string(d.default_text.empty() ? std::string_view("0") : d.default_text, "default");
     if (!tree) return refuse("its default does not read: " + Str(tree.error().message()));
     std::span<const Node> nodes = (*tree)->nodes();
-    if (nodes.size() == 1 && types.size() > 1)
+    // Several values, or a list, written in parentheses: (1 2), (fast loud).
+    if (nodes.size() == 1 && (types.size() > 1 || d.count != ValueCount::Exact))
         if (const Array* a = nodes[0].try_array()) nodes = a->nodes();
     auto* t = detail::create<DescribedTweak>(default_allocator(), d, types, *impl_->registry);
     if (!t->start(nodes)) {

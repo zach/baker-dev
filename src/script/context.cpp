@@ -662,7 +662,7 @@ struct Declared {
             const std::string_view type = keep(p.type);
             const size_t first = values.size();
             for (const std::string_view v : given(p)) values.push_back(keep(v));
-            texts.push_back({type, {values.data() + first, given(p).size()}});
+            texts.push_back({type, {values.data() + first, given(p).size()}, p.count});
             params.push_back(infos[i]);
             params.back().text = &texts.back();
         }
@@ -689,7 +689,8 @@ bool has_type(const detail::ParamInfo& p, const Node& v) {
     if (p.values().empty()) return true;
     const Array* a = v.try_array();
     return detail::reads_as(
-        p.values(), a ? Values(a->nodes(), a) : Values(std::span<const Node>(&v, 1), nullptr));
+        p.values(), p.count(),
+        a ? Values(a->nodes(), a) : Values(std::span<const Node>(&v, 1), nullptr));
 }
 
 Expected<Node> call_declared(const void* callable, Args& args) {

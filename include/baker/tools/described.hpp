@@ -17,7 +17,8 @@ struct TweakDescription {
     // Baker's type of each value, as the reference's "values" lists them: needed for a type
     // of the game's own, implied for one of Baker's.
     std::span<const std::string_view> values{};
-    std::string_view default_text{};  // the code's default, as Baker text: "2.5", "(0 1)"
+    ValueCount count = ValueCount::Exact;  // how many values it takes, as the reference says
+    std::string_view default_text{};       // the code's default, as Baker text: "2.5", "(0 1)"
     TweakRange range{};
     double step = 0;
     std::string_view desc{};

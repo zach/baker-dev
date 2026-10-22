@@ -84,9 +84,8 @@ TEST_CASE("a tool registers tweaks from their descriptions, and check holds data
     // The JSON of the described tweaks names their types as the game's does.
     std::string json;
     write_json(tool, string_out(json));
-    CHECK(json.find(
-              R"j("type": "vec2", "values": ["float32", "float32"], "default": "(0.0 1.0)")j") !=
-          std::string::npos);
+    CHECK(json.find(R"j("type": "vec2", "values": ["float32", "float32"], "count": "exact", )j"
+                    R"j("default": "(0.0 1.0)")j") != std::string::npos);
 }
 
 TEST_CASE("a description the registry cannot hold is an error naming the tweak") {
@@ -125,9 +124,12 @@ TEST_CASE("a fixed-size list declares its value types, and a tool checks it as t
     REQUIRE(described.add({.path = "cube.color",
                            .type = "fixed-size list",
                            .values = color.value_types(),
+                           .count = color.value_count(),
                            .default_text = "(0.9 0.5 0.2)"}));
+    // Four values where three are wanted: the game's converter refuses them, and now the
+    // tool's description does too (D233; it took three or more before).
     for (const char* text : {"(cube (color 0.9 0.5 0.2))\n", "(cube (color 0.9 0.5))\n",
-                             "(cube (color red 0.5 0.2))\n"}) {
+                             "(cube (color red 0.5 0.2))\n", "(cube (color 0.9 0.5 0.2 0.1))\n"}) {
         CAPTURE(text);
         const Ref<Array> root = ok(read_string(text, "d.dta"));
         CHECK(messages(check_tweaks(*root, tool).errors) ==
@@ -184,4 +186,37 @@ TEST_CASE("string and integer tweaks take allowed values, checked and in the JSO
     Tweak<std::string_view> attack2{"fighter.attack", "light", {.one_of = kAttacks}, only};
     Tweak<int> level2{"fighter.level", 1, {.choices = kLevels}, only};
     CHECK(messages(check_tweaks(*root, tool).errors) == messages(check_tweaks(*root, only).errors));
+}
+
+TEST_CASE("a list tweak is described and checked as the game's (D233)") {
+    TweakRegistry game;
+    Tweak<std::vector<int>> waves{"level.waves", {3, 4}, {}, game};
+    REQUIRE(waves.value_types().size() == 1);
+    CHECK(waves.value_count() == ValueCount::Any);
+
+    TweakRegistry tool;
+    DescribedTweaks described(tool);
+    REQUIRE(described.add({.path = "level.waves",
+                           .type = "list",
+                           .values = waves.value_types(),
+                           .count = waves.value_count(),
+                           .default_text = "(3 4)"}));
+    for (const char* text : {"(level (waves 3 4 5))\n", "(level (waves 7))\n", "(level (waves))\n",
+                             "(level (waves 3 2.5))\n", "(level (waves 3 many))\n"}) {
+        CAPTURE(text);
+        const Ref<Array> root = ok(read_string(text, "d.dta"));
+        CHECK(messages(check_tweaks(*root, tool).errors) ==
+              messages(check_tweaks(*root, game).errors));
+    }
+    const Ref<Array> bad = ok(read_string("(level (waves 3 2.5))\n", "d.dta"));
+    CHECK(check_tweaks(*bad, tool).errors.size() == 1);  // a non-integer inside the list
+
+    // The JSON of the described tweak says as much as the game's.
+    std::string mine, theirs;
+    write_json(tool, string_out(mine));
+    write_json(game, string_out(theirs));
+    CHECK(mine.find(R"j("values": ["int32"], "count": "any", "default": "(3 4)")j") !=
+          std::string::npos);
+    CHECK(theirs.find(R"j("values": ["int32"], "count": "any", "default": "(3 4)")j") !=
+          std::string::npos);
 }
