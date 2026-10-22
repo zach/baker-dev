@@ -7326,3 +7326,38 @@ the owner's choice.*
   name in `explain` and `layer_effect` already. Its tests, the cookbook and the header's
   list of commands follow. A tool that sent `config.clear` (an editor, an agent's server)
   sends the new name from the release that carries this.
+
+## D230. Instruction counts for script calls and messages
+
+*Step 5 of `dev/tools-library-plan.md`.*
+
+- **The need.** `tools/count` counted parse, lookup, set and a quiet frame, nothing of the
+  script path. D211's promoted-overload slowdown (8.9% by wall clock) was settled only by
+  repeating the benchmark, and its faster message rows were recorded as unexplained.
+- **New cases.** `call` (`{add 1 2}`, a native of two ints), `overload` (`{+ 1.5 2}`, the
+  built-in set, promoted), `declared` (`{add 1 2}` declared from a description with a body,
+  D213), `message` (a typed message from C++ to an object in a Context, its handler two
+  types up the chain), `message_loose` (the same in no Context) and `handle_all` (one call
+  to 64 objects).
+- **Counts stay put as cases are added.** Each case's loop is a function of its own, never
+  inlined: with the loops in `main()`, adding two cases moved `message` from 154 to 167
+  instructions on the same commit, as the compiler inlined differently. A comparison was
+  still fair (both sides build the same driver), but a count should not depend on its
+  neighbours.
+- **The tool.** `--head REV` counts a commit in place of the working tree, so two old
+  commits compare; a case one side's tree cannot build (`declared` before D213) shows as —.
+- **D211, settled.** Against its parent 3270a23:
+
+  | case | 3270a23 | d30389d (D211) | change |
+  |---|---:|---:|---:|
+  | call | 307 | 307 | 0 |
+  | overload | 784 | 788 | +0.51% |
+  | message | 135 | 135 | 0 |
+  | message_loose | 114 | 114 | 0 |
+  | handle_all | 4,772 | 4,772 | 0 |
+
+  The overload's final cost is four instructions (the `ParamText` indirection of D211 put
+  the rest back). The message rows run the same instructions on both commits, so D211's
+  faster `handle_all` and no-Context `handle` were code layout, not a change to their path.
+  From D211 to 28fe7c7 none of these cases moves. Instructions per operation, cachegrind,
+  Release, GCC 13.
