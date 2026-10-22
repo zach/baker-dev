@@ -78,13 +78,13 @@ function or a wrong argument count in one is a check error.
 ## The commands
 
 ```
-my_game sim [--scenario NAME]... [--seed N | --seeds A-B] [--step-hz N] [--json] [--results DIR]
-my_game compare --before DIR --after DIR
+my_game sim [--baker-scenario NAME]... [--baker-seed N | --baker-seeds A-B] [--baker-step-hz N] [--baker-json] [--baker-results DIR]
+my_game compare --baker-before DIR --baker-after DIR
 ```
 
-- `--scenario` picks a scenario by its name, or by its file's name without `.dta`.
-- `sim` prints a line per run, or, with `--json`, the `baker.sim/1.2` document.
-- `--results DIR` also writes `results.json` (`baker.sim/1.2`) and `results.dta`, which is
+- `--baker-scenario` picks a scenario by its name, or by its file's name without `.dta`.
+- `sim` prints a line per run, or, with `--baker-json`, the `baker.sim/1.2` document.
+- `--baker-results DIR` also writes `results.json` (`baker.sim/1.2`) and `results.dta`, which is
   what `compare` reads.
 - `compare` writes `baker.compare/1`.
 - Both exit 0 when everything passed (`sim`) or nothing broke (`compare`), 1 when something
@@ -115,7 +115,7 @@ case baker::host::SimRun::Wants::Done:          // run.status() is the exit stat
 ```
 
 - The run counts steps, never time. Set your game's fixed rate to `step_seconds()`, which
-  is `--step-hz` in whole nanoseconds, and report one `step()` per fixed step.
+  is `--baker-step-hz` in whole nanoseconds, and report one `step()` per fixed step.
 - `SimRun` sets `$seed`, then waits. It never calls `CommandHooks::reset` or `step`, and
   frames spent waiting for a reset count no steps.
 - `stop()` ends early (a window closed, a timeout). The run in progress is kept as not

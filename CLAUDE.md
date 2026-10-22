@@ -9,10 +9,9 @@ users of the library goes in `docs/`; a plan, assessment, review or status note 
 Read `dev/spec.md` for what Baker is (§10 lists the milestones), `dev/decisions.md` for
 every deviation from it and the results of each step, and the current milestone plan
 (`dev/m<N>-plan.md`) if one exists. M10, the harness instrumentation, is done (D96):
-every milestone of spec §10 is. The core's soft line budget is 15,500 (D69, D220);
-`tools/count_lines.py` reports it, and `baker::shape` apart. CI also checks
-`clang-format-18 --dry-run --Werror` over every source file, and runs clang-tidy over `src/`
-with `.clang-tidy`, where every finding is an error (D103).
+every milestone of spec §10 is. CI also checks `clang-format-18 --dry-run --Werror` over
+every source file, and runs clang-tidy over `src/` with `.clang-tidy`, where every finding
+is an error (D103).
 
 `stacks/` is a separate CMake project over this Baker: the game stacks of
 `dev/background/game-stacks.md`, for Windows PC (`stacks/README.md`, D106). The rules

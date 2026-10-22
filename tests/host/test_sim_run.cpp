@@ -59,7 +59,7 @@ host::CommandLine sim_line(const Stack& st, std::initializer_list<const char*> f
     static std::string project;
     project = st.dir.path("data");
     static std::vector<const char*> argv;
-    argv = {"game", "sim", "--project", project.c_str()};
+    argv = {"game", "sim", "--baker-project", project.c_str()};
     argv.insert(argv.end(), flags.begin(), flags.end());
     auto line = host::parse_command_line(static_cast<int>(argv.size()), argv.data());
     REQUIRE(line);
@@ -70,7 +70,7 @@ host::CommandLine sim_line(const Stack& st, std::initializer_list<const char*> f
 
 TEST_CASE("SimRun: the host advances each run; the output is sim's") {
     Stack st;
-    const host::CommandLine line = sim_line(st, {"--seeds", "1-2", "--json"});
+    const host::CommandLine line = sim_line(st, {"--baker-seeds", "1-2", "--baker-json"});
 
     Host sync;
     CHECK(host::run_command(line, sync.hooks) == 0);
@@ -106,7 +106,7 @@ TEST_CASE("SimRun: stopping keeps the run so far, not finished, and exits 2") {
     Stack st;
     const std::string out = st.dir.path("out");
     const host::CommandLine line =
-        sim_line(st, {"--seeds", "1-3", "--json", "--results", out.c_str()});
+        sim_line(st, {"--baker-seeds", "1-3", "--baker-json", "--baker-results", out.c_str()});
     Host h;
     host::SimRun run(line, h.hooks);
     run.ready();
@@ -131,7 +131,7 @@ TEST_CASE("SimRun: a command that is not sim, or a stack that cannot run, ends a
     CHECK(not_sim.wants() == Wants::Done);
     CHECK(not_sim.status() == host::kCommandError);
 
-    const host::SimRun no_scenario(sim_line(st, {"--scenario", "nosuch"}), h.hooks);
+    const host::SimRun no_scenario(sim_line(st, {"--baker-scenario", "nosuch"}), h.hooks);
     CHECK(no_scenario.wants() == Wants::Done);
     CHECK(no_scenario.status() == host::kCommandError);
 }

@@ -3,6 +3,7 @@
 
 #include <baker/host/console.hpp>
 #include <baker/host/live.hpp>
+#include <baker/tools/console.hpp>
 
 #include "common/containers.hpp"
 
@@ -116,7 +117,8 @@ Expected<void> Live::open(const LiveOptions& options) {
     Vec<Error> problems;  // a layer that did not read, with go_on: kept past autorun's reset
     for (const ProjectProblem& p : *opened) problems.push_back(p.error);
 
-    if (auto r = bind_config_tools(im.ctx, im.cfg, {.allow_write = options.console_write}); !r)
+    if (auto r = tools::bind_config_tools(im.ctx, im.cfg, {.allow_write = options.console_write});
+        !r)
         im.log(r.error());
     im.autorun();
     for (const Error& e : problems) im.problem(e);

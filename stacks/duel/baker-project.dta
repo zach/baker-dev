@@ -4,6 +4,8 @@
    (pack_levels engine game task)
    (include_dirs "data")
    (reference "build/reference.json")   ; written by the build (stacks_reference)
+   (build "../../build-stacks")         ; the README's; a tool may name its own
+   (tool "$build/bin/stacks_duel")      ; the game: it answers check, sim, ...
    (scenarios "sim")                    ; what `sim` runs (agent.md)
    (objectives "metrics")               ; what it judges them by
    (console 4556)                       ; the console's port, unless --console-port names one

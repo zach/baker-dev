@@ -2,6 +2,8 @@
 
 #include <baker/host/commands.hpp>
 #include <baker/host/live.hpp>
+#include <baker/tools/layers.hpp>
+#include <baker/tools/reference.hpp>
 #include <baker/tweak.hpp>
 
 #include "common/containers.hpp"
@@ -99,7 +101,7 @@ Expected<void> read_book(const Loaded& l, sim::Book& book) {
 
 int report_check(CheckReport& report, const Loaded& l, const LoadSession* packs) {
     report.load = List<Error>(l.live.load_errors());
-    write_json(report, stdout_sink(), packs);
+    tools::write_json(report, stdout_sink(), packs);
     out("\n");
     return report.ok() ? 0 : kCommandFailed;
 }
@@ -120,7 +122,7 @@ int check(const CommandLine& line, const CommandHooks& hooks) {
     const Config& cfg = l.live.config();
     auto unreadable = [&](const Error& e) {
         report.load = List<Error>(std::span<const Error>(&e, 1));
-        write_json(report, stdout_sink(), &cfg.read_session());
+        tools::write_json(report, stdout_sink(), &cfg.read_session());
         out("\n");
         err(describe(e));
         err("\n");
@@ -168,14 +170,14 @@ int reference(const CommandLine& line, const CommandHooks& hooks) {
     if (!load(l, line)) return kCommandError;
     const Config& cfg = l.live.config();
     if (!line.json) {
-        baker::reference(l.ctx, stdout_sink(), &cfg.read_session());
+        tools::reference(l.ctx, stdout_sink(), &cfg.read_session());
         return 0;
     }
     // The three documents in one object: the vocabulary, the tweaks, and the shapes the
     // enabled layers declare.
     Str ref, tweaks, shapes = "null";
-    write_reference_json(l.ctx, detail::str_out(ref), &cfg.read_session());
-    write_json(TweakRegistry::global(), detail::str_out(tweaks));
+    tools::write_reference_json(l.ctx, detail::str_out(ref), &cfg.read_session());
+    baker::write_json(TweakRegistry::global(), detail::str_out(tweaks));
 #if BAKER_HOST_SHAPE
     shape::Set set;
     shape::Report report;
@@ -232,7 +234,7 @@ int eval(const CommandLine& line, const CommandHooks& hooks) {
 
 // One line per value the layer sets: path, the value below it, its value, where.
 int print_effect(const Config& cfg, std::string_view layer, std::string_view heading) {
-    auto effect = cfg.layer_effect(layer);
+    auto effect = tools::layer_effect(cfg, layer);
     if (!effect) {
         err(to_string(effect.error()));
         err("\n");
@@ -392,7 +394,7 @@ int promote(const CommandLine& line, const CommandHooks& hooks) {
                             : fs::path(Str(line.patch_root).c_str());
         if (root.empty()) root = ".";  // a project file named without a directory
         Str patch;
-        if (report->ok())  // all or nothing, as --write is
+        if (report->ok())  // all or nothing, as --baker-write is
             for (const auto& [path, text] : captured) {
                 Str before;
                 (void)read_whole(path, before, l.hooks.reader);
@@ -412,8 +414,9 @@ int promote(const CommandLine& line, const CommandHooks& hooks) {
         return report->ok() ? 0 : kCommandFailed;
     }
     if (!line.write)
-        return print_effect(cfg, line.layer,
-                            "would write into " + Str(line.to) + " (rerun with --write to write):");
+        return print_effect(
+            cfg, line.layer,
+            "would write into " + Str(line.to) + " (rerun with --baker-write to write):");
     auto report = cfg.promote(line.layer, line.to);
     if (!report) {
         err(describe(report.error()));
@@ -428,7 +431,7 @@ int promote(const CommandLine& line, const CommandHooks& hooks) {
     return 0;
 }
 
-// The output, sent where the command line or the host asked: the file --output names, else
+// The output, sent where the command line or the host asked: the file --baker-output names, else
 // the host's sink, else stdout, so an engine that owns stdout keeps the result apart.
 int send(const CommandLine& line, const CommandHooks& hooks, const Str& output, int status) {
     if (!line.output.empty()) {
@@ -463,10 +466,11 @@ int run_scenarios(const CommandLine& line, const CommandHooks& hooks) {
     return run.status();
 }
 
-// Which objectives moved between two `sim --results` directories, without running anything.
+// Which objectives moved between two `sim --baker-results` directories, without running anything.
 int compare(const CommandLine& line) {
     if (line.before.empty() || line.after.empty()) {
-        err("compare needs --before DIR --after DIR, each written by sim --results\n");
+        err("compare needs --baker-before DIR --baker-after DIR, each written by sim "
+            "--baker-results\n");
         return kCommandError;
     }
     Vec<sim::Run> before, after;
@@ -577,7 +581,7 @@ struct SimRun::Impl {
             err("\n");
             return false;
         }
-        // --scenario picks by scenario name, or by its file's name without .dta.
+        // --baker-scenario picks by scenario name, or by its file's name without .dta.
         for (const sim::Scenario& s : book.scenarios) {
             const Str stem(fs::path(Str(s.file.str()).c_str()).stem().generic_string());
             bool wanted = line.scenarios.empty();
@@ -672,12 +676,12 @@ void SimRun::stop() {
 }
 
 namespace {
-// Where an option that takes text keeps it, or null.
+// Where an option that takes text keeps it, or null; `a` is its name after --baker-.
 std::string_view* text_option(CommandLine& line, std::string_view a) {
     const std::pair<std::string_view, std::string_view*> options[] = {
-        {"--project", &line.project}, {"--layer", &line.layer},   {"--from", &line.layer},
-        {"--to", &line.to},           {"--patch", &line.patch},   {"--output", &line.output},
-        {"--results", &line.results}, {"--before", &line.before}, {"--after", &line.after}};
+        {"project", &line.project}, {"layer", &line.layer},   {"from", &line.layer},
+        {"to", &line.to},           {"patch", &line.patch},   {"output", &line.output},
+        {"results", &line.results}, {"before", &line.before}, {"after", &line.after}};
     for (const auto& [name, into] : options)
         if (a == name) return into;
     return nullptr;
@@ -689,49 +693,54 @@ Expected<CommandLine> parse_command_line(int argc, const char* const* argv) {
     if (argc > 1) line.command = argv[1];
     Vec<std::string_view> commands, rest, scenarios;
     for (int i = 2; i < argc; ++i) {
-        const std::string_view a = argv[i];
+        const std::string_view arg = argv[i];
+        // The kit's flags begin --baker-; everything else is the host's, or a command.
+        constexpr std::string_view kPrefix = "--baker-";
+        if (!arg.starts_with(kPrefix)) {
+            (!arg.empty() && arg.front() == '{' ? commands : rest).push_back(arg);
+            continue;
+        }
+        const std::string_view a = arg.substr(kPrefix.size());
         auto value = [&](std::string_view& into) -> bool {
             if (i + 1 >= argc) return false;
             into = argv[++i];
             return true;
         };
         auto missing = [&] {
-            return Unexpected(make_error(ErrorCode::Syntax, Str(a) + " needs a value"));
+            return Unexpected(make_error(ErrorCode::Syntax, Str(arg) + " needs a value"));
         };
-        if (a == "--json") {
+        if (a == "json") {
             line.json = true;
-        } else if (a == "--write") {
+        } else if (a == "write") {
             line.write = true;
         } else if (std::string_view* into = text_option(line, a)) {
             if (!value(*into)) return missing();
-        } else if (a == "--seed" || a == "--step-hz") {
+        } else if (a == "seed" || a == "step-hz") {
             std::string_view s;
             if (!value(s)) return missing();
             const auto n = whole(s);
-            if (!n || (a == "--step-hz" && *n == 0))
-                return Unexpected(make_error(ErrorCode::Syntax, Str(a) + " needs a number"));
-            if (a == "--seed")
+            if (!n || (a == "step-hz" && *n == 0))
+                return Unexpected(make_error(ErrorCode::Syntax, Str(arg) + " needs a number"));
+            if (a == "seed")
                 line.seed = *n;
             else
                 line.step_hz = static_cast<double>(*n);
-        } else if (a == "--seeds") {
+        } else if (a == "seeds") {
             std::string_view s;
             if (!value(s)) return missing();
             const size_t dash = s.find('-');
             const auto first = whole(s.substr(0, dash));
             const auto last = dash == std::string_view::npos ? first : whole(s.substr(dash + 1));
             if (!first || !last || *last < *first)
-                return Unexpected(make_error(ErrorCode::Syntax, "--seeds needs A-B, A <= B"));
+                return Unexpected(make_error(ErrorCode::Syntax, "--baker-seeds needs A-B, A <= B"));
             line.seed = *first;
             line.seed_last = *last;
-        } else if (a == "--scenario") {
+        } else if (a == "scenario") {
             std::string_view s;
             if (!value(s)) return missing();
             scenarios.push_back(s);
-        } else if (!a.empty() && a.front() == '{') {
-            commands.push_back(a);
-        } else {
-            rest.push_back(a);
+        } else {  // a misspelled flag of the kit's is an error, never the host's
+            return Unexpected(make_error(ErrorCode::Syntax, "unknown flag " + Str(arg)));
         }
     }
     line.commands =
@@ -774,24 +783,28 @@ int run_command(const CommandLine& line, const CommandHooks& hooks) {
 }
 
 std::string_view command_help() noexcept {
-    return "  check                          baker.check/1.3 JSON; exit 1 on an error, a load\n"
+    return "The kit's flags begin --baker-; any other flag is the game's.\n"
+           "  check                          baker.check/1.3 JSON; exit 1 on an error, a load\n"
            "                                 problem, a shape error, or an undefined function\n"
-           "  reference [--json]             the script vocabulary, as Markdown; --json:\n"
+           "  reference [--baker-json]       the script vocabulary, as Markdown; --baker-json:\n"
            "                                 {reference, tweaks, shapes} as Baker's JSON\n"
-           "  diff [--layer L]               what layer L (default agent) changes\n"
-           "  promote [--from L] [--to T] [--write | --patch FILE]\n"
-           "                                 layer L into T (default default); --write writes;\n"
-           "                                 --patch writes the change as a unified diff\n"
-           "  eval [--seed N] [--json] \"{command}\"...\n"
+           "  diff [--baker-layer L]         what layer L (default agent) changes\n"
+           "  promote [--baker-from L] [--baker-to T] [--baker-write | --baker-patch FILE]\n"
+           "                                 layer L into T (default default); --baker-write\n"
+           "                                 writes; --baker-patch writes the change as a\n"
+           "                                 unified diff\n"
+           "  eval [--baker-seed N] [--baker-json] \"{command}\"...\n"
            "                                 each command's result, one a line, on the game\n"
-           "                                 reset with the seed (default 1); --json: one\n"
+           "                                 reset with the seed (default 1); --baker-json: one\n"
            "                                 baker.reply/1.1 line each, as the console answers\n"
-           "  sim [--scenario NAME]... [--seed N | --seeds A-B] [--step-hz N] [--json]\n"
-           "      [--results DIR]            the project's scenarios, judged by its objectives;\n"
-           "                                 --json: baker.sim/1.2; --results: what compare reads\n"
-           "  compare --before DIR --after DIR\n"
+           "  sim [--baker-scenario NAME]... [--baker-seed N | --baker-seeds A-B]\n"
+           "      [--baker-step-hz N] [--baker-json] [--baker-results DIR]\n"
+           "                                 the project's scenarios, judged by its objectives;\n"
+           "                                 --baker-json: baker.sim/1.2; --baker-results: what\n"
+           "                                 compare reads\n"
+           "  compare --baker-before DIR --baker-after DIR\n"
            "                                 which objectives moved: baker.compare/1\n"
-           "every command also takes --output FILE: its output there, not on stdout\n";
+           "every command also takes --baker-output FILE: its output there, not on stdout\n";
 }
 
 }  // namespace baker::host

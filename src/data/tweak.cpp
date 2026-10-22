@@ -469,11 +469,21 @@ TweakFindings check_tweaks(const Array& root, const TweakRegistry& tweaks) {
             warnings.push_back(std::move(stray));
         }
     }
+    // In check --json's order, by file, line, column, then message: the same report whatever
+    // order the tweaks were registered in.
+    auto by_place = [](const Error& a, const Error& b) {
+        if (a.file() != b.file()) return a.file().str() < b.file().str();
+        if (a.line() != b.line()) return a.line() < b.line();
+        if (a.column() != b.column()) return a.column() < b.column();
+        return a.message() < b.message();
+    };
+    std::sort(errors.data(), errors.data() + errors.size(), by_place);
+    std::sort(warnings.data(), warnings.data() + warnings.size(), by_place);
     return {List<Error>({errors.data(), errors.size()}),
             List<Error>({warnings.data(), warnings.size()})};
 }
 
-// --- As JSON (baker.tweaks/1.3) ---
+// --- As JSON (baker.tweaks/1.4) ---
 
 namespace {
 // The tweak's values as one text: a single value bare, several in parentheses.
@@ -493,7 +503,7 @@ void write_json(const TweakRegistry& tweaks, TextSink text) {
     tweaks.each([&](const TweakBase& t) { ts.push_back(&t); });
     std::sort(ts.begin(), ts.end(),
               [](const TweakBase* a, const TweakBase* b) { return a->path() < b->path(); });
-    Str out = "{\n  \"schema\": \"baker.tweaks/1.3\",\n  \"tweaks\": [";
+    Str out = "{\n  \"schema\": \"baker.tweaks/1.4\",\n  \"tweaks\": [";
     for (size_t i = 0; i < ts.size(); ++i) {
         const TweakBase& t = *ts[i];
         ValueList def, cur;
@@ -505,14 +515,15 @@ void write_json(const TweakRegistry& tweaks, TextSink text) {
         detail::json_string(out, t.type_name());
         out += ", \"values\": ";
         if (const auto types = t.value_types(); types.empty()) {
-            out += "null";
+            out += "null, \"count\": null";
         } else {
             out += '[';
             for (size_t k = 0; k < types.size(); ++k) {
                 if (k) out += ", ";
                 detail::json_string(out, types[k]);
             }
-            out += ']';
+            out += "], \"count\": ";
+            detail::json_string(out, detail::count_name(t.value_count()));
         }
         out += ", \"default\": ";
         detail::json_string(out, values_text(def));
@@ -568,7 +579,7 @@ void write_json(const TweakRegistry& tweaks, TextSink text) {
     text(out);
 }
 
-// --- Described tweaks ---
+// --- Value types, as the reference names them (described tweaks and functions) ---
 
 namespace {
 
@@ -605,145 +616,29 @@ bool value_type_known(std::string_view type) noexcept {
     return reads_one(type, Values(std::span<const Node>(&probe, 1), nullptr), 0).has_value();
 }
 
-bool reads_as(std::span<const std::string_view> types, const Values& values) {
-    if (values.size() < types.size()) return false;
-    for (size_t i = 0; i < types.size(); ++i)
+bool reads_as(std::span<const std::string_view> types, ValueCount count, const Values& values) {
+    const size_t n = types.size();
+    if (count == ValueCount::Any) {
+        if (n == 0 || values.size() % n != 0) return n == 0;
+        for (size_t i = 0; i < values.size(); ++i)
+            if (!reads_one(types[i % n], values, i).value_or(false)) return false;
+        return true;
+    }
+    if (values.size() < n || (count == ValueCount::Exact && values.size() != n)) return false;
+    for (size_t i = 0; i < n; ++i)
         if (!reads_one(types[i], values, i).value_or(false)) return false;
     return true;
 }
 
+std::string_view count_name(ValueCount count) noexcept {
+    switch (count) {
+        case ValueCount::Exact: return "exact";
+        case ValueCount::AtLeast: return "at_least";
+        case ValueCount::Any: return "any";
+    }
+    return "exact";
+}
+
 }  // namespace detail
-
-namespace {
-
-// What a described tweak keeps: copies of its description, which TweakBase points into.
-struct DescribedParts {
-    explicit DescribedParts(const TweakDescription& d, std::span<const std::string_view> types)
-        : path_text(d.path),
-          type_text(d.type),
-          desc_text(d.desc),
-          kind_text(d.kind),
-          group_text(d.group) {
-        for (const std::string_view t : types) type_names.emplace_back(t);
-        for (const std::string_view o : d.one_of) one_of_names.emplace_back(o);
-        for (const TweakChoice& c : d.choices) choices.push_back({c.value, Symbol(c.name).str()});
-        for (const Str& t : type_names) type_views.push_back(t.view());
-        for (const Str& o : one_of_names) one_of_views.push_back(o.view());
-        described = {.range = d.range,
-                     .step = d.step,
-                     .desc = desc_text.view(),
-                     .kind = kind_text.view(),
-                     .group = group_text.view(),
-                     .dev_only = d.dev_only,
-                     .one_of = {one_of_views.data(), one_of_views.size()},
-                     .choices = {choices.data(), choices.size()}};
-    }
-    Str path_text, type_text, desc_text, kind_text, group_text;
-    Vec<Str> type_names, one_of_names;
-    Vec<std::string_view> type_views, one_of_views;
-    Vec<TweakChoice> choices;  // names interned
-    TweakMeta described;
-    ValueList fallback, current;
-    bool has_current = false;
-};
-
-class DescribedTweak final : private DescribedParts, public TweakBase {
-public:
-    DescribedTweak(const TweakDescription& d, std::span<const std::string_view> types,
-                   TweakRegistry& registry)
-        : DescribedParts(d, types), TweakBase(path_text.c_str(), described, registry) {}
-    ~DescribedTweak() { detach(); }
-    DescribedTweak(const DescribedTweak&) = delete;
-    DescribedTweak& operator=(const DescribedTweak&) = delete;
-
-    // Reads the default; false if it does not read as the value types.
-    bool start(std::span<const Node> nodes) {
-        if (!assign(Values(nodes, nullptr), false)) return false;
-        for (const Node& n : nodes) fallback.push(n);
-        attach();
-        return true;
-    }
-    void values(ValueList& out) const override {
-        for (const Node& n : (has_current ? current : fallback).nodes()) out.push(n);
-    }
-    void default_values(ValueList& out) const override {
-        for (const Node& n : fallback.nodes()) out.push(n);
-    }
-
-private:
-    bool assign(const Values& v, bool apply) override {
-        if (!detail::reads_as({type_views.data(), type_views.size()}, v)) return false;
-        if (apply) {
-            current = ValueList();
-            for (size_t i = 0; i < type_views.size(); ++i) current.push(v[i]);
-            has_current = true;
-        }
-        return true;
-    }
-    void reset() override { has_current = false; }
-    [[nodiscard]] detail::ConvertInfo info() const noexcept override {
-        using K = detail::ConvertKind;
-        if (type_views.size() != 1) return {type_text.view(), K::Compound};
-        const std::string_view t = type_views[0];
-        if (t == "float32" || t == "float") return {type_text.view(), K::Float};
-        if (t.find("int") != std::string_view::npos) return {type_text.view(), K::Int};
-        return {type_text.view(), K::Scalar};
-    }
-    [[nodiscard]] std::span<const std::string_view> types() const noexcept override {
-        return {type_views.data(), type_views.size()};
-    }
-};
-
-}  // namespace
-
-struct DescribedTweaks::Impl {
-    TweakRegistry* registry;
-    Vec<DescribedTweak*> tweaks;
-};
-
-DescribedTweaks::DescribedTweaks(TweakRegistry& registry)
-    : impl_(detail::create<Impl>(default_allocator(), Impl{&registry, {}})) {}
-
-DescribedTweaks::~DescribedTweaks() {
-    for (DescribedTweak* t : impl_->tweaks) detail::destroy(default_allocator(), t);
-    detail::destroy(default_allocator(), impl_);
-}
-
-size_t DescribedTweaks::size() const noexcept {
-    return impl_->tweaks.size();
-}
-
-Expected<void> DescribedTweaks::add(const TweakDescription& d) {
-    auto refuse = [&](const Str& why) {
-        return Unexpected(make_error(ErrorCode::Type, "tweak '" + Str(d.path) + "': " + why));
-    };
-    if (d.path.empty()) return refuse("it has no path");
-    // A type of Baker's is its own one value type; a game's names its own.
-    const std::string_view own[1] = {d.type};
-    const std::span<const std::string_view> types = !d.values.empty() ? d.values
-                                                    : detail::value_type_known(d.type)
-                                                        ? std::span(own)
-                                                        : std::span<const std::string_view>();
-    if (types.empty())
-        return refuse("its type '" + Str(d.type) +
-                      "' is not one of Baker's, and its description gives no value types");
-    for (const std::string_view t : types)
-        if (!detail::value_type_known(t))
-            return refuse("value type '" + Str(t) + "' is not one of Baker's");
-    // The default, as Baker text: one value bare, several in parentheses.
-    auto tree =
-        read_string(d.default_text.empty() ? std::string_view("0") : d.default_text, "default");
-    if (!tree) return refuse("its default does not read: " + Str(tree.error().message()));
-    std::span<const Node> nodes = (*tree)->nodes();
-    if (nodes.size() == 1 && types.size() > 1)
-        if (const Array* a = nodes[0].try_array()) nodes = a->nodes();
-    auto* t = detail::create<DescribedTweak>(default_allocator(), d, types, *impl_->registry);
-    if (!t->start(nodes)) {
-        detail::destroy(default_allocator(), t);
-        return refuse("its default (" + Str(d.default_text) + ") is not " + Str(d.type));
-    }
-    impl_->tweaks.push_back(t);
-    return {};
-}
 
 }  // namespace baker

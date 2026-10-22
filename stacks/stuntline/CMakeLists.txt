@@ -21,6 +21,6 @@ if(STACKS_BUILD_TESTS)
   add_test(NAME stacks_stuntline_tests COMMAND stacks_stuntline_tests)
   add_test(NAME stacks_stuntline_headless
            COMMAND stacks_stuntline --headless --frames 120 --console-port 0 --no-vsync)
-  add_test(NAME stacks_stuntline_sim COMMAND stacks_stuntline sim --seeds 1-2)
+  add_test(NAME stacks_stuntline_sim COMMAND stacks_stuntline sim --baker-seeds 1-2)
   add_test(NAME stacks_stuntline_check COMMAND stacks_stuntline check)
 endif()

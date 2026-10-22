@@ -97,6 +97,18 @@ bool exists(const LoadSession::Reader& reader, std::string_view path) {
 
 }  // namespace
 
+Symbol Project::tool_path(std::string_view build_dir) const {
+    constexpr std::string_view kBuild = "$build";
+    const std::string_view path = tool.str();
+    if (!path.starts_with(kBuild)) return tool;
+    std::string_view rest = path.substr(kBuild.size());
+    while (!rest.empty() && (rest.front() == '/' || rest.front() == '\\')) rest.remove_prefix(1);
+    const Symbol base = !build_dir.empty() ? Symbol(build_dir)
+                        : !build.empty()   ? build
+                                           : joined(detail::parent_path(file.str()), "build");
+    return rest.empty() ? base : joined(base.str(), rest);
+}
+
 Expected<Project> read_project(std::string_view path, const LoadSession::Reader& reader) {
     SourceMap map;
     LoadSession session;
@@ -139,7 +151,8 @@ Expected<Project> read_project(std::string_view path, const LoadSession::Reader&
             std::string_view file;
             if (part->size() < 2 || !text_of((*part)[1], file))
                 return Unexpected(places.at(*part, R"(the tool is (tool "path" "argument"...))"));
-            p.tool = joined(dir, file);
+            // A path into the build directory stays as written, for tool_path().
+            p.tool = file.starts_with("$build") ? Symbol(file) : joined(dir, file);
             p.tool_at = places.of(*part, 1);
             Vec<Symbol> args;
             for (size_t k = 2; k < part->size(); ++k) {
@@ -160,6 +173,12 @@ Expected<Project> read_project(std::string_view path, const LoadSession::Reader&
                 return Unexpected(places.at(*part, "the console is (console PORT), 1 to 65535"));
             p.console_port = static_cast<uint16_t>(*port);
             p.console_at = places.of(*part, 1);
+        } else if (key == Symbol("build")) {
+            std::string_view where;
+            if (part->size() != 2 || !text_of((*part)[1], where))
+                return Unexpected(places.at(*part, "the build directory is (build \"path\")"));
+            p.build = joined(dir, where);
+            p.build_at = places.of(*part, 1);
         } else if (key == Symbol("reference")) {
             std::string_view file;
             if (part->size() != 2 || !text_of((*part)[1], file))
@@ -201,11 +220,11 @@ Expected<Project> read_project(std::string_view path, const LoadSession::Reader&
             p.layers =
                 List<ProjectLayer>(std::span<const ProjectLayer>(layers.data(), layers.size()));
         } else {
-            return Unexpected(
-                places.at(*part, "a project has no '" + Str(key.str()) +
-                                     "': it holds pack_levels, include_dirs, "
-                                     "defines, reference, tool, console, step_name, scenarios, "
-                                     "objectives, and layers"));
+            return Unexpected(places.at(
+                *part, "a project has no '" + Str(key.str()) +
+                           "': it holds pack_levels, include_dirs, "
+                           "defines, reference, tool, build, console, step_name, scenarios, "
+                           "objectives, and layers"));
         }
     }
     if (!has_layers) return Unexpected(places.at(*root, "a project needs (layers ...)"));

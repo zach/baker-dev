@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include "dev_only.hpp"
 #include "ok.hpp"
 
 using namespace baker;
@@ -122,11 +123,10 @@ TEST_CASE("a text layer is read again when a layer below it changes") {
     CHECK(cfg.get<int>("w") == 1);
     REQUIRE(cfg.remove_layer("narrow"));
     CHECK(cfg.get<int>("w") == 2);
-    CHECK_FALSE(ok(cfg.reload()));  // it has no file to change
+    CHECK_FALSE(ok(cfg.reload()));  // no file to change; check_tests: ok
 }
 
-TEST_CASE("write-back refuses a value from a text layer") {
-    if constexpr (kShipping) return;  // write-back is inert in shipping
+BAKER_DEV_TEST_CASE("write-back refuses a value from a text layer") {
     TempDir dir;
     Config cfg({.tweaks = nullptr});
     cfg.session().set_pack_levels({"game", "live"});

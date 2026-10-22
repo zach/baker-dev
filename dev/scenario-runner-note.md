@@ -47,16 +47,15 @@ It is generic but for one thing: it drives the stacks' `base::Game` (reset, step
 ## Cost
 
 - The kit grows by about 450 lines (the runner, its JSON and `compare`, without the stacks'
-  `.dta` result files), past its 1,500-line budget (D186; 1,315 used).
+  `.dta` result files), from 1,315.
 - The core grows by the three project entries, about 30 lines.
 - Nothing for a game without scenarios: the entries, the hook and the files are optional.
 
 ## Questions for the owner
 
-1. Where the runner lives: the host kit with a larger budget, a library of its own, or
+1. Where the runner lives: the host kit, a library of its own, or
    nowhere (the stacks keep theirs, and a tool learns their format).
 2. Whether the stacks move onto it, retiring their own `sim` and `compare` formats.
 3. Whether `compare` comes with it, or only `sim` for now.
 
-The owner's answers: the host kit, with its budget raised to 2,000 (then 2,200, D208); the
-stacks move onto it; `compare` comes with it.
+The owner's answers: the host kit; the stacks move onto it; `compare` comes with it.

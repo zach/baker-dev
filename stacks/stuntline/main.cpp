@@ -3,7 +3,7 @@
 // the script words (track.), the workbench, and drawing.
 //
 //   stacks_stuntline                        play: drive the first track
-//   stacks_stuntline sim --seeds 1-5        each track: valid, finishes, crashes, airtime, jumps
+//   stacks_stuntline sim --baker-seeds 1-5  each track: valid, finishes, crashes, airtime, jumps
 //   stacks_stuntline eval "{track.load canyon_jump}" "{track.report}"
 //
 // Pad: right trigger throttle, left trigger brake, left stick steer, A handbrake. Keys: W or

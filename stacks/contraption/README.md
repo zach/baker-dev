@@ -6,7 +6,7 @@ clever rather than fiddly?
 
 ```sh
 build-stacks/bin/stacks_contraption                          # play
-build-stacks/bin/stacks_contraption sim --seeds 1-5          # every level: intended, robust, uncheesed
+build-stacks/bin/stacks_contraption sim --baker-seeds 1-5    # every level: intended, robust, uncheesed
 build-stacks/bin/stacks_contraption eval "{puzzle.load high_shelf}" "{puzzle.fewest_pieces 300}" "{puzzle.cheese_route}"
 ```
 

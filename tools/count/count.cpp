@@ -3,8 +3,14 @@
 // with N and 2N under cachegrind, so setup and startup cancel and what remains is the
 // instructions of N operations.
 #include <baker/config.hpp>
+#include <baker/object.hpp>
 #include <baker/parse.hpp>
+#include <baker/script.hpp>
+#include <baker/std_interop.hpp>
 
+#ifndef BAKER_COUNT_DECLARED  // CMake sets it where Context::declare takes a body (D213)
+#define BAKER_COUNT_DECLARED 0
+#endif
 #ifndef BAKER_COUNT_HOST
 #define BAKER_COUNT_HOST 0
 #endif
@@ -16,8 +22,10 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -47,6 +55,59 @@ baker::Ref<baker::Array> twenty() {
     auto r = baker::read_string(text, "count.dta");
     if (!r) std::exit(2);
     return *r;
+}
+
+struct HitMsg {
+    static constexpr auto name = "hit";
+    int points;
+};
+
+// A type with a message handler two levels up its chain: a send walks to it.
+struct Unit : baker::Object<Unit> {
+    int hp = 1'000'000;
+    int on_hit(const HitMsg& m) { return hp -= m.points; }
+    static void bind(baker::Binder<Unit>& b) { b.on<HitMsg>(&Unit::on_hit); }
+};
+struct Soldier : baker::Object<Soldier, Unit> {
+    static void bind(baker::Binder<Soldier>&) {}
+};
+struct Captain : baker::Object<Captain, Soldier> {
+    static void bind(baker::Binder<Captain>&) {}
+};
+
+// Each script case's loop is a function of its own, never inlined, so what the compiler does
+// with main() as cases are added cannot move another case's count.
+
+// `text` evaluated n times, as a game evaluating its data does: one parse, then evals.
+[[gnu::noinline]] int eval_n(baker::Context& ctx, const char* text, long n) {
+    auto tree = baker::read_string(text, "count.dta");
+    if (!tree) return 2;
+    const baker::Node& node = (**tree)[0];
+    if (!ctx.eval(node)) return 2;  // a failed call would count its error instead
+    for (long i = 0; i < n; ++i) {
+        auto r = ctx.eval(node);
+        g_sink = r ? static_cast<double>(r->try_float().value_or(0)) : -1.0;
+    }
+    return 0;
+}
+
+// HitMsg sent to `to` n times.
+[[gnu::noinline]] int send_n(Captain* to, long n) {
+    if (!to->handle(HitMsg{1})) return 2;
+    for (long i = 0; i < n; ++i) {
+        auto r = to->handle(HitMsg{static_cast<int>(i & 1)});
+        g_sink = r ? static_cast<double>(r->try_int().value_or(0)) : -1.0;
+    }
+    return 0;
+}
+
+// HitMsg sent to all of `all`, n times.
+[[gnu::noinline]] int send_all_n(std::span<baker::ObjectBase* const> all, long n) {
+    for (long i = 0; i < n; ++i) {
+        auto r = baker::handle_all(all, HitMsg{static_cast<int>(i & 1)});
+        g_sink = r ? static_cast<double>(*r) : -1.0;
+    }
+    return 0;
 }
 
 std::filesystem::path temp_dir() {
@@ -87,6 +148,39 @@ int main(int argc, char** argv) {
             return 2;
         for (long i = 0; i < n; ++i)
             if (!cfg.set("speed", baker::Node(static_cast<int64_t>(i)))) return 2;
+    } else if (which == "call") {  // {add 1 2}: a native function of two ints
+        baker::Context ctx;
+        if (!ctx.func("add", [](int64_t a, int64_t b) { return a + b; })) return 2;
+        return eval_n(ctx, "{add 1 2}", n);
+    } else if (which == "overload") {  // {+ 1.5 2}: the built-in overload set, promoted
+        baker::Context ctx;
+        return eval_n(ctx, "{+ 1.5 2}", n);
+#if BAKER_COUNT_DECLARED
+    } else if (which == "declared") {  // {add 1 2} declared from a description, with a body
+        baker::Context ctx;
+        static constexpr std::string_view kInt[] = {"int"};
+        const baker::ParamDescription params[] = {{"int", "value", false, kInt},
+                                                  {"int", "value", false, kInt}};
+        const baker::OverloadDescription overloads[] = {{params, "int"}};
+        if (!ctx.declare("add", overloads, [](baker::Args& a) -> baker::Expected<baker::Node> {
+                return baker::Node(a.raw(0).try_int().value_or(0) + a.raw(1).try_int().value_or(0));
+            }))
+            return 2;
+        return eval_n(ctx, "{add 1 2}", n);
+#endif
+    } else if (which == "message") {  // a typed message from C++, handled two types up
+        baker::Context ctx;
+        Captain captain;
+        if (!ctx.add(captain, "captain")) return 2;
+        return send_n(&captain, n);
+    } else if (which == "message_loose") {  // the same to an object in no Context
+        Captain loose;
+        return send_n(&loose, n);
+    } else if (which == "handle_all") {  // one call sending to 64 objects
+        std::vector<Captain> crowd(64);
+        std::vector<baker::ObjectBase*> ptrs;
+        for (Captain& c : crowd) ptrs.push_back(&c);
+        return send_all_n(ptrs, n);
 #if BAKER_COUNT_HOST
     } else if (which == "frame") {  // a quiet frame of the host kit's Live, watching 2 files
         const auto dir = temp_dir() / "frame";
@@ -104,8 +198,10 @@ int main(int argc, char** argv) {
         }
 #endif
     } else {
-        std::fprintf(stderr, "usage: baker_count CASE N; cases: parse lookup lookup_text set%s\n",
-                     BAKER_COUNT_HOST ? " frame" : "");
+        std::fprintf(stderr,
+                     "usage: baker_count CASE N; cases: parse lookup lookup_text set call "
+                     "overload%s message message_loose handle_all%s\n",
+                     BAKER_COUNT_DECLARED ? " declared" : "", BAKER_COUNT_HOST ? " frame" : "");
         return 2;
     }
     return 0;

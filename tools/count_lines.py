@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Counts non-blank, non-comment C++ lines per library against the soft budget.
+"""Counts non-blank, non-comment C++ lines per library, for the size a D-entry records.
 
-See dev/decisions.md D2 and D40. Informational; always exits 0. Understands //, /* */, string,
-character, and raw-string literals, so comment markers inside literals are not comments.
+Informational; always exits 0. Understands //, /* */, string, character, and raw-string
+literals, so comment markers inside literals are not comments.
 """
 import pathlib
 import re
@@ -10,7 +10,6 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCRIPT_HEADERS = ("script", "object", "task")
-BUDGET = 15500  # dev/decisions.md D2; raised from the spec's 4,000 by D40, D48, D69, then D220
 
 
 def code_lines(text: str) -> int:
@@ -72,17 +71,24 @@ def is_host_header(p):
     return p.parent.name == "host"
 
 
+def is_tools_header(p):
+    return p.parent.name == "tools"
+
+
 data = count(sources("src/data", lambda p: True) +
              sources("include/baker",
                      lambda p: not is_script_header(p) and not is_shape_header(p) and
-                     not is_host_header(p)))
+                     not is_host_header(p) and not is_tools_header(p)))
 shape = count(sources("src/shape", lambda p: True) + sources("include/baker", is_shape_header))
 script = count(sources("src/script", lambda p: True) +
-               sources("include/baker", lambda p: is_script_header(p) and not is_host_header(p)))
+               sources("include/baker", lambda p: is_script_header(p) and not is_host_header(p) and
+                       not is_tools_header(p)))
 host = count(sources("src/host", lambda p: True) + sources("include/baker", is_host_header))
+tools = count(sources("src/tools", lambda p: True) + sources("include/baker", is_tools_header))
 print(f"baker::data   {data}")
 print(f"baker::script {script}")
-print(f"core total    {data + script} / {BUDGET} (soft budget)")
-print(f"baker::shape  {shape} / 600 (spec §6, outside the core)")
-print(f"baker::host   {host} / 2400 (the host kit, D186, D208, D209, outside the core)")
+print(f"core total    {data + script}")
+print(f"baker::shape  {shape} (outside the core)")
+print(f"baker::host   {host} (the host kit, outside the core)")
+print(f"baker::tools  {tools} (what only tools and the kit call, outside the core)")
 sys.exit(0)

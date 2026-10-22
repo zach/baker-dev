@@ -20,6 +20,6 @@ if(STACKS_BUILD_TESTS)
   add_test(NAME stacks_hearth_tests COMMAND stacks_hearth_tests)
   add_test(NAME stacks_hearth_headless
            COMMAND stacks_hearth --headless --frames 120 --console-port 0 --no-vsync)
-  add_test(NAME stacks_hearth_sim COMMAND stacks_hearth sim --seeds 1)
+  add_test(NAME stacks_hearth_sim COMMAND stacks_hearth sim --baker-seeds 1)
   add_test(NAME stacks_hearth_check COMMAND stacks_hearth check)
 endif()

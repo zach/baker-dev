@@ -27,18 +27,6 @@ So we have both, explicitly:
 One merge routine with a policy flag, not two implementations. The source carries a
 comment pointing here so the next person who checks the slide knows why.
 
-## D2. The line budget is a soft target
-
-*Spec §0, M10.*
-
-*Raised to 8,000 by D40.*
-
-4,000 non-test, non-comment lines is tracked and reported (`tools/count_lines.py`,
-printed in CI per target), not enforced. The full scope — edit-mode write-back, layers,
-telemetry, `check` and its reports, coroutine tasks, binary cache — is expected to exceed
-it. Smallness still matters: every milestone records its line count here, and growth that
-looks disproportionate gets called out rather than absorbed.
-
 ## D3. No Harmonix files in the repository or CI
 
 *Spec §8, M1.*
@@ -217,11 +205,8 @@ well above the 40 MB/s target, so there is no reason yet for a lock-free table.
   CI fuzzes for two minutes per push.
 - **No-exceptions build** compiles with `-fno-exceptions` and runs the full suite; CI has
   a job for it.
-- **Size.** `baker::data` is about 1,920 counted lines after M1, roughly half of the
-  4,000 soft budget (D2). The parser and preprocessor are about 640 of those, `Node` about
-  260. As D2 predicted, the full scope will pass 4,000; candidates for trimming later are
-  the `expected` shim (about 100 lines, gone once C++23 is the floor) and the error-message
-  strings in the parser.
+- **Size.** `baker::data` is about 1,920 counted lines after M1. The parser and
+  preprocessor are about 640 of those, `Node` about 260.
 
 ## D18. Numbers are stored at 64 bits
 
@@ -325,7 +310,7 @@ Re-verified on 2026-10-11 with every configuration passing locally:
 
 The fuzzer ran 2M execs clean on the new number handling, reaching 1,325 edges.
 `baker::data` is now 2,063 counted lines; vendored fast_float is third-party and not
-counted (D2).
+counted.
 
 ## D25. Lookup API shape
 
@@ -611,26 +596,9 @@ it lets layers change after `freeze()`, for live-ops overlays in a shipped game.
   each a macro (`TRUE`, `kDefaultVolume`, `kMaxPlayers`) named with file and line.
 - **Fuzzing.** The parse fuzzer, now also checking edit-mode spans, ran 1.5M execs clean
   under ASan+UBSan.
-- **Size: over budget.** `baker::data` is 4,002 counted lines, up 1,284 in M3, which crosses
-  the spec's 4,000 (soft, D2). The largest parts are `config.cpp` 571 (write-back about
-  200; layers, reload, provenance, live edits the rest), `tweak.hpp`/`tweak.cpp` 347,
-  `config.hpp` 125, and `merge.cpp` 82. Flagged here and to the project owner, as §0 asks.
-  Six milestones remain. Resolved by D40: the budget is raised to 8,000.
-
-## D40. The line budget is 8,000
-
-*Deviates from spec §0 (4,000) and M10 ("core stays within the 4,000-line budget").
-Decided by the project owner, 2026-10-11, after M3 crossed 4,000 (D39).*
-
-The goal has moved from the original's minimal core to a more capable library: layers,
-provenance, write-back, and the harness instrumentation of M10 are all beyond what the
-70 KB original did. The soft budget for the core (`baker::data` plus `baker::script`,
-counted by `tools/count_lines.py`) is now 8,000 non-test, non-comment lines. Everything
-else in D2 stands: it is reported in CI, not enforced; each milestone records its count;
-and disproportionate growth is still called out. M10's fallback (move the repetition
-report into a separate tool if the core is over budget) now applies at 8,000. Edit mode and
-write-back stay in the core.
-
+- **Size.** `baker::data` is 4,002 counted lines, up 1,284 in M3. The largest parts are
+  `config.cpp` 571 (write-back about 200; layers, reload, provenance, live edits the rest),
+  `tweak.hpp`/`tweak.cpp` 347, `config.hpp` 125, and `merge.cpp` 82.
 
 ## D41. Spec amendment: telemetry stamps, personal and experiment layers, snapshots, readiness
 
@@ -717,10 +685,8 @@ The brief's decisions, recorded as asked:
    loaded.** M3 compares the full text held for edit mode, which is exact; M3b keeps that
    and records a content hash for snapshots, which do not hold the text.
 
-Two reconciliations with decisions already made:
+A reconciliation with a decision already made:
 
-- **Line budget.** The brief asks for counts against 4,000; the budget is 8,000 since D40,
-  and M3b reports against that.
 - **Shipping and layer pushes.** "Layer mutation is inert under `BAKER_SHIPPING`" is read
   as D38 already defines it: layers can be pushed during the initial load (before
   `freeze()`), and `ConfigOptions::live_layers` remains the explicit live-ops path.
@@ -801,8 +767,7 @@ Results:
   gcc's unused-function warning in the shipping build. MSVC is covered by CI. Its debug STL
   allocates more per container copy, so the snapshot test compares a 2-entry and a
   500-entry config instead of bounding the count.
-- **Size.** `baker::data` is 4,747 counted lines (core 4,759), up 745 in M3b. That is over
-  the 4,000 the brief cites and under the 8,000 budget of D40.
+- **Size.** `baker::data` is 4,747 counted lines (core 4,759), up 745 in M3b.
 
 ## D44. Functions and variables live in per-Context tables (supersedes D5)
 
@@ -967,20 +932,6 @@ Results:
   instrumentation. As the plan said, this is likely to run out around M8, and each
   milestone will flag it.
 
-## D48. The line budget is 10,000
-
-*Deviates from spec §0 and M10 again; supersedes D40's number. Decided by the project
-owner, 2026-10-11, in the M5 plan (Q4).*
-
-M4 brought the core to 6,203 lines. The M5 estimate (~780) and rough ones for M6–M8 and
-M10's core instrumentation (~1,500) would have exhausted 8,000 during M7. The soft budget
-for the core is now 10,000 non-test, non-comment lines. The rest of D2 and D40 stands:
-- the budget is reported, not enforced;
-- each milestone records its count;
-- disproportionate growth is still called out;
-- M10's fallback (move the repetition report into a separate tool) applies at the new
-  number.
-
 ## D49. Objects: table, handles, binding, and lifetime
 
 *Spec §5 ("Objects"); M5 plan, Q1 answered 2026-10-11.*
@@ -1092,7 +1043,7 @@ for the core is now 10,000 non-test, non-comment lines. The rest of D2 and D40 s
   tests: its fake stack keeps address-taken locals on the heap, so measuring the stack
   budget (D47) from a local's address saw nonsense. The budget now reads the frame
   address (`__builtin_frame_address`, `_AddressOfReturnAddress` on MSVC).
-- **Size.** The core is 7,142 of 10,000 lines (D48), up 939 in M5: `baker::script`
+- **Size.** The core is 7,142 lines, up 939 in M5: `baker::script`
   +917, `baker::data` +22. That is about 160 lines over the plan's estimate of 780. The
   overrun is mostly property paths, `{new}` for native types, and the reference and
   `check` additions.
@@ -1871,20 +1822,6 @@ done, and `dev/m7-plan.md` is deleted.*
   for M8 (~400) and M10's core instrumentation; M8's plan must say what M10 gives up if it
   overruns, or ask to raise the budget.
 
-## D69. The line budget is 15,000
-
-*Deviates from spec §0 again; supersedes D48's number. Decided by the project owner
-2026-10-12, after M7.*
-
-M7 brought the core to 9,126 lines (D68), leaving 874 of 10,000 for M8 (~400) and M10's
-core instrumentation. The soft budget for the core is now 15,000 non-test, non-comment
-lines. The spec and `tools/count_lines.py` say so. The rest of D2, D40, and D48 stands:
-- the budget is reported, not enforced;
-- each milestone records its count;
-- disproportionate growth is still called out: M7 ran 30% over its estimate;
-- M10's fallback (move the repetition report into a separate tool) applies at the new
-  number.
-
 ## D70. M8: the binary cache, answers
 
 *M8 plan (`dev/m8-plan.md`) Q1–Q4, answered by the project owner 2026-10-12, each as
@@ -2235,7 +2172,7 @@ structurally equal trees.*
 - **Found on the way:** Config's merge was quadratic on flat layers (D75, fixed: an 18 MB
   layer from text in 45 ms, not 450), and the arena's empty `Vec` allocated under MSVC
   (D71).
-- **The core** is 9,850 lines of the 15,000 budget (D69), against the plan's ~9,690.
+- **The core** is 9,850 lines, against the plan's ~9,690.
   `baker_bake` is in `tools/`, outside the core.
 - `dev/m8-plan.md` is deleted; its answers are D70 and D72.
 - **Naming.** Commits called M8's steps M8a–M8d; this file calls them M8.1–M8.4, because
@@ -2365,8 +2302,8 @@ structurally equal trees.*
 *Results of `dev/m8b-plan.md` §3 (D80, D84).*
 
 - **The library** is `baker_shape` (`include/baker/shape.hpp`, `src/shape/shape.cpp`):
-  400 lines of spec §6's 600, outside the core, which `tools/count_lines.py` now reports
-  separately. It links baker::data only; the data-only build builds it too.
+  400 lines, outside the core, which `tools/count_lines.py` now reports separately. It links
+  baker::data only; the data-only build builds it too.
 - **What D84 described, built**, with two settlements:
   - A field declared again (by `Set::add` of another tree) keeps the metadata the new
     declaration does not restate, as Config's merge of two layers would.
@@ -2406,8 +2343,8 @@ enumeration API) and `#require`.*
 - **Deviations:** *level* for the spec's pack *layer* (D80), and `(shapes (name ...))`
   for the spec's `(shape name ...)` (D84). Matching by tag does not reach keyed children
   (D85).
-- **Sizes:** the core is 10,103 lines (of 15,000; the plan estimated about 10,060), and
-  `baker::shape` 400 (of 600, outside the core).
+- **Sizes:** the core is 10,103 lines (the plan estimated about 10,060), and
+  `baker::shape` 400 (outside the core).
 - `dev/m8b-plan.md` is deleted; its answers are D80 and D84.
 
 ## D87. M9: the docs and examples, answers
@@ -2496,8 +2433,8 @@ personal `local` layer by the convention in spec §4.*
   metadata in the data. The owner chose to fix it in M9; it is the milestone's only core
   change.
 - **Not changed:** no benchmark row; the core changed only in `TweakBase::bind`, which
-  runs per tweak on each merge. The core is 10,116 lines of 15,000 (10,103 before; D88),
-  and `baker::shape` 400 of 600.
+  runs per tweak on each merge. The core is 10,116 lines (10,103 before; D88),
+  and `baker::shape` 400.
 - `dev/m9-plan.md` is deleted; its answers are D87.
 
 ## D90. M10: harness instrumentation, answers
@@ -2732,9 +2669,8 @@ check output.*
   shipping build. The tools (`check`, `find_repeats`, JSON, the reference) stay in every
   build (D90 Q5) and cost nothing unless called. One cost is recorded rather than hidden:
   the journal's time stamp makes a fast-path `set` 51–65 ns against 18–24 (D93).
-- **8. The core stays within the 15,000-line budget: met.** 10,955 lines (10,116 before
-  M10; the plan estimated about 11,000), so the repetition report did not need to move into
-  a tool. `baker::shape` is 400 of 600, unchanged.
+- **Size.** The core is 10,955 lines (10,116 before M10; the plan estimated about 11,000).
+  `baker::shape` is 400, unchanged.
 - **Deviations and settlements:** `origin` only as a file's leading declaration (D91);
   `check` takes a span of trees and `CheckOptions` (D94); `restore` reverts journal
   entries (D93); the repetition report in baker::data (D90 Q3).
@@ -3312,7 +3248,7 @@ merge.*
   reloaded file had deleted.
 - **`check`** reads `{extend}` as it reads `{class}`: the handlers an extension adds are
   not demand. The reference lists the word.
-- **Cost.** Definition time only: dispatch is unchanged. The core is 11,068 lines of 15,000
+- **Cost.** Definition time only: dispatch is unchanged. The core is 11,068 lines
   (`baker::script` 3,896). Hearth's test of a stuck action now adds that action with
   `{extend villager ...}`, as a task pack would.
 
@@ -3364,7 +3300,7 @@ in `src/` changed.*
 - **`Array::tag()`** in Baker: an array's first node if a symbol, else the empty Symbol.
   Six stacks had written it. Reading a value by position needed nothing new: a path indexes
   values (`get<double>("pos.1", 0)`), and a test now says so beside `tag()`; that no stack
-  found it is a finding about the docs, not the API. The core is 11,073 lines of 15,000.
+  found it is a finding about the docs, not the API. The core is 11,073 lines.
 - **The base** gained `rng.hpp` (`base::Rng`, xorshift64*, seeded per stream: each stack
   keeps its own stream constant, so every result stays the same), `words.hpp`
   (`base::name`, `base::number` by path or by position, `base::not_found`, `base::truthy`),
@@ -6036,7 +5972,7 @@ repository, for the host code that every game rewrites.*
 - **Where it lives.** `baker::host`, in `src/host/` and `include/baker/host/`, beside
   `baker::shape`.
   - It is under the core's rules, and its public headers pass the same gate.
-  - It has a 1,500-line budget of its own, and ships in every release.
+  - It ships in every release.
   - `baker::baker` does not link it.
 - **The plan** is `dev/host-kit-plan.md`: six steps, from the watcher to moving the stacks
   onto the kit, with tests, measurements and acceptance criteria. The stacks' JSON is kept
@@ -6052,8 +5988,8 @@ repository, for the host code that every game rewrites.*
   - `tests/host/` and `baker_host_tests`.
   - Its headers are under the header gate: `check_headers.py` now walks subdirectories,
     and the header-alone test compiles `host/*.hpp` too.
-  - `tools/count_lines.py` reports its budget, 1,500 lines, outside the core's. The core
-    count does not change.
+  - `tools/count_lines.py` reports its size apart from the core's. The core count does not
+    change.
 - **`baker::host::Watcher`** watches exactly what it is given: `watch(cfg.stack_files(),
   more)`, where `more` is the project file, say.
   - **Notifications on directories.** It watches each file's directory through the
@@ -6902,8 +6838,7 @@ the stacks move onto it, `compare` included.*
 - **Size.** The runner is about 790 lines, not the note's 450: located errors, compare's
   median verdicts and the results data it reads back. After trimming (a JSON error and
   bool helper, one way to note a change in compare, a table of text options in the
-  parser), `baker::host` is 2,106 lines. The owner raised its budget to 2,200
-  (`tools/count_lines.py`).
+  parser), `baker::host` is 2,106 lines.
 - **Tests.** `tests/host/test_scenarios.cpp` ports the stacks' runner tests onto a counter
   game: steps and judging, start and `at` times, repeatability, located errors, a measure
   that gives no number, a path that does not exist, results that read back located, and
@@ -6946,7 +6881,7 @@ the stacks move onto it, `compare` included.*
   runs not started are left out; status 2. `baker.sim/1.1` adds `finished` to each run and
   `"stopped"` as a status; `results.dta` writes `(finished 0)` and `read_results` reads it.
 - **Cost.** A step with nothing due is a scheduler tick, a count and a compare; a test holds
-  it to no allocation. The kit is 2,299 lines; the owner raised its budget to 2,400.
+  it to no allocation. The kit is 2,299 lines.
 - **Output.** `run_command` and `SimRun` share one `send` for `--output`, the host's sink or
   stdout. A `SimRun` call gathers what it prints while it runs, so calls spread over frames
   write one output.
@@ -6978,7 +6913,7 @@ the stacks move onto it, `compare` included.*
   `values` and cannot be described yet.
 - **Cost.** Nothing on a tweak's read path: `value_types()` is a virtual used by the JSON
   and tools. A game that does not use `DescribedTweaks` gains one vtable entry per tweak
-  type. The core is 14,492 lines of its 15,000.
+  type. The core is 14,492 lines.
 
 ## D211. A tool declares the game's types, objects and value types from the reference
 
@@ -7135,10 +7070,9 @@ An argument that is not a string is an error at its line.
 - **Paths.** Every `check_tweaks` finding carries its subject as its path: the tweak's, or
   for a stray key the key's own, group then key. The messages are unchanged.
 
-## D220. A tolerant read of text, for tools; the core's budget is 15,500
+## D220. A tolerant read of text, for tools
 
-*Requirement note 0021, from the editor integration. The owner raised the core's soft
-budget from 15,000 to 15,500 for this note and 0024.*
+*Requirement note 0021, from the editor integration.*
 
 - **The need.** An editor needs the structure of text that rarely parses: `(kestrel (hea`.
   Each tool wrote its own lexer, a second copy of Baker's syntax that no test held to it.
@@ -7224,7 +7158,7 @@ presentation, the owner's choice.*
   the top; `results.dta` keeps `(until 1)`.
 - **Cost.** A step with no `(until ...)` is as before (the quiet-step allocation test still
   holds); with one, one command a step.
-- **Size.** The core is 15,080 lines of its 15,500; the host kit 2,360 of 2,400.
+- **Size.** The core is 15,080 lines; the host kit 2,360.
 
 ## D224. A read of a record or table sees the live edits beneath it
 
@@ -7253,6 +7187,32 @@ the owner's choice.*
 - **Tests.** A record above an edit holds it and its other fields; a record with no edit
   beneath is read from `root()`; `root()` is the last merge until `apply_edits()`; a clear
   reverts it everywhere; `Live` applies before `changed`.
+
+## D225. A test of development alone says so, and a gate finds one that does not
+
+*Step 1 of `dev/tools-library-plan.md`.*
+
+- **The need.** A test of what shipping refuses (a live edit, a reload, toggling a layer,
+  write-back, promotion) passed in development and failed only in the shipping leg, after a
+  full matrix run. D221's test was one.
+- **`BAKER_DEV_TEST_CASE(name)`** (`tests/support/dev_only.hpp`): a `TEST_CASE` with
+  `doctest::skip(baker::kShipping)`. It compiles in every build, and shipping reports it
+  skipped. The eleven tests that began `if constexpr (kShipping) return;` use it (the plan
+  counted ten; `test_stats` was the eleventh).
+- **`tools/check_tests.py`**, run by `ctest` as `baker_tests_handle_shipping`. It fails a
+  plain `TEST_CASE` that calls `set`, `set_layer_enabled`, `toggle_layer`, `reload`,
+  `clear_scratch`, `write_back`, `write_back_to` or `promote` without handling shipping:
+  inside an `if constexpr` or `#if` on shipping, of either sense, or after an early return
+  on it.
+  - It is lexical. A `set(` whose first argument is not a literal or a path is taken for an
+    `Array`'s, and a helper's calls are not followed, so it misses some; a fixed test file
+    of the bad and good forms is caught as expected.
+  - On the tree it found one test that guarded a lambda's use and not its definition,
+    which now sits inside the guard, and one false positive (a `reload()` expected to
+    return false in both builds), marked `check_tests: ok`.
+- **`tools/local_matrix.sh --quick`** builds and tests shipping, and runs clang-tidy, alone.
+  Those two failed after the rest passed in most of this period's extra runs. It does not
+  replace the whole matrix before a commit.
 
 ## D226. A number is written as the same text on every platform
 
@@ -7287,3 +7247,249 @@ the owner's choice.*
 - **Cost.** Up to 17 `snprintf` and parse rounds a number, as before, plus one `%.0f` for
   a large whole number. It is used only where `to_chars` is missing, and only for writing,
   never on a read path.
+
+## D227. Tweak findings in one order
+
+*Step 2 of `dev/tools-library-plan.md`.*
+
+- **The need.** `check_tweaks`, and so a `CheckReport`'s `tweak_errors` and
+  `tweak_warnings`, listed findings in the order the tweaks were registered, which two
+  builds of one game need not share. An editor showing them, and a test comparing more than
+  one, saw them move; tests sorted them first.
+- **What the plan had wrong.** It said `check --json` would diff cleanly after this. It
+  already did: its writer sorts every list of problems by file, line, column, then message
+  (`docs/check-json.md`). The gap was only in the C++ lists.
+- **The change.** Both lists are sorted in that same order, so a host reading them and a
+  tool reading the JSON see one order. A finding with no place (a tweak whose path the data
+  lacks) comes first. It is a cold call over a handful of entries.
+- **Tests.** Five tweaks registered in one order and in its reverse give the same errors and
+  warnings, in that order. The two tests that sorted findings no longer do.
+
+## D228. `and_then` on `Expected`
+
+*Step 3 of `dev/tools-library-plan.md`.*
+
+- **The need.** Two `push_layer` calls in a row, or a read and then a push, took an early
+  return or a lambda for each step, because Baker's own `Expected` (C++20, where the
+  standard library has no `std::expected`) had no `and_then`. A C++23 build had it, so code
+  that used it built in one and not the other.
+- **The change.** `and_then(f)` on `Expected<T>` (`&`, `const&`, `&&`) and `Expected<void>`
+  (`const&`, `&&`), as `std::expected` gives it: `f` runs on the value, or with none for
+  `void`, and returns an `Expected` with the same error type; an error passes through and
+  `f` does not run. A different error type is a compile error, as in the standard. Header
+  only. `transform` and `or_else` wait for a caller.
+- **Tests.** One test runs in both builds (C++20's own, C++23's `std::expected`): a chain of
+  `void` steps that stops at the first error, an `int` chain that halves until odd, a
+  `const&` call to another value type, and a value to `void`.
+
+## D229. Clearing a live edit has one name: `clear_scratch`
+
+*Step 4 of `dev/tools-library-plan.md`; the name is the owner's choice.*
+
+- **The need.** C++ has `Config::clear_scratch(path)`; the console had `{config.clear
+  PATH}`. Every other console command takes its C++ name, so a person moving between them
+  reached for the one that did not exist.
+- **The change.** The console's command is `{config.clear_scratch PATH}`; `config.clear` is
+  gone, with no alias (breaking changes are allowed). "Scratch" is the live-edit layer's
+  name in `explain` and `layer_effect` already. Its tests, the cookbook and the header's
+  list of commands follow. A tool that sent `config.clear` (an editor, an agent's server)
+  sends the new name from the release that carries this.
+
+## D230. Instruction counts for script calls and messages
+
+*Step 5 of `dev/tools-library-plan.md`.*
+
+- **The need.** `tools/count` counted parse, lookup, set and a quiet frame, nothing of the
+  script path. D211's promoted-overload slowdown (8.9% by wall clock) was settled only by
+  repeating the benchmark, and its faster message rows were recorded as unexplained.
+- **New cases.** `call` (`{add 1 2}`, a native of two ints), `overload` (`{+ 1.5 2}`, the
+  built-in set, promoted), `declared` (`{add 1 2}` declared from a description with a body,
+  D213), `message` (a typed message from C++ to an object in a Context, its handler two
+  types up the chain), `message_loose` (the same in no Context) and `handle_all` (one call
+  to 64 objects).
+- **Counts stay put as cases are added.** Each case's loop is a function of its own, never
+  inlined: with the loops in `main()`, adding two cases moved `message` from 154 to 167
+  instructions on the same commit, as the compiler inlined differently. A comparison was
+  still fair (both sides build the same driver), but a count should not depend on its
+  neighbours.
+- **The tool.** `--head REV` counts a commit in place of the working tree, so two old
+  commits compare; a case one side's tree cannot build (`declared` before D213) shows as —.
+- **D211, settled.** Against its parent 3270a23:
+
+  | case | 3270a23 | d30389d (D211) | change |
+  |---|---:|---:|---:|
+  | call | 307 | 307 | 0 |
+  | overload | 784 | 788 | +0.51% |
+  | message | 135 | 135 | 0 |
+  | message_loose | 114 | 114 | 0 |
+  | handle_all | 4,772 | 4,772 | 0 |
+
+  The overload's final cost is four instructions (the `ParamText` indirection of D211 put
+  the rest back). The message rows run the same instructions on both commits, so D211's
+  faster `handle_all` and no-Context `handle` were code layout, not a change to their path.
+  From D211 to 28fe7c7 none of these cases moves. Instructions per operation, cachegrind,
+  Release, GCC 13.
+
+## D231. `baker::tools`: what only tools call is a library of its own
+
+*Step 6 of `dev/tools-library-plan.md`; the owner's choice of a separate library (§12 Q2),
+its design note §6, held to acton-review there.*
+
+- **The need.** Much of the core's recent growth was code a game never runs: the
+  reference, the layer tools, the console's commands, the vocabulary a tool declares from a
+  reference, the tolerant read of text. D100 had accepted tooling in the core, and costed
+  this library as its option C.
+- **The rule.** `baker::tools` holds what only a tool, or the host kit on a tool's behalf,
+  calls. A game links it only with the kit; a tool links it directly.
+- **What moved,** into `src/tools/`, `<baker/tools/...>` and `namespace baker::tools`:
+  - `reference`, `write_reference`, `write_reference_json`, `write_json(const
+    CheckReport&)` and `script_functions` (`reference.hpp`), from `reference.cpp`, whose
+    `check` stays in the script library as `check.cpp`;
+  - `explain`, `layer_effect`, `diff` and `ExplainEntry`, `Standing`, `DiffEntry`
+    (`layers.hpp`), Config methods before, free functions now (`LayerEffectEntry` stays in
+    the core, which `check_layer`'s report uses);
+  - `bind_config_tools` (`console.hpp`);
+  - `DescribedTweaks`, `TweakDescription`, `MethodDescription`, `declare_type`,
+    `declare_object`, `has_type` (`described.hpp`), Context methods before;
+  - `read_structure` and its `Text*` types (`structure.hpp`);
+  - `to_json(report)` and `reference(ctx)` as strings (`std_tools.hpp`).
+- **What stayed,** and why: the tweaks' JSON, which a data-only program writes and cannot
+  link the tools for (the docs promise it); `split_metadata` and `presented_kind`, which
+  share their rule with `TweakBase::kind()`; `value_type_known` and `reads_as`, which a
+  declared function's call uses; `check` and its text report, which a game runs on what it
+  loads.
+- **The internals.** `detail::ToolsAccess` (`src/tools/access.hpp`) is the one friend of
+  `Config`, `Context` and `TweakBase`, as `SessionAccess` is `LoadSession`'s: inline
+  functions returning what the methods reached through the same pointer. `build_described`
+  is declared in `script/internal.hpp` for `Context::declare` and `declare_type` both.
+- **The lexer** moved to `src/data/lexer.hpp` for `parse.cpp` and `read_structure`. With
+  external linkage the parse ran 1.52% more instructions (1,845,498 to 1,873,501); inside an
+  anonymous namespace in the private header it keeps the internal linkage it had, and the
+  count is equal again (plan B of the review). The comment spans it records are its own
+  `LexComment`, so the core names no tools type.
+- **Counts.** Core 15,146 → 13,783 (data 10,011 → 9,590, script 5,135 → 4,193);
+  `baker::tools` 1,477; the kit 2,361 → 2,365 (includes).
+- **Instructions** (`count_instructions.py --base HEAD`): parse, lookup, set, call,
+  overload, declared, message, message_loose, handle_all and frame equal. `lookup_text` ran
+  8 fewer (374 → 366, −2.1%); its loop is in the driver's `main()`, not isolated as the
+  script cases are, and nothing on its path changed: the driver's code generation.
+- **Size.** D100's minimal shipping game (load, read, a tweak, a function, an object,
+  `eval`; GCC 13, static libraries), the program's text:
+
+  | flags | before | after | change |
+  |---|---:|---:|---:|
+  | `-O2` (D100's) | 801,568 | 776,828 | −24.2 KB |
+  | `-O2`, function sections, `--gc-sections` | 522,365 | 521,733 | −0.6 KB |
+  | `-O3` (CMake's Release) | 907,486 | 889,306 | −17.8 KB |
+  | `-O3`, function sections, `--gc-sections` | 578,850 | 586,042 | +7.0 KB |
+
+  As D100 expected: smaller with default flags, about the same with sections. At `-O3`
+  with sections it grew: `context.cpp`'s and `parse.cpp`'s error paths (`type_error`
+  +1,587 bytes, `arity_message` +1,020, `add_overload` +1,011, `too_deep` +896) inline
+  more of the file-local helpers that now have fewer callers. Recorded, not chased: error
+  paths only, and the instruction counts are equal.
+- **No `BAKER_BUILD_TOOLS` option:** the name already switches the command-line utilities.
+  The library builds with `baker::script`, as the kit does.
+- **Tests.** `baker_tools_tests` holds the tests of what moved (the reference JSON, the
+  console's commands, `explain`, the layer tools, the described vocabulary, the text read,
+  the readiness loop). The data tests link no tools and still pass in the data-only build;
+  the script and allocation tests link `baker::tools`, since they read the reference. The
+  header gates cover `include/baker/tools/`. `docs/script-reference.md` is regenerated
+  (its header names `baker::tools::reference()`).
+- **Also fixed:** the release manifest did not ship `tools/check_tests.py` (D225), which
+  `ctest` runs, so the published repository's tests would have failed; it does now.
+- **For hosts and tools,** every caller changes: `tools::explain(cfg, path)`,
+  `tools::declare_type(ctx, ...)`, `tools::write_reference_json(...)`,
+  `#include <baker/tools/...>`, and link `baker::tools` (the kit brings it).
+
+## D232. The kit's flags begin `--baker-`
+
+*Step 7 of `dev/tools-library-plan.md`; the prefix is the owner's choice, and command names
+keep theirs (§12 Q3).*
+
+- **The need.** The kit read `--project`, `--seed`, `--seeds`, `--step-hz`, `--scenario`,
+  `--results`, `--before`, `--after`, `--json`, `--layer`, `--from`, `--to`, `--patch`,
+  `--write` and `--output` wherever they appeared on a game's command line, so a game could
+  not use those names for its own flags: the test game and the stacks renamed theirs when
+  `sim` arrived, and the stacks' own `--step-hz` (the game's fixed rate) shared a name with
+  the kit's.
+- **The change.** Each is now `--baker-NAME`. `parse_command_line` hands every argument
+  that does not begin `--baker-` to the host in `rest` (or, `{...}`, to `commands`), and
+  refuses a `--baker-` flag it does not know: `unknown flag --baker-sede`, so a misspelling
+  is an error rather than a flag the game silently ignores. Command names (`check`, `sim`,
+  ...) are unchanged; a command the kit does not know already falls through to the game.
+- **Everything that wrote a flag follows:** the kit's help text and header, the test game
+  and its Python test, `SimRun`'s test, the host example, the stacks' CTest commands,
+  `write_reference.cmake`, `test_commands.py`, their READMEs and `agent.md`, the
+  stacks-agent skill, and `docs/tools.md` and `docs/sim-json.md`. The stacks' own flags
+  (`--data`, `--step-hz`, `--frames`, ...) keep their names.
+- **Tests.** `test_command_line.cpp`: the kit's flags read and the game's (`--seed`,
+  `--step-hz`, `--json` unprefixed) left in `rest`, in order; an unknown `--baker-` flag, a
+  missing value and a bad seed range are errors naming the flag. The stacks' 30 tests and
+  the kit's command tests pass with the new names.
+- **For tools.** An editor, a CI job or an agent's server that runs a game's commands passes
+  `--baker-json`, `--baker-seeds` and the rest from the release that carries this.
+
+## D233. How many values a described value takes: exact, at least, or any
+
+*Step 8 of `dev/tools-library-plan.md` (its items 5 and 6).*
+
+- **The need.** A converter's `values` named one type per value, and a tool read that as
+  "at least these": `std::array<float, 3>` takes exactly three, so `(color 0.9 0.5 0.2
+  0.1)` passed a tool's check and failed in the game (D212). And `std::vector<T>` had no
+  `values`, so a list tweak or parameter could not be described or checked at all (D210).
+- **`baker::ValueCount { Exact, AtLeast, Any }`**, beside `Convert<T>::values`: a converter
+  says `static constexpr ValueCount count = ...;`, and one that gives `values` and no count
+  takes exactly them. `Any` is any number of the one value type (or of groups of the
+  types), zero included.
+  - `Convert<std::vector<T>>` declares its element's value type, for an element of one
+    value of Baker's, with `Any`: `{"symbol"}` for `std::vector<Symbol>`. An element of
+    several values still gives none: they nest in each element and cannot be listed flat.
+  - `std::array<T, N>` keeps its N types and is now held to exactly N.
+- **Where the count goes.** `detail::reads_as(types, count, values)` takes it, and so does
+  every caller: `check`'s literal-argument check, a declared function's call, and
+  `DescribedTweaks`. `ParamText` (what the reference and check read, never the call) gains
+  `count`, so `ParamInfo`, the table a call reads, stays at 32 bytes. `TweakBase` gains
+  `value_count()` (one virtual beside `types()`; no tweak read calls it).
+  `ParamDescription` and `TweakDescription` take `.count`.
+- **The JSON.** Each parameter (`baker.reference/1.3`) and each tweak (`baker.tweaks/1.4`)
+  has `"count"`: `"exact"`, `"at_least"` or `"any"`, `null` with no `values`. New fields,
+  so new minor versions.
+- **Behaviour that changes.** A game's own converter that declares `values` and reads more
+  than them must now say `AtLeast` (or `Any`), or a tool calls the extra values wrong; the
+  game itself is unchanged, since only tools read the count. `check` now holds a literal
+  list passed to a native `std::vector` parameter to its element's type. The stacks' 30
+  tests pass unchanged.
+- **Tests.** D212's fixed-size list now includes the four-value case it had to leave out,
+  and tool and game agree on it; a `std::vector<int>` tweak is described, written and
+  checked as the game's, a non-integer inside the list included, with the same JSON; a
+  declared parameter with `Any` takes `(1 2 3)` and `()` and refuses `(1 x)` in `check` and
+  at a call, and an exact `vec2` refuses three values.
+- **Instructions.** Every case of `count_instructions.py` equal against 36b2bb8.
+
+## D234. The tool's path may name the build directory: `$build`
+
+*Step 9 of `dev/tools-library-plan.md`; the design is the owner's choice (§12 Q4).*
+
+- **The need.** A project file's `(tool ...)` names the binary that answers `check`, `sim`
+  and the rest, but the binary is inside a build directory the project file does not know:
+  each developer, CI job and editor builds somewhere else. The stacks left `(tool ...)` out
+  (D208), so every tool had to be told each stack's binary.
+- **The change.** A tool path may begin `$build`: `(tool "$build/bin/my_game")`. The project
+  keeps it as written (`Project::tool`), and `Project::tool_path(build_dir)` resolves it:
+  the caller's directory if it passes one (a tool's flag or setting), else the project's
+  `(build "dir")`, joined with its directory, else `build` beside the project file. A path
+  without `$build` is joined as before and returned as it is. `(build ...)` is a new entry
+  (`Project::build`, `build_at`); `(build)` without a path is an error naming the form.
+- **The stacks** fill in `(build "../../build-stacks")` (the README's build) and `(tool
+  "$build/bin/stacks_<name>")`. Their command test checks that the binary it runs ends in
+  the project's `$build` path, whatever the build directory is called. (The plan had the
+  test find the binary through the project file; the Python test cannot call
+  `tool_path`, so it checks the agreement instead.)
+- **Not done:** `$build` in `(reference ...)` and in the tool's arguments. The stacks write
+  the reference under the project's own directory, so nothing needs it yet.
+- **Tests.** `(build ...)` resolved, a tool's own directory winning, the default beside the
+  project file, a path without `$build` unchanged whatever the directory, and the error.
+- **Also:** `tools/local_matrix.sh` (and `--quick`) runs `clang-format --dry-run --Werror`
+  over every source file first, as CI's format job does: step 7's commit failed CI on
+  formatting alone, which no build of the matrix sees.

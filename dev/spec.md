@@ -36,18 +36,6 @@ Everything else in the design serves that, plus the scripting layer that grows o
 - Not a game engine, UI system, or asset pipeline.
 - Not bit-compatible with Harmonix's shipped `.dtb` binary format (see §9, stretch goal).
 
-### Size budget
-
-Core library: **≤ 15,000 lines** of non-test, non-comment C++ (raised from 4,000 after M3,
-to 10,000 before M5, and to 15,000 after M7; `dev/decisions.md` D40, D48, D69). If a milestone pushes past this, stop and flag it rather than
-absorbing the cost silently. Smallness is a feature
-being paid for; it is not a nice-to-have.
-
-For calibration: the original was ~70 KB of compiled code, of which ~40 KB was built-in
-functions. The core — nodes, arrays, parser, evaluation, object dispatch — was roughly
-30 KB. It was also the most widely used library in the studio's codebase, to the point
-that they treated it as a language extension rather than a library.
-
 ### Legal constraints — important
 
 The output must be cleanly MIT-licensable.
@@ -947,7 +935,7 @@ generated tuning panels. They are strictly opt-in; unshaped data works everywher
 shaped domain still accepts extra fields with a warning rather than an error, so adding a
 field never requires touching the shape first. Shapes recover the one real benefit of
 Halo's code-defined schemas — a generated editing UI — while keeping schemas in data,
-where gardeners can write them. Budget: ≤ 600 lines, outside the core 4,000.
+where gardeners can write them.
 
 **Two libraries, strictly layered.** `baker::data` covers nodes, symbols, arrays, parsing,
 writing, lookup, merge, config, tweaks, and the binary cache. `baker::script` covers
@@ -1075,7 +1063,7 @@ recorded. Do not start the next until the previous is green.
 | **M8** | Binary cache: write, load, fixups, staleness detection, `Cipher` hook | Cache load benchmark meets §7; cache and text loads produce structurally equal trees |
 | **M8b** | `baker::shape`: shape declarations, shape-aware `check`, enumeration API; `#require` | A shape violation in the corpus-style test data is reported at load with file and line; extra fields warn without failing; a pack loaded via `#require` from three files defines its macros once; a `game`-layer pack referencing a `task`-layer function produces a one-way-rule warning |
 | **M9** | Docs: README with the one-line-constant pitch up front, `docs/language.md`, `docs/cookbook.md`, `examples/` (config, scripting, objects, tasks, remote-console, live-ops overlay, and `harness-imgui`: a Dear ImGui reference harness with panels generated from tweaks and shapes, an `eval` console, provenance on hover, save-to-source via write-back, and three readiness panels: **Loop** (recent reload records as stage bars, with edit-to-see time when the host supplies origins), **Layers** (the stack with enable toggles, each layer's effect, and a promote button that shows refusals in place), and **Snapshots** (capture A, capture B, flip between them)) | A reader can go from zero to a working tweak in under five minutes of reading; the cookbook's live-ops section covers environment boundaries, version history, rollback, and personal and experiment layers; the harness pushes a personal `local` layer by the convention in §4 |
-| **M10** | Harness instrumentation: loop statistics (aggregating M3b's reload records), edit journal, pack harness metadata (`owners`, `for`, `stage`), `origin` provenance, repetition report, owner findings, machine-readable check output | `loop_stats()` reports rolling median and worst edit-to-see per file and per layer, and counts a failed reload; `unsaved()` lists a tweaked-but-not-written-back value; `source()` names a value's `origin` tool; a subtree repeated in three files appears in the repetition report with all three locations; a one-owner pack is reported; check JSON output is schema-versioned and stable across runs; all instrumentation adds no allocations on the hot path and compiles out under `BAKER_SHIPPING`; core stays within the 15,000-line budget (if not, move the repetition report into a separate tool and record it in `dev/decisions.md`) |
+| **M10** | Harness instrumentation: loop statistics (aggregating M3b's reload records), edit journal, pack harness metadata (`owners`, `for`, `stage`), `origin` provenance, repetition report, owner findings, machine-readable check output | `loop_stats()` reports rolling median and worst edit-to-see per file and per layer, and counts a failed reload; `unsaved()` lists a tweaked-but-not-written-back value; `source()` names a value's `origin` tool; a subtree repeated in three files appears in the repetition report with all three locations; a one-owner pack is reported; check JSON output is schema-versioned and stable across runs; all instrumentation adds no allocations on the hot path and compiles out under `BAKER_SHIPPING` |
 
 ---
 

@@ -253,27 +253,6 @@ struct LayerEffectEntry {
     bool shadowed = false;  // a higher enabled layer (or scratch) overrides this path
 };
 
-struct DiffEntry {
-    Symbol path;
-    std::optional<Node> a, b;  // empty: that layer does not set this path
-    std::optional<Source> source_a, source_b;
-};
-
-// How one contributor to a path's value stands in the merged value (Config::explain).
-enum class Standing : uint8_t {
-    Wins,      // supplies the value get() returns
-    Shadowed,  // supplies a value that a higher contributor overrides or removes
-    Removes,   // (key #remove) at the path or an ancestor: below it, the key is gone
-    Disabled,  // a disabled layer (or scratch) that has the path: what enabling it would bring
-};
-
-struct ExplainEntry {
-    Symbol layer{};  // a layer's name, "scratch", or "code" for a tweak's default
-    Node value{};    // packed as LayerEffectEntry::value; the symbol #remove for Removes
-    Source source{};
-    Standing standing = Standing::Wins;
-};
-
 // What a LayerReport was made against, so that a push can tell whether it still holds
 // (LayerOptions::checked). Opaque.
 class CheckStamp {
@@ -373,6 +352,10 @@ private:
     void stamp(LayerReport& report, uint64_t subject, const LayerPolicy& policy) const noexcept;
     State* state_ = nullptr;
 };
+
+namespace detail {
+struct ToolsAccess;  // baker::tools' way to the internals (src/tools/access.hpp)
+}
 
 class Config {
 public:
@@ -563,15 +546,9 @@ public:
 
     [[nodiscard]] Expected<WriteReport> write_back(const Path& path);
     [[nodiscard]] Expected<WriteReport> write_back_to(const Path& path, std::string_view layer);
-    // Writes every entry of layer_effect(from) into `to`'s file, or nothing: on any refusal
-    // the report lists them all and no file changes. `from` stays in the stack.
+    // Writes every entry of tools::layer_effect(from) into `to`'s file, or nothing: on any
+    // refusal the report lists them all and no file changes. `from` stays in the stack.
     [[nodiscard]] Expected<WriteReport> promote(std::string_view from, std::string_view to);
-    [[nodiscard]] Expected<List<LayerEffectEntry>> layer_effect(std::string_view layer) const;
-    [[nodiscard]] Expected<List<DiffEntry>> diff(std::string_view a, std::string_view b) const;
-    // Every contributor to `path`'s value, bottom to top: the code default of a tweak at the
-    // path, each layer that holds a value there or removes it, and scratch. The one that
-    // Wins is the one source() names. Refuses a path that holds arrays rather than values.
-    [[nodiscard]] Expected<List<ExplainEntry>> explain(const Path& path) const;
     // Checks a candidate layer, changing nothing: its effect on top of the stack as it
     // stands, the policy's refusals, and the validators' warnings over the stack with it.
     // Available in shipping builds: it is what makes live_layers safe there.
@@ -596,6 +573,7 @@ public:
 private:
     struct Impl;
     friend class TweakBase;
+    friend struct detail::ToolsAccess;
 
     void bind(TweakBase& t);
     // LayerOptions::checked: stamps a report on the layer `subject` names, and tells whether

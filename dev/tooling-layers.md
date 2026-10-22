@@ -113,8 +113,7 @@ Baker's own tool surface has three tiers, set by the build and by the host's cal
      repository. It would hold a watcher over `stack_files()`, a loopback console server
      over `eval_request`, and the tool commands' shared code.
      - The core stays free of I/O, and a host links the kit or not.
-     - The kit would ship with releases like `baker::shape`, outside the core's line
-       budget.
+     - The kit would ship with releases like `baker::shape`, outside the core.
      - The stacks' `base` and `examples/remote-console` would use it.
   3. **The commands only:** move the tool commands' shared code (argument parsing, the
      JSON they print) into the kit, and leave sockets and watchers to hosts.

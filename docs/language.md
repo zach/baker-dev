@@ -454,10 +454,10 @@ cfg.add_validator(baker::check_validator(ctx, {.packs = &cfg.read_session()}));
 
 The validator reports errors and one-way warnings; the demand report, repeats, and
 findings are for tools. `ctx` must outlive the Config's use of it. For a build
-artifact, `to_json(report, &cfg.read_session())` writes the whole report, packs included, as
-versioned JSON that is the same bytes for the same data ([schema](check-json.md)); and
-`reference(ctx, &cfg.read_session())` adds the packs and the files tools generated to the
-reference: the harness register.
+artifact, `baker::tools::to_json(report, &cfg.read_session())` writes the whole report,
+packs included, as versioned JSON that is the same bytes for the same data
+([schema](check-json.md)); and `baker::tools::reference(ctx, &cfg.read_session())` adds the
+packs and the files tools generated to the reference: the harness register.
 
 ## Errors
 
