@@ -183,7 +183,9 @@ through your file access, as `Live` does, for files under an engine's own roots.
   JSON your build writes (`(reference "build/reference.json")`), the game binary that answers
   the commands (`(tool ...)`, then any arguments the binary takes first, such as an engine's
   `(tool "engine" "--path" "." "--")`, which a tool runs from the project file's directory),
-  the port its console listens on (`(console 4555)`, which
+  where the build put it when the project file cannot know (`(tool "$build/bin/my_game")`,
+  with `(build "../build")` as the default a tool may override; `Project::tool_path(dir)`
+  resolves it), the port its console listens on (`(console 4555)`, which
   the game may use as its default while its own command line wins), and its scenarios and
   objectives (`(scenarios ...)`, `(objectives ...)`).
 - **Documents.** [The reference](reference-json.md), [check's report](check-json.md),

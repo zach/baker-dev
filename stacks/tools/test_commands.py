@@ -8,6 +8,7 @@ fresh copy of the stack, so the stack's own files are never touched. Exits 1 on 
 """
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -149,9 +150,16 @@ def promote_patch(s):
 
 
 def project_file(s):
-    """The game opens the stack its baker-project.dta describes."""
+    """The game opens the stack its baker-project.dta describes, which names the game."""
     project = s.dir / "baker-project.dta"
     original = project.read_text()
+    # (tool "$build/bin/stacks_duel"): the binary's place under whatever build directory a
+    # tool names, which is where the build put the game this test runs.
+    tool = re.search(r'\(tool "\$build/([^"]+)"', original)
+    game = Path(s.game)
+    expect(tool is not None and
+           game.with_suffix("").as_posix().endswith("/" + tool.group(1)),
+           "the project names the game binary under $build")
     try:
         (s.dir / "data" / "experiment.dta").write_text("(fighters (kestrel (width 9.5)))\n")
         project.write_text(original.replace(

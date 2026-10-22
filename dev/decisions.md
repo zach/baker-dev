@@ -7498,3 +7498,30 @@ keep theirs (§12 Q3).*
   declared parameter with `Any` takes `(1 2 3)` and `()` and refuses `(1 x)` in `check` and
   at a call, and an exact `vec2` refuses three values.
 - **Instructions.** Every case of `count_instructions.py` equal against 36b2bb8.
+
+## D234. The tool's path may name the build directory: `$build`
+
+*Step 9 of `dev/tools-library-plan.md`; the design is the owner's choice (§12 Q4).*
+
+- **The need.** A project file's `(tool ...)` names the binary that answers `check`, `sim`
+  and the rest, but the binary is inside a build directory the project file does not know:
+  each developer, CI job and editor builds somewhere else. The stacks left `(tool ...)` out
+  (D208), so every tool had to be told each stack's binary.
+- **The change.** A tool path may begin `$build`: `(tool "$build/bin/my_game")`. The project
+  keeps it as written (`Project::tool`), and `Project::tool_path(build_dir)` resolves it:
+  the caller's directory if it passes one (a tool's flag or setting), else the project's
+  `(build "dir")`, joined with its directory, else `build` beside the project file. A path
+  without `$build` is joined as before and returned as it is. `(build ...)` is a new entry
+  (`Project::build`, `build_at`); `(build)` without a path is an error naming the form.
+- **The stacks** fill in `(build "../../build-stacks")` (the README's build) and `(tool
+  "$build/bin/stacks_<name>")`. Their command test checks that the binary it runs ends in
+  the project's `$build` path, whatever the build directory is called. (The plan had the
+  test find the binary through the project file; the Python test cannot call
+  `tool_path`, so it checks the agreement instead.)
+- **Not done:** `$build` in `(reference ...)` and in the tool's arguments. The stacks write
+  the reference under the project's own directory, so nothing needs it yet.
+- **Tests.** `(build ...)` resolved, a tool's own directory winning, the default beside the
+  project file, a path without `$build` unchanged whatever the directory, and the error.
+- **Also:** `tools/local_matrix.sh` (and `--quick`) runs `clang-format --dry-run --Werror`
+  over every source file first, as CI's format job does: step 7's commit failed CI on
+  formatting alone, which no build of the matrix sees.

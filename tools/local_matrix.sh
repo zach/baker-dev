@@ -3,8 +3,9 @@
 # before committing: CI has more (MSVC, libc++, TSan), but most breakage shows here first.
 # Build directories go under $BAKER_MATRIX_DIR (default: build-matrix/, ignored by git).
 #
-# --quick runs clang-tidy and the shipping configuration alone: the two that most often fail
-# after the others pass. Run it first; it is not a substitute for the whole matrix.
+# --quick runs clang-format, clang-tidy and the shipping configuration alone: the three that
+# most often fail after the others pass. Run it first; it is not a substitute for the whole
+# matrix.
 #
 # Clang's ASan runtime is often not installed; the asan configuration uses GCC.
 # The eastl and harness configurations need network access the first time, to fetch EASTL,
@@ -27,6 +28,16 @@ declare -A cfg=(
 quick=0
 [ "${1:-}" = "--quick" ] && quick=1
 status=0
+# clang-format over every source file, as CI's format job runs it: first, since it is the
+# cheapest, and the matrix's builds cannot see it.
+if command -v clang-format-18 >/dev/null; then
+  fmt=$(git ls-files '*.hpp' '*.cpp' ':!third_party' | xargs clang-format-18 --dry-run --Werror 2>&1 |
+        grep -c "error:")
+  echo "format: $fmt files to format"
+  [ "$fmt" = 0 ] || status=1
+else
+  echo "format: clang-format-18 not installed; skipped"
+fi
 names=("${!cfg[@]}")
 [ $quick = 1 ] && names=(ship debug)  # debug only for clang-tidy's compile commands
 for n in "${names[@]}"; do

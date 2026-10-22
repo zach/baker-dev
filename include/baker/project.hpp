@@ -93,8 +93,15 @@ struct Project {
     // them, and the files, or directories of .dta files, that hold its scenarios and its
     // objectives (the host kit's sim). Each joined with the project file's directory; empty
     // if the file names none. A game ignores them, and nothing here asks that they exist.
+    //
+    // A tool path may begin `$build`, the game's build directory, which the project file need
+    // not know: (tool "$build/bin/game"). It stays so here; tool_path() resolves it.
     Symbol tool;
     ProjectPosition tool_at{};
+    // (build "out"): where `$build` points, joined with the project file's directory; empty
+    // if the file names none, and then it is "build" beside the project file.
+    Symbol build;
+    ProjectPosition build_at{};
     // (tool "engine" "--path" "." "--headless" "--"): the arguments after the binary, as
     // written and in order, for a game started through an engine or an interpreter. A tool
     // runs the binary with them, then the command, from the project file's directory, so a
@@ -109,6 +116,11 @@ struct Project {
     // (step_name turn): what one step of the game is called in sim's results, for a game
     // that steps in turns or events; empty: "step". Presentation only.
     Symbol step_name;
+
+    // The tool binary's path with `$build` resolved: `build_dir` if given (a tool's flag or
+    // setting), else the project's (build ...), else "build" beside the project file. A
+    // path without `$build` is returned as it is; empty if the file names no tool.
+    [[nodiscard]] Symbol tool_path(std::string_view build_dir = {}) const;
 };
 
 // Reads a project file, through `reader` if given (an editor's unsaved buffer), else from
