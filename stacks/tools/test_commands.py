@@ -69,43 +69,43 @@ def check_gate(s):
 
 
 def eval_json(s):
-    code, out, _ = s.run("eval", "--json", "{config.explain fighters.kestrel.width}",
+    code, out, _ = s.run("eval", "--baker-json", "{config.explain fighters.kestrel.width}",
                          "{nosuch}", agent="")
     lines = [json.loads(l) for l in out.splitlines()]
-    expect(code == 1 and len(lines) == 2, "eval --json: one reply a command; exit 1 on an error")
+    expect(code == 1 and len(lines) == 2, "eval --baker-json: one reply a command; exit 1 on an error")
     first = lines[0]
     expect(first["schema"] == "baker.reply/1.1" and first["id"] == 1 and first["ok"],
-           "eval --json: the reply form, with its id")
+           "eval --baker-json: the reply form, with its id")
     expect(first["value"][-1]["standing"] == "wins" and first["value"][-1]["layer"] == "default",
-           "eval --json: explain's layer chain as JSON")
+           "eval --baker-json: explain's layer chain as JSON")
     expect(not lines[1]["ok"] and lines[1]["id"] == 2 and lines[1]["error"]["message"],
-           "eval --json: an error reply")
-    code, out, _ = s.run("eval", "--json", "{+ 1 2}")
-    expect(code == 0 and json.loads(out)["value"] == 3, "eval --json: exit 0 when all ran")
+           "eval --baker-json: an error reply")
+    code, out, _ = s.run("eval", "--baker-json", "{+ 1 2}")
+    expect(code == 0 and json.loads(out)["value"] == 3, "eval --baker-json: exit 0 when all ran")
 
 
 def sim_json(s):
     def sim(out, agent):
-        code, text, _ = s.run("sim", "--seeds", "1-1", "--results", out, "--json", agent=agent)
+        code, text, _ = s.run("sim", "--baker-seeds", "1-1", "--baker-results", out, "--baker-json", agent=agent)
         return code, text
 
     code, first = sim("before", "")
     r = json.loads(first)
     expect(code == 0 and r["schema"] == "baker.sim/1.2" and r["status"] == "passed",
-           "sim --json: the results, passed")
+           "sim --baker-json: the results, passed")
     expect((s.dir / "before" / "results.json").read_text() == first,
-           "sim --results writes the same JSON to results.json")
-    expect(sim("again", "")[1] == first, "sim --json: the same data gives the same bytes")
+           "sim --baker-results writes the same JSON to results.json")
+    expect(sim("again", "")[1] == first, "sim --baker-json: the same data gives the same bytes")
     keys = [(run["scenario"], run["seed"]) for run in r["runs"]]
-    expect(keys == sorted(keys), "sim --json: runs sorted by scenario, then seed")
+    expect(keys == sorted(keys), "sim --baker-json: runs sorted by scenario, then seed")
     expect(all(run["file"].startswith("sim/") and run["line"] > 0 for run in r["runs"]),
-           "sim --json: each run located in the stack's sim/")
+           "sim --baker-json: each run located in the stack's sim/")
 
-    code, out, _ = s.run("compare", "--before", "before", "--after", "again")
+    code, out, _ = s.run("compare", "--baker-before", "before", "--baker-after", "again")
     expect(code == 0 and json.loads(out)["broke"] == 0, "compare: identical runs move nothing")
 
     sim("after", "(fighters (kestrel (health 50)))\n")
-    code, out, _ = s.run("compare", "--before", "before", "--after", "after")
+    code, out, _ = s.run("compare", "--baker-before", "before", "--baker-after", "after")
     c = json.loads(out)
     broke = [o["name"] for o in c["objectives"] if o["moved"] == "broke"]
     expect(code == 1 and c["schema"] == "baker.compare/1" and c["broke"] == len(broke) > 0,
@@ -123,12 +123,12 @@ def promote_patch(s):
     data = s.dir / "data"
     (data / "agent.dta").write_text(agent)
     before = {p.name: p.read_bytes() for p in data.iterdir()}
-    code, _, _ = s.run("promote", "--patch", str(s.dir / "p.diff"))
+    code, _, _ = s.run("promote", "--baker-patch", str(s.dir / "p.diff"))
     after = {p.name: p.read_bytes() for p in data.iterdir()}
-    expect(code == 0 and before == after, "promote --patch writes nothing in data/")
+    expect(code == 0 and before == after, "promote --baker-patch writes nothing in data/")
     patch = (s.dir / "p.diff").read_text()
     expect(patch.startswith("--- a/default.dta\n+++ b/default.dta\n@@ "),
-           "promote --patch: a unified diff, relative to the data directory")
+           "promote --baker-patch: a unified diff, relative to the data directory")
     # git apply takes the bytes as they are, CRLF lines included (a Windows checkout's); the
     # patch tool some Windows runners carry (2.5.9) cannot, so it is only the fallback.
     git, patch_tool = shutil.which("git"), shutil.which("patch")
@@ -140,10 +140,10 @@ def promote_patch(s):
         else:
             apply = [patch_tool, "-p1", "-s", "-i", str(s.dir / "p.diff")]
         subprocess.run(apply, cwd=applied / "data", check=True)
-        code, _, _ = s.run("promote", "--write")
+        code, _, _ = s.run("promote", "--baker-write")
         expect(code == 0 and (applied / "data" / "default.dta").read_bytes() ==
                (data / "default.dta").read_bytes(),
-               "promote --patch applies to exactly what --write writes")
+               "promote --baker-patch applies to exactly what --baker-write writes")
     else:
         print("skipped: neither git nor patch to apply the diff")
 
@@ -182,12 +182,12 @@ def built_reference(s):
     expect(written.is_file(), "the build wrote build/reference.json beside the project file")
     if not written.is_file():
         return
-    code, out, _ = s.run("reference", "--json", agent="")
+    code, out, _ = s.run("reference", "--baker-json", agent="")
     names = lambda r: [f["name"] for f in r["reference"]["functions"]]
     built = json.loads(written.read_text())
     expect(code == 0 and built["reference"]["schema"] == "baker.reference/1.2" and
            names(built) == names(json.loads(out)),
-           "the built reference is the game's reference --json")
+           "the built reference is the game's reference --baker-json")
 
 
 def serve(s, *flags):
@@ -287,7 +287,7 @@ def main():
     built_reference(s)
     headless_idle(s)
     console_write(s)
-    promote_patch(s)  # last: --write changes the copy's default.dta
+    promote_patch(s)  # last: --baker-write changes the copy's default.dta
     print(f"{len(FAILURES)} failures" if FAILURES else "all passed")
     return 1 if FAILURES else 0
 

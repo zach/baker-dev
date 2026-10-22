@@ -19,7 +19,7 @@ if(STACKS_BUILD_TESTS)
   add_test(NAME stacks_ledger_tests COMMAND stacks_ledger_tests)
   add_test(NAME stacks_ledger_headless
            COMMAND stacks_ledger --headless --frames 120 --console-port 0 --no-vsync)
-  add_test(NAME stacks_ledger_sim COMMAND stacks_ledger sim --seeds 1-3)
+  add_test(NAME stacks_ledger_sim COMMAND stacks_ledger sim --baker-seeds 1-3)
   add_test(NAME stacks_ledger_check COMMAND stacks_ledger check)
   # economy.dta is generated from economy.xlsx: it must be the export of the sheet checked in.
   find_package(Python3 COMPONENTS Interpreter)

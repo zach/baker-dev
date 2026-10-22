@@ -7433,3 +7433,31 @@ its design note §6, held to acton-review there.*
 - **For hosts and tools,** every caller changes: `tools::explain(cfg, path)`,
   `tools::declare_type(ctx, ...)`, `tools::write_reference_json(...)`,
   `#include <baker/tools/...>`, and link `baker::tools` (the kit brings it).
+
+## D232. The kit's flags begin `--baker-`
+
+*Step 7 of `dev/tools-library-plan.md`; the prefix is the owner's choice, and command names
+keep theirs (§12 Q3).*
+
+- **The need.** The kit read `--project`, `--seed`, `--seeds`, `--step-hz`, `--scenario`,
+  `--results`, `--before`, `--after`, `--json`, `--layer`, `--from`, `--to`, `--patch`,
+  `--write` and `--output` wherever they appeared on a game's command line, so a game could
+  not use those names for its own flags: the test game and the stacks renamed theirs when
+  `sim` arrived, and the stacks' own `--step-hz` (the game's fixed rate) shared a name with
+  the kit's.
+- **The change.** Each is now `--baker-NAME`. `parse_command_line` hands every argument
+  that does not begin `--baker-` to the host in `rest` (or, `{...}`, to `commands`), and
+  refuses a `--baker-` flag it does not know: `unknown flag --baker-sede`, so a misspelling
+  is an error rather than a flag the game silently ignores. Command names (`check`, `sim`,
+  ...) are unchanged; a command the kit does not know already falls through to the game.
+- **Everything that wrote a flag follows:** the kit's help text and header, the test game
+  and its Python test, `SimRun`'s test, the host example, the stacks' CTest commands,
+  `write_reference.cmake`, `test_commands.py`, their READMEs and `agent.md`, the
+  stacks-agent skill, and `docs/tools.md` and `docs/sim-json.md`. The stacks' own flags
+  (`--data`, `--step-hz`, `--frames`, ...) keep their names.
+- **Tests.** `test_command_line.cpp`: the kit's flags read and the game's (`--seed`,
+  `--step-hz`, `--json` unprefixed) left in `rest`, in order; an unknown `--baker-` flag, a
+  missing value and a bad seed range are errors naming the flag. The stacks' 30 tests and
+  the kit's command tests pass with the new names.
+- **For tools.** An editor, a CI job or an agent's server that runs a game's commands passes
+  `--baker-json`, `--baker-seeds` and the rest from the release that carries this.

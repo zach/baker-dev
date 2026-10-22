@@ -151,15 +151,19 @@ int main(int argc, char** argv) {
 }
 ```
 
+The kit's flags all begin `--baker-`, so they never take a name your game's own flags use:
+any other flag is yours, in `line->rest`, and a `--baker-` flag the kit does not know is an
+error, so a misspelling is caught.
+
 | Command | What it writes |
 |---|---|
 | `check` | [check's report](check-json.md); exit 1 on an error, a load problem, a shape error, or a call to an undefined function |
-| `reference [--json]` | the script vocabulary as Markdown, or `{"reference", "tweaks", "shapes"}` |
-| `eval [--seed N] [--json] "{command}"...` | each command's result on the game reset with the seed; `--json`: one reply line each |
-| `diff [--layer L]` | what layer L (default `agent`) changes, value by value |
-| `promote [--from L] [--to T] [--write \| --patch FILE]` | what promoting L into T would write; `--write` writes; `--patch` writes a unified diff and nothing else |
-| `sim [--scenario NAME]... [--seed N \| --seeds A-B] [--step-hz N] [--json] [--results DIR]` | the project's scenarios run and judged by its objectives ([`baker.sim/1.2`](sim-json.md)); exit 1 when one fails |
-| `compare --before DIR --after DIR` | which objectives broke or were fixed between two `sim --results` ([`baker.compare/1`](sim-json.md)) |
+| `reference [--baker-json]` | the script vocabulary as Markdown, or `{"reference", "tweaks", "shapes"}` |
+| `eval [--baker-seed N] [--baker-json] "{command}"...` | each command's result on the game reset with the seed; `--baker-json`: one reply line each |
+| `diff [--baker-layer L]` | what layer L (default `agent`) changes, value by value |
+| `promote [--baker-from L] [--baker-to T] [--baker-write \| --baker-patch FILE]` | what promoting L into T would write; `--baker-write` writes; `--baker-patch` writes a unified diff and nothing else |
+| `sim [--baker-scenario NAME]... [--baker-seed N \| --baker-seeds A-B] [--baker-step-hz N] [--baker-json] [--baker-results DIR]` | the project's scenarios run and judged by its objectives ([`baker.sim/1.2`](sim-json.md)); exit 1 when one fails |
+| `compare --baker-before DIR --baker-after DIR` | which objectives broke or were fixed between two `sim --baker-results` ([`baker.compare/1`](sim-json.md)) |
 
 Each runs on a fresh Context with your functions bound (`CommandHooks::bind`), the stack
 opened as the game opens it, and, for `eval`, your state reset (`CommandHooks::reset`).
@@ -169,7 +173,7 @@ drives a `SimRun` from its frames instead ([how](sim-json.md#a-run-your-own-loop
 when something failed, 2 when it could not run. In a shipping build, `diff` and `promote`
 refuse. A tool reads the commands' standard output as the document itself, so your
 functions and `#autorun` must print nothing there while a command runs. Where that cannot
-be kept clean (an engine prints its own lines), `--output FILE` writes the output to a
+be kept clean (an engine prints its own lines), `--baker-output FILE` writes the output to a
 file instead, or `CommandHooks::output` routes it. `CommandHooks::reader` reads the stack
 through your file access, as `Live` does, for files under an engine's own roots.
 

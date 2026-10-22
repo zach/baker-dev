@@ -23,6 +23,6 @@ if(STACKS_BUILD_TESTS)
   add_test(NAME stacks_contraption_tests COMMAND stacks_contraption_tests)
   add_test(NAME stacks_contraption_headless
            COMMAND stacks_contraption --headless --frames 120 --console-port 0 --no-vsync)
-  add_test(NAME stacks_contraption_sim COMMAND stacks_contraption sim --seeds 1-2)
+  add_test(NAME stacks_contraption_sim COMMAND stacks_contraption sim --baker-seeds 1-2)
   add_test(NAME stacks_contraption_check COMMAND stacks_contraption check)
 endif()

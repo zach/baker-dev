@@ -5,7 +5,7 @@
 // mission graph, a gating view); and the script words (mission., world.).
 //
 //   stacks_wayfarer                                    play
-//   stacks_wayfarer sim --seeds 1-5                    softlocks, reachability, pacing per bot
+//   stacks_wayfarer sim --baker-seeds 1-5              softlocks, reachability, pacing per bot
 //   stacks_wayfarer eval "{world.prove}" "{world.proof_report}"
 //   stacks_wayfarer eval "{world.pacing curious 1800}" "{world.pacing_report}"
 //

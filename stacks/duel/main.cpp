@@ -2,8 +2,8 @@
 // fight.hpp, in integers; this file is the game around it: input, the script words, the
 // drawing, and the frame-data workbench (F1).
 //
-//   stacks_duel                       play: you are on the left, the CPU on the right
-//   stacks_duel sim --seeds 1-10      the CPU against the bots, judged by metrics/
+//   stacks_duel                         play: you are on the left, the CPU on the right
+//   stacks_duel sim --baker-seeds 1-10  the CPU against the bots, judged by metrics/
 //   stacks_duel eval "{duel.frame_table}" "{duel.combo_route}"
 //
 // Keys: A and D (or the arrows) walk, S crouches, back blocks; J light, K heavy, L kick, I

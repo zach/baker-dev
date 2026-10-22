@@ -22,6 +22,6 @@ if(STACKS_BUILD_TESTS)
   add_test(NAME stacks_wayfarer_tests COMMAND stacks_wayfarer_tests)
   add_test(NAME stacks_wayfarer_headless
            COMMAND stacks_wayfarer --headless --frames 120 --console-port 0 --no-vsync)
-  add_test(NAME stacks_wayfarer_sim COMMAND stacks_wayfarer sim --seeds 1)
+  add_test(NAME stacks_wayfarer_sim COMMAND stacks_wayfarer sim --baker-seeds 1)
   add_test(NAME stacks_wayfarer_check COMMAND stacks_wayfarer check)
 endif()

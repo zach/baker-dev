@@ -12,22 +12,28 @@ game plays as before:
 
 ```
 stacks_cube                                   play (the base's app)
-stacks_cube sim [--scenario NAME]... [--seeds A-B] [--json] [--results DIR]
-                                              Baker's baker.sim/1 (docs/sim-json.md);
-                                              --results writes it and what compare reads
-stacks_cube compare --before DIR --after DIR  which objectives moved between two --results
-                                              directories, baker.compare/1; exit 1 if one broke
+stacks_cube sim [--baker-scenario NAME]... [--baker-seeds A-B] [--baker-json]
+    [--baker-results DIR]                     Baker's baker.sim/1 (docs/sim-json.md);
+                                              --baker-results writes it and what compare reads
+stacks_cube compare --baker-before DIR --baker-after DIR
+                                              which objectives moved between two
+                                              --baker-results directories, baker.compare/1;
+                                              exit 1 if one broke
 stacks_cube check                             baker::check over data, its #autorun script,
                                               scenarios, metrics; baker.check/1.3 JSON with
                                               passed, load and shape problems; exit 1 on any,
                                               or an undefined, unstubbed call; 2 if no load
-stacks_cube reference [--json]                the vocabulary: functions, shapes, packs (Markdown);
-                                              --json: Baker's reference, tweaks and shapes JSON
+stacks_cube reference [--baker-json]          the vocabulary: functions, shapes, packs
+                                              (Markdown); --baker-json: Baker's reference,
+                                              tweaks and shapes JSON
 stacks_cube diff                              what agent.dta changes, value by value
-stacks_cube promote --to default [--write]    agent.dta into default.dta; --write is a person's
-stacks_cube promote --patch FILE              the same change as a unified diff; writes nothing
-stacks_cube eval [--seed N] "{command}"...     commands on the data and the reset game: a frame
-                                              table, a search, a report; --json: one
+stacks_cube promote --baker-to default [--baker-write]
+                                              agent.dta into default.dta; --baker-write is a
+                                              person's
+stacks_cube promote --baker-patch FILE        the same change as a unified diff; writes nothing
+stacks_cube eval [--baker-seed N] "{command}"...
+                                              commands on the data and the reset game: a frame
+                                              table, a search, a report; --baker-json: one
                                               baker.reply/1.1 line each, as the console answers
 stacks_cube dev-files                         the files of the layers the project marks
                                               dev_only (local.dta, agent.dta): what a
@@ -95,7 +101,7 @@ pass, but a seed outside the band does not fail the run; the median's verdict do
    (over median)
    (measure {duel.win_rate 2})
    (pass {and {>= $value 0.15} {<= $value 0.5}}))
-; in the JSON's medians, and in results.dta with --results:
+; in the JSON's medians, and in results.dta with --baker-results:
 (median duel.normal_vs_combo (scenario normal_vs_combo) (value 0.36) (seeds 3) (pass 1))
 ```
 
@@ -123,6 +129,6 @@ is how a designer's request for a word the game lacks shows up. Stacks keep data
 ## Who may write what (design §9)
 
 The agent writes `data/agent.dta`, `sim/`, and task packs without review; `metrics/`,
-game packs, and promotion go by pull request. `promote` without `--write` only shows what
+game packs, and promotion go by pull request. `promote` without `--baker-write` only shows what
 it would write; the agent's instructions (`.claude/skills/stacks-agent/`) say never to
-pass `--write`.
+pass `--baker-write`.

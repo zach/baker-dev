@@ -56,11 +56,12 @@ Every stack's game is also its own tool (`agent.md`); an agent's instructions ar
 `.claude/skills/stacks-agent/`:
 
 ```sh
-build-stacks/bin/stacks_cube sim --seeds 1-10 --results runs  # sim/, judged by metrics/
+build-stacks/bin/stacks_cube sim --baker-seeds 1-10 --baker-results runs
+                                                              # sim/, judged by metrics/
 build-stacks/bin/stacks_cube check                         # JSON; exit 1 on an error or a typo'd call
 build-stacks/bin/stacks_cube reference                     # the script vocabulary
 build-stacks/bin/stacks_cube diff                          # what data/agent.dta changes
-build-stacks/bin/stacks_cube promote [--write]             # agent.dta into default.dta: a person's call
+build-stacks/bin/stacks_cube promote [--baker-write]       # agent.dta into default.dta: a person's call
 build-stacks/bin/stacks_cube eval "{cube.turns}"           # commands on the data, headless
 python3 -I stacks/tools/console.py "{cube.turns}"          # a command in a running game
 ```

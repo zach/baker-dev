@@ -198,7 +198,7 @@ TEST_CASE("each tweak finding carries its subject as its path (D219)") {
 }
 
 TEST_CASE(
-    "tweak findings come in check --json's order, whatever order the tweaks were registered in") {
+    "tweak findings come in check --baker-json's order, whatever order the tweaks were registered in") {
     const auto findings = [](bool reversed) {
         TweakRegistry reg;
         std::vector<std::unique_ptr<Tweak<int>>> tweaks;

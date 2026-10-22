@@ -19,7 +19,7 @@ if(STACKS_BUILD_TESTS)
   add_test(NAME stacks_duel_tests COMMAND stacks_duel_tests)
   add_test(NAME stacks_duel_headless
            COMMAND stacks_duel --headless --frames 120 --console-port 0 --no-vsync)
-  add_test(NAME stacks_duel_sim COMMAND stacks_duel sim --seeds 1-3)
+  add_test(NAME stacks_duel_sim COMMAND stacks_duel sim --baker-seeds 1-3)
   add_test(NAME stacks_duel_check COMMAND stacks_duel check)
   # The commands' JSON, against a copy of the data (stacks/tools/test_commands.py).
   find_package(Python3 COMPONENTS Interpreter)
