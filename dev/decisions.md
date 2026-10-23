@@ -7493,3 +7493,83 @@ keep theirs (§12 Q3).*
 - **Also:** `tools/local_matrix.sh` (and `--quick`) runs `clang-format --dry-run --Werror`
   over every source file first, as CI's format job does: step 7's commit failed CI on
   formatting alone, which no build of the matrix sees.
+
+## D235. A shape field may name a key of a table: `(key_of TABLE)`
+
+*The design is `dev/key-references-note.md`, agreed with the owner.*
+
+- **The need.** Game data refers from one record to another by key: a unit's weapon, a
+  card the card adds, a move a move cancels into. A mistyped key passed `check` and failed
+  only when the game looked it up. A `(one_of ...)` list does not follow the table, so a
+  layer adding a weapon had to edit every list of weapons too.
+- **The field.** `(weapon (key_of weapons))` holds a symbol that must be a key of the table
+  `weapons`; `(list (key_of weapons))` holds several. `Type::Key` is a new field type, and
+  `Field::table` keeps the path as written. `(key_of)` with no path or with a segment that
+  is not a symbol is a declaration error. A softer pack declaring the field again with
+  another table loosens it (D145).
+- **The table.** A dotted path, resolved by its first segment outward from the record that
+  refers to it, the root last: the innermost record (or the root) that holds the first
+  segment is where the rest of the path is followed. So each fighter's move names that
+  fighter's own moves, and another fighter's key is an error. A table that nothing encloses
+  is an error naming the field: `'w' names a key of gear, and no table gear encloses it`.
+- **Checked on the merged tree,** so a key a layer adds may be named, and one a layer
+  removes (`#remove`) is an error at each record that still names it. The message names the
+  table and, within two edits, the key most likely meant: `'lazer' is not a key of weapons
+  (laser?)`. A non-symbol is a type error: `'backup' is int, not a key of weapons`.
+- **Packs.** `check()` takes the `LoadSession`, and the shape validator passes it. A harder
+  pack's field naming a softer pack's key is a warning (`ErrorCode::Refused`), naming both
+  packs and levels, as a call across the one-way rule is (D80).
+- **The JSON: `baker.shapes/1.2`.** A key field's `type` is `"key"`, a list of keys has
+  `element` `"key"`, and every field has a new `"table"`: the path, dotted, or `""`. The
+  note had the type as an object, `{"key_of": "weapons"}`. A string `type` keeps every 1.1
+  reader working, so the table is a field of its own beside `shape`.
+- **Cost.**
+  - Each table a check names is indexed the first time (a hash map of its keys), so N
+    lookups into a table of M keys cost M + N, not M × N.
+  - The ancestors a lookup walks are kept only when some shape has a key field. `walk` is a
+    template on that, a field's own array is never pushed (its children are its values), and
+    a nested shape's instance is entered through one out-of-line function, so a set without
+    keys pays nothing per array. The type test for a key sits in the failure branch of the
+    existing type switch, and the lookup is out of line.
+  - **How it got there.** On `bench_layers_shape`, which declares no keys, the first version
+    (ancestors kept for every array and field, a key test on every value) ran 4.2% more
+    instructions than main. A runtime flag brought that to +1.8%. Templating `instance` and
+    `value` as well made GCC stop inlining `Array::tag()` (+5.9%), so only `walk` is a
+    template. With instructions then 0.18% under main, the wall clock was still 8 to 11% up
+    on `push_layer (tree), no policy`: guarding the ancestor pushes in `value()`, on a path
+    this benchmark never takes, changed how GCC laid out the inlined field loop (21 pinned
+    runs: 192.2 us, at least 187.0, against main's 175.0). Entering a nested shape out of
+    line removed it. Cachegrind's branch simulation still counts 15%
+    more mispredicts than main, and the timings below do not show them; its predictor is
+    not this machine's.
+  - **Instructions:** the whole benchmark binary under cachegrind runs 18,353,710,733
+    against main's 18,466,445,141 (−0.61%).
+  - **Wall clock:** `bench_layers_shape` 21 times a side against main (7244485),
+    alternating, pinned to one CPU, medians with (min–max). The machine is bimodal, which
+    is why 7 runs (`bench_compare.py`) had read 3 to 9% slower before the last change:
+
+| row | main (7244485) | key-references | change |
+|---|---:|---:|---:|
+| read_string | 62.9 us (61.7–71.0) | 61.2 us (60.3–70.8) | −2.7% |
+| check_layer (tree) | 402.3 us (396.0–456.4) | 401.3 us (395.7–445.3) | −0.2% |
+| check_layer_text | 474.5 us (464.6–530.1) | 473.8 us (465.2–521.0) | −0.1% |
+| push_layer (tree), no policy | 176.8 us (171.1–200.9) | 174.5 us (171.8–201.1) | −1.3% |
+| push_layer (tree), policy | 592.5 us (583.0–645.8) | 591.1 us (582.2–612.8) | −0.2% |
+| push_layer_text, no policy | 240.5 us (237.1–263.9) | 242.7 us (237.7–263.5) | +0.9% |
+| push_layer_text, policy | 669.8 us (661.8–679.6) | 673.5 us (665.6–690.3) | +0.6% |
+| push_layer (tree), policy, report held | 176.6 us (173.1–181.9) | 177.9 us (173.8–200.3) | +0.7% |
+| push_layer_text, policy, report held | 243.2 us (239.8–266.9) | 244.2 us (239.6–268.3) | +0.4% |
+| checker() | 0.2 us (0.2–0.3) | 0.2 us (0.2–0.3) | 0.0% |
+| LayerChecker::check_text | 470.2 us (462.4–524.2) | 467.4 us (463.3–516.1) | −0.6% |
+| push_layer_text, policy, checker's report | 244.2 us (241.3–248.8) | 245.4 us (242.3–269.2) | +0.5% |
+
+  Every range overlaps main's. `bench_layers`, without the shape validator, does not run
+  this code.
+
+- **Tests.** A typo with its suggestion, a value outside the table, a non-symbol, a list of
+  keys, an `(optional)` key; a dotted path from the root, a path whose first segment
+  resolves to a nearer record without the rest, a table nothing encloses, and malformed
+  declarations; a fighter's move naming its own fighter's move, and another fighter's key
+  refused; through a Config, a key a layer adds accepted and one a layer removes an error at
+  its referrer; a harder pack naming a softer pack's key warned; and the JSON for a key and a
+  list of keys.

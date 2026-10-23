@@ -290,7 +290,7 @@ TEST_CASE("a symbol field lists the symbols it allows, (one_of ...) (D203)") {
     CHECK_FALSE(check_text("(shapes (s (n symbol (one_of a 2))))").ok());
 }
 
-// --- As JSON, baker.shapes/1.1 (dev/tool-surface-plan.md §6, D203). ---
+// --- As JSON, baker.shapes/1.2 (dev/tool-surface-plan.md §6, D203, D235). ---
 
 TEST_CASE("the shapes as JSON: each shape and its fields") {
     shape::Set shapes;
@@ -305,15 +305,130 @@ TEST_CASE("the shapes as JSON: each shape and its fields") {
     REQUIRE(report.errors.empty());
     std::string json;
     shape::write_json(shapes, string_out(json));
-    CHECK(json.rfind("{\n  \"schema\": \"baker.shapes/1.1\",\n  \"shapes\": [\n", 0) == 0);
+    CHECK(json.rfind("{\n  \"schema\": \"baker.shapes/1.2\",\n  \"shapes\": [\n", 0) == 0);
     CHECK(json.find(R"j({"name": "boss_phase", "at": ["bosses", "*", "phases"], "keyed": true, )j"
                     R"j("file": "shapes.dta", "line": 2, "fields": [)j") != std::string::npos);
     CHECK(
         json.find(
-            R"j({"name": "enter_at", "type": "float", "element": "", "shape": "", )j"
+            R"j({"name": "enter_at", "type": "float", "element": "", "shape": "", "table": "", )j"
             R"j("optional": false, "range": [0.0, 1.0], "step": 0.05, "kind": "", )j"
             R"j("desc": "HP fraction", "note": "", "one_of": [], "file": "shapes.dta", "line": 3})j") !=
         std::string::npos);
     CHECK(json.find(R"j({"name": "adds", "type": "list", "element": "symbol", )j"
-                    R"j("shape": "", "optional": true, "range": null,)j") != std::string::npos);
+                    R"j("shape": "", "table": "", "optional": true, "range": null,)j") !=
+          std::string::npos);
+}
+
+// --- Keys of a table, (key_of TABLE) (D235). ---
+
+TEST_CASE("a key field names a record of its table; a typo is located, with the key meant") {
+    static constexpr std::string_view kShapes =
+        "(shapes (unit (at units) (keyed) (weapon (key_of weapons))\n"
+        "   (spares (list (key_of weapons)) (optional)) (backup (key_of weapons) (optional))))\n"
+        "(weapons (laser (damage 3)) (cannon (damage 9)))\n";
+    CHECK(check_text(std::string(kShapes) +
+                     "(units (scout (weapon laser) (spares cannon laser)) (tank (weapon cannon)))")
+              .ok());
+    const auto r = check_text(std::string(kShapes) +
+                              "(units (scout (weapon lazer)) (tank (weapon cannon) (spares rail "
+                              "laser) (backup 3)))");
+    CHECK(texts(r.errors) ==
+          std::vector<std::string>{
+              "baker: 'lazer' is not a key of weapons (laser?)  (t.dta:4, at units/scout/weapon)",
+              "baker: 'rail' is not a key of weapons  (t.dta:4, at units/tank/spares)",
+              "baker: 'backup' is int, not a key of weapons  (t.dta:4, at units/tank/backup)"});
+    // A dotted path from the root, and a table that nothing encloses.
+    CHECK(check_text("(shapes (s (at uses) (keyed) (w (key_of items.weapons))))\n"
+                     "(items (weapons (laser)))\n(uses (a (w laser)))")
+              .ok());
+    CHECK(texts(check_text("(shapes (s (at uses) (keyed) (w (key_of gear))))\n(uses (a (w x)))")
+                    .errors) ==
+          std::vector<std::string>{"baker: 'w' names a key of gear, and no table gear encloses it  "
+                                   "(t.dta:2, at uses/a/w)"});
+    // A path resolves by its first segment: the nearest `items` is the shop's, which has no
+    // weapons, so the root's items.weapons is not reached.
+    CHECK(texts(check_text("(shapes (s (at shop uses) (keyed) (w (key_of items.weapons))))\n"
+                           "(items (weapons (laser)))\n(shop (items (food)) (uses (a (w laser))))")
+                    .errors) ==
+          std::vector<std::string>{"baker: 'w' names a key of items.weapons, and no table "
+                                   "items.weapons encloses it  (t.dta:3, at shop/uses/a/w)"});
+    CHECK_FALSE(check_text("(shapes (s (w (key_of))))").ok());
+    CHECK_FALSE(check_text("(shapes (s (w (key_of 3))))").ok());
+}
+
+TEST_CASE("a key resolves in the nearest enclosing table: each fighter's own moves") {
+    static constexpr std::string_view kShapes =
+        "(shapes (move (at fighters * moves) (keyed) (cancel_into (list (key_of moves)) "
+        "(optional))))\n";
+    CHECK(check_text(std::string(kShapes) +
+                     "(fighters (ryu (moves (jab) (hadoken (cancel_into jab))))\n"
+                     "   (ken (moves (kick) (shoryu (cancel_into kick)))))")
+              .ok());
+    // Ken's move may not cancel into Ryu's jab: Ken's moves are the nearest table.
+    const auto r = check_text(std::string(kShapes) +
+                              "(fighters (ryu (moves (jab)))\n"
+                              "   (ken (moves (kick) (shoryu (cancel_into jab)))))");
+    CHECK(texts(r.errors) ==
+          std::vector<std::string>{"baker: 'jab' is not a key of moves  (t.dta:3, at "
+                                   "fighters/ken/moves/shoryu/cancel_into)"});
+}
+
+TEST_CASE("keys follow the layers; a key across the one-way pack rule is a warning") {
+    static const std::map<std::string, std::string> files = {
+        {"base.dta",
+         "(pack game_rules (level game))\n"
+         "(shapes (unit (at units) (keyed) (weapon (key_of weapons))))\n"
+         "(weapons (laser) (cannon))\n(units (scout (weapon laser)))"},
+        {"add.dta", "(weapons (rail))\n(units (tank (weapon rail)))"},
+        {"remove.dta", "(weapons (laser #remove))"},
+        {"mod.dta", "(pack mod_weapons (level mod))\n(weapons (plasma))"},
+        {"uses_mod.dta", "(pack game_rules (level game))\n(units (scout (weapon plasma)))"}};
+    struct Run {
+        Config cfg{{.tweaks = nullptr}};
+        std::vector<std::string> reported;
+        explicit Run(std::initializer_list<const char*> layers) {
+            cfg.session().set_reader([](std::string_view p, TextSink out) {
+                const auto it = files.find(std::string(p));
+                if (it == files.end()) return false;
+                out(it->second);
+                return true;
+            });
+            cfg.session().set_pack_levels({"game", "mod"});
+            cfg.set_warning_handler([&](const Error& e) { reported.emplace_back(to_string(e)); });
+            cfg.add_validator(shape::validator(), {.any_thread = true});
+            for (const char* l : layers) REQUIRE(cfg.push_layer(l, l));
+        }
+        bool has(const std::string& part) const {
+            return std::any_of(reported.begin(), reported.end(), [&](const std::string& r) {
+                return r.find(part) != std::string::npos;
+            });
+        }
+    };
+    // A layer's new key is a key; a key a layer removes is an error at the record naming it.
+    CHECK(Run{"base.dta", "add.dta"}.reported.empty());
+    Run removed{"base.dta", "remove.dta"};
+    CHECK(
+        removed.has("baker: 'laser' is not a key of weapons  (base.dta:4, at units/scout/weapon)"));
+    // The game's own unit naming the mod's weapon crosses the one-way rule.
+    Run crossed{"base.dta", "mod.dta", "uses_mod.dta"};
+    CHECK(crossed.reported.size() == 1);
+    CHECK(
+        crossed.has("pack 'game_rules' (level game) names key 'plasma' of weapons from the "
+                    "softer pack 'mod_weapons' (level mod)"));
+}
+
+TEST_CASE("a key field in the shapes JSON names its table") {
+    shape::Set shapes;
+    shape::Report report;
+    shapes.add(*ok(read_string("(shapes (unit (weapon (key_of items.weapons))\n"
+                               "   (spares (list (key_of weapons)))))",
+                               "shapes.dta")),
+               report);
+    REQUIRE(report.errors.empty());
+    std::string json;
+    shape::write_json(shapes, string_out(json));
+    CHECK(json.find(R"j({"name": "weapon", "type": "key", "element": "", "shape": "", )j"
+                    R"j("table": "items.weapons", )j") != std::string::npos);
+    CHECK(json.find(R"j({"name": "spares", "type": "list", "element": "key", "shape": "", )j"
+                    R"j("table": "weapons", )j") != std::string::npos);
 }

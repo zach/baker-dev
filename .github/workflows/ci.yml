@@ -172,7 +172,7 @@ jobs:
         run: |
           files=$(git ls-files '*.hpp' '*.cpp' ':!third_party')
           [ -z "$files" ] || clang-format-18 --dry-run --Werror $files
-      - name: Line budget (informational)
+      - name: Code size per library (informational)
         run: python3 tools/count_lines.py
 
   release:
