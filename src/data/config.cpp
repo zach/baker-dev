@@ -487,10 +487,11 @@ void Config::set_warning_handler(Callback<void(const Error&)> handler) {
     impl_->warn = std::move(handler);
 }
 
-std::span<const Ref<Array>> Config::Impl::stack_layers(const Ref<Array>& candidate) const {
+std::span<const Ref<Array>> Config::Impl::stack_layers(const Ref<Array>& candidate,
+                                                       size_t count) const {
     enabled_roots.clear();
-    for (const LayerState& l : layers)
-        if (l.options.enabled) enabled_roots.push_back(l.root);
+    for (size_t i = 0; i < std::min(count, layers.size()); ++i)
+        if (layers[i].options.enabled) enabled_roots.push_back(layers[i].root);
     if (candidate) enabled_roots.push_back(candidate);
     return {enabled_roots.data(), enabled_roots.size()};
 }
@@ -587,6 +588,41 @@ Expected<void> Config::push_layer_text(std::string_view name, std::string_view t
     layer.path.assign(name);
     layer.text = Rc<Str>::make(impl_->alloc, text, impl_->alloc);
     return impl_->push_read(*this, std::move(layer), options);
+}
+
+Expected<void> Config::set_layer_text(std::string_view name, std::string_view text,
+                                      const LayerPolicy* policy) {
+    if (auto ok = impl_->may_change(*this); !ok) return ok;
+    if (name == "scratch") return Unexpected(refused("scratch is edited with set(), not as text"));
+    const auto at = impl_->find_layer(name);
+    if (!at)
+        return Unexpected(make_error(ErrorCode::NotFound, "no layer named '" + Str(name) + "'"));
+    if (!impl_->layers[*at].text)
+        return Unexpected(
+            refused("'" + Str(name) + "' is not a text layer; reload() reads a file layer again"));
+    if (impl_->layers[*at].text->view() == text) return {};  // the same layer: nothing to do
+    LayerState layer = impl_->layers[*at];
+    layer.text = Rc<Str>::make(impl_->alloc, text, impl_->alloc);
+    Vec<Error> read_warnings(impl_->alloc);
+    if (auto r =
+            impl_->read(layer, *impl_->session_below(impl_->layers, *at), nullptr, &read_warnings);
+        !r)
+        return r;
+    // Checked against the layers below it, as a push on top was (and as one placed lower
+    // was not), without the version it replaces.
+    if (policy)
+        if (auto r = refuse_unless(impl_->check_candidate(*this, name, layer.root,
+                                                          layer.after->autorun(), *layer.after,
+                                                          *policy, read_warnings, *at));
+            !r)
+            return r;
+    // The layers above read with its macros: read them again with the new text's.
+    Vec<LayerState> placed = impl_->layers;
+    placed[*at] = std::move(layer);
+    if (auto r = impl_->reread(placed, *at + 1); !r) return r;
+    impl_->layers = std::move(placed);
+    impl_->change(*this, trigger_name("layer"));
+    return {};
 }
 
 Expected<void> Config::push_layer(std::string_view name, Ref<Array> overlay, LayerOptions options) {
@@ -706,6 +742,18 @@ uint64_t Config::stack_digest() const {
 Ref<Array> Config::layer_root(std::string_view name) const {
     const auto at = impl_->find_layer(name);
     return at ? impl_->layers[*at].root : nullptr;
+}
+
+Expected<void> Config::layer_text(std::string_view name, TextSink out) const {
+    Ref<Array> tree;
+    if (name == "scratch")
+        tree = impl_->scratch_root();
+    else if (const auto at = impl_->find_layer(name))
+        tree = impl_->layers[*at].root;
+    else
+        return Unexpected(make_error(ErrorCode::NotFound, "no layer named '" + Str(name) + "'"));
+    if (tree) write_dta(*tree, out);  // empty scratch is an empty layer
+    return {};
 }
 
 // --- Reading ---

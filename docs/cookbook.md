@@ -413,6 +413,43 @@ reviewed change, one line per value. Then stop publishing the overlay for builds
 contain it. Otherwise the next patch silently drops values players have been playing
 with.
 
+### A layer a server sends its clients
+
+A server can hold a match's settings as a layer, and a lobby's host can tune them live
+before the match starts. Every client must then hold the same layer.
+
+- **Send it.** `cfg.layer_text(name, sink)` writes the layer's own tree as text, as it was
+  read: includes spliced in, macros expanded, removals (`#remove`) kept. Comments and
+  layout are not kept. `layer_text(cfg, name)` in `<baker/std_interop.hpp>` returns a
+  `std::string`.
+  - `"scratch"` writes the live edits as a layer: each edited path with its value, and
+    nothing for an edit cleared since. A lobby host sends its edits and can go on editing.
+  - The same tree always writes the same bytes, and floats are written exactly.
+- **Receive it.** The first time, push it with `push_layer_text` under the client's own
+  `LayerPolicy`, which decides what it accepts. A layer holding commands is refused by a
+  `data_only` client, located in the text received.
+- **Receive it again.** `cfg.set_layer_text(name, text, &policy)` replaces the layer's text
+  in place: it keeps its place and options, and the layers above it are read again.
+  - Text identical to what the layer holds changes nothing, so a server may resend its
+    settings freely.
+  - Under a policy, the new text is checked against the layers below it, without the
+    version it replaces, and refused, changing nothing, if the policy refuses it.
+
+```cpp
+// Server, when the lobby's settings change:
+std::string text = baker::layer_text(cfg, "scratch").value();
+send_to_clients("lobby", text);
+
+// Client, on each message (`have_lobby` is the client's: whether a push has succeeded):
+const baker::LayerPolicy settings{.data_only = true, .existing_only = true};
+auto taken = have_lobby ? cfg.set_layer_text("received/lobby", text, &settings)
+                        : cfg.push_layer_text("received/lobby", text, {.policy = &settings});
+have_lobby = have_lobby || taken.has_value();
+```
+
+The text is the layer's tree, not its file: promotion and write-back are how a change goes
+back into source.
+
 ### Personal and experiment layers
 
 Developers tune in their own [`local` layer](#personal-layers-local), and variants live in
