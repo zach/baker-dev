@@ -1018,13 +1018,14 @@ Expected<bool> Config::reload(const ReloadRequest& request) {
         if (impl_->stale(ls[i], rec.first_file)) from = i;
     // A directory at or above the change is listed again if it changed, into a copy of the
     // stack that replaces it only if every layer reads.
-    Vec<LayerState> listed(impl_->alloc);
+    // Made only then: even an empty vector allocates in MSVC's debug library (D62).
+    std::optional<Vec<LayerState>> listed;
     for (size_t i = from; i < ls.size(); ++i) {
         Symbol unused;
         if (ls[i].dir.empty() || (i != from && !impl_->stale(ls[i], unused))) continue;
-        if (listed.empty()) listed = ls;
-        const size_t at = i + listed.size() - ls.size();  // where it is in the copy
-        if (auto n = impl_->relist(listed, at); !n) {
+        if (!listed) listed.emplace(ls);
+        const size_t at = i + listed->size() - ls.size();  // where it is in the copy
+        if (auto n = impl_->relist(*listed, at); !n) {
             impl_->lap(rec.scan_ns, t);
             rec.layer = Symbol(ls[i].name);
             rec.outcome = ReloadOutcome::ParseError;
@@ -1039,12 +1040,12 @@ Expected<bool> Config::reload(const ReloadRequest& request) {
         return false;
     }
     rec.layer = Symbol(ls[from].name);
-    Vec<LayerState>& next = listed.empty() ? ls : listed;
+    Vec<LayerState>& next = listed ? *listed : ls;
     if (auto r = impl_->reread_stages(rec, next, from, t); !r) {
         impl_->feed(*this, rec, impl_->finish(*this, rec, t));
         return Unexpected(std::move(r).error());
     }
-    if (!listed.empty()) ls = std::move(listed);
+    if (listed) ls = std::move(*listed);
     impl_->commit(*this, rec, t);
     impl_->feed(*this, rec, impl_->finish(*this, rec, t));
     return true;
