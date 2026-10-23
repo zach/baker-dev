@@ -146,7 +146,7 @@ def scenarios(s):
     expect(code == 0 and "walk seed 1: passed" in out, "sim runs the project's scenarios")
     code, out, _ = s.run("sim", "--baker-seeds", "0-2", "--baker-json")
     r = json.loads(out)
-    expect(code == 0 and r["schema"] == "baker.sim/1.2" and len(r["runs"]) == 3 and
+    expect(code == 0 and r["schema"] == "baker.sim/1.3" and len(r["runs"]) == 3 and
            r["runs"][0]["file"].endswith("walk.dta") and r["runs"][0]["line"] == 2,
            "sim --baker-json: every run, located")
     # The median of seeds 0-2 is 10: it passes, though seed 0 alone does not.

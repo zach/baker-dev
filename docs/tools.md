@@ -162,7 +162,7 @@ error, so a misspelling is caught.
 | `eval [--baker-seed N] [--baker-json] "{command}"...` | each command's result on the game reset with the seed; `--baker-json`: one reply line each |
 | `diff [--baker-layer L]` | what layer L (default `agent`) changes, value by value |
 | `promote [--baker-from L] [--baker-to T] [--baker-write \| --baker-patch FILE]` | what promoting L into T would write; `--baker-write` writes; `--baker-patch` writes a unified diff and nothing else |
-| `sim [--baker-scenario NAME]... [--baker-seed N \| --baker-seeds A-B] [--baker-step-hz N] [--baker-json] [--baker-results DIR]` | the project's scenarios run and judged by its objectives ([`baker.sim/1.2`](sim-json.md)); exit 1 when one fails |
+| `sim [--baker-scenario NAME]... [--baker-seed N \| --baker-seeds A-B] [--baker-step-hz N] [--baker-json] [--baker-results DIR]` | the project's scenarios run and judged by its objectives ([`baker.sim/1.3`](sim-json.md)); exit 1 when one fails |
 | `compare --baker-before DIR --baker-after DIR` | which objectives broke or were fixed between two `sim --baker-results` ([`baker.compare/1`](sim-json.md)) |
 
 Each runs on a fresh Context with your functions bound (`CommandHooks::bind`), the stack

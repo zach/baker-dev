@@ -26,7 +26,8 @@ struct Stack {
         dir.write("data/default.dta", "(rate 1)\n");
         dir.write("sim/count.dta", R"((scenario count (seconds 2)
    (start {counter.rate $seed})
-   (at 1 {counter.rate {* 2 $seed}})))");
+   (at 1 {counter.rate {* 2 $seed}})
+   (every 0.5 {counter.total})))");
         dir.write("metrics/m.dta", R"((objective counter.total
    (measure {counter.total}) (pass {>= $value 2.9})))");
     }
@@ -99,7 +100,7 @@ TEST_CASE("SimRun: the host advances each run; the output is sim's") {
     CHECK(resets == 2);
     CHECK(steps == 240);  // two seconds at 60 Hz, twice: waiting on a reset counts nothing
     CHECK(frames.output == sync.output);
-    CHECK(frames.output.find("\"schema\": \"baker.sim/1.2\"") != std::string::npos);
+    CHECK(frames.output.find("\"schema\": \"baker.sim/1.3\"") != std::string::npos);
 }
 
 TEST_CASE("SimRun: stopping keeps the run so far, not finished, and exits 2") {
@@ -143,6 +144,6 @@ TEST_CASE("SimRun: a step with nothing due allocates nothing") {
     run.ready();
     for (int i = 0; i < 3; ++i) run.step();
     const baker::test::AllocationScope scope;
-    for (int i = 0; i < 10; ++i) run.step();  // before the (at 1 ...) at step 60
+    for (int i = 0; i < 10; ++i) run.step();  // before the (every 0.5 ...) at step 30
     CHECK(scope.count() == 0);
 }

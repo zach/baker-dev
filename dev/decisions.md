@@ -7766,3 +7766,45 @@ owner's choices, made while building it.*
     outside a check; the Context's variables restored; a live edit to a file breaking a rule
     and warning at the reload; a layer softening a rule and adding one; and `check()`
     reporting a rule's game function as demand, `data` known.
+
+## D241. Scenarios: named endings and repeated commands
+
+*The design is `dev/scenario-outcomes-note.md`, agreed with the owner; it follows D223.*
+
+- **Named endings.** `(until {command})` gives 0 to go on, a symbol to end the run with
+  that name, or any other nonzero value to end it named `until`.
+  - `sim::Run::ended` is a symbol, `until`, or `length`. It replaces the `bool until`,
+    which went with every reader of it: the kit's text line, the results' JSON and `.dta`,
+    and `read_results`.
+  - `$ended` is set before the objectives are measured, beside `$steps`.
+  - `sim`'s text names it: `siege seed 1: passed (victory at turn 15)`; `until` reads as
+    before, `(ended at turn 12)`.
+- **The results: `baker.sim/1.3`.** A run's `ended` may be any name, so a 1.2 reader that
+  knew only `until` and `length` must allow others: a new minor version. The `.dta` results
+  write `(ended NAME)` where they wrote `(until 1)`.
+- **Deviation: where the tally goes.** The note put the tally of endings in `summary`, as
+  `"endings": {"victory": 7}`. `summary` is a list of per-objective tallies, and a
+  per-scenario entry in it would mix two kinds. The tally is a top-level list instead:
+  `"endings": [{"scenario": "siege", "endings": {"victory": 7, "defeat": 3}}]`, in scenario
+  order.
+- **Repeated commands.** `(every SECONDS {...})` and `(every step N {...})` run at each
+  multiple of their period, from step 0.
+  - A period in seconds is due at each multiple by the half-step rule, as `(at ...)` is,
+    each multiple worked out on its own so the steps never drift.
+  - At one step, the `(at ...)`s due run first, then the `(every ...)`s, each in the order
+    written.
+  - A period of zero or less is an error at the form, from the scenario's read, which
+    `check` reports.
+  - Each `(every ...)` keeps its next due step and multiple in the `Stepper`, set when it
+    is made, so a step with nothing due still allocates nothing. The quiet-step test now
+    steps before an `(every 0.5 ...)` is due.
+- **Tests.**
+  - A run ended `victory`, its `$ended` read by an objective, and the results' `ended`,
+    their `endings` tally and the `.dta` round trip. A nonzero number still ends a run as
+    `until`, and the ceiling as `length`.
+  - `(every step 5 ...)` over 20 steps running at 0, 5, 10 and 15, after the `(at step 5
+    ...)` at step 5.
+  - `(every 0.25 ...)` at 10 Hz due at steps 0, 2, 5 and 7.
+  - Zero and negative periods refused.
+  - The `SimRun` stack gained an `(every ...)`: the frame-driven run's output is still
+    `run_command`'s, and its quiet steps still allocate nothing.

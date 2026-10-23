@@ -46,10 +46,16 @@ struct Scenario {
     Symbol name{};
     std::string_view desc{};
     double seconds = 10;
-    uint64_t steps = 0;        // (steps N): its length in steps, whatever the rate; else seconds
-    Node until{};              // (until {command}): ends the run after a step where it is nonzero
-    Vec<Node> start{};         // before the first step
-    Vec<At> at{};              // as written; a run orders them by the step each is due
+    uint64_t steps = 0;  // (steps N): its length in steps, whatever the rate; else seconds
+    // (until {command}): after each step; a symbol ends the run with that name, any other
+    // nonzero value ends it named `until`, and 0 goes on.
+    Node until{};
+    Vec<Node> start{};  // before the first step
+    Vec<At> at{};       // as written; a run orders them by the step each is due
+    // (every SECONDS {command}...) or (every step N {command}...): at each multiple of the
+    // period from step 0, after the (at ...)s due at that step; `seconds` and `step` as an
+    // At's, a period.
+    Vec<At> every{};
     Vec<Symbol> objectives{};  // empty: every objective
     Symbol file{};
     int32_t line = 0;
@@ -86,7 +92,9 @@ struct Run {
     int32_t line = 0;
     uint64_t seed = 0, steps = 0;
     bool finished = true;  // false: stopped before its last step, and not judged
-    bool until = false;    // ended because its (until ...) held, before its length
+    // How it ended: `length` (it ran its length), `until` (its (until ...) gave a nonzero
+    // number), or the name its (until ...) gave (victory, defeat).
+    Symbol ended{};
     Vec<ObjectiveResult> objectives{};
     Vec<Error> errors{};  // a command of the scenario failed, or it names an unknown objective
 
@@ -137,6 +145,14 @@ private:
     bool ended_ = false;  // its (until ...) held
     size_t next_at_ = 0;
     Vec<std::pair<uint64_t, const Scenario::At*>> due_;  // each (at ...)'s step, in order
+    // Each (every ...) as written: the step it is next due, and how many periods that is.
+    struct Every {
+        const Scenario::At* every = nullptr;
+        uint64_t next = 0;
+        uint64_t multiple = 0;
+    };
+    Vec<Every> every_;
+    [[nodiscard]] uint64_t step_of(double seconds) const noexcept;
 };
 
 // A whole run, stepping the game through `game.step`.
@@ -145,8 +161,9 @@ private:
 [[nodiscard]] Vec<Median> judge_medians(Context& ctx, const Book& book, const Vec<Run>& runs);
 [[nodiscard]] bool all_passed(const Vec<Run>& runs, const Vec<Median>& medians);
 
-// baker.sim/1.2: every run, sorted by scenario then seed, each located; the medians' verdicts;
-// a tally per objective; and the status the exit code means.
+// baker.sim/1.3: every run, sorted by scenario then seed, each located, with how it ended; the
+// medians' verdicts; a tally per objective and of endings per scenario; and the status the
+// exit code means.
 [[nodiscard]] Str results_json(Vec<Run> runs, const Vec<Median>& medians, Symbol step_name = {});
 // The same runs and verdicts as data, which read_results reads back for compare.
 [[nodiscard]] Str results_dta(const Vec<Run>& runs, const Vec<Median>& medians);
