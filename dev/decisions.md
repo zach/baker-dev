@@ -8032,3 +8032,65 @@ DLC names a directory, not each file: `Config::push_layer_dir(name, dir, options
   across a rescan and the whole directory turned off; a host's reader and lister; the
   project entry, `dev_only` in shipping and `skip_dev_only`, and a malformed entry
   located; and Live noticing a file added, a folder added, and a file removed.
+
+## D244. A directory as the children of one array: `#include_dir`
+
+*Built 2026-10-23, from `dev/include-dir-note.md`.* A game with a record per file names the
+directory instead of each file:
+
+```dta
+(cards
+   #include_dir "cards"
+   (starter_deck fireball fireball shield))
+```
+
+- **What it reads.** Each `.dta` file of the directory becomes a child named by its file
+  and holding the file's nodes, `(fireball (cost 3) (damage 6))`, and each subdirectory a
+  child named by it and holding its own, `(fire (ember ...))`. Hidden entries and
+  entries with any other extension are skipped. A name that `is_bare_symbol` refuses, or
+  that holds `.` or `/`, is an error at the directive, as are a file and a folder of one
+  name. The order is D243's: `order.dta`'s names, then the rest in name order, a missing
+  name warned in the session's warnings. D243's ordering and listing moved into
+  `detail::directory_order` and `detail::list_with`, which both use.
+- **Where.** The path resolves as `#include`'s does: beside the file, then each include
+  directory, the first that lists. Each file counts as an include toward
+  `max_includes`, and reads as an included file, so it may declare a pack or an origin.
+- **Provenance and write-back.** A record is an array whose file is the record's file, at
+  line 1, and its nodes keep their own lines, so `source()` names `cards/fireball.dta:2`.
+  In edit mode the record's span is its whole file, so `write_back` edits a value in place
+  in the record's file. A subdirectory's table is written in no file: `write_back_to`
+  refuses a value added under it, in it or in one of its records, located at the
+  directive, and writes nothing. The refusals that named `#merge` alone now name
+  `#include_dir` too.
+- **Change.**
+  - *The cache* records each directory listed, as a file entry with size -2 and its
+    listing's hash, or -3 for a candidate that did not list; `cache_fresh` lists it again
+    through the session's lister.
+  - *A Config* records a load's listings as deps marked `directory`, through a lister it
+    wraps around the session's as it wraps the reader. `changed()` lists such a dep again,
+    and `stack_files()` reports it with `StackFile::directory`, so the kit's watcher
+    watches it whole (D243). D243's directory of layers now records its directory the same
+    way, instead of a hash of its own. A poll lists each directory a stack depends on, into
+    a kept buffer; the listing's strings still allocate, so a stack with a directory no
+    longer polls without allocating.
+- **Deviation: packs.** The note put each file in the pack of the file holding the
+  directive. A file `#include`d is in no pack unless it declares one, and a file read by
+  `#include_dir` is read the same way; changing what a pack covers for both is a change of
+  its own, if a host needs it.
+- **Cost.** Load time only. A scratch program, Release, pinned, best of 21: 500 records of
+  three values, by `#include_dir`, 1.53 to 1.69 ms; by 500 written `(cardN #include ...)`
+  lines, 1.51 to 1.62 ms. Under callgrind, five loads take 44.6 M instructions by
+  `#include_dir` and 50.0 M by the written list. The first version took 2.04 ms: its check
+  for two records of one name compared each with every other, a quarter of the time; it
+  now compares neighbours after the sort. `tools/count_instructions.py` against D243's
+  commit: parse +0.02% (one more directive name to compare), lookup unchanged.
+- **Tests.** Files wrapped by name beside other children, with their own files and lines;
+  a subfolder as a nested table, `order.dta`'s order with a missing name warned, a text
+  file and a hidden folder skipped; a layer above retuning a record and adding one, and
+  `source()` at the record's file and line; `stack_files()` naming the directory; a host's
+  reader and lister; the cache stale after a file is added, removed or edited, or
+  `order.dta` is written; errors for a name with a space, a file and a folder of one name,
+  a file that does not parse, a missing directory, and text that may include nothing; the
+  include directories searched; a Config's reload adding and removing a record;
+  write-back into a record's file, and a value added under a folder's table refused;
+  and Live noticing a new record's file.

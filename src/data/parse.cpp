@@ -34,6 +34,58 @@ bool read_with(const LoadSession::Reader& reader, std::string_view path, Str& te
     return reader(path, detail::str_out(text));
 }
 
+uint64_t list_with(const LoadSession::Lister& lister, std::string_view dir, Vec<Str>& entries,
+                   const Allocator& alloc) {
+    entries.clear();
+    if (!lister(dir, [&](std::string_view p) { entries.emplace_back(p, alloc); })) return 0;
+    std::sort(entries.begin(), entries.end());
+    Str all(alloc);
+    for (const Str& e : entries) all.append(e).append("\n");
+    return content_hash(all) | 1;
+}
+
+Expected<void> directory_order(std::string_view text, std::string_view file,
+                               std::span<const std::string_view> names, Vec<uint32_t>& order,
+                               Vec<Error>& warnings) {
+    order.clear();
+    for (uint32_t i = 0; i < names.size(); ++i) order.push_back(i);
+    LoadSession session;
+    session.text_only = session.refuse_includes = true;
+    auto tree = read_string(text, file, session);
+    if (!tree) return Unexpected(std::move(tree).error());
+    const Array* list = (*tree)->size() == 1 ? (**tree)[0].try_array() : nullptr;
+    if (!list || list->tag() != Symbol("order"))
+        return Unexpected(make_error(ErrorCode::Syntax, "order.dta holds (order NAME ...)",
+                                     (*tree)->file(), list ? list->line() : 1));
+    // The names it lists first, in its order; the rest stay in their order after them.
+    size_t placed = 0;
+    for (size_t i = 1; i < list->size(); ++i) {
+        std::string_view name;
+        if (const auto sym = (*list)[i].try_sym())
+            name = sym->str();
+        else if (const auto str = (*list)[i].try_str())
+            name = *str;
+        else
+            return Unexpected(
+                make_error(ErrorCode::Syntax, "order.dta lists names", list->file(), list->line()));
+        size_t at = 0;
+        while (at < order.size() && names[order[at]] != name) ++at;
+        if (at < placed) continue;  // listed twice
+        if (at == order.size()) {
+            warnings.push_back(make_error(ErrorCode::NotFound,
+                                          "order.dta lists '" + Str(name) + "', which '" +
+                                              Str(parent_path(file)) + "' does not hold",
+                                          list->file(), list->line()));
+            continue;
+        }
+        std::rotate(order.begin() + static_cast<ptrdiff_t>(placed),
+                    order.begin() + static_cast<ptrdiff_t>(at),
+                    order.begin() + static_cast<ptrdiff_t>(at) + 1);
+        ++placed;
+    }
+    return {};
+}
+
 }  // namespace detail
 
 struct LoadSession::State {
@@ -627,6 +679,7 @@ private:
             }
             return true;
         }
+        if (d == "include_dir") return include_dir(t);
         if (d == "define") {
             Token name;
             if (!name_arg(d, name)) return false;
@@ -667,10 +720,8 @@ private:
         return fail(ErrorCode::Directive, "unknown directive '#" + Str(d) + "'", t.line, t.begin);
     }
 
-    // Resolves and parses an included or merged file. Leaves `out` null if `optional`
-    // and the file does not exist, or if `require` and the session has read it already.
-    bool load(const Str& path, bool optional, int32_t line, uint32_t at, Ref<Array>& out,
-              bool require = false) {
+    // Whether one more file may be included here.
+    bool may_include(const Str& path, int32_t line, uint32_t at) {
         if (s_.refuse_includes)
             return fail(ErrorCode::Refused,
                         "'" + path + "' is not read: this text may include no files", line, at);
@@ -683,7 +734,11 @@ private:
             return fail(ErrorCode::Limit,
                         "more than " + detail::decimal(s_.limits.max_includes) + " included files",
                         line, at);
+        return true;
+    }
 
+    // Where an included path may be: beside this file, then in each include directory.
+    [[nodiscard]] Vec<Str> candidates_of(const Str& path) const {
         Vec<Str> candidates;
         if (is_absolute_path(path)) {
             candidates.push_back(normalize_path(path));
@@ -692,19 +747,56 @@ private:
             for (const Str& dir : s_.st_->include_dirs)
                 candidates.push_back(normalize_path(join_path(dir, path)));
         }
+        return candidates;
+    }
+
+    // Reads `path` through the session's reader, recording it for the cache.
+    bool read_recorded(const Str& path, Str& text) {
+        const bool read = read_with(s_.st_->reader, path, text);
+        if (s_.st_->recorded)
+            s_.st_->files.push_back({path, read ? static_cast<int64_t>(text.size()) : -1,
+                                     read ? content_hash(text) : 0});
+        return read;
+    }
+
+    // Lists `dir` through the session's lister, recording it for the cache.
+    bool list_recorded(const Str& dir, Vec<Str>& entries) {
+        const uint64_t listing = list_with(s_.st_->lister, dir, entries);
+        if (s_.st_->recorded)
+            s_.st_->files.push_back(
+                {dir, listing ? kListedDirectory : kUnlistedDirectory, listing});
+        return listing != 0;
+    }
+
+    // Parses `text`, read from `found` for `path` as written, as an included file.
+    bool parse_included(const Str& path, const Str& found, const Str& text, int32_t line,
+                        uint32_t at, Ref<Array>& out) {
+        for (const Str& open_file : s_.st_->include_stack)
+            if (open_file == found)
+                return fail(ErrorCode::Directive, "'" + path + "' includes itself", line, at);
+        ++s_.st_->includes;
+        s_.st_->include_stack.push_back(found);
+        Parser sub(s_, arena_, text, Symbol(found), include_depth_ + 1);
+        const bool ok = sub.run(out, *err_);
+        s_.st_->include_stack.pop_back();
+        return ok;
+    }
+
+    // Resolves and parses an included or merged file. Leaves `out` null if `optional`
+    // and the file does not exist, or if `require` and the session has read it already.
+    bool load(const Str& path, bool optional, int32_t line, uint32_t at, Ref<Array>& out,
+              bool require = false) {
+        if (!may_include(path, line, at)) return false;
         Str text;
         const Str* found = nullptr;
         Vec<Str>& required = s_.st_->required;
+        const Vec<Str> candidates = candidates_of(path);
         for (const Str& c : candidates) {
             // A required file is not read again: the first candidate the session has
             // required already ends the search.
             if (require && std::find(required.begin(), required.end(), c) != required.end())
                 return true;
-            const bool read = read_with(s_.st_->reader, c, text);
-            if (s_.st_->recorded)
-                s_.st_->files.push_back({c, read ? static_cast<int64_t>(text.size()) : -1,
-                                         read ? content_hash(text) : 0});
-            if (read) {
+            if (read_recorded(c, text)) {
                 found = &c;
                 break;
             }
@@ -713,17 +805,115 @@ private:
             if (optional) return true;
             return fail(ErrorCode::Io, "cannot read included file '" + path + "'", line, at);
         }
-        for (const Str& open_file : s_.st_->include_stack)
-            if (open_file == *found)
-                return fail(ErrorCode::Directive, "'" + path + "' includes itself", line, at);
         if (require) required.push_back(*found);
+        return parse_included(path, *found, text, line, at, out);
+    }
 
-        ++s_.st_->includes;
-        s_.st_->include_stack.push_back(*found);
-        Parser sub(s_, arena_, text, Symbol(*found), include_depth_ + 1);
-        const bool ok = sub.run(out, *err_);
-        s_.st_->include_stack.pop_back();
-        return ok;
+    // #include_dir path: a child for each .dta file in the directory, named by the file and
+    // holding what it holds, and for each subdirectory, named by it and holding its own; in
+    // the order of the directory's order.dta, then by name (D244).
+    bool include_dir(const Token& t) {
+        Str path;
+        if (!path_arg(t.text, path)) return false;
+        if (s_.refuse_includes)
+            return fail(ErrorCode::Refused,
+                        "'" + path + "' is not read: this text may include no files", t.line,
+                        t.begin);
+        Vec<Str> entries;
+        for (const Str& c : candidates_of(path))
+            if (list_recorded(c, entries))
+                return splice_dir(c, entries, t.line, t.begin, nullptr, nullptr);
+        return fail(ErrorCode::Io, "cannot list the directory '" + path + "' of #include_dir",
+                    t.line, t.begin);
+    }
+
+    // The children of the directory `dir`, listed as `entries`: pushed here, or added to
+    // `into` (and `into_spans` in edit mode) for a subdirectory's table.
+    bool splice_dir(const Str& dir, const Vec<Str>& entries, int32_t line, uint32_t at,
+                    Vec<Node>* into, Vec<SourceSpan>* into_spans) {
+        struct Child {
+            Str name;
+            Str path;
+            bool folder;
+        };
+        Vec<Child> children;
+        children.reserve(entries.size());
+        for (const Str& e : entries) {
+            const size_t cut = e.view().find_last_of("/\\");
+            const std::string_view leaf =
+                cut == std::string_view::npos ? e.view() : e.view().substr(cut + 1);
+            if (leaf.empty() || leaf.front() == '.' || leaf == "order.dta") continue;  // hidden
+            const bool dta = leaf.size() > 4 && leaf.substr(leaf.size() - 4) == ".dta";
+            if (!dta && leaf.find('.') != std::string_view::npos) continue;  // not data
+            const std::string_view name = dta ? leaf.substr(0, leaf.size() - 4) : leaf;
+            if (!is_bare_symbol(name) || name.find_first_of("./") != std::string_view::npos)
+                return fail(ErrorCode::Directive,
+                            "'" + e + "' cannot be a record: its name is not a symbol", line, at);
+            children.push_back({Str(name), e, !dta});
+        }
+        std::sort(children.begin(), children.end(),
+                  [](const Child& a, const Child& b) { return a.name < b.name; });
+        for (size_t i = 1; i < children.size(); ++i)
+            if (children[i].name == children[i - 1].name)
+                return fail(ErrorCode::Directive,
+                            "'" + dir + "' holds two records named '" + children[i].name + "'",
+                            line, at);
+        Vec<uint32_t> order;
+        for (uint32_t i = 0; i < children.size(); ++i) order.push_back(i);
+        Str text;
+        const Str order_file = normalize_path(join_path(dir, "order.dta"));
+        if (read_recorded(order_file, text)) {
+            Vec<std::string_view> names;
+            for (const Child& c : children) names.push_back(c.name.view());
+            auto r = directory_order(text, order_file, {names.data(), names.size()}, order,
+                                     s_.st_->warnings);
+            if (!r) {
+                *err_ = std::move(r).error();
+                return false;
+            }
+        }
+        for (const uint32_t i : order) {
+            const Child& c = children[i];
+            Vec<Node> kids{Node(Symbol(c.name))};
+            Vec<SourceSpan> spans;           // edit mode
+            if (map_) spans.emplace_back();  // the name, written nowhere
+            Ref<Array> record;
+            if (c.folder) {
+                Vec<Str> inner;
+                if (!list_recorded(c.path, inner)) continue;  // a file without an extension
+                if (!splice_dir(c.path, inner, line, at, &kids, map_ ? &spans : nullptr))
+                    return false;
+                record = arena_.make_array(kids, file_, line);
+            } else {
+                Ref<Array> root;
+                if (!may_include(c.path, line, at)) return false;
+                if (!read_recorded(c.path, text))
+                    return fail(ErrorCode::Io, "cannot read '" + c.path + "'", line, at);
+                if (!parse_included(c.path, c.path, text, line, at, root)) return false;
+                kids.reserve(1 + root->size());
+                for (size_t k = 0; k < root->size(); ++k) {
+                    kids.push_back((*root)[k]);
+                    if (map_) {
+                        const SourceSpan* sp = map_->span(*root, k);
+                        spans.push_back(sp ? *sp : SourceSpan{});
+                    }
+                }
+                // The record is its file: provenance and write-back point into it.
+                record = arena_.make_array(kids, Symbol(c.path), 1);
+                if (map_)
+                    map_->record(
+                        record, {Symbol(c.path), 0, static_cast<uint32_t>(text.size()), {}}, spans);
+            }
+            if (record->height() > s_.limits.max_depth) return too_deep(line, at);
+            const SourceSpan where{file_, at, at, {}};
+            if (into) {
+                into->emplace_back(std::move(record));
+                if (into_spans) into_spans->push_back(where);
+            } else if (!push(Node(std::move(record)), where)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     LoadSession& s_;

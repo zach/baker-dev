@@ -148,12 +148,10 @@ Expected<Ref<Array>> Config::Impl::read_through_cache(std::string_view path, con
 // stack_files(): the layers' dependencies, flattened. A merge that read the same files keeps
 // the list, and its epoch, as they were.
 void Config::Impl::refresh_files() {
-    // Each directory of layers, then each layer's files, bottom to top.
+    // Each layer's files and directories, bottom to top.
     auto each = [this](auto&& fn) {
-        for (const LayerState& l : layers) {
-            if (!l.dir.empty()) fn(l, l.dir.view(), !l.missing, true);
-            for (const Dep& d : l.deps) fn(l, d.path.view(), d.present, false);
-        }
+        for (const LayerState& l : layers)
+            for (const Dep& d : l.deps) fn(l, d.path.view(), d.present, d.directory);
     };
     size_t i = 0;
     bool same = true;
@@ -200,6 +198,16 @@ Expected<void> Config::Impl::read(LayerState& layer, const LoadSession& before, 
             name[16] = '\0';
             cache.append(cache_dir).append("/").append(name).append(".datb");
         }
+        // A directory a load lists (#include_dir) is one of its files too.
+        const LoadSession::Lister& lister = before.lister();
+        session->set_lister(
+            [&](std::string_view dir, const Callback<void(std::string_view)>& entry) {
+                Vec<Str> entries(alloc);
+                const uint64_t listing = detail::list_with(lister, dir, entries, alloc);
+                deps.push_back({Str(dir, alloc), listing != 0, listing, true});
+                for (const Str& e : entries) entry(e);
+                return listing != 0;
+            });
         session->set_reader([&](std::string_view p, TextSink out) {
             const uint64_t t0 = read_ns ? now() : 0;
             // Into the Config's buffer, which the parser copies from before it reads an
@@ -215,6 +223,7 @@ Expected<void> Config::Impl::read(LayerState& layer, const LoadSession& before, 
                              : read_through_cache(layer.path, cache, *session,
                                                   detail::SessionAccess::reads_disk(before));
         session->set_reader(reader);
+        session->set_lister(lister);
     }
     session->source_map = nullptr;
     // The one-way rule's warnings (D80), and a pack's unmet requires, go to the warning
@@ -251,6 +260,14 @@ Expected<void> Config::Impl::read(LayerState& layer, const LoadSession& before, 
 
 bool Config::Impl::changed(const LayerState& layer, Symbol& first) const {
     for (const Dep& d : layer.deps) {
+        if (d.directory) {
+            const uint64_t listing = detail::list_with(base.lister(), d.path, listed, alloc);
+            if ((listing != 0) != d.present || listing != d.hash) {
+                first = Symbol(d.path);
+                return true;
+            }
+            continue;
+        }
         const bool ok = detail::read_with(base.reader(), d.path, scan);
         if (ok != d.present || (ok && detail::content_hash(scan) != d.hash)) {
             first = Symbol(d.path);
@@ -261,10 +278,6 @@ bool Config::Impl::changed(const LayerState& layer, Symbol& first) const {
 }
 
 bool Config::Impl::stale(const LayerState& layer, Symbol& first) const {
-    if (!layer.dir.empty() && listing_of(layer) != layer.listing) {
-        first = Symbol(layer.dir);
-        return true;
-    }
     return (!layer.path.empty() || !layer.dir.empty()) && changed(layer, first);
 }
 
@@ -282,93 +295,57 @@ bool is_dta(std::string_view name) noexcept {
     return name.size() > 4 && name.substr(name.size() - 4) == ".dta";
 }
 
-// The listing's hash, never 0 (0: the directory could not be listed).
-uint64_t listing_hash(Vec<Str>& entries, const Allocator& alloc) {
-    std::sort(entries.begin(), entries.end());
-    Str all(alloc);
-    for (const Str& e : entries) all.append(e).append("\n");
-    return detail::content_hash(all) | 1;
-}
-
 }  // namespace
-
-uint64_t Config::Impl::listing_of(const LayerState& marker) const {
-    Vec<Str> entries(alloc);
-    if (!base.lister()(marker.dir, [&](std::string_view p) { entries.emplace_back(p, alloc); }))
-        return 0;
-    return listing_hash(entries, alloc);
-}
 
 Expected<void> Config::Impl::list_dir(LayerState& marker, Vec<Found>& found) const {
     found.clear();
     marker.deps.clear();
     Vec<Str> entries(alloc);
-    marker.missing =
-        !base.lister()(marker.dir, [&](std::string_view p) { entries.emplace_back(p, alloc); });
+    const uint64_t listing = detail::list_with(base.lister(), marker.dir, entries, alloc);
+    marker.missing = listing == 0;
+    marker.deps.push_back({marker.dir, !marker.missing, listing, true});
     if (marker.missing) {
-        marker.listing = 0;
         if (marker.options.optional) return {};
         return Unexpected(make_error(ErrorCode::Io, "cannot list the directory '" + marker.dir +
                                                         "' of layer '" + marker.name + "'"));
     }
-    marker.listing = listing_hash(entries, alloc);
     const Str order = detail::join_path(marker.dir, "order.dta");
     Str text(alloc);
     const bool ordered = detail::read_with(base.reader(), order, text);
     marker.deps.push_back({order, ordered, ordered ? detail::content_hash(text) : 0});
+    Vec<Found> named(alloc);
     for (const Str& e : entries) {
         const std::string_view leaf = leaf_of(e);
         if (leaf.empty() || leaf.front() == '.' || leaf == "order.dta") continue;  // hidden
         if (is_dta(leaf)) {
-            found.push_back({Str(leaf.substr(0, leaf.size() - 4), alloc), Str(e, alloc)});
+            named.push_back({Str(leaf.substr(0, leaf.size() - 4), alloc), Str(e, alloc)});
         } else if (leaf.find('.') == std::string_view::npos) {
             // A subdirectory, if it holds a layer.dta; else watched for one. A name with an
             // extension is a file, and not looked into.
             Str inner = detail::join_path(e, "layer.dta");
             if (detail::read_with(base.reader(), inner, scan))
-                found.push_back({Str(leaf, alloc), std::move(inner)});
+                named.push_back({Str(leaf, alloc), std::move(inner)});
             else
                 marker.deps.push_back({std::move(inner), false, 0});
         }
     }
-    std::stable_sort(found.begin(), found.end(),
+    std::stable_sort(named.begin(), named.end(),
                      [](const Found& a, const Found& b) { return a.name < b.name; });
-    if (!ordered) return {};
-    LoadSession session(alloc);
-    session.text_only = session.refuse_includes = true;
-    auto tree = read_string(text, order, session);
-    if (!tree) return Unexpected(std::move(tree).error());
-    const Array* list = (*tree)->size() == 1 ? (**tree)[0].try_array() : nullptr;
-    if (!list || list->tag() != Symbol("order"))
-        return Unexpected(make_error(ErrorCode::Syntax, "order.dta holds (order NAME ...)",
-                                     (*tree)->file(), list ? list->line() : 1));
-    // The names it lists first, in its order; the rest stay in name order after them.
-    size_t placed = 0;
-    for (size_t i = 1; i < list->size(); ++i) {
-        std::string_view name;
-        if (const auto sym = (*list)[i].try_sym())
-            name = sym->str();
-        else if (const auto str = (*list)[i].try_str())
-            name = *str;
-        else
-            return Unexpected(make_error(ErrorCode::Syntax, "order.dta lists layer names",
-                                         list->file(), list->line()));
-        size_t at = placed;
-        while (at < found.size() && found[at].name != name) ++at;
-        if (at == found.size()) {
-            if (warn && std::none_of(found.begin(), found.begin() + static_cast<ptrdiff_t>(placed),
-                                     [&](const Found& f) { return f.name == name; }))
-                warn(make_error(
-                    ErrorCode::NotFound,
-                    "order.dta lists '" + Str(name) + "', which '" + marker.dir + "' does not hold",
-                    list->file(), list->line()));
-            continue;
-        }
-        std::rotate(found.begin() + static_cast<ptrdiff_t>(placed),
-                    found.begin() + static_cast<ptrdiff_t>(at),
-                    found.begin() + static_cast<ptrdiff_t>(at) + 1);
-        ++placed;
+    if (!ordered) {
+        found = std::move(named);
+        return {};
     }
+    Vec<std::string_view> names(alloc);
+    for (const Found& f : named) names.push_back(f.name.view());
+    Vec<uint32_t> order_of(alloc);
+    Vec<Error> warnings(alloc);
+    if (auto r =
+            detail::directory_order(text, order, {names.data(), names.size()}, order_of, warnings);
+        !r)
+        return r;
+    if (warn)
+        for (const Error& w : warnings) warn(w);
+    for (const uint32_t i : order_of) found.push_back(std::move(named[i]));
     return {};
 }
 
