@@ -7766,3 +7766,40 @@ owner's choices, made while building it.*
     outside a check; the Context's variables restored; a live edit to a file breaking a rule
     and warning at the reload; a layer softening a rule and adding one; and `check()`
     reporting a rule's game function as demand, `data` known.
+
+## D240. Tweaks that agree across a change: `read_consistent`
+
+*The design is `dev/tweak-generation-note.md`, agreed with the owner.*
+
+- **The need.** A reload, a live edit or a layer change updates tweaks one at a time on the
+  game's thread. Each read is atomic, but a worker reading several mid-update could see the
+  new gravity with the old jump speed, and an engine whose workers run across the frame's
+  swap point cannot keep those reads on the game's thread.
+- **A seqlock per registry.** `TweakRegistry` holds a `std::atomic<uint64_t>` generation,
+  odd while its tweaks change.
+  - The writer: `begin_change()` stores generation + 1 (relaxed) then fences (release); the
+    tweaks' own relaxed stores follow; `end_change()` stores + 1 again (release).
+  - **Where:** the commit's bind pass (every reload, merge, layer push, removal, toggle,
+    restore), `retune` (`Config::set`'s fast path and `clear_scratch`), `Config::bind` (a
+    tweak made while a Config is up), and `set_values` without a Config. In each, `on_change`
+    callbacks run after `end_change()`, so changes never nest.
+  - The reader: `read_consistent(fn)` loads (acquire), waits while odd, runs `fn`, fences
+    (acquire), and loads again (relaxed); it returns when the two are equal.
+  - It spins 64 tries, then yields (`detail::wait_a_moment`, out of line so the header needs
+    no `<thread>`).
+- **Which tweaks.** Atomic ones only: a T trivially copyable and lock-free. `fn` is opaque,
+  so a non-atomic tweak read inside it cannot be refused at compile time, which the note left
+  open. The header and the cookbook say a `std::string` or `std::vector` tweak is read on the
+  game's thread only.
+- **Deviation: the `Config::set` test.** The note asked for a worker to see two tweaks
+  agree through `Config::set` on both. Two `set` calls are two changes, and a reader between
+  them rightly sees one. The test instead sets one value, `(span k k)`, whose two elements
+  two tweaks read (`span.0`, `span.1`): one change that moves two tweaks, seen whole.
+- **The tests show what they guard.** A worker reading two tweaks that 400 replacements of a
+  text layer keep equal, and two that 2,000 `set`s keep equal, never saw them differ. The
+  same workers reading without `read_consistent` saw them differ 456 times in 126,656 reads
+  and 44 in 2,163 (Release). TSan in CI runs them.
+- **Cost.** `tools/count_instructions.py` against main (12df7e2): `lookup` 205, `set` 624 to
+  623, `frame` 197, `call` 307. On x86 a release fence is a compiler barrier, and the two
+  stores the set path gained were absorbed by its code layout. A tweak's read is unchanged:
+  one relaxed load.

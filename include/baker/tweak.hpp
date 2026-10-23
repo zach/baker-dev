@@ -51,7 +51,10 @@ class Config;
 class TweakRegistry;
 namespace detail {
 struct ToolsAccess;  // baker::tools' way to the internals (src/tools/access.hpp)
-}
+// read_consistent's wait while a change is under way: a spin, then a yield. Out of line, so
+// this header needs no <thread>.
+void wait_a_moment(unsigned tries) noexcept;
+}  // namespace detail
 struct Source;
 
 struct TweakRange {
@@ -242,13 +245,50 @@ public:
     // The Config that binds these tweaks, or null.
     [[nodiscard]] Config* config() const noexcept { return config_; }
 
+    // Runs `fn`, which reads tweaks, so that what it read agrees: a reload, a live edit or a
+    // layer change updates tweaks one at a time on the game's thread, and a worker reading
+    // several mid-update could see the new gravity with the old jump speed. `fn` runs again
+    // if the tweaks changed while it ran, so it must only read:
+    //   float g, j;
+    //   baker::TweakRegistry::global().read_consistent([&] { g = gravity; j = jump_speed; });
+    // It covers atomic tweaks only, those whose T is trivially copyable and lock-free (float,
+    // int, bool, Symbol, a small struct): a std::string or std::vector tweak is never safe to
+    // read off the game's thread, inside it or not. While a change is under way it spins
+    // briefly, then yields. Without a change it costs two loads and a fence around `fn`.
+    template <class F>
+    void read_consistent(F&& fn) const {
+        for (unsigned tries = 0;; ++tries) {
+            const uint64_t before = generation_.load(std::memory_order_acquire);
+            if (before & 1u) {  // a change is under way
+                detail::wait_a_moment(tries);
+                continue;
+            }
+            fn();
+            std::atomic_thread_fence(std::memory_order_acquire);
+            if (generation_.load(std::memory_order_relaxed) == before) return;
+        }
+    }
+
 private:
     friend class TweakBase;
     friend class Config;
     void lock() const noexcept;
     void unlock() const noexcept;
+    // A change to its tweaks, on the game's thread, for read_consistent: the generation is
+    // odd from begin_change() to end_change(). A seqlock's writer: the stores between are
+    // the tweaks' own relaxed stores. Changes never nest: notifications run after end.
+    void begin_change() noexcept {
+        generation_.store(generation_.load(std::memory_order_relaxed) + 1,
+                          std::memory_order_relaxed);
+        std::atomic_thread_fence(std::memory_order_release);
+    }
+    void end_change() noexcept {
+        generation_.store(generation_.load(std::memory_order_relaxed) + 1,
+                          std::memory_order_release);
+    }
 
     mutable std::atomic_flag lock_;
+    std::atomic<uint64_t> generation_{0};  // odd while its tweaks are changing
     TweakBase* head_ = nullptr;
     Config* config_ = nullptr;
 };

@@ -295,6 +295,7 @@ BAKER_INLINE void Config::Impl::retune(const ScratchEntry& e) const {
     // Lazily: even an empty vector allocates in MSVC's debug library.
     Own<Vec<TweakBase*>> more;
     const Values all = e.values->values();
+    options.tweaks->begin_change();  // read_consistent waits until every tweak is set
     options.tweaks->each([&](TweakBase& t) {
         const Path& tp = t.parsed();
         Values v;
@@ -319,6 +320,7 @@ BAKER_INLINE void Config::Impl::retune(const ScratchEntry& e) const {
             more->push_back(&t);
         }
     });
+    options.tweaks->end_change();
     for (size_t i = 0; i < n; ++i) few[i]->notify();
     if (more)
         for (TweakBase* t : *more) t->notify();
@@ -401,10 +403,13 @@ void Config::Impl::commit(Config& c, ReloadRecord& rec, uint64_t& t) {
     lap(rec.merge_ns, t);
     ++c.epoch_;
     Vec<TweakBase*> moved;
-    if (options.tweaks)
+    if (options.tweaks) {
+        options.tweaks->begin_change();  // read_consistent waits until every tweak is set
         options.tweaks->each([&](TweakBase& tw) {
             if (tw.bind(*c.root_, warn)) moved.push_back(&tw);
         });
+        options.tweaks->end_change();
+    }
     rec.tweaks_changed = static_cast<uint32_t>(moved.size());
     lap(rec.bind_ns, t);
     for (TweakBase* tw : moved) tw->notify();
@@ -511,7 +516,10 @@ void Config::remove_validator(ValidatorId id) {
 }
 
 void Config::bind(TweakBase& t) {
-    if (t.bind(*root_, impl_->warn)) t.notify();
+    t.registry_->begin_change();
+    const bool moved = t.bind(*root_, impl_->warn);
+    t.registry_->end_change();
+    if (moved) t.notify();
 }
 
 // --- Layers ---

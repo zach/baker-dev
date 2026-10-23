@@ -659,8 +659,19 @@ frames. Other threads may read, on these terms:
 - **A reload is the frame's swap point.** It replaces the trees, on the game's thread. A
   thread holding a raw `const Array&` across it reads a tree that has been freed; one
   holding the `Ref<Array>` from `cfg.root()` keeps the old tree alive and reads it whole.
-  Each tweak is read atomically, but several tweaks read while a reload runs may mix old
-  values and new, so read a set of tweaks that must agree on the game's thread.
+  Each tweak is read atomically, but several tweaks read while a reload, a live edit or a
+  layer change runs may mix old values and new. A worker reads a set that must agree inside
+  `read_consistent`, which runs its reader again if the tweaks changed meanwhile:
+
+  ```cpp
+  float g, j;
+  baker::TweakRegistry::global().read_consistent([&] { g = gravity; j = jump_speed; });
+  ```
+
+  It covers atomic tweaks (trivially copyable and lock-free: numbers, bools, symbols, small
+  structs); a `std::string` or `std::vector` tweak is read on the game's thread only. The
+  reader must only read, since it may run twice. It costs two loads and a fence when nothing
+  changed, and a change costs the game's thread nothing it measurably did not before.
 - **Checks off the game's thread** take `cfg.checker()` (see
   [Live ops](#tests-before-an-overlay-ships)).
 - **Symbols** may be made from any thread; the symbol table's reads take no lock.
