@@ -17,9 +17,10 @@
 //
 //   (shapes (move (at fighters * moves) (keyed) (startup int (range 1 60))))
 //
-// A field has a type (int, float, bool, symbol, string, any, (list T), another shape's name,
-// or (key_of TABLE)) and the tweak metadata (spec §4); a symbol field may list the symbols it
-// allows, (button symbol (one_of light heavy kick special)).
+// A field has a type (int, float, bool, symbol, string, any, curve, (list T), another shape's
+// name, or (key_of TABLE)) and the tweak metadata (spec §4); a symbol field may list the
+// symbols it allows, (button symbol (one_of light heavy kick special)). A curve field's values
+// are a curve (<baker/curve.hpp>), and its (range lo hi) holds every point's y.
 //
 // (key_of TABLE) holds a symbol to the keys of a keyed table: (weapon (key_of weapons)) in
 // a unit names a child of (weapons (laser ...) (rifle ...)). TABLE is a dotted path, looked
@@ -50,7 +51,7 @@
 
 namespace baker::shape {
 
-enum class Type : uint8_t { Any, Int, Float, Bool, Symbol, String, List, Shape, Key };
+enum class Type : uint8_t { Any, Int, Float, Bool, Symbol, String, List, Shape, Key, Curve };
 
 struct Field {
     baker::Symbol name;
@@ -149,7 +150,7 @@ void each_ruled(
 // baker::script warns once that the shapes hold rules it cannot check.
 [[nodiscard]] Config::Validator validator();
 
-// The shapes of `shapes` as JSON (schema baker.shapes/1.3, docs/reference-json.md), sorted by
+// The shapes of `shapes` as JSON (schema baker.shapes/1.4, docs/reference-json.md), sorted by
 // name: each shape's place, keyed or not, and its fields with their types, ranges, steps,
 // kinds, documentation, and where they are declared, and its rules. For editors and agents.
 void write_json(const Set& shapes, TextSink out);

@@ -2,6 +2,8 @@
 
 #include <baker/shape.hpp>
 
+#include <baker/curve.hpp>
+
 #include "common/containers.hpp"
 #include "data/text.hpp"
 
@@ -37,7 +39,8 @@ using baker::detail::quoted;
 Type type_named(baker::Symbol s) {
     static const std::pair<baker::Symbol, Type> builtins[] = {
         {"int", Type::Int},       {"float", Type::Float},   {"bool", Type::Bool},
-        {"symbol", Type::Symbol}, {"string", Type::String}, {"any", Type::Any}};
+        {"symbol", Type::Symbol}, {"string", Type::String}, {"any", Type::Any},
+        {"curve", Type::Curve}};
     for (const auto& [name, t] : builtins)
         if (name == s) return t;
     return Type::Shape;
@@ -54,6 +57,7 @@ std::string_view type_text(Type t) {
         case Type::Shape: return "shape";
         case Type::Key: return "key";
         case Type::Any: return "any";
+        case Type::Curve: return "curve";
     }
     return "any";
 }
@@ -476,6 +480,10 @@ struct Checker {
             }
             return;
         }
+        if (field.type == Type::Curve) {
+            curve(f, v, field);
+            return;
+        }
         if (field.type != Type::List && v.size() != 1) {
             report(errors, ErrorCode::Type,
                    quoted(field.name) + " takes one " + Str(type_text(field.type)) + ", given " +
@@ -524,6 +532,28 @@ struct Checker {
                            quoted(field.name) + " is " + quoted(*sym) + ", not one of " +
                                names_text(field.one_of),
                            f);
+        }
+    }
+
+    // A curve field: its values a curve, and each point's y in the field's range.
+    BAKER_COLD void curve(const Array& f, const Values& v, const Field& field) {
+        Curve c;
+        if (const CurveProblem p = read_curve(v, c)) {
+            const Str what =
+                p.at < v.size() ? detail::text_of(v[p.at]) + " " + Str(p.what) : Str(p.what);
+            report(errors, ErrorCode::Type, quoted(field.name) + " is not a curve: " + what, f);
+            return;
+        }
+        if (!field.ranged) return;
+        for (size_t i = 0; i < c.size(); ++i) {
+            const double y = c.point(i).y;
+            if (y < field.min || y > field.max)
+                report(errors, ErrorCode::Range,
+                       quoted(field.name) + "'s point " +
+                           detail::text_of(v[v.size() - c.size() + i]) + " has y outside " +
+                           detail::text_of(Node(field.min)) + " to " +
+                           detail::text_of(Node(field.max)),
+                       f);
         }
     }
 
@@ -779,7 +809,7 @@ void write_json(const Set& shapes, TextSink text) {
     for (const Shape& sh : shapes.shapes()) ss.push_back(&sh);
     std::sort(ss.begin(), ss.end(),
               [](const Shape* a, const Shape* b) { return a->name.str() < b->name.str(); });
-    Str out = "{\n  \"schema\": \"baker.shapes/1.3\",\n  \"shapes\": [";
+    Str out = "{\n  \"schema\": \"baker.shapes/1.4\",\n  \"shapes\": [";
     for (size_t i = 0; i < ss.size(); ++i) {
         const Shape& sh = *ss[i];
         out += i ? ",\n    {\"name\": " : "\n    {\"name\": ";

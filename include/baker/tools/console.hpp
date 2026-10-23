@@ -8,8 +8,8 @@
 
 namespace baker::tools {
 
-// The Config's tooling as script functions (config.get, config.source, config.explain,
-// config.layers, config.effect, config.diff; in development builds also config.set,
+// The Config's tooling as script functions (config.get, curve.sample, config.source,
+// config.explain, config.layers, config.effect, config.diff; in development builds also config.set,
 // config.clear_scratch, config.toggle, config.reload, config.unsaved, config.journal, config.loop,
 // and config.snapshot and config.restore by name), documented, so the reference lists them and
 // check() checks calls to them. config.write_back and config.promote write files, so they are bound
