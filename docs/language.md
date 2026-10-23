@@ -259,8 +259,8 @@ Shapes are declared in data, in one `(shapes ...)` container, each tagged by its
       (cadence  float (range 0.2 5) (optional))))
 ```
 
-- **Types:** `int`, `float`, `bool`, `symbol`, `string`, `any`, `(list T)`, or another
-  shape's name.
+- **Types:** `int`, `float`, `bool`, `symbol`, `string`, `any`, `(list T)`, `(key_of
+  TABLE)`, or another shape's name.
 - **Metadata:** `range`, `step`, `kind`, `desc`, `note` (as a tweak's), and `optional`.
   A field without `optional` is required. A `symbol` or `(list symbol)` field may list the
   symbols it allows, `(button symbol (one_of light heavy kick special))`, in the order a tool
@@ -283,12 +283,30 @@ Shapes are declared in data, in one `(shapes ...)` container, each tagged by its
   Keyed data is what layers merge by name: a layer above can retune `heavy` alone. Data
   written `(boss (name dragon) ...)` is governed by name, but repeated tags do not merge
   one by one.
+- **Keys of a table.** A field `(key_of TABLE)` holds the key of a record in TABLE, a
+  dotted path such as `weapons` or `items.weapons`; `(list (key_of TABLE))` holds several.
+  The table is the nearest one of that path that encloses the record, looked up outward, the
+  root last, so a fighter's move names one of that fighter's moves:
+
+  ```dta
+  (shapes
+     (unit (at units) (keyed) (weapon (key_of weapons)))
+     (move (at fighters * moves) (keyed) (cancel_into (list (key_of moves)) (optional))))
+  (weapons (laser (damage 3)) (cannon (damage 9)))
+  (units (scout (weapon laser)))
+  (fighters (kestrel (moves (jab) (heavy (cancel_into jab)))))
+  ```
+
+  The check runs on the merged tree, so a key a layer adds may be named, and one a layer
+  removes is an error at each record that still names it, with the key it most likely
+  meant: `'lazer' is not a key of weapons (laser?)`. With packs, a harder pack naming a
+  softer pack's key is a warning, as for a call.
 - **Layers merge shapes like any data**, because the container is tagged `shapes` and
   each shape by its name: a later layer adds a shape, adds a field, or retunes one
   field's range.
 
-Checking reports a field of the wrong type, out of range or outside its `one_of`, or a
-required field missing, as an error, located by file, line, and path. A field the shape does not declare is a
+Checking reports a field of the wrong type, out of range or outside its `one_of`, a key
+its table lacks, or a required field missing, as an error, located by file, line, and path. A field the shape does not declare is a
 warning, so adding data never waits on its shape. Commands and variables are not checked:
 their values are unknown until they run.
 

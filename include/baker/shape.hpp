@@ -15,14 +15,22 @@
 // keyed data, as (fighters (kestrel (moves (jab ...) (kick ...)))), which layers merge by
 // name (D108).
 //
-//   (shapes (move (at fighters * moves) (keyed) (startup int (range 1 60)))) A field has a type
-// (int, float, bool, symbol, string, any, (list T), or another shape's name) and the tweak
-// metadata (spec §4); a symbol field may list the symbols it allows,
-// (button symbol (one_of light heavy kick special)). check() reports a field of the wrong
-// type, out of range or outside its list, or a
-// required field that is missing, as an error; a field the shape does not declare is a
-// warning, so adding data never requires touching its shape first. Commands and variables
-// are not checked: their values are unknown until run.
+//   (shapes (move (at fighters * moves) (keyed) (startup int (range 1 60))))
+//
+// A field has a type (int, float, bool, symbol, string, any, (list T), another shape's name,
+// or (key_of TABLE)) and the tweak metadata (spec §4); a symbol field may list the symbols it
+// allows, (button symbol (one_of light heavy kick special)).
+//
+// (key_of TABLE) holds a symbol to the keys of a keyed table: (weapon (key_of weapons)) in
+// a unit names a child of (weapons (laser ...) (rifle ...)). TABLE is a dotted path, looked
+// up by its first segment outward from the record that refers to it, the nearest enclosing
+// table first and the root last, so (next (key_of moves)) in a fighter's move names that
+// fighter's own move.
+//
+// check() reports a field of the wrong type, out of range or outside its list, a key its
+// table lacks, or a required field that is missing, as an error; a field the shape does not
+// declare is a warning, so adding data never requires touching its shape first. Commands
+// and variables are not checked: their values are unknown until run.
 //
 //   cfg.add_validator(baker::shape::validator(), {.any_thread = true});  // at every merge
 //
@@ -42,13 +50,14 @@
 
 namespace baker::shape {
 
-enum class Type : uint8_t { Any, Int, Float, Bool, Symbol, String, List, Shape };
+enum class Type : uint8_t { Any, Int, Float, Bool, Symbol, String, List, Shape, Key };
 
 struct Field {
     baker::Symbol name;
     Type type = Type::Any;
-    Type element = Type::Any;  // a List's elements
-    baker::Symbol shape;       // a Shape's, or a List of shapes', name
+    Type element = Type::Any;   // a List's elements
+    baker::Symbol shape;        // a Shape's, or a List of shapes', name
+    List<baker::Symbol> table;  // a Key's, or a List of keys', table: a path, as written
     bool optional = false;
     bool ranged = false;
     double min = 0, max = 0;
@@ -108,8 +117,11 @@ private:
     State* st_;
 };
 
-// Checks every array of `tree` that a shape of `shapes` governs, into `report`.
-void check(const Array& tree, const Set& shapes, Report& report);
+// Checks every array of `tree` that a shape of `shapes` governs, into `report`. With
+// `packs`, a key a harder pack's field names from a softer pack's table is a warning, as the
+// one-way rule warns of a call (D80).
+void check(const Array& tree, const Set& shapes, Report& report,
+           const LoadSession* packs = nullptr);
 // For Config::add_validator: reads the shapes each layer of the stack declares, bottom to
 // top, with the stack's session's packs (so harder packs' shapes hold, D145), and checks the
 // merged root against them, reporting errors and warnings to the warning handler. It reads
@@ -117,7 +129,7 @@ void check(const Array& tree, const Set& shapes, Report& report);
 //   cfg.add_validator(baker::shape::validator(), {.any_thread = true});
 [[nodiscard]] Config::Validator validator();
 
-// The shapes of `shapes` as JSON (schema baker.shapes/1, docs/reference-json.md), sorted by
+// The shapes of `shapes` as JSON (schema baker.shapes/1.2, docs/reference-json.md), sorted by
 // name: each shape's place, keyed or not, and its fields with their types, ranges, steps,
 // kinds, documentation, and where they are declared. For editors and agents.
 void write_json(const Set& shapes, TextSink out);

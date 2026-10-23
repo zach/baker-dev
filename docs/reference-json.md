@@ -1,4 +1,4 @@
-# The vocabulary as JSON: `baker.reference/1.3`, `baker.tweaks/1.4`, `baker.shapes/1.1`
+# The vocabulary as JSON: `baker.reference/1.3`, `baker.tweaks/1.4`, `baker.shapes/1.2`
 
 Three documents describe what a program's data and script may say, for editors, agents,
 and other tools that should not scrape the Markdown reference:
@@ -7,7 +7,7 @@ and other tools that should not scrape the Markdown reference:
 |---|---|---|
 | `baker.reference/1.3` | `baker::tools::write_reference_json(ctx, sink, &session)` | `baker::tools` |
 | `baker.tweaks/1.4` | `baker::write_json(registry, sink)` | `baker::data` |
-| `baker.shapes/1.1` | `baker::shape::write_json(shapes, sink)` | `baker::shape` |
+| `baker.shapes/1.2` | `baker::shape::write_json(shapes, sink)` | `baker::shape` |
 
 They are separate so that a data-only program can write its tweaks and the script library
 does not depend on shapes. A tool that wants all three can wrap them in one object.
@@ -172,7 +172,7 @@ one of Baker's single-value types (`std::array<float, 3>`) declares its own, thr
 list tweak is described and checked as the rest are. A parameter of a declared function
 takes the same `count` in its `ParamDescription`.
 
-## `baker.shapes/1.1`
+## `baker.shapes/1.2`
 
 `shapes` lists every shape in the set, by name. Each one has:
 
@@ -187,9 +187,10 @@ Each field has these entries:
 | Field | Contents |
 |---|---|
 | `name` | the field's tag |
-| `type` | `"int"`, `"float"`, `"bool"`, `"symbol"`, `"string"`, `"list"`, `"shape"` or `"any"` |
+| `type` | `"int"`, `"float"`, `"bool"`, `"symbol"`, `"string"`, `"list"`, `"shape"`, `"key"` or `"any"` |
 | `element` | a list's element type; `""` otherwise |
 | `shape` | the shape a field, or a list's elements, must match; `""` otherwise |
+| `table` | for a `key` field, or a list of keys, the table its keys name, as written: `"items.weapons"`; `""` otherwise (added in 1.2) |
 | `optional` | whether it may be absent |
 | `range` | `[min, max]`, or `null` |
 | `step`, `kind`, `desc`, `note` | as declared |
