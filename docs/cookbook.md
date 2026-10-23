@@ -121,6 +121,7 @@ and the game and every tool read it.
    (reference "build/reference.json") ; for tools: where the build writes the reference
    (tool "build/bin/my_game")         ; for tools: the binary that answers the commands
    (console 4555)                     ; for tools: the port the game's console listens on
+   (format (indent 3) (width 100))    ; for tools: how its files are laid out (format)
    (scenarios "sim")                  ; for sim: scenarios and objectives (docs/sim-json.md)
    (objectives "metrics")
    (layers                            ; bottom to top

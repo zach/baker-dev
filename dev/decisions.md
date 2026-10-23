@@ -7766,3 +7766,77 @@ owner's choices, made while building it.*
     outside a check; the Context's variables restored; a live edit to a file breaking a rule
     and warning at the reload; a layer softening a rule and adding one; and `check()`
     reporting a rule's game function as demand, `data` known.
+
+## D239. Laying out text as Baker writes it, keeping its comments
+
+*Requirement note 0026, from the editor integration. The design is `dev/format-note.md`; the
+layout rule, alignment, blank lines and the kit's command are the owner's choices.*
+
+- **The need.** Nothing laid out Baker text. People aligned brackets by hand, an agent's
+  edit left whatever indentation it wrote, and each tool that writes a file wrote as it
+  could. A formatter in each tool would be another copy of Baker's syntax and of its
+  writer's rules.
+- **`tools::format_text(text, out, options)`** reads the text with `read_structure` and
+  changes only the gaps between its tokens and comments, so every token, comment, directive,
+  macro and spelling is kept and the text reads as the same tree.
+  - **The layout is `write_dta`'s:** a form on one line if its flat width fits the width
+    less its indent; else its first item on the opening line and each later one a line
+    deeper, the close after the last.
+  - A form holding a `;` comment or a directive (but `#remove`, a value) is never put on one
+    line.
+  - A directive keeps its arguments on its line, and `#define N (` and `#autorun {` keep
+    their bodies' openings there, as the parser requires.
+  - A `;` comment that followed code stays on that line, and one on its own line stays so;
+    a block comment stays inline or on its own line, as written.
+  - One blank line stays where any was written, at the top level or between children of a
+    broken form; none at the start or the end.
+  - Text that does not parse is written unchanged, with the read's errors.
+- **Alignment as written.**
+  - A block of consecutive one-line sibling forms is aligned if two members' second items
+    were at one column, one of them padded. Every member is then padded to the block's
+    widest first item.
+  - The note had each run join only lines at the run's column. That broke on the case
+    alignment exists for: a longer key typed with one space in an aligned table split the
+    run, and the table collapsed. The block rule re-aligns it.
+  - Trailing comments on consecutive lines at one column, as written and in the output, are
+    put one space past the longest line. The output condition was added after a narrow
+    width broke forms between such comments, and the second pass then undid the first.
+- **Edits.** Each edit is a gap `{begin, end}` replaced by `newlines` line ends and `spaces`
+  spaces, so it needs no string. The text's line end (`Formatted::line_end`) is the one
+  written: CRLF text stays CRLF.
+  - A `;` comment's span excludes a CRLF's `\r`, or the formatter doubled it.
+  - A byte order mark at the start stays.
+- **A range:** only the top-level forms that `[begin, end]` touches are laid out; every
+  other gap is kept as written.
+- **The project file:** `(format (indent N) (width N))` fills `Project::format`, a
+  `WriteOptions`, defaulting to `WriteOptions`' own. The stacks' project files say `(format
+  (indent 3) (width 100))`. Their data files are not reformatted here: 62 of the 68 `.dta`
+  files in the repository would change, mostly forms that fit the width joining onto one
+  line, and that is a change of its own.
+- **The kit's `format` command.**
+  - `format [FILE...]` rewrites the files with the project's layout. With no file it takes
+    the files the stack reads under the project file's directory.
+  - `--baker-check` writes nothing and exits 1, listing each file that would change.
+  - `--baker-json` gives `baker.format/1`: each file's `changed`, `line_end` and edits as
+    `[begin, end, newlines, spaces]`.
+- **Cost.** A 2 MB file in Release: `read_structure` 16.2 ms, `format_text` 57.8 ms in all,
+  best of seven, pinned. That is within the note's 100 ms; the Debug test run takes about
+  480 ms. It allocates a vector of children per form beside the lists and the output.
+- **Tests.**
+  - The writer's layout, wide and narrow, and agreement with `write_dta` on text a tree
+    keeps whole.
+  - Trailing, own-line and block comments, and a `;` comment breaking a form.
+  - Directives with their arguments, `#define N (` joined, `#autorun`, `#remove` inline.
+  - An aligned table kept, re-aligned after a longer key, and an unaligned one left
+    unaligned; trailing comments re-aligned.
+  - Blank lines kept once, collapsed and trimmed.
+  - Text that does not parse unchanged; a range.
+  - The edits applied give the text, with CRLF and a byte order mark.
+  - Every `.dta` under tests, examples and stacks at three layouts: the same tokens and
+    comments, and a second pass changing nothing.
+  - Linear time as a ratio: 2 MB against 0.5 MB, under 8 times (a layout that looked back
+    would take 16). The first version held a Debug run to 2 s, and TSan in CI took 2.4 s: a
+    wall-clock bar is no test under a sanitizer, so the 100 ms is a Release measurement
+    here, not an assertion.
+  - The project's `(format ...)` and its error.
+  - The `format` command's `--baker-check`, `--baker-json`, rewrite, and no-file form.

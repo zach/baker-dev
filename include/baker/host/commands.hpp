@@ -31,6 +31,13 @@
 //   compare --baker-before DIR --baker-after DIR
 //                                  which objectives moved between two --baker-results
 //                                  directories: baker.compare/1; exit 1 if one broke
+//   format [--baker-check] [--baker-json] [FILE...]
+//                                  lays out each file as Baker writes it, keeping its
+//                                  comments (tools::format_text), with the project's
+//                                  (format ...); no FILE: the files the stack reads under
+//                                  the project's directory. --baker-check writes nothing
+//                                  and exits 1 if a file would change, listing it;
+//                                  --baker-json: baker.format/1, each file's edits
 //   every command: --baker-project PATH
 //                                  the stack: the nearest baker-project.dta from PATH
 //                  --baker-output FILE
@@ -82,6 +89,7 @@ struct CommandLine {
     std::string_view before, after;    // compare --baker-before DIR --baker-after DIR
     bool json = false;                 // --baker-json
     bool write = false;                // promote --baker-write
+    bool check = false;                // format --baker-check: change nothing, list what would
     List<std::string_view> commands;   // eval's {commands}
     List<std::string_view> rest;       // every argument the kit does not read, in order
 };

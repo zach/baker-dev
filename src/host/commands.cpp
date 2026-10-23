@@ -2,6 +2,7 @@
 
 #include <baker/host/commands.hpp>
 #include <baker/host/live.hpp>
+#include <baker/tools/format.hpp>
 #include <baker/tools/layers.hpp>
 #include <baker/tools/reference.hpp>
 #include <baker/tweak.hpp>
@@ -469,6 +470,75 @@ int run_scenarios(const CommandLine& line, const CommandHooks& hooks) {
 }
 
 // Which objectives moved between two `sim --baker-results` directories, without running anything.
+// Lays out files as Baker writes them (tools::format_text), with the project's layout.
+int format(const CommandLine& line, const CommandHooks& hooks) {
+    // The project that governs them: the one named, else the first file's, else here's.
+    const std::string_view from = !line.project.empty() ? line.project
+                                  : !line.rest.empty()  ? line.rest[0]
+                                                        : std::string_view(".");
+    WriteOptions layout = hooks.built ? hooks.built->format : WriteOptions{};
+    const Symbol project = find_project(from, hooks.reader);
+    if (!project.empty()) {
+        auto p = read_project(project.str(), hooks.reader);
+        if (!p) {
+            err("format: " + Str(describe(p.error())) + "\n");
+            return kCommandError;
+        }
+        layout = p->format;
+    }
+    Vec<Str> files;
+    for (const std::string_view f : line.rest) files.emplace_back(f);
+    if (files.empty()) {  // the stack's own files, under the project's directory
+        Loaded l(hooks);
+        if (!load(l, line)) return kCommandError;
+        const std::string_view dir = detail::parent_path(l.live.project_file().str());
+        for (const StackFile& f : l.live.config().stack_files())
+            if (f.present && (dir.empty() || f.path.str().starts_with(dir)) &&
+                std::none_of(files.begin(), files.end(),
+                             [&](const Str& s) { return s.view() == f.path.str(); }))
+                files.emplace_back(f.path.str());
+    }
+    int status = 0;
+    Str json = R"({"schema": "baker.format/1", "files": [)";
+    for (size_t i = 0; i < files.size(); ++i) {
+        Str text, laid;
+        if (!read_whole(files[i], text, hooks.reader)) {
+            err("format: cannot read '" + files[i] + "'\n");
+            return kCommandError;
+        }
+        const tools::Formatted r =
+            tools::format_text(text.view(), detail::str_out(laid), {.layout = layout});
+        for (const Error& e : r.errors) err("format: " + Str(describe(e)) + "\n");
+        if (!r.errors.empty()) status = kCommandFailed;
+        if (line.json) {
+            json += i ? ",\n  {\"file\": " : "\n  {\"file\": ";
+            detail::json_string(json, files[i].view());
+            json += Str(", \"changed\": ") + (r.changed() ? "true" : "false") + ", \"line_end\": ";
+            detail::json_string(json, r.line_end);
+            json += ", \"edits\": [";
+            for (size_t k = 0; k < r.edits.size(); ++k) {
+                const tools::FormatEdit& e = r.edits[k];
+                json += (k ? ", [" : "[") + detail::decimal(e.begin) + ", " +
+                        detail::decimal(e.end) + ", " + detail::decimal(e.newlines) + ", " +
+                        detail::decimal(e.spaces) + "]";
+            }
+            json += "], \"errors\": " + Str(r.errors.empty() ? "0" : "1") + "}";
+        }
+        if (!r.changed()) continue;
+        if (line.check || line.json) {
+            if (line.check) {
+                if (!line.json) out(files[i] + "\n");
+                status = kCommandFailed;
+            }
+        } else if (!write_whole(files[i].view(), laid.view())) {
+            err("format: cannot write '" + files[i] + "'\n");
+            return kCommandError;
+        }
+    }
+    if (line.json) out(json + (files.empty() ? "]}\n" : "\n]}\n"));
+    return status;
+}
+
 int compare(const CommandLine& line) {
     if (line.before.empty() || line.after.empty()) {
         err("compare needs --baker-before DIR --baker-after DIR, each written by sim "
@@ -715,6 +785,8 @@ Expected<CommandLine> parse_command_line(int argc, const char* const* argv) {
             line.json = true;
         } else if (a == "write") {
             line.write = true;
+        } else if (a == "check") {
+            line.check = true;
         } else if (std::string_view* into = text_option(line, a)) {
             if (!value(*into)) return missing();
         } else if (a == "seed" || a == "step-hz") {
@@ -760,6 +832,7 @@ int dispatch(const CommandLine& line, const CommandHooks& hooks) {
     if (line.command == "reference") return reference(line, hooks);
     if (line.command == "eval") return eval(line, hooks);
     if (line.command == "compare") return compare(line);
+    if (line.command == "format") return format(line, hooks);
     if (line.command == "diff" || line.command == "promote") {
         if constexpr (kShipping) {
             err(Str(line.command) + ": not in a shipping build\n");
@@ -806,6 +879,10 @@ std::string_view command_help() noexcept {
            "                                 compare reads\n"
            "  compare --baker-before DIR --baker-after DIR\n"
            "                                 which objectives moved: baker.compare/1\n"
+           "  format [--baker-check] [--baker-json] [FILE...]\n"
+           "                                 lays out the files (no FILE: the stack's own) as\n"
+           "                                 Baker writes them; --baker-check: exit 1, listing\n"
+           "                                 each that would change\n"
            "every command also takes --baker-output FILE: its output there, not on stdout\n";
 }
 
