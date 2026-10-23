@@ -31,7 +31,8 @@ inline const Symbol& scratch_name() {
 struct Dep {
     Str path;
     bool present = false;
-    uint64_t hash = 0;
+    uint64_t hash = 0;  // of its text; for a directory, of its listing
+    bool directory = false;
 };
 
 struct LayerState {
@@ -53,11 +54,10 @@ struct LayerState {
     bool missing = false;   // optional, and its file is absent (a directory: not listed)
     // A directory of layers (push_layer_dir): its own layer, which holds nothing, is `dir`'s
     // marker, and the layers found in it stand directly above, each with `group` its name.
-    // The marker's deps are the directory's order.dta and the layer.dta files its
-    // subdirectories lacked; `listing` is a hash of the entries it listed.
+    // The marker's deps are the directory itself, its order.dta, and the layer.dta files its
+    // subdirectories lacked.
     Str dir;
     Str group;
-    uint64_t listing = 0;
     bool broken = false;  // a found layer that did not read: empty until its files change
 };
 
@@ -217,8 +217,9 @@ struct Config::Impl {
 
     const Allocator alloc;  // first: the containers below take it
     ConfigOptions options;
-    Str cache_dir{alloc};     // options.cache_dir views this
-    mutable Str scan{alloc};  // changed()'s buffer, kept so that a poll allocates nothing
+    Str cache_dir{alloc};            // options.cache_dir views this
+    mutable Str scan{alloc};         // changed()'s buffer, kept so that a poll allocates nothing
+    mutable Vec<Str> listed{alloc};  // the same for a directory's listing
     // Every merge's temporaries, reused: a merge allocates only the arrays it keeps (D127).
     mutable detail::MergeScratch merge_scratch{alloc};
     LoadSession base{alloc};  // the sessions the Config keeps are on its allocator (D129)
@@ -366,11 +367,9 @@ struct Config::Impl {
         Str name;
         Str path;
     };
-    // Lists the directory of `marker`, filling its deps and listing hash, and `found` with its
+    // Lists the directory of `marker`, filling its deps, and `found` with its
     // layers in order.dta's order. Warns of a name order.dta lists that the directory lacks.
     [[nodiscard]] Expected<void> list_dir(LayerState& marker, Vec<Found>& found) const;
-    // The hash of the entries `marker`'s directory lists now; 0 if it cannot be listed.
-    [[nodiscard]] uint64_t listing_of(const LayerState& marker) const;
     // Lists the directory of the marker at `ls[at]` again and puts the layers it holds above
     // it, in place of those that were: one that stays keeps its state (its enabled flag).
     // Returns how many layers the group now has above the marker.

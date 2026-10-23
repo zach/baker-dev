@@ -9,6 +9,9 @@
 //
 //   #include path        splice another file's top-level nodes here
 //   #include_opt path    the same, but a missing file is not an error
+//   #include_dir path    a child for each .dta file of a directory, named by the file and
+//                        holding its nodes, and for each subdirectory, named by it and
+//                        holding its own; in the order its order.dta lists, then by name
 //   #require path        the same, once per session: later #requires of that file, from
 //                        any file the session reads, are no-ops (for packs, spec §1)
 //   #merge path          merge another file into the enclosing array, keeping existing

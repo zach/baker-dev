@@ -116,6 +116,7 @@ in the order they are read; a Config's layers read in one session, bottom to top
 |---|---|
 | `#include path` | Splice another file's top-level nodes here. |
 | `#include_opt path` | The same; a missing file is not an error. |
+| `#include_dir path` | A child for each `.dta` file of a directory, named by its file and holding its nodes, and for each subdirectory, named by it and holding its own. See below. |
 | `#require path` | The same, once per session: later `#require`s of that file, from any file, are no-ops. |
 | `#merge path` | Merge another file into the enclosing array, keeping existing keys and adding missing ones. |
 | `#ifdef N`, `#ifndef N`, `#else`, `#endif` | Conditional sections. |
@@ -131,6 +132,40 @@ including file's directory, then the session's include directories
 
 Any other `#name` is an error, so a misspelled directive is caught. A lone `#` is not a
 directive but the symbol `#`, as in a key binding `(# {toggle_hud})` (D101).
+
+### A directory as a table: `#include_dir`
+
+A game with a file per record (a card, a unit, a quest) names the directory instead of
+each file:
+
+```dta
+(cards
+   #include_dir "cards"
+   (starter_deck fireball fireball shield))   ; other children beside it
+```
+
+`cards/fireball.dta`, holding `(cost 3) (damage 6)`, becomes `(fireball (cost 3) (damage 6))`
+in `cards`, so a layer retunes it as `cards.fireball.cost`, and `source()` names
+`cards/fireball.dta` and its line. The record is named by its file, so the two cannot
+disagree, and a new card is a new file.
+
+- **A subdirectory is a nested table:** `cards/fire/fireball.dta` becomes
+  `(fire (fireball ...))` in `cards`. A name is unique in its directory.
+- **Order:** the names a directory's `order.dta` lists, `(order fireball shield)`, come
+  first, in its order; the rest follow in name order. A name it lists that the directory
+  lacks is a warning, located in it. Without one, the order is name order, the same on
+  every platform. `order.dta` is not a record.
+- **What is read:** `.dta` files and subdirectories (entries without an extension).
+  Hidden entries, those whose names begin with `.`, are skipped. A name that is not a
+  symbol Baker reads bare (`my card.dta`) is an error, as is a file that does not parse,
+  or a directory that cannot be listed.
+- **Where:** the path resolves as `#include`'s does, against the including file's
+  directory, then the include directories. The session's lister lists it
+  (`LoadSession::set_lister`, the disk by default), so a host's archive works as its
+  reader does.
+- **What notices a change:** a Config's reload, the host kit's watcher, and a cache, which
+  is stale once a file is added, removed or renamed, or `order.dta` changes. Each file
+  counts as an include toward the session's limits.
 
 ### Macros
 

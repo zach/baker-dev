@@ -248,6 +248,21 @@ TEST_CASE("Live notices a file added to a directory of layers, and one removed")
     }
 }
 
+TEST_CASE("Live notices a record's file added to an #include_dir directory") {
+    if constexpr (!kShipping) {
+        TempDir dir;
+        dir.write("baker-project.dta", "(project (layers (default \"data/default.dta\")))\n");
+        dir.write("data/default.dta", "(cards #include_dir \"cards\")\n");
+        dir.write("data/cards/fireball.dta", "(cost 3)\n");
+        Context ctx;
+        Live live(ctx);
+        REQUIRE(live.open({.project = dir.path("")}));
+        REQUIRE(live.config().get<int>("cards.fireball.cost") == 3);
+        dir.write("data/cards/frost.dta", "(cost 2)\n");
+        CHECK(frames_until(live, [&] { return live.config().get<int>("cards.frost.cost") == 2; }));
+    }
+}
+
 TEST_CASE("Live watches a host's virtual paths as the files they are (D191)") {
     if constexpr (!kShipping) {
         Stack st;

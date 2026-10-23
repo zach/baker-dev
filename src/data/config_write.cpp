@@ -194,9 +194,10 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
     auto not_literal = [&](const Array& parent, size_t k) -> std::optional<Error> {
         const SourceSpan* sp = map.span(parent, k);
         if (!sp)
-            return refused(
-                quoted(path) + " is in an array assembled by #merge; edit it where it is defined",
-                parent.file(), parent.line());
+            return refused(quoted(path) +
+                               " is in an array assembled by #merge or #include_dir; edit it where "
+                               "it is defined",
+                           parent.file(), parent.line());
         if (!sp->macro.empty()) {
             const auto text = map.text(sp->file);
             return refused(quoted(path) + " comes from macro '" + Str(sp->macro.str()) +
@@ -259,8 +260,8 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
             if (!ext || ext->file != main)
                 return Unexpected(
                     refused("cannot add " + quoted(path) + " to '" + layer.file +
-                                "': the array it would go in comes from another file (#include or "
-                                "#merge), not this one",
+                                "': the array it would go in comes from another file (#include, "
+                                "#include_dir or #merge), not this one",
                             cur->file(), cur->line()));
             const SourceSpan* last = map.span(*cur, cur->size() - 1);
             if (!last || last->file != main || last->end > text->size() || ext->end == 0)
