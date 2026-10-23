@@ -5,6 +5,7 @@
 #include <baker/std_interop.hpp>
 #include <baker/tools/format.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -181,18 +182,34 @@ TEST_CASE("over the corpus: formatting twice changes nothing, and nothing but wh
     CHECK(files > 40);
 }
 
-TEST_CASE("a 2 MB file is laid out in linear time") {
-    std::string text;
-    for (int i = 0; text.size() < 2'000'000; ++i)
-        text += "(item" + std::to_string(i) + "   (price " + std::to_string(i % 97) +
-                ") ; its price\n (name \"Item\")  (tags fast   loud))\n";
-    const auto t0 = std::chrono::steady_clock::now();
-    std::string out;
-    (void)format_text(text, string_out(out));
-    const double ms =
-        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
-    MESSAGE("2 MB formatted in " << ms << " ms");
-    CHECK(ms < 2000);  // the bar is 100 ms in Release; a debug build is slower
+TEST_CASE("formatting is linear in the text") {
+    // Linear: four times the text takes about four times as long, where a layout that
+    // looked back over the text would take sixteen. A ratio, so that a sanitizer's or a
+    // debug build's slowdown, which falls on both, does not matter; the 100 ms for 2 MB
+    // is a Release measurement (D239).
+    auto text_of_size = [](size_t bytes) {
+        std::string text;
+        for (int i = 0; text.size() < bytes; ++i)
+            text += "(item" + std::to_string(i) + "   (price " + std::to_string(i % 97) +
+                    ") ; its price\n (name \"Item\")  (tags fast   loud))\n";
+        return text;
+    };
+    auto best_ms = [](const std::string& text) {
+        double best = 1e30;
+        for (int run = 0; run < 3; ++run) {
+            const auto t0 = std::chrono::steady_clock::now();
+            std::string out;
+            (void)format_text(text, string_out(out));
+            best = std::min(best, std::chrono::duration<double, std::milli>(
+                                      std::chrono::steady_clock::now() - t0)
+                                      .count());
+        }
+        return best;
+    };
+    const double one = best_ms(text_of_size(500'000));
+    const double four = best_ms(text_of_size(2'000'000));
+    MESSAGE("0.5 MB in " << one << " ms, 2 MB in " << four << " ms");
+    CHECK(four < 8 * one);
 }
 
 TEST_CASE("a project names its layout with (format ...)") {

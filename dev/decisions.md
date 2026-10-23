@@ -7834,5 +7834,9 @@ layout rule, alignment, blank lines and the kit's command are the owner's choice
   - The edits applied give the text, with CRLF and a byte order mark.
   - Every `.dta` under tests, examples and stacks at three layouts: the same tokens and
     comments, and a second pass changing nothing.
-  - The 2 MB timing, and the project's `(format ...)` and its error.
+  - Linear time as a ratio: 2 MB against 0.5 MB, under 8 times (a layout that looked back
+    would take 16). The first version held a Debug run to 2 s, and TSan in CI took 2.4 s: a
+    wall-clock bar is no test under a sanitizer, so the 100 ms is a Release measurement
+    here, not an assertion.
+  - The project's `(format ...)` and its error.
   - The `format` command's `--baker-check`, `--baker-json`, rewrite, and no-file form.
