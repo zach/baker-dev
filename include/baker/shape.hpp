@@ -71,11 +71,23 @@ struct Field {
     int32_t line = 0;
 };
 
+// (rule "message" {expression} (warn)): what must hold between a record's values. The
+// shape library reads rules; baker::tools evaluates them (tools::check_rules), since this
+// library cannot run script.
+struct Rule {
+    std::string_view message;  // in the declaration, which the Set keeps; names the rule
+    Node expression;           // as written: $field reads the record's field
+    bool warn = false;         // a failure is a warning, not an error
+    baker::Symbol file;
+    int32_t line = 0;
+};
+
 struct Shape {
     baker::Symbol name;
     List<baker::Symbol> at;  // ancestors' tags from the root; empty: anywhere
     bool keyed = false;      // governs every child at `at`, whatever its tag
     List<Field> fields;
+    List<Rule> rules;
     baker::Symbol file;
     int32_t line = 0;
 
@@ -122,16 +134,24 @@ private:
 // one-way rule warns of a call (D80).
 void check(const Array& tree, const Set& shapes, Report& report,
            const LoadSession* packs = nullptr);
+// Calls `visit` with each array of `tree` that a shape with rules governs (as check() finds
+// them, by tag or at a keyed shape's path), the shape, and the array's path from the root:
+// what tools::check_rules evaluates each rule over.
+void each_ruled(
+    const Array& tree, const Set& shapes,
+    const Callback<void(const Array& record, const Shape& shape, std::string_view path)>& visit);
 // For Config::add_validator: reads the shapes each layer of the stack declares, bottom to
 // top, with the stack's session's packs (so harder packs' shapes hold, D145), and checks the
 // merged root against them, reporting errors and warnings to the warning handler. It reads
 // only its stack, so it may run on any thread:
 //   cfg.add_validator(baker::shape::validator(), {.any_thread = true});
+// It does not evaluate rules: add tools::rules_validator(ctx) for them. A build without
+// baker::script warns once that the shapes hold rules it cannot check.
 [[nodiscard]] Config::Validator validator();
 
-// The shapes of `shapes` as JSON (schema baker.shapes/1.2, docs/reference-json.md), sorted by
+// The shapes of `shapes` as JSON (schema baker.shapes/1.3, docs/reference-json.md), sorted by
 // name: each shape's place, keyed or not, and its fields with their types, ranges, steps,
-// kinds, documentation, and where they are declared. For editors and agents.
+// kinds, documentation, and where they are declared, and its rules. For editors and agents.
 void write_json(const Set& shapes, TextSink out);
 
 }  // namespace baker::shape

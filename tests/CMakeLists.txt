@@ -80,6 +80,9 @@ if(BAKER_BUILD_SCRIPT)
   target_compile_definitions(baker_tools_tests PRIVATE
     BAKER_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
     BAKER_CORPUS_DIR="${PROJECT_SOURCE_DIR}/tests/corpus")
+  if(BAKER_BUILD_SHAPE)
+    target_sources(baker_tools_tests PRIVATE tools/test_rules.cpp)  # rules in shapes (D238)
+  endif()
   add_test(NAME baker_tools_tests COMMAND baker_tools_tests)
 endif()
 
@@ -116,7 +119,8 @@ if(BAKER_BUILD_SHAPE)
   add_executable(baker_shape_tests shape/test_shape.cpp)
   target_link_libraries(baker_shape_tests PRIVATE baker::shape baker_doctest_main
                         baker_alloc_counter)
-  target_compile_definitions(baker_shape_tests PRIVATE BAKER_SHAPE_DIR="${PROJECT_SOURCE_DIR}/tests/shape")
+  target_compile_definitions(baker_shape_tests PRIVATE BAKER_SHAPE_DIR="${PROJECT_SOURCE_DIR}/tests/shape"
+                             BAKER_TEST_SCRIPT=$<BOOL:${BAKER_BUILD_SCRIPT}>)
   add_test(NAME baker_shape_tests COMMAND baker_shape_tests)
 endif()
 

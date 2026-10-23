@@ -9,6 +9,7 @@
 
 #if BAKER_HOST_SHAPE
 #include <baker/shape.hpp>
+#include <baker/tools/rules.hpp>
 #endif
 
 namespace baker::host {
@@ -108,6 +109,7 @@ Expected<void> Live::open(const LiveOptions& options) {
     im.cfg.add_validator(check_validator(im.ctx, {.packs = &im.cfg.read_session()}));
 #if BAKER_HOST_SHAPE
     im.cfg.add_validator(shape::validator(), {.any_thread = true});
+    im.cfg.add_validator(tools::rules_validator(im.ctx));  // the shapes' rules, in script
 #endif
     auto opened = open_project(im.cfg, *project, options.open);
     if (!opened) {

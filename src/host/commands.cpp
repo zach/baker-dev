@@ -18,6 +18,7 @@
 
 #if BAKER_HOST_SHAPE
 #include <baker/shape.hpp>
+#include <baker/tools/rules.hpp>
 #endif
 
 namespace fs = std::filesystem;
@@ -157,6 +158,7 @@ int check(const CommandLine& line, const CommandHooks& hooks) {
     shape::Report shaped;
     shapes.add(*cfg.root(), shaped);
     shape::check(*cfg.root(), shapes, shaped);
+    tools::check_rules(*cfg.root(), shapes, l.ctx, shaped);  // a broken rule fails the check
     for (const Error& e : shaped.errors) err("shape: " + Str(to_string(e)) + "\n");
     for (const Error& e : shaped.warnings) err("shape warning: " + Str(to_string(e)) + "\n");
     report.shape_errors = List<Error>(shaped.errors.items());

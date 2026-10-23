@@ -306,8 +306,8 @@ Shapes are declared in data, in one `(shapes ...)` container, each tagged by its
   field's range.
 
 Checking reports a field of the wrong type, out of range or outside its `one_of`, a key
-its table lacks, or a required field missing, as an error, located by file, line, and path. A field the shape does not declare is a
-warning, so adding data never waits on its shape. Commands and variables are not checked:
+its table lacks, or a required field missing, as an error, located by file, line, and
+path. A field the shape does not declare is a warning, so adding data never waits on its shape. Commands and variables are not checked:
 their values are unknown until they run.
 
 ```cpp
@@ -319,6 +319,63 @@ Through a Config, violations go to the warning handler; the load itself never fa
 shape. Elsewhere, `baker::shape::Set` reads the declarations and `baker::shape::check`
 checks a tree; `set.shapes()` enumerates them, with their metadata, for a tool to build
 panels from. Shapes are opt-in, and cost nothing unless checked.
+
+### Rules between values
+
+Some rules span several values: a unit starts with no more health than its maximum, loot
+weights sum to 100, a card's power is near its tier's ideal. A shape states them as rules,
+each a message and a script expression that must be true for every record the shape
+governs:
+
+```dta
+(shapes
+   (unit (at units) (keyed)
+      (max_hp int (range 1 9999))
+      (start_hp int)
+      (rule "starts at or below its maximum" {<= $start_hp $max_hp}))
+   (card (at cards) (keyed)
+      (tier (key_of tiers))
+      (power float)
+      (rule "within 10% of its tier's ideal"
+            {and {>= $power {* 0.9 {data tiers $tier ideal}}}
+                 {<= $power {* 1.1 {data tiers $tier ideal}}}}
+            (warn)))
+   (loot (rule "weights sum to 100" {== {data.sum loot weight} 100})))
+```
+
+- **What a rule reads.**
+  - Its record's fields, each as a `$variable` named by the field: one value is itself,
+    several an array. A field the record lacks leaves its variable unset, and reading it
+    fails.
+  - The rest of the tree under check: `{data SEGMENT ...}` gives the value at a path,
+    each argument evaluated, so `{data tiers $tier ideal}` follows a key. `{data.sum PATH
+    FIELD}` sums each child's FIELD, or each child's first number without one. Both read
+    the tree being checked, never a live Config, so a check of a candidate layer judges the
+    candidate.
+  - The game's own functions, when the game checks.
+- **What a failure says.** A rule whose expression is false is an error, or a warning with
+  `(warn)`, located at the record and carrying each value its expression read:
+  `starts at or below its maximum ($start_hp 12, $max_hp 10)`. A rule that does not
+  evaluate, or gives something other than true or false, is an error naming the rule.
+- **Layers** replace a rule by its message, so a later layer may add a rule or soften one
+  with `(warn)`. With packs, a softer pack may make a harder pack's rule an error, but not
+  soften or change it.
+- **Where they run.** `baker::shape` reads rules; it cannot run script, so
+  `baker::tools` evaluates them:
+
+  ```cpp
+  // after every push, reload and restore, on the game's thread: a live edit that breaks a
+  // rule warns at once
+  cfg.add_validator(baker::tools::rules_validator(ctx));
+  // or over one tree
+  baker::tools::check_rules(tree, shapes, ctx, report);
+  ```
+
+  The host kit adds the validator, and its `check` command fails on a broken rule. A build
+  without `baker::script` reads rules and says once that it cannot check them.
+- **Cost.** Rules run only in checks: one evaluation per rule and governed record, about
+  half a microsecond for a two-value comparison, so 3,000 cards with two rules each is
+  under 3 ms a reload. A shape set with no rules costs nothing more.
 
 ## Script
 

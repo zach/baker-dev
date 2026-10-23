@@ -7683,3 +7683,86 @@ are the owner's choices.*
   - A native and a declared `std::vector<vec2>` parameter, both refusing a bad point in
     `check` and passing a list with an evaluated element, the reference describing the
     native's element, and a declared call refusing the bad point.
+
+## D238. Rules between values, declared in shapes
+
+*The design is `dev/data-rules-note.md`, agreed with the owner. Where rules are evaluated,
+how a rule reads another table, what a failure shows, and the table-wide form are the
+owner's choices, made while building it.*
+
+- **The need.** Some rules span several values: a unit starts at or below its maximum
+  health, loot weights sum to 100, a card's power is near its tier's ideal. Games kept them
+  as assertions in code or a spreadsheet, and shapes checked one field at a time.
+- **The declaration.** A shape may hold `(rule "message" {expression} (warn))`.
+  - `shape::Rule` keeps the message (a view into the declaration, which the Set keeps),
+    the expression as written, `warn`, and where it is declared. `Shape::rules` lists them.
+  - Malformed rules are located errors: no message, no expression, a value that is not an
+    `{expression}`, or anything but `(warn)` after it.
+  - `rule` is now a reserved word in a shape, as `at` and `keyed` are, so no field may be
+    named `rule`.
+  - Layers replace a rule by its message. With packs, a softer pack may make a harder
+    pack's rule an error, but softening it to `(warn)` or changing its expression is refused
+    with a warning, and the harder declaration holds (as D145 does for fields).
+  - The shapes JSON is `baker.shapes/1.3`: each shape has `rules`, each with `message`,
+    `expression` (as Baker text), `warn`, `file` and `line`.
+- **Deviation: where rules are evaluated.** The note put the evaluation in `check()` and
+  `check_validator`, in `baker::script`. Those take a `const Context&`, script does not
+  link shape, and a rule binds `$variables` and calls functions. Asked, the owner chose
+  `baker::tools`, which now links `baker::shape` when it is built:
+  - `tools::check_rules(tree, shapes, ctx, report)` evaluates every rule over the records
+    its shape governs.
+  - `tools::rules_validator(ctx)` is the same for `Config::add_validator`, on the game's
+    thread. It reads the stack's shapes as `shape::validator()` does and leaves their
+    declaration errors to that validator.
+  - The host kit's `Live` adds it beside `shape::validator()`, and its `check` command
+    reports a broken rule as a shape error, failing the check.
+  - `shape::each_ruled(tree, shapes, visit)` finds the governed records, as `check()` finds
+    instances: by tag, or at a keyed shape's path. It has its own walk, so that
+    `Checker::walk` compiles as it did (see D235's layout cost). A list of nested shapes'
+    untagged elements is not visited.
+- **What a rule reads.**
+  - Its record's fields as `$variables`: one value is itself, several an array. A field the
+    record lacks is unset, so reading it fails to evaluate.
+  - Every `$variable` the expression mentions is saved first and restored after, so the
+    Context's own are untouched.
+  - **Deviation:** `{data SEGMENT ...}` takes its path as arguments, each evaluated, so
+    `{data tiers $tier ideal}` follows a key. A dotted symbol is one or more segments. The
+    note had `{data tiers.$tier.ideal}`, expanding `$tier` inside a symbol, which script does
+    nowhere else; the owner chose segments.
+  - `{data.sum PATH [FIELD]}`, the owner's choice for a rule over a whole table, sums each
+    child's FIELD, or each child's first number. It is an int when every addend is.
+  - Both read the tree under check (a thread-local set by `check_rules`), never a live
+    Config, and fail outside a check. `tools::declare_rule_functions(ctx)` registers them,
+    so a tool's `check()` knows `data`, and a game function in a rule is demand.
+- **A failure.**
+  - A false rule is an error, or a warning with `(warn)`, located at the record with its
+    path. Its message lists each `$variable` the expression mentions that the record set,
+    with its value: `starts at or below its maximum ($start_hp 12, $max_hp 10)`. The owner
+    chose that over a rule naming them.
+  - A rule that fails to evaluate, or gives something other than true or false (an
+    integral number reads as a bool, as `if` reads it), is an error naming the rule and why.
+- **A build without baker::script.** `baker_shape` gets `BAKER_SHAPE_NO_SCRIPT`, and
+  `shape::validator()` says once per process that the shapes hold rules it cannot check.
+- **Cost.** A scratch program pushed the shape benchmark's 2,000-record layer with
+  validators (Release, best of 30, pinned):
+  - with no validator, 1.7 us;
+  - with `shape::validator()`, 173.1 us;
+  - with it and `rules_validator`, no rules: 169.9 us, the same within noise;
+  - with one rule (`{< $damage $price}`) on each record: 1110.5 us, about 470 ns a rule.
+  - The first version took 665 ns: it re-scanned the expression, looked its variables up
+    and built the message text on every record. Now the scan and the variable cells are
+    found once per check, and the text is built only for a failure.
+  - 3,000 records with two rules each is under 3 ms a reload. Nothing runs on a read or a
+    frame.
+- **Tests.**
+  - In the shape library: rules read with their lines; one replaced and softened by a later
+    layer, and one added; malformed rules located; a softer pack's softening and change
+    refused and its hardening taken; `each_ruled` visiting keyed records and tagged nested
+    ones with their paths; the JSON; and the no-script warning, in the data-only build
+    only.
+  - In tools: a rule holding, failing with its values, and `(warn)`; one calling an unknown
+    function, one giving 4.5, and one reading a missing field; a key followed with
+    `{data tiers $tier ideal}` and a table summed with `{data.sum}`; `{data}` failing
+    outside a check; the Context's variables restored; a live edit to a file breaking a rule
+    and warning at the reload; a layer softening a rule and adding one; and `check()`
+    reporting a rule's game function as demand, `data` known.
