@@ -587,8 +587,10 @@ struct SimRun::Impl {
                 (!r.finished  ? "STOPPED"
                  : r.passed() ? "passed"
                               : "FAILED");
-        if (r.until)  // the game's own end, before its length
-            t += " (ended at " +
+        if (!r.ended.empty() && r.ended != Symbol("length"))  // the game's own end
+            t += " (" +
+                 Str(r.ended == Symbol("until") ? std::string_view("ended") : r.ended.str()) +
+                 " at " +
                  Str(book.step_name.empty() ? std::string_view("step") : book.step_name.str()) +
                  " " + detail::decimal(static_cast<int64_t>(r.steps)) + ")";
         for (const sim::ObjectiveResult& o : r.objectives)
@@ -875,7 +877,7 @@ std::string_view command_help() noexcept {
            "  sim [--baker-scenario NAME]... [--baker-seed N | --baker-seeds A-B]\n"
            "      [--baker-step-hz N] [--baker-json] [--baker-results DIR]\n"
            "                                 the project's scenarios, judged by its objectives;\n"
-           "                                 --baker-json: baker.sim/1.2; --baker-results: what\n"
+           "                                 --baker-json: baker.sim/1.3; --baker-results: what\n"
            "                                 compare reads\n"
            "  compare --baker-before DIR --baker-after DIR\n"
            "                                 which objectives moved: baker.compare/1\n"

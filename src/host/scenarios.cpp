@@ -102,6 +102,19 @@ Expected<void> read_forms(const Array& tree, Book& book) {
                     Scenario::At a{.seconds = when.value_or(0), .step = step.value_or(-1)};
                     commands(part, by_step ? 3 : 2, a.commands);
                     s.at.push_back(std::move(a));
+                } else if (part[0].is(Symbol("every"))) {
+                    // (every SECONDS {command}...) or (every step N {command}...)
+                    const bool by_step = part.size() > 2 && part[1].is(Symbol("step"));
+                    const auto step = by_step ? part[2].try_int() : std::nullopt;
+                    const auto when = part.size() > 1 ? part[1].try_float() : std::nullopt;
+                    if (by_step ? !step || *step <= 0 : !when || *when <= 0)
+                        return Unexpected(at(part, ErrorCode::Syntax,
+                                             "scenario '" + Str(s.name.str()) +
+                                                 "': (every SECONDS {command}...) or (every "
+                                                 "step N {command}...), a period above 0"));
+                    Scenario::At a{.seconds = when.value_or(0), .step = step.value_or(-1)};
+                    commands(part, by_step ? 3 : 2, a.commands);
+                    s.every.push_back(std::move(a));
                 } else if (part[0].is(Symbol("objectives"))) {
                     for (size_t i = 1; i < part.size(); ++i)
                         if (const auto sym = part[i].try_sym()) s.objectives.push_back(*sym);
@@ -300,18 +313,20 @@ Stepper::Stepper(Context& ctx, const Book& book, const Scenario& scenario, uint6
                             : static_cast<uint64_t>(std::llround(scenario.seconds * step_hz));
     // The step each (at ...) is due: its own, or the first whose time reaches its seconds,
     // within half a step.
-    for (const Scenario::At& a : scenario.at) {
-        uint64_t due = 0;
-        if (a.step >= 0) {
-            due = static_cast<uint64_t>(a.step);
-        } else {
-            while (a.seconds > static_cast<double>(due) * dt_ + dt_ * 0.5) ++due;
-        }
-        due_.emplace_back(due, &a);
-    }
+    for (const Scenario::At& a : scenario.at)
+        due_.emplace_back(a.step >= 0 ? static_cast<uint64_t>(a.step) : step_of(a.seconds), &a);
+    // Each (every ...) first at step 0; later multiples by the same half-step rule.
+    for (const Scenario::At& e : scenario.every) every_.push_back({&e, 0, 0});
     std::stable_sort(due_.begin(), due_.end(),
                      [](const auto& a, const auto& b) { return a.first < b.first; });
     ctx.var("seed") = Node(static_cast<int64_t>(seed));
+}
+
+// The first step whose time reaches `seconds`, within half a step.
+uint64_t Stepper::step_of(double seconds) const noexcept {
+    uint64_t due = 0;
+    while (seconds > static_cast<double>(due) * dt_ + dt_ * 0.5) ++due;
+    return due;
 }
 
 void Stepper::begin() {
@@ -320,11 +335,21 @@ void Stepper::begin() {
     run_due();
 }
 
-// Each (at ...) whose step has come, at the step about to be taken.
+// Each (at ...) whose step has come, at the step about to be taken; then each (every ...)
+// due at it, in the order written.
 void Stepper::run_due() {
     while (next_at_ < due_.size() && due_[next_at_].first <= run_.steps)
         for (const Node& c : due_[next_at_++].second->commands)
             if (auto r = ctx_->eval(c); !r) run_.errors.push_back(r.error());
+    for (Every& e : every_) {
+        if (e.next != run_.steps) continue;
+        for (const Node& c : e.every->commands)
+            if (auto r = ctx_->eval(c); !r) run_.errors.push_back(r.error());
+        ++e.multiple;
+        const auto m = static_cast<double>(e.multiple);
+        e.next = e.every->step > 0 ? e.multiple * static_cast<uint64_t>(e.every->step)
+                                   : step_of(m * e.every->seconds);
+    }
 }
 
 void Stepper::advance() {
@@ -337,8 +362,13 @@ void Stepper::advance() {
         if (!r) {
             run_.errors.push_back(r.error());
             ended_ = true;  // a condition that fails ends the run, which fails
+            run_.ended = Symbol("until");
+        } else if (const auto name = r->try_sym()) {
+            ended_ = true;  // the game's own name for how it ended
+            run_.ended = *name;
         } else if (const auto v = r->try_float(); v && *v != 0) {
-            ended_ = run_.until = true;
+            ended_ = true;
+            run_.ended = Symbol("until");
         }
     }
     if (!done()) run_due();
@@ -351,7 +381,9 @@ Run Stepper::stop() {
 
 Run Stepper::judge() {
     Context& ctx = *ctx_;
+    if (run_.ended.empty()) run_.ended = Symbol("length");
     ctx.var("steps") = Node(static_cast<int64_t>(run_.steps));  // for the measures
+    ctx.var("ended") = Node(run_.ended);
     const Scenario& scenario = *scenario_;
     for (const Objective& o : book_->objectives) {
         if (!scenario.objectives.empty() &&
@@ -448,6 +480,15 @@ bool all_passed(const Vec<Run>& runs, const Vec<Median>& medians) {
            std::all_of(medians.begin(), medians.end(), [](const Median& m) { return m.pass; });
 }
 
+namespace {
+// How a run ended, as the results write it: its name, "length" if it has none yet.
+Str json_ended(const Run& r) {
+    Str s;
+    detail::json_string(s, r.ended.empty() ? std::string_view("length") : r.ended.str());
+    return s;
+}
+}  // namespace
+
 Str results_json(Vec<Run> runs, const Vec<Median>& medians, Symbol step_name) {
     for (Run& r : runs)
         std::sort(r.objectives.begin(), r.objectives.end(),
@@ -457,7 +498,7 @@ Str results_json(Vec<Run> runs, const Vec<Median>& medians, Symbol step_name) {
     });
     const bool stopped =
         std::any_of(runs.begin(), runs.end(), [](const Run& r) { return !r.finished; });
-    Str s = "{\n  \"schema\": \"baker.sim/1.2\",\n  \"status\": ";
+    Str s = "{\n  \"schema\": \"baker.sim/1.3\",\n  \"status\": ";
     s += stopped ? "\"stopped\"" : all_passed(runs, medians) ? "\"passed\"" : "\"failed\"";
     s += ",\n  \"step_name\": ";
     detail::json_string(s, step_name.empty() ? std::string_view("step") : step_name.str());
@@ -469,8 +510,7 @@ Str results_json(Vec<Run> runs, const Vec<Median>& medians, Symbol step_name) {
         json_place(s, r.file, r.line);
         s += ", \"seed\": " + detail::decimal(static_cast<int64_t>(r.seed)) +
              ", \"steps\": " + detail::decimal(static_cast<int64_t>(r.steps)) +
-             ", \"finished\": " + json_bool(r.finished) +
-             ", \"ended\": " + (r.until ? "\"until\"" : "\"length\"") +
+             ", \"finished\": " + json_bool(r.finished) + ", \"ended\": " + json_ended(r) +
              ", \"passed\": " + json_bool(r.passed()) + ", \"errors\": [";
         for (size_t e = 0; e < r.errors.size(); ++e) {
             if (e) s += ", ";
@@ -515,7 +555,35 @@ Str results_json(Vec<Run> runs, const Vec<Median>& medians, Symbol step_name) {
         by[k].tally.json(s);
         s += '}';
     }
-    s += by.empty() ? "]\n}\n" : "\n  ]\n}\n";
+    s += by.empty() ? "],\n" : "\n  ],\n";
+    // How each scenario's runs ended, as a tally: {"victory": 7, "defeat": 3}.
+    s += "  \"endings\": [";
+    size_t written = 0;
+    for (size_t i = 0; i < runs.size();) {
+        size_t end = i;
+        while (end < runs.size() && runs[end].scenario == runs[i].scenario) ++end;
+        Vec<std::pair<Symbol, int>> counts;
+        for (size_t k = i; k < end; ++k) {
+            const Symbol e = runs[k].ended.empty() ? Symbol("length") : runs[k].ended;
+            auto c = std::find_if(counts.begin(), counts.end(),
+                                  [&](const auto& x) { return x.first == e; });
+            if (c == counts.end())
+                counts.emplace_back(e, 1);
+            else
+                ++c->second;
+        }
+        s += written++ ? ",\n    {\"scenario\": " : "\n    {\"scenario\": ";
+        detail::json_string(s, runs[i].scenario.str());
+        s += ", \"endings\": {";
+        for (size_t k = 0; k < counts.size(); ++k) {
+            if (k) s += ", ";
+            detail::json_string(s, counts[k].first.str());
+            s += ": " + detail::decimal(counts[k].second);
+        }
+        s += "}}";
+        i = end;
+    }
+    s += written ? "\n  ]\n}\n" : "]\n}\n";
     return s;
 }
 
@@ -526,7 +594,8 @@ Str results_dta(const Vec<Run>& runs, const Vec<Median>& medians) {
              detail::decimal(static_cast<int64_t>(r.seed)) + ") (steps " +
              detail::decimal(static_cast<int64_t>(r.steps)) + ") (passed " +
              (r.passed() ? "1" : "0") + ")" + (r.finished ? "" : " (finished 0)") +
-             (r.until ? " (until 1)" : "") + place_dta(r.file, r.line);
+             (r.ended.empty() ? Str() : " (ended " + Str(r.ended.str()) + ")") +
+             place_dta(r.file, r.line);
         for (const ObjectiveResult& o : r.objectives) {
             s += "\n   (objective " + Str(o.name.str()) + " (value " + number_text(o.value) +
                  ") (pass " + (o.pass ? "1" : "0") + ")" + place_dta(o.file, o.line);
@@ -570,7 +639,7 @@ Expected<void> read_results(std::string_view file, Vec<Run>& runs, Vec<Median>& 
                   .steps = static_cast<uint64_t>(number(form.try_find(Symbol("steps")))),
                   .finished = !form.try_find(Symbol("finished")) ||
                               number(form.try_find(Symbol("finished"))) != 0,
-                  .until = number(form.try_find(Symbol("until"))) != 0};
+                  .ended = sym(form.try_find(Symbol("ended")))};
             for (const Array& part : form.subarrays()) {
                 if (part.empty()) continue;
                 if (part[0].is(Symbol("error")) && part.size() > 1) {
