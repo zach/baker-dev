@@ -38,7 +38,8 @@ struct LayerState {
     LayerState() = default;
     // A record the Config makes: its own containers from its allocator (D61). A copy keeps
     // its source's.
-    explicit LayerState(const Allocator& a) : name(a), path(a), file(a), deps(a) {}
+    explicit LayerState(const Allocator& a)
+        : name(a), path(a), file(a), deps(a), dir(a), group(a) {}
 
     Str name;
     Str path;      // as given; empty for an overlay; the name, for text
@@ -49,7 +50,15 @@ struct LayerState {
     Rc<SourceMap> map;  // edit mode; shared with snapshots, read-only once built
     Vec<Dep> deps;
     Rc<LoadSession> after;  // macros and defines after this layer; read-only
-    bool missing = false;   // optional, and its file is absent
+    bool missing = false;   // optional, and its file is absent (a directory: not listed)
+    // A directory of layers (push_layer_dir): its own layer, which holds nothing, is `dir`'s
+    // marker, and the layers found in it stand directly above, each with `group` its name.
+    // The marker's deps are the directory's order.dta and the layer.dta files its
+    // subdirectories lacked; `listing` is a hash of the entries it listed.
+    Str dir;
+    Str group;
+    uint64_t listing = 0;
+    bool broken = false;  // a found layer that did not read: empty until its files change
 };
 
 // One path in scratch. The array is owned by scratch alone, so set() may change it in
@@ -346,11 +355,43 @@ struct Config::Impl {
     Expected<void> push_read(Config& c, LayerState&& layer, LayerOptions opts);
 
     bool changed(const LayerState& layer, Symbol& first) const;
+    // Whether reload() must read `layer` again: a file of it changed, or, for a directory of
+    // layers, its listing or order.dta.
+    bool stale(const LayerState& layer, Symbol& first) const;
+
+    // --- Directories of layers ---
+
+    // A layer the directory holds: its name, and the file it is read from.
+    struct Found {
+        Str name;
+        Str path;
+    };
+    // Lists the directory of `marker`, filling its deps and listing hash, and `found` with its
+    // layers in order.dta's order. Warns of a name order.dta lists that the directory lacks.
+    [[nodiscard]] Expected<void> list_dir(LayerState& marker, Vec<Found>& found) const;
+    // The hash of the entries `marker`'s directory lists now; 0 if it cannot be listed.
+    [[nodiscard]] uint64_t listing_of(const LayerState& marker) const;
+    // Lists the directory of the marker at `ls[at]` again and puts the layers it holds above
+    // it, in place of those that were: one that stays keeps its state (its enabled flag).
+    // Returns how many layers the group now has above the marker.
+    [[nodiscard]] Expected<size_t> relist(Vec<LayerState>& ls, size_t at) const;
+    // How many layers of `ls[at]`'s directory stand above it (0 for a layer that is not one).
+    [[nodiscard]] static size_t members(const Vec<LayerState>& ls, size_t at) noexcept {
+        if (ls[at].dir.empty()) return 0;
+        size_t n = 0;
+        while (at + 1 + n < ls.size() && ls[at + 1 + n].group == ls[at].name) ++n;
+        return n;
+    }
 
     // Re-reads `layers[from..]` as the read and parse stages of `rec`, from `t`, which it
     // moves to their end; a failure marks the record a parse error (D132).
     Expected<void> reread_stages(ReloadRecord& rec, size_t from, uint64_t& t) {
-        auto r = reread(layers, from, &rec.read_ns, &rec.files_reloaded);
+        return reread_stages(rec, layers, from, t);
+    }
+    // The same over `ls`, a stack to replace `layers` with.
+    Expected<void> reread_stages(ReloadRecord& rec, Vec<LayerState>& ls, size_t from,
+                                 uint64_t& t) const {
+        auto r = reread(ls, from, &rec.read_ns, &rec.files_reloaded);
         const uint64_t parsed = now();
         rec.parse_ns = parsed - t - rec.read_ns;
         t = parsed;

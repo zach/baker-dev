@@ -121,7 +121,7 @@ struct CommandHooks {
     // with each entry's path and returns true, or returns false if `dir` is not one of its
     // directories. The kit keeps the .dta files, in name order, and reads each through
     // `reader`. Empty, or false: the disk's directory, as without it. For the project's
-    // scenarios and objectives.
+    // scenarios and objectives, and its directories of layers (LoadSession::Lister).
     Callback<bool(std::string_view dir, Callback<void(std::string_view path)> file)> list{};
     // Where the output goes when the command line names no --baker-output file; empty: stdout.
     // An engine that writes its own lines to stdout keeps the result apart from them.

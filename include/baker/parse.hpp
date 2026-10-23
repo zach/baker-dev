@@ -140,6 +140,16 @@ public:
     void set_reader(Reader reader);
     [[nodiscard]] const Reader& reader() const noexcept;
 
+    // Lists a directory: calls `entry` with each entry's path (the directory joined with its
+    // name; files and directories alike) and returns true, or returns false if it cannot
+    // list `dir`. The Config lists a directory of layers with it (Config::push_layer_dir).
+    using Lister =
+        Callback<bool(std::string_view dir, Callback<void(std::string_view path)> entry)>;
+    // Replaces directory listing (default: the local filesystem), as set_reader replaces
+    // reading. A null lister restores the default.
+    void set_lister(Lister lister);
+    [[nodiscard]] const Lister& lister() const noexcept;
+
     // Searched, in order, after the including file's directory.
     void add_include_dir(std::string_view dir);
     void clear_include_dirs();

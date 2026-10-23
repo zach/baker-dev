@@ -61,6 +61,11 @@ bool load(Loaded& l, const CommandLine& line) {
     o.project = line.project;
     o.built = l.hooks.built;
     o.reader = l.hooks.reader;
+    // A directory the host's lister does not have is the disk's, as for scenarios.
+    if (l.hooks.list)
+        o.lister = [&l](std::string_view dir, const Callback<void(std::string_view)>& entry) {
+            return l.hooks.list(dir, entry) || LoadSession().lister()(dir, entry);
+        };
     o.open = l.hooks.open;
     o.watch = false;
     o.changed = l.hooks.changed;
