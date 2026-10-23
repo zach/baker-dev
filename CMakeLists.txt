@@ -126,6 +126,7 @@ add_library(baker_data
   src/data/lookup.cpp
   src/data/merge.cpp
   src/data/node.cpp
+  src/data/list_dir.cpp
   src/data/parse.cpp
   src/data/repeats.cpp
   src/data/source_map.cpp

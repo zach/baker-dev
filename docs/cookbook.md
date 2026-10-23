@@ -126,6 +126,7 @@ and the game and every tool read it.
    (objectives "metrics")
    (layers                            ; bottom to top
       (default "data/default.dta")
+      (mods (dir "mods") optional)    ; a layer for each mod in mods/
       (local "data/local.dta" optional dev_only)
       (agent "data/agent.dta" optional dev_only)))
 ```
@@ -145,7 +146,9 @@ if (auto r = baker::open_project(cfg, *project); !r) return report(r.error());
 - **Layer flags:** `optional` makes a missing file an empty layer; `disabled` keeps a layer
   in the stack, skipped by the merge, for a panel to toggle; `dev_only` marks a layer for
   development only (one person's tuning, an agent's proposal awaiting review), which a
-  shipping build never pushes even when its file is present.
+  shipping build never pushes even when its file is present. A `(dir "path")` entry is a
+  directory of layers, one for each file or folder in it (see Content packages below); its
+  flags apply to every layer it finds.
 - **Packaging:** a build step that copies the data directory whole would ship those files
   too. It reads the project instead and leaves out each layer whose `dev_only` is set, by
   the path the project names; a file such a layer only `#include`s is the step's to know.
@@ -503,6 +506,18 @@ How a game delivers content after it ships (dev/background/content-updates.md):
   (D144). A DLC that may be absent is pushed with `LayerOptions::optional`. Code that reads
   its content takes a fallback (`get(path, fallback)`), so a save that names an
   uninstalled DLC's content still loads.
+- **A directory of mods needs no list of them.** `push_layer_dir("mods", "mods")`, or
+  `(mods (dir "mods"))` in the project's layers, makes a layer of each `*.dta` file in
+  `mods/` and of each folder there that holds a `layer.dta` (a mod of several files, whose
+  `layer.dta` `#include`s the rest). They stand in the order `mods/order.dta` lists,
+  `(order base_fixes hard_mode)`, then the rest by name; a listed name that is missing is
+  a located warning. Every `reload()` lists the directory again, so a mod dropped in, or
+  deleted, or reordered in `order.dta` takes effect, and the kit's `Live` watches the
+  directory. A mod menu turns one off with `set_layer_enabled`, which holds across a
+  rescan, and `set_layer_enabled("mods", false)` turns them all off. A mod that does not
+  parse is an empty layer, its error located and passed to the warning handler, until it is
+  fixed; the rest stand. A host with an archive or a virtual root lists the directory with
+  `LoadSession::set_lister`, as it reads with `set_reader` (D243).
 - **Anything packages extend is a keyed table.** Two layers that set one value list leave
   the top one's list, because Overwrite replaces values. Keyed children merge, so every
   package's entries survive. This is how Rock Band's `songs.dta` scaled to thousands of

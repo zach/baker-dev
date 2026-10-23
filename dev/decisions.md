@@ -7969,3 +7969,66 @@ layout rule, alignment, blank lines and the kit's command are the owner's choice
   - A layer that does not read under the new set leaving defines and value as they were.
   - `explain` naming the `#ifdef` and then its `#else` after a change.
   - Check's JSON listing the host's define. The data tests run in the shipping build too.
+
+## D243. A directory of layers: mods, DLC, plugin packs
+
+*Built 2026-10-23, from `dev/layer-directory-note.md`.* A host with mods, plugin packs or
+DLC names a directory, not each file: `Config::push_layer_dir(name, dir, options)`, or
+`(mods (dir "mods"))` in a project's layers.
+
+- **What it finds.** A layer for each `*.dta` file directly in the directory, named by its
+  file name, and for each subdirectory that holds a `layer.dta`, named by the subdirectory.
+  They stand in the order `order.dta` lists, then the rest in name order. A name it lists
+  that the directory lacks is a warning located in `order.dta`. An `order.dta` that does
+  not parse, or holds anything but `(order NAME ...)`, fails the push or the reload, which
+  then changes nothing. A found name already taken (by another layer, `scratch`, or a
+  file and a folder of one name) is left out with a warning naming its file.
+- **Listing.** `LoadSession::set_lister` replaces the disk's listing as `set_reader`
+  replaces reading; the default lists with `opendir` or `FindFirstFileA`, in
+  `src/data/list_dir.cpp` so the system headers stay out of the parser, and still without
+  `std::filesystem` (D22). The lister gives paths, not kinds: an entry with no extension
+  that is not hidden is looked into for a `layer.dta`. A folder named with a dot is not.
+  The kit passes `CommandHooks::list` to Live's new `LiveOptions::lister`, falling back
+  to the disk as its scenario directories do.
+- **Deviations from the note.**
+  - *The entry is a layer.* `name` is a layer that holds nothing, with the found layers
+    directly above it. It anchors placement (`.above = "mods"` goes above all of them; a
+    found layer cannot be an anchor), `remove_layer("mods")` and `pop_layer` take the
+    whole directory, and `set_layer_enabled("mods", b)` sets every found layer. A found
+    layer cannot be removed alone: removing its file removes it. The note left the entry's
+    own identity open; a layer was the least new machinery, since placement, snapshots and
+    `stack_files` already work in layers.
+  - *A found layer that does not read stands empty*, rather than being refused. Its error
+    goes to the warning handler, located, and it is read again when its files change, as
+    `changed()` already notices for any layer, so a modder's fix takes effect at the next
+    reload without a listing change. It stays in `layers()`, so a mod menu still shows it.
+    Its `#autorun` is skipped.
+  - *The reference does not list layers.* It lists none today, so there is no place for
+    the directory; `stack_files()` names it.
+- **Reload.** Each reload asks every directory whether its listing (a hash of its sorted
+  entries) or its `order.dta` changed, and lists a changed one again into a copy of the
+  stack that replaces it only if every layer reads. A layer that stays keeps its state,
+  its enabled flag among it; a new one takes the directory's. In shipping, reload is off,
+  so the directory is listed only at the push.
+- **Watching.** `StackFile::directory` marks the directory's own entry in `stack_files()`,
+  followed by its `order.dta` and each subdirectory's absent `layer.dta`. The watcher
+  watches such an entry whole: any name reported in it changes it. It now also reports a
+  directory created in a watched one (inotify `IN_CREATE` with `IN_ISDIR`; on Windows,
+  `FILE_NOTIFY_CHANGE_DIR_NAME`), so a mod dropped in as a folder is seen.
+- **Cost.** A scratch program, Release, pinned, best of 31, three runs:
+  - an unchanged reload of 100 file layers, 137 to 168 us; of a directory of 100 layers,
+    162 to 205 us. The difference, 25 to 40 us, is the listing, its hash and the read of
+    `order.dta`.
+  - pushing 100 file layers one by one, 3.9 to 4.7 ms (a merge each); pushing the
+    directory, 0.65 to 0.78 ms (one merge).
+  - A stack without a directory adds one test of an empty string per layer to a reload's
+    scan. Nothing runs on a read or a frame.
+- **Tests.** Discovery and order, with a folder that includes beside itself, a hidden
+  folder and a text file ignored, and the missing name located; name order without an
+  `order.dta`; `stack_files()`; a layer that does not parse, names taken, a bad
+  `order.dta`, a missing and an optional directory; placement, removal and popping, and a
+  policy refused; reloads that add, remove and reorder, a folder that gains a `layer.dta`,
+  a broken `order.dta` that changes nothing, and a broken layer fixed; a layer turned off
+  across a rescan and the whole directory turned off; a host's reader and lister; the
+  project entry, `dev_only` in shipping and `skip_dev_only`, and a malformed entry
+  located; and Live noticing a file added, a folder added, and a file removed.

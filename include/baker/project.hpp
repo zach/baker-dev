@@ -17,6 +17,7 @@
 //      (objectives "metrics")             ; for tools: objective files, or directories
 //      (layers                            ; bottom to top
 //         (default "data/default.dta")
+//         (mods (dir "mods") optional)    ; a layer for each mod in mods/ (push_layer_dir)
 //         (local "data/local.dta" optional dev_only)
 //         (agent "data/agent.dta" optional dev_only)))
 //
@@ -72,7 +73,11 @@ struct ProjectEntry {
 
 struct ProjectLayer {
     Symbol name;
-    Symbol path;            // joined with the project file's directory, unless absolute
+    Symbol path;  // joined with the project file's directory, unless absolute
+    // (name (dir "mods")): `path` is a directory of layers, pushed with push_layer_dir, and
+    // `optional` lets it be absent. A packaging step that leaves out a dev_only layer
+    // leaves out the whole directory.
+    bool dir = false;
     bool optional = false;  // a missing file is an empty layer (LayerOptions::optional)
     bool enabled = true;    // `disabled` in the file: in the stack, skipped by the merge
     bool dev_only = false;  // `dev_only` in the file: never pushed under BAKER_SHIPPING

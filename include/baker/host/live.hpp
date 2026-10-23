@@ -61,6 +61,8 @@ struct LiveOptions {
     // roots); the watcher's hooks: where those paths are on the disk, and the stamps of
     // those that are not.
     LoadSession::Reader reader{};
+    // Lists the project's directories of layers, if not on the disk (LoadSession::Lister).
+    LoadSession::Lister lister{};
     DiskPathHook disk_path{};
     StampHook stamp{};
     bool watch = true;          // false: reload only when asked (tests, a headless runner)

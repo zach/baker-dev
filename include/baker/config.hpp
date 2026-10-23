@@ -242,6 +242,9 @@ struct StackFile {
     Symbol layer;
     Symbol path;  // as the session's reader was given it
     bool present = false;
+    // A directory of layers (Config::push_layer_dir), as its lister was given it: a file
+    // added to it, or removed, changes the stack. `present`: it could be listed.
+    bool directory = false;
 };
 
 struct LayerEffectEntry {
@@ -399,6 +402,27 @@ public:
     // a cache replayed, which records no tests, is read again. If a layer does not read, the
     // defines and every layer stay as they were.
     [[nodiscard]] Expected<void> set_defines(std::span<const std::string_view> names);
+
+    // A directory of layers, for mods, DLC and plugin packs: a layer named `name`, which holds
+    // nothing, with a layer above it for each *.dta file directly in `dir` (named by its file
+    // name, without .dta) and each subdirectory that holds a layer.dta (named by the
+    // subdirectory, read from its layer.dta). They stand in the order `dir`/order.dta lists,
+    // (order a b c); the rest follow in name order. A name order.dta lists that the directory
+    // lacks is a warning, located there; order.dta is not a layer. A layer whose name is
+    // taken is left out, with a warning.
+    //
+    // The directory is listed through the session's lister and its files read through its
+    // reader. Every reload() lists it again: a new file adds a layer, a removed one removes
+    // it, and an order.dta changed reorders them. A layer keeps its enabled state across that
+    // for as long as it is there; a new one takes the directory's (set_layer_enabled on
+    // `name` sets them all). A layer that does not read is left empty, its error passed to
+    // the warning handler, and read again when its files change; the others stand. With
+    // `options.optional`, a directory that cannot be listed is empty. A policy is refused:
+    // check each layer's text instead. remove_layer(name) removes them all; a layer found
+    // in it cannot be removed alone (remove its file, or disable it), nor be a placement's
+    // anchor (place below or above `name`).
+    [[nodiscard]] Expected<void> push_layer_dir(std::string_view name, std::string_view dir,
+                                                LayerOptions options = {});
     [[nodiscard]] Expected<void> remove_layer(std::string_view name);
     // Removes the topmost layer below scratch.
     [[nodiscard]] Expected<void> pop_layer();

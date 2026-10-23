@@ -23,6 +23,8 @@ struct CacheFile {
 [[nodiscard]] uint64_t content_hash(std::string_view bytes) noexcept;
 // Reads `path` through `reader` into `text`, replacing what it held (parse.cpp).
 bool read_with(const LoadSession::Reader& reader, std::string_view path, Str& text);
+// The disk's directory listing, LoadSession's default lister (list_dir.cpp).
+bool list_disk_dir(std::string_view dir, Callback<void(std::string_view path)> entry);
 
 // The cache at `path`, replayed on the session, if it loads and is fresh; else null.
 // `from_disk`: the cache file is read from disk straight into its arena, whatever reader the

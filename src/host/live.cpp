@@ -80,6 +80,7 @@ Expected<void> Live::open(const LiveOptions& options) {
     im.on_log = options.log;
     im.load_errors.clear();
     if (options.reader) im.cfg.session().set_reader(options.reader);
+    if (options.lister) im.cfg.session().set_lister(options.lister);
     if (options.disk_path) im.watcher.set_disk_path_hook(options.disk_path);
     if (options.stamp) im.watcher.set_stamp_hook(options.stamp);
 

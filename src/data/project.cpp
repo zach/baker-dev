@@ -202,14 +202,20 @@ Expected<Project> read_project(std::string_view path, const LoadSession::Reader&
             for (size_t j = 1; j < part->size(); ++j) {
                 const Array* l = (*part)[j].try_array();
                 std::string_view file;
-                if (!l || l->size() < 2 || l->tag().empty() || !text_of((*l)[1], file))
+                // (name (dir "path")): a directory of layers.
+                const Array* in = l && l->size() >= 2 ? (*l)[1].try_array() : nullptr;
+                const bool is_dir =
+                    in && in->tag() == Symbol("dir") && in->size() == 2 && text_of((*in)[1], file);
+                if (!l || l->size() < 2 || l->tag().empty() || (!is_dir && !text_of((*l)[1], file)))
                     return Unexpected(
                         places.at(l ? *l : *part,
-                                  "a layer is (name \"path\" [optional] [disabled] [dev_only])"));
+                                  "a layer is (name \"path\" [optional] [disabled] [dev_only]), "
+                                  "or (name (dir \"path\") ...) for a directory of layers"));
                 ProjectLayer layer{.name = l->tag(),
                                    .path = joined(dir, file),
+                                   .dir = is_dir,
                                    .name_at = places.of(*l, 0),
-                                   .path_at = places.of(*l, 1)};
+                                   .path_at = is_dir ? places.of(*in, 1) : places.of(*l, 1)};
                 for (size_t k = 2; k < l->size(); ++k) {
                     if ((*l)[k].is(Symbol("optional")))
                         layer.optional = true;
@@ -275,8 +281,9 @@ Expected<List<ProjectProblem>> open_project(Config& cfg, const Project& project,
         if (options.skip.contains(l.name.str())) continue;
         // A development layer never reaches a shipping build, whatever its file says.
         if (l.dev_only && (kShipping || options.skip_dev_only)) continue;
-        if (auto r = cfg.push_layer(l.name.str(), l.path.str(),
-                                    {.optional = l.optional, .enabled = l.enabled});
+        const LayerOptions o{.optional = l.optional, .enabled = l.enabled};
+        if (auto r = l.dir ? cfg.push_layer_dir(l.name.str(), l.path.str(), o)
+                           : cfg.push_layer(l.name.str(), l.path.str(), o);
             !r) {
             if (!options.go_on) return Unexpected(std::move(r).error());
             problems.push_back({l.name, std::move(r).error()});
