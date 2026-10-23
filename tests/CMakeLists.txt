@@ -29,6 +29,8 @@ add_executable(baker_data_tests
   data/test_version.cpp
   data/test_tweaks_json.cpp
   data/test_read_consistent.cpp
+
+  data/test_defines.cpp
   data/test_write.cpp)
 target_link_libraries(baker_data_tests PRIVATE baker::data baker_parse_harness baker_doctest_main
                       baker_alloc_counter)

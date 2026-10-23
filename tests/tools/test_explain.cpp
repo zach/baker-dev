@@ -3,6 +3,7 @@
 #include <baker/config.hpp>
 #include <baker/std_interop.hpp>
 #include <baker/tools/layers.hpp>
+#include <baker/tools/reference.hpp>
 
 #include "temp_dir.hpp"
 
@@ -180,3 +181,36 @@ TEST_CASE("a disabled layer and scratch are listed, and toggling changes who win
                  "scratch wins 2.5"}));
 }
 #endif
+
+TEST_CASE("explain names the define that chose a value; check's JSON lists the defines (D242)") {
+    test::TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    cfg.session().define(Symbol("server"));
+    REQUIRE(cfg.push_layer("modes", dir.write("modes.dta",
+                                              "(mode\n"
+                                              "#ifdef server\n"
+                                              "   (tick 30)\n"
+                                              "#else\n"
+                                              "   (tick 60)\n"
+                                              "#endif\n"
+                                              "   (name \"m\"))\n")));
+    const auto entries = ok(explain(cfg, Path("mode.tick")));
+    REQUIRE(entries.size() == 1);
+    REQUIRE(entries[0].section);
+    CHECK(entries[0].section->name == Symbol("server"));
+    CHECK_FALSE(entries[0].section->else_branch);
+    CHECK_FALSE(ok(explain(cfg, Path("mode.name")))[0].section);  // outside every branch
+
+    static constexpr std::string_view kNone[] = {"demo"};
+    REQUIRE(cfg.set_defines(kNone));
+    const auto other = ok(explain(cfg, Path("mode.tick")));
+    REQUIRE(other[0].section);
+    CHECK(other[0].section->else_branch);
+
+    std::string json;
+    write_json(CheckReport{}, string_out(json), &cfg.read_session());
+    CHECK(json.find(R"j("defines": [)j"
+                    "\n"
+                    R"j(    {"name": "demo", "origin": "host", "file": "", "line": 0})j") !=
+          std::string::npos);
+}

@@ -861,7 +861,7 @@ int run_command(const CommandLine& line, const CommandHooks& hooks) {
 
 std::string_view command_help() noexcept {
     return "The kit's flags begin --baker-; any other flag is the game's.\n"
-           "  check                          baker.check/1.3 JSON; exit 1 on an error, a load\n"
+           "  check                          baker.check/1.4 JSON; exit 1 on an error, a load\n"
            "                                 problem, a shape error, or an undefined function\n"
            "  reference [--baker-json]       the script vocabulary, as Markdown; --baker-json:\n"
            "                                 {reference, tweaks, shapes} as Baker's JSON\n"

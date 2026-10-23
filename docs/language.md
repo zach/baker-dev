@@ -162,8 +162,23 @@ Defines usually come from the host, so one file serves every target:
 ```
 
 ```cpp
-cfg.session().define("HANDHELD");   // before pushing the layers
+// with a project file: the build's own defines, beside the project's (defines ...)
+static constexpr std::string_view kDefines[] = {"HANDHELD", "steam"};
+baker::open_project(cfg, project, {.defines = kDefines});
+// or before pushing the layers by hand
+cfg.session().define(baker::Symbol("HANDHELD"));
 ```
+
+- **Who made each.** `session.active_defines()` lists the flags that stand, in the order
+  they were made, each with its origin: the host's, the project's `(defines ...)`, or a
+  file's `#define` with its file and line. `check`'s JSON and the reference list them, so a
+  tool can show which sections a build reads; `explain` names the define that chose a
+  value read inside an `#ifdef`.
+- **Changing them on a live stack.** `cfg.set_defines(names)` replaces the host's flags: a
+  server switching mode, a demo unlocked. Each layer that tested, defined or undefined a
+  name that changed is read again, in place; every other layer keeps its tree. It is one
+  reload, with the trigger `defines`, and works in a shipping build. If a layer does not
+  read under the new set, nothing changes.
 
 ### `#require`
 

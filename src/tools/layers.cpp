@@ -153,6 +153,12 @@ Expected<List<ExplainEntry>> explain(const Config& cfg, const Path& path) {
                               : h.value ? impl.source_in(l, path)
                                         : Source{};
         add(Symbol(l.name), h, source, l.options.enabled);
+        // The branch of an #ifdef its value was read in: the innermost around its line.
+        if (!out.empty() && out.back().layer == Symbol(l.name) && l.after && !source.file.empty())
+            for (const ConditionalSection& s : l.after->conditional_sections())
+                if (s.file == source.file && s.begin < source.line && source.line < s.end &&
+                    (!out.back().section || s.begin > out.back().section->begin))
+                    out.back().section = s;
     }
     if (TweakRegistry* tweaks = impl.options.tweaks) {
         bool found = false;

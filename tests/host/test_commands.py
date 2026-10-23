@@ -40,7 +40,7 @@ class Stack:
 def check(s):
     code, out, _ = s.run("check")
     r = json.loads(out)
-    expect(code == 0 and r["passed"] and r["schema"] == "baker.check/1.3", "clean data passes")
+    expect(code == 0 and r["passed"] and r["schema"] == "baker.check/1.4", "clean data passes")
     code, out, err = s.run("check", agent="(waves {spawnn grunt 3})\n")
     r = json.loads(out)
     expect(code == 1 and [d["name"] for d in r["demand"]] == ["spawnn"] and "spawnn" in err,
@@ -71,7 +71,7 @@ def reference(s):
     code, out, _ = s.run("reference", "--baker-json", agent="")
     r = json.loads(out)
     names = [f["name"] for f in r["reference"]["functions"]]
-    expect(code == 0 and r["reference"]["schema"] == "baker.reference/1.4" and "spawn" in names,
+    expect(code == 0 and r["reference"]["schema"] == "baker.reference/1.5" and "spawn" in names,
            "reference --baker-json: the game's functions")
     expect(r["shapes"]["schema"] == "baker.shapes/1.3" and r["tweaks"]["schema"] == "baker.tweaks/1.5",
            "reference --baker-json: tweaks and shapes")

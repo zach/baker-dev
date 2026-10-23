@@ -391,6 +391,14 @@ public:
     // an unknown layer; Refused for a file layer (reload() reads one again) or scratch.
     [[nodiscard]] Expected<void> set_layer_text(std::string_view name, std::string_view text,
                                                 const LayerPolicy* policy = nullptr);
+    // The host's own flags, for #ifdef, replaced after the stack is open: a server switching
+    // mode, a demo unlocked. Each layer whose read tested, defined or undefined a name that
+    // changed is read again, in place, with the sessions below it; every other layer keeps
+    // its tree. One merge follows, recorded as a reload whose trigger is "defines". The same
+    // set changes nothing. Works in a shipping build: a mode is decided there too. A layer
+    // a cache replayed, which records no tests, is read again. If a layer does not read, the
+    // defines and every layer stay as they were.
+    [[nodiscard]] Expected<void> set_defines(std::span<const std::string_view> names);
     [[nodiscard]] Expected<void> remove_layer(std::string_view name);
     // Removes the topmost layer below scratch.
     [[nodiscard]] Expected<void> pop_layer();

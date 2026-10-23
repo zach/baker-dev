@@ -7,7 +7,7 @@
 // The kit's flags begin --baker-, so they never take a name the game's own flags use; any
 // other flag is the game's.
 //
-//   check                          baker.check/1.3 JSON; exit 1 on an error, a load
+//   check                          baker.check/1.4 JSON; exit 1 on an error, a load
 //                                  problem, a shape error, or a call to an undefined
 //                                  function
 //   reference [--baker-json]       the script vocabulary, as Markdown; --baker-json:
