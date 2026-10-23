@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <optional>
+#include <thread>
 
 namespace baker {
 namespace {
@@ -170,7 +171,9 @@ Expected<void> TweakBase::set_values(std::span<const Node> values) {
                                                           Str(info().name)));
     }
     if (Config* c = registry_->config()) return c->set(parsed(), values);
+    registry_->begin_change();
     (void)assign(v, true);
+    registry_->end_change();
     notify();
     return {};
 }
@@ -623,6 +626,15 @@ std::optional<bool> reads_one(std::string_view type, const Values& v, size_t i) 
 }
 
 }  // namespace
+
+namespace detail {
+
+void wait_a_moment(unsigned tries) noexcept {
+    if (tries < 64) return;  // a change takes microseconds: spin a while first
+    std::this_thread::yield();
+}
+
+}  // namespace detail
 
 namespace detail {
 
