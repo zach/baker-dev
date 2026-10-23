@@ -1,12 +1,12 @@
-# The vocabulary as JSON: `baker.reference/1.3`, `baker.tweaks/1.4`, `baker.shapes/1.2`
+# The vocabulary as JSON: `baker.reference/1.4`, `baker.tweaks/1.5`, `baker.shapes/1.2`
 
 Three documents describe what a program's data and script may say, for editors, agents,
 and other tools that should not scrape the Markdown reference:
 
 | Document | Written by | Library |
 |---|---|---|
-| `baker.reference/1.3` | `baker::tools::write_reference_json(ctx, sink, &session)` | `baker::tools` |
-| `baker.tweaks/1.4` | `baker::write_json(registry, sink)` | `baker::data` |
+| `baker.reference/1.4` | `baker::tools::write_reference_json(ctx, sink, &session)` | `baker::tools` |
+| `baker.tweaks/1.5` | `baker::write_json(registry, sink)` | `baker::data` |
 | `baker.shapes/1.2` | `baker::shape::write_json(shapes, sink)` | `baker::shape` |
 
 They are separate so that a data-only program can write its tweaks and the script library
@@ -29,11 +29,11 @@ They follow `check`'s rules (`check-json.md`):
   or changed only with a new major version.
 - **Numbers.** Ranges and steps are written as Baker prints floats (`0.5`, `10.0`).
 
-## `baker.reference/1.3`
+## `baker.reference/1.4`
 
 | Field | Contents |
 |---|---|
-| `schema` | `"baker.reference/1.3"` |
+| `schema` | `"baker.reference/1.4"` |
 | `functions` | every function with at least one overload |
 | `types` | every native type made known to the Context |
 | `script_classes` | classes only script defined (`{class Name ...}` with no native type) |
@@ -56,7 +56,8 @@ They follow `check`'s rules (`check-json.md`):
     `values`, `null` when the type does not say (added in 1.2); and `count`, how many
     values it takes: `"exact"` (one of each type, no more), `"at_least"` (one of each,
     then any more) or `"any"` (any number of the one type, as a `std::vector`), `null`
-    with no `values` (added in 1.3);
+    with no `values` (added in 1.3); and `element` and `length`, as a tweak's (added in
+    1.4);
   - `result`;
   - `min_args`;
   - `max_args`, which is `null` when the overload takes the rest of its arguments.
@@ -107,7 +108,7 @@ editor, a CI job) can register each function from its overloads with
 - A property has `name`, `type` and `doc`.
 - `handlers` names the script handlers that `{class}` or `{extend}` attached.
 
-## `baker.tweaks/1.4`
+## `baker.tweaks/1.5`
 
 `tweaks` lists every tweak in the registry, by path. Each one has:
 
@@ -117,7 +118,9 @@ editor, a CI job) can register each function from its overloads with
 | `type` | the value's type as errors name it: `"float32"`, `"int32"`, `"bool"`, or your own (`"vec2"`) |
 | `values` | Baker's type of each value: `["float32"]`, or `["float32", "float32"]` for a `vec2` whose `Convert` declares `values`; `null` when the type does not say (added in 1.2) |
 | `count` | how many values it takes, as a parameter's `count`: `"exact"`, `"at_least"` or `"any"` (`["symbol"]` and `"any"` for a `std::vector<Symbol>`); `null` with no `values` (added in 1.4) |
-| `default` | the code's default, as Baker text |
+| `element` | a list's element: `{"type", "values", "count"}`, its type named as `type` names one (`"float32"`, `"vec2"`) and its `values` and `count` as a value's; `null` for a value that is not a list (added in 1.5) |
+| `length` | a fixed-size list's number of elements, `4` for a `std::array<vec2, 4>`; `null` otherwise (added in 1.5) |
+| `default` | the code's default, as Baker text: a list's in parentheses however many elements it has, `((0.0 0.0))` for one `vec2` (1.5) |
 | `value` | the current value, as Baker text |
 | `bound` | whether the data supplies the value |
 | `range` | `[min, max]`, or `null` |
@@ -171,6 +174,24 @@ one of Baker's single-value types (`std::array<float, 3>`) declares its own, thr
 `float32`s, exactly; a `std::vector` of one declares its type, any number of them, so a
 list tweak is described and checked as the rest are. A parameter of a declared function
 takes the same `count` in its `ParamDescription`.
+
+**A list of the game's own type.** A `std::vector<vec2>` or a `std::array<vec2, 4>` cannot
+list its values flat: each element nests in parentheses, `(patrol (0 0) (4 0) (4 4))`, so
+its `values` are `null`. Its `element` says what each element is, and `length` how many a
+fixed-size list holds. Give them in the description, `.element = {.type = "vec2", .values =
+kVec2, .length = 4}`, and the tool holds each element to them as the game does: a point
+given one number, or three points where four are wanted, fails in both. A `range` holds
+every number in each element, and `one_of` every symbol. A list converter of the game's own
+says what its element is as the standard ones do:
+
+```cpp
+using element = Vec2;                 // what each element is
+static constexpr size_t length = 4;   // for a fixed-size list
+```
+
+An element type that is neither Baker's nor given its values is refused by `add`, naming the
+tweak. A `ParamDescription` takes the same `.element`, and `check` holds a literal list
+argument to it, for a native's parameter too, unless an element is evaluated.
 
 ## `baker.shapes/1.2`
 

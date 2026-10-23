@@ -92,6 +92,10 @@ struct Checker {
     // as Values::read reads a compound value: an array as its contents, else the one value.
     static bool reads_values(const detail::ParamInfo& p, const Node& n) {
         const Array* a = n.try_array();
+        // A list's elements, unless one is evaluated: that is left to the call.
+        if (!p.element().type.empty())
+            return a && (std::any_of(a->begin(), a->end(), evaluable) ||
+                         detail::reads_list(p.element(), Values(a->nodes(), a)));
         return detail::reads_as(
             p.values(), p.count(),
             a ? Values(a->nodes(), a) : Values(std::span<const Node>(&n, 1), nullptr));
@@ -104,9 +108,17 @@ struct Checker {
             const detail::ParamInfo& p = o.params[i];
             if (p.kind == detail::ParamKind::Rest) return true;
             if (evaluable(command[i + first])) continue;
-            if (p.match ? !p.match(command[i + first], true)
-                        : !p.values().empty() && !reads_values(p, command[i + first]))
+            const Node& arg = command[i + first];
+            if (p.match
+                    ? !p.match(arg, true)
+                    : (!p.values().empty() || !p.element().values.empty()) && !reads_values(p, arg))
                 return false;
+            // A literal list's elements, when none is evaluated: a native's too.
+            if (p.match && !p.element().values.empty())
+                if (const Array* a = arg.try_array();
+                    a && std::none_of(a->begin(), a->end(), evaluable) &&
+                    !detail::reads_list(p.element(), Values(a->nodes(), a)))
+                    return false;
         }
         return true;
     }

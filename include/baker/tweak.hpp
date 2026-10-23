@@ -140,6 +140,8 @@ public:
     [[nodiscard]] std::span<const std::string_view> value_types() const noexcept { return types(); }
     // How many values it takes, beside value_types(): exactly them unless the type says.
     [[nodiscard]] ValueCount value_count() const noexcept { return count(); }
+    // A list's element and length (Convert<T>::element); an empty type for any other value.
+    [[nodiscard]] ListElement list_element() const noexcept { return element(); }
 
     // Metadata, the data file's winning over the code's.
     [[nodiscard]] TweakRange range() const;
@@ -196,6 +198,7 @@ private:
     [[nodiscard]] virtual detail::ConvertInfo info() const noexcept = 0;
     [[nodiscard]] virtual std::span<const std::string_view> types() const noexcept = 0;
     [[nodiscard]] virtual ValueCount count() const noexcept = 0;
+    [[nodiscard]] virtual ListElement element() const noexcept = 0;
 
     // Rebinds against `root` (a Config's merged tree); true if the value changed. Reports
     // a value that does not convert through `warn`.
@@ -250,7 +253,7 @@ private:
     Config* config_ = nullptr;
 };
 
-// Every tweak in `tweaks` as JSON (schema baker.tweaks/1.4, docs/reference-json.md), sorted by
+// Every tweak in `tweaks` as JSON (schema baker.tweaks/1.5, docs/reference-json.md), sorted by
 // path: its type and value types, default and current value, metadata (the data's winning
 // over the code's), and, while a config supplies it, where the value came from. For tools
 // and agents.
@@ -339,6 +342,9 @@ private:
         return detail::value_types<T>();
     }
     [[nodiscard]] ValueCount count() const noexcept override { return detail::value_count<T>(); }
+    [[nodiscard]] ListElement element() const noexcept override {
+        return detail::list_element<T>();
+    }
     void store(T v) {
         if constexpr (kAtomic)
             value_.store(v, std::memory_order_relaxed);

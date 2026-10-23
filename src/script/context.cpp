@@ -648,11 +648,19 @@ struct Declared {
                        ? p.values
                        : std::span<const std::string_view>(&p.type, 1);
         };
+        // A list's element's, likewise.
+        auto element = [](const ParamDescription& p) {
+            const ListElement& e = p.element;
+            return !e.values.empty() || !detail::value_type_known(e.type)
+                       ? e.values
+                       : std::span<const std::string_view>(&e.type, 1);
+        };
         size_t length = 0, count = 0;
         for (const ParamDescription& p : od.params) {
-            length += p.type.size();
-            for (const std::string_view v : given(p)) length += v.size();
-            count += given(p).size();
+            length += p.type.size() + p.element.type.size();
+            for (const auto set : {given(p), element(p)})
+                for (const std::string_view v : set) length += v.size();
+            count += given(p).size() + element(p).size();
         }
         names.reserve(length);  // so the views below stay where they point
         values.reserve(count);
@@ -662,9 +670,17 @@ struct Declared {
             const std::string_view type = keep(p.type);
             const size_t first = values.size();
             for (const std::string_view v : given(p)) values.push_back(keep(v));
-            texts.push_back({type, {values.data() + first, given(p).size()}, p.count});
+            ListElement listed{};
+            if (!p.element.type.empty()) {
+                listed = {keep(p.element.type), {}, p.element.count, p.element.length};
+                const size_t at = values.size();
+                for (const std::string_view v : element(p)) values.push_back(keep(v));
+                listed.values = {values.data() + at, element(p).size()};
+            }
+            texts.push_back({type, {values.data() + first, given(p).size()}, p.count, listed});
             params.push_back(infos[i]);
             params.back().text = &texts.back();
+            params.back().listed = !listed.values.empty();
         }
     }
     std::string_view keep(std::string_view text) {
@@ -684,8 +700,15 @@ struct Declared {
 
 // Whether an argument has a described parameter's type: by its match, or by the value types
 // of a type only described, read as Values::read reads a compound value.
+// A list argument's elements, out of the way of the common call (D237).
+BAKER_COLD bool has_elements(const detail::ParamInfo& p, const Node& v) {
+    const Array* a = v.try_array();
+    return a && detail::reads_list(p.element(), Values(a->nodes(), a));
+}
+
 bool has_type(const detail::ParamInfo& p, const Node& v) {
-    if (p.match) return p.match(v, true);
+    if (p.match) return p.match(v, true) && (!p.listed || has_elements(p, v));
+    if (p.listed) return has_elements(p, v);
     if (p.values().empty()) return true;
     const Array* a = v.try_array();
     return detail::reads_as(
@@ -779,8 +802,15 @@ bool builtin_match(std::string_view type, Match& match) {
 
 // A type of the game's own the description gives the value types of: checked by them.
 bool described(const ParamDescription& p) {
-    return !p.values.empty() && std::all_of(p.values.begin(), p.values.end(),
-                                            [](auto v) { return detail::value_type_known(v); });
+    auto known = [](std::span<const std::string_view> types) {
+        return std::all_of(types.begin(), types.end(),
+                           [](auto v) { return detail::value_type_known(v); });
+    };
+    // A list described by its element: of Baker's type, or of the game's with its values.
+    if (!p.element.type.empty() && (detail::value_type_known(p.element.type) ||
+                                    (!p.element.values.empty() && known(p.element.values))))
+        return known(p.values);
+    return !p.values.empty() && known(p.values);
 }
 
 // A type a native function or method of this Context takes (a host's own, `vec2`), with

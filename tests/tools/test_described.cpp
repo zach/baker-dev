@@ -5,6 +5,7 @@
 #include <baker/parse.hpp>
 #include <baker/std_interop.hpp>
 #include <baker/tools/described.hpp>
+#include <baker/tools/reference.hpp>
 
 #include <array>
 #include <memory>
@@ -26,6 +27,10 @@ std::vector<std::string> messages(const List<Error>& list) {
 }  // namespace
 
 namespace {
+Ref<Array> parse(std::string_view text, std::string_view name) {
+    return ok(read_string(text, name));
+}
+
 struct Vec2 {
     float x = 0, y = 0;
 };
@@ -85,7 +90,8 @@ TEST_CASE("a tool registers tweaks from their descriptions, and check holds data
     std::string json;
     write_json(tool, string_out(json));
     CHECK(json.find(R"j("type": "vec2", "values": ["float32", "float32"], "count": "exact", )j"
-                    R"j("default": "(0.0 1.0)")j") != std::string::npos);
+                    R"j("element": null, "length": null, "default": "(0.0 1.0)")j") !=
+          std::string::npos);
 }
 
 TEST_CASE("a description the registry cannot hold is an error naming the tweak") {
@@ -200,6 +206,7 @@ TEST_CASE("a list tweak is described and checked as the game's (D233)") {
                            .type = "list",
                            .values = waves.value_types(),
                            .count = waves.value_count(),
+                           .element = waves.list_element(),
                            .default_text = "(3 4)"}));
     for (const char* text : {"(level (waves 3 4 5))\n", "(level (waves 7))\n", "(level (waves))\n",
                              "(level (waves 3 2.5))\n", "(level (waves 3 many))\n"}) {
@@ -215,8 +222,144 @@ TEST_CASE("a list tweak is described and checked as the game's (D233)") {
     std::string mine, theirs;
     write_json(tool, string_out(mine));
     write_json(game, string_out(theirs));
-    CHECK(mine.find(R"j("values": ["int32"], "count": "any", "default": "(3 4)")j") !=
+    const char* const listed =
+        R"j("values": ["int32"], "count": "any", )j"
+        R"j("element": {"type": "int32", "values": ["int32"], "count": "exact"}, "length": null, )j"
+        R"j("default": "(3 4)")j";
+    CHECK(mine.find(listed) != std::string::npos);
+    CHECK(theirs.find(listed) != std::string::npos);
+}
+
+// --- A list describes its elements (requirement 0025, D237). ---
+
+TEST_CASE("a list of the game's own type describes its element and length") {
+    TweakRegistry game;
+    Tweak<std::vector<Vec2>> patrol{"guard.patrol", {{0, 0}, {4, 0}}, {}, game};
+    Tweak<std::array<Vec2, 4>> quad{"zone.quad", {}, {}, game};
+    Tweak<std::vector<float>> weights{"loot.weights", {1.0f, 2.0f}, {}, game};
+    Tweak<Vec2> aim{"guard.aim", Vec2{0, 1}, {}, game};
+    CHECK(patrol.list_element().type == "vec2");
+    CHECK(patrol.list_element().values.size() == 2);
+    CHECK(patrol.list_element().length == 0);
+    CHECK(quad.list_element().length == 4);
+    CHECK(patrol.value_types().empty());  // its values nest, and cannot be listed flat
+    CHECK(aim.list_element().type.empty());
+
+    // The data gives the weights one element.
+    Config cfg({.tweaks = &game});
+    REQUIRE(cfg.push_layer("default", ok(read_string("(loot (weights 1.0))\n", "d.dta"))));
+    std::string json;
+    write_json(game, string_out(json));
+    CHECK(json.find(R"j("path": "guard.patrol", "type": "list", "values": null, "count": null, )j"
+                    R"j("element": {"type": "vec2", "values": ["float32", "float32"], )j"
+                    R"j("count": "exact"}, "length": null, )j"
+                    R"j("default": "((0.0 0.0) (4.0 0.0))")j") != std::string::npos);
+    CHECK(json.find(R"j("path": "zone.quad", "type": "fixed-size list", "values": null, )j"
+                    R"j("count": null, "element": {"type": "vec2", )j"
+                    R"j("values": ["float32", "float32"], "count": "exact"}, "length": 4, )j") !=
           std::string::npos);
-    CHECK(theirs.find(R"j("values": ["int32"], "count": "any", "default": "(3 4)")j") !=
+    // A list of one element is written in parentheses, so it reads back as a list.
+    CHECK(json.find(R"j("path": "loot.weights", "type": "list", "values": ["float32"], )j"
+                    R"j("count": "any", "element": {"type": "float32", "values": ["float32"], )j"
+                    R"j("count": "exact"}, "length": null, "default": "(1.0 2.0)", )j"
+                    R"j("value": "(1.0)")j") != std::string::npos);
+    CHECK(json.find(R"j("path": "guard.aim", "type": "vec2", "values": ["float32", "float32"], )j"
+                    R"j("count": "exact", "element": null, "length": null, )j") !=
           std::string::npos);
+}
+
+TEST_CASE("a tool holds a list's elements to their type as the game does") {
+    TweakRegistry game;
+    Tweak<std::vector<Vec2>> patrol{"guard.patrol", {{0, 0}}, {.range = {0, 10}}, game};
+    Tweak<std::array<Vec2, 4>> quad{"zone.quad", {}, {}, game};
+    Tweak<std::vector<int>> spawns{"wave.spawns", {3, 4}, {}, game};
+    static constexpr std::string_view kTags[] = {"fast", "loud"};
+    Tweak<std::vector<Symbol>> tags{"wave.tags", {}, {.one_of = kTags}, game};
+
+    // The tool's copies, made from the descriptions alone, as the JSON gives them.
+    TweakRegistry tool;
+    DescribedTweaks described(tool);
+    static constexpr std::string_view kVec2[] = {"float32", "float32"};
+    static constexpr std::string_view kInt[] = {"int32"};
+    static constexpr std::string_view kSymbol[] = {"symbol"};
+    REQUIRE(described.add({.path = "guard.patrol",
+                           .type = "list",
+                           .count = ValueCount::Any,
+                           .element = {.type = "vec2", .values = kVec2},
+                           .default_text = "((0.0 0.0))",
+                           .range = {0, 10}}));
+    REQUIRE(described.add({.path = "zone.quad",
+                           .type = "fixed-size list",
+                           .element = {.type = "vec2", .values = kVec2, .length = 4},
+                           .default_text = "((0.0 0.0) (0.0 0.0) (0.0 0.0) (0.0 0.0))"}));
+    REQUIRE(described.add({.path = "wave.spawns",
+                           .type = "list",
+                           .values = kInt,
+                           .count = ValueCount::Any,
+                           .element = {.type = "int32"},
+                           .default_text = "(3)"}));
+    REQUIRE(described.add({.path = "wave.tags",
+                           .type = "list",
+                           .values = kSymbol,
+                           .count = ValueCount::Any,
+                           .element = {.type = "symbol"},
+                           .default_text = "()",
+                           .one_of = kTags}));
+
+    const char* const good =
+        "(guard (patrol (0 0) (4 0) (4 4)))\n(zone (quad (0 0) (1 0) (1 1) (0 1)))\n"
+        "(wave (spawns 3 4 5) (tags fast loud))\n";
+    for (const char* text : {
+             good,
+             "(guard (patrol (0 0) (4)))\n",       // a point given one number
+             "(guard (patrol (0 0) (40 0)))\n",    // outside the range, inside an element
+             "(zone (quad (0 0) (1 0) (1 1)))\n",  // three points of four
+             "(wave (spawns 3 four 5))\n",         // an element of the wrong type
+             "(wave (tags fast quiet))\n",         // outside one_of
+         }) {
+        CAPTURE(text);
+        const Ref<Array> root = ok(read_string(text, "d.dta"));
+        const TweakFindings mine = check_tweaks(*root, tool);
+        const TweakFindings theirs = check_tweaks(*root, game);
+        CHECK(messages(mine.errors) == messages(theirs.errors));
+        CHECK(mine.errors.size() == (text == good ? 0u : 1u));
+    }
+
+    // An element whose type says nothing is refused, naming the tweak.
+    const auto bare = described.add({.path = "guard.route",
+                                     .type = "list",
+                                     .count = ValueCount::Any,
+                                     .element = {.type = "vec3"},
+                                     .default_text = "()"});
+    REQUIRE_FALSE(bare);
+    CHECK(std::string(bare.error().message()).find("tweak 'guard.route'") != std::string::npos);
+    CHECK(std::string(bare.error().message()).find("element type 'vec3'") != std::string::npos);
+}
+
+TEST_CASE("a list parameter's elements are checked, native or declared, and at a call") {
+    static constexpr std::string_view kVec2[] = {"float32", "float32"};
+    const ParamDescription walk[] = {
+        {.type = "list", .count = ValueCount::Any, .element = {.type = "vec2", .values = kVec2}}};
+    const OverloadDescription walk_o[] = {{walk, "nothing"}};
+    Context game, tool;
+    REQUIRE(game.func("guard.walk", [](std::vector<Vec2>) {}));
+    REQUIRE(tool.declare("guard.walk", walk_o, [](Args&) -> Expected<Node> { return Node(); }));
+
+    // The reference describes the native's parameter as the description does.
+    std::string json;
+    write_reference_json(game, string_out(json));
+    CHECK(json.find(R"j("element": {"type": "vec2", "values": ["float32", "float32"], )j"
+                    R"j("count": "exact"}, "length": null})j") != std::string::npos);
+
+    const auto good = parse("{guard.walk ((0 0) (1 1))}", "t.dta");
+    const auto bad = parse("{guard.walk ((0 0) (1))}", "t.dta");
+    CHECK(check(*good, game).errors.empty());
+    CHECK(check(*good, tool).errors.empty());
+    CHECK(check(*bad, game).errors.size() == 1);
+    CHECK(check(*bad, tool).errors.size() == 1);
+    // A list with an evaluated element is left to the call.
+    CHECK(check(*parse("{guard.walk ((0 0) {pick})}", "t.dta"), tool).errors.empty());
+
+    CHECK(tool.eval("{guard.walk ((0 0) (1 1))}", "t"));
+    CHECK_FALSE(tool.eval("{guard.walk ((0 0) (1))}", "t"));
 }

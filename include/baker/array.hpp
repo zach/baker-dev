@@ -239,6 +239,20 @@ enum class ValueCount : uint8_t {
     Any,      // any number, zero included, each of the one type (or groups of the types)
 };
 
+// A list's element, for the reference and a tool that checks data without the game. A list
+// converter declares its element type, and a fixed-size one its length too:
+//   using element = Vec2;
+//   static constexpr size_t length = 4;
+// as Convert<std::vector<T>> and Convert<std::array<T, N>> do. An element of one of Baker's
+// single-value types is written bare, (spawns 3 4 5); one of the game's own nests in
+// parentheses, (patrol (0 0) (4 0) (4 4)), as Values::read reads it.
+struct ListElement {
+    std::string_view type{};  // "float32", "vec2"; empty for a value that is not a list
+    std::span<const std::string_view> values{};  // Baker's type of each of its values
+    ValueCount count = ValueCount::Exact;        // how many it takes, as a value's count
+    size_t length = 0;                           // a fixed-size list's elements; 0: any
+};
+
 namespace detail {
 
 // How a lookup failure is described.
@@ -307,6 +321,19 @@ template <class T>
         return ValueCount::Exact;
 }
 
+// A list converter's element (Convert<T>::element, ::length); none for any other T.
+template <class T>
+[[nodiscard]] constexpr ListElement list_element() noexcept {
+    if constexpr (requires { typename Convert<T>::element; }) {
+        using E = typename Convert<T>::element;
+        size_t length = 0;
+        if constexpr (requires { size_t(Convert<T>::length); }) length = Convert<T>::length;
+        return {convert_info<E>().name, value_types<E>(), value_count<E>(), length};
+    } else {
+        return {};
+    }
+}
+
 // Whether `type` is one of Baker's single-value types: "int8" to "uint64", "int", "float32",
 // "float", "bool", "symbol", "string", or "value" (any one value).
 [[nodiscard]] bool value_type_known(std::string_view type) noexcept;
@@ -314,6 +341,10 @@ template <class T>
 // it with Values::read would take it; false if a type is not one of Baker's.
 [[nodiscard]] bool reads_as(std::span<const std::string_view> types, ValueCount count,
                             const Values& values);
+// Whether `values` are a list of `element`s, each read as Values::read reads it: bare for
+// one of Baker's types, its contents for an array of the game's own; `length` of them if it
+// is fixed. True when the element's values are not described: nothing to hold them to.
+[[nodiscard]] bool reads_list(const ListElement& element, const Values& values);
 // "exact", "at_least" or "any", as the JSON documents write a count.
 [[nodiscard]] std::string_view count_name(ValueCount count) noexcept;
 

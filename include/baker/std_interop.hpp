@@ -112,6 +112,7 @@ struct Convert<std::vector<T>> {
     // None for a T of several, whose values nest in each element.
     static constexpr auto values = detail::repeated_value_types<T, 1>();
     static constexpr ValueCount count = ValueCount::Any;
+    using element = T;  // what each value is, for a T of several values too
     static bool from(const Values& v, std::vector<T>& out) {
         out.assign(v.size(), T{});
         for (size_t i = 0; i < v.size(); ++i)
@@ -130,6 +131,8 @@ struct Convert<std::array<T, N>> {
     // {"float32", "float32", "float32"} for std::array<float, 3>: the reference writes them,
     // and a tool checks without the game by them.
     static constexpr auto values = detail::repeated_value_types<T, N>();
+    using element = T;  // what each value is, for a T of several values too
+    static constexpr size_t length = N;
     static bool from(const Values& v, std::array<T, N>& out) {
         if (v.size() != N) return false;
         for (size_t i = 0; i < N; ++i)

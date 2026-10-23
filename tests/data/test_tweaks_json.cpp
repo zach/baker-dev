@@ -1,4 +1,4 @@
-// The tweaks as JSON, baker.tweaks/1.4, and the data held to them (D203, D206, D210).
+// The tweaks as JSON, baker.tweaks/1.5, and the data held to them (D203, D206, D210).
 #include <doctest.h>
 #include <baker/config.hpp>
 #include <baker/parse.hpp>
@@ -52,15 +52,15 @@ TEST_CASE("the tweaks as JSON: type, default, value, metadata, and source") {
     write_json(reg, string_out(json));
     CHECK(
         json ==
-        "{\n  \"schema\": \"baker.tweaks/1.4\",\n  \"tweaks\": [\n"
+        "{\n  \"schema\": \"baker.tweaks/1.5\",\n  \"tweaks\": [\n"
         R"j(    {"path": "player.lives", "type": "int32", "values": ["int32"], "count": "exact", )j"
-        R"j("default": "3", )j"
+        R"j("element": null, "length": null, "default": "3", )j"
         R"j("value": "3", )j"
         R"j("bound": false, "range": null, "step": 0.0, "desc": "", "kind": "", )j"
         R"j("group": "player", "dev_only": true, "one_of": [], "choices": [], "source": null},)j"
         "\n"
         R"j(    {"path": "player.speed", "type": "float32", "values": ["float32"], "count": "exact", )j"
-        R"j("default": "4.0", "value": "6.0", )j"
+        R"j("element": null, "length": null, "default": "4.0", "value": "6.0", )j"
         R"j("bound": true, "range": [0.0, 10.0], "step": 0.5, "desc": "Run speed", )j"
         R"j("kind": "", "group": "player", "dev_only": false, "one_of": [], "choices": [], )j"
         R"j("source": {"layer": "default", "file": "d.dta", "line": 1}})j"
