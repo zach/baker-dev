@@ -7493,3 +7493,68 @@ keep theirs (§12 Q3).*
 - **Also:** `tools/local_matrix.sh` (and `--quick`) runs `clang-format --dry-run --Werror`
   over every source file first, as CI's format job does: step 7's commit failed CI on
   formatting alone, which no build of the matrix sees.
+
+## D237. A list describes its elements
+
+*Requirement note 0025, from the editor integration. The design is
+`dev/list-elements-note.md`; the JSON's shape, the name `length`, and covering parameters too
+are the owner's choices.*
+
+- **The need.** D233 described a list of one-value elements (`std::vector<float>`: `values`
+  `["float32"]`, `count` `"any"`). A list of the game's own type, `std::vector<vec2>` or
+  `std::array<vec2, 4>`, nests each element in parentheses, so its values cannot be listed
+  flat and the reference wrote `values: null`: a tool could not make the tweak, and a point
+  given one number passed every tool and failed in the game.
+- **The converter says what its element is.**
+  - A list converter declares `using element = T;`, and a fixed-size one also
+    `static constexpr size_t length = N;`. `Convert<std::vector<T>>` and
+    `Convert<std::array<T, N>>` do, and a game's own list converter may.
+  - `detail::list_element<T>()` reads them at compile time into a `baker::ListElement`:
+    `type`, `values`, `count` and `length` (0: any number).
+  - `TweakBase::list_element()` gives a tweak's, through one more virtual that no read
+    calls. A parameter's is in its `ParamText`, which only the reference and `check` read.
+- **The JSON.**
+  - `baker.tweaks/1.5` and `baker.reference/1.4` give each tweak and parameter
+    `"element": {"type", "values", "count"}` (or `null`) and `"length"` (or `null`), beside
+    the value's own `values` and `count`, which are unchanged.
+  - `json_list_element` writes both, for tweaks and parameters alike.
+- **Behaviour that changes.** A list tweak's `default` and `value` are written in
+  parentheses however many elements the list has: `((0.0 0.0))` for one `vec2`, `(3)` for
+  one int. Before, one element was written bare, and `(0.0 0.0)` read back as two numbers.
+  A 1.4 reader already unwraps parenthesized text for a list (its `count` is not
+  `"exact"`).
+- **Without the game.**
+  - `TweakDescription` and `ParamDescription` take `.element`.
+  - `DescribedTweaks::add` makes a tweak that reads a list by its elements
+    (`detail::reads_list`): a fixed-size list needs `length` of them; an element of one of
+    Baker's types is read bare; one of the game's own is read from its parentheses, as
+    `Values::read` reads it.
+  - An element type that is neither Baker's nor given its values is refused, naming the
+    tweak.
+  - `check` holds a literal list argument to a parameter's element, for a native's
+    parameter too, unless one of the list's elements is evaluated (left to the call).
+  - A declared function's call holds it in `has_type`.
+- **Range and `one_of` apply to each element.** `check_tweaks` judges every number and
+  symbol inside each element of a list of the game's own type, one level down.
+- **Found while building:** an untagged element, `(40 0)`, must be read with `nodes()`.
+  `values()` skips the first node as a tag, which hid the 40 from the range.
+- **Cost.**
+  - `tools/count_instructions.py` against main (7244485): `lookup` 205, `set` 624, `call`
+    307 and `frame` 197, all unchanged.
+  - `declared` went from 520 to 524 (+0.77%). The first version reached through each
+    parameter's text for its element and fetched the argument's array first: 538, then
+    526 with the list check moved out of line (`BAKER_COLD`).
+  - `ParamInfo` now carries `listed`, a byte in what was padding beside `raw`, so it stays
+    32 bytes and the test is one byte load from the line the call already reads.
+- **Tests.**
+  - The JSON of `std::vector<vec2>`, `std::array<vec2, 4>`, `std::vector<float>` and a plain
+    `vec2`, with a list bound to one element written `(1.0)`. (Constructing a one-element
+    `std::vector` from a braced list in a test trips GCC 13's `-Warray-bounds` false
+    positive at `-O2`, so the one element comes from the data.)
+  - Tweaks described from the JSON's fields alone, judged as the game's against: good data,
+    a point given one number, a point outside the range, three points of four, an element of
+    the wrong type, and a symbol outside `one_of`.
+  - The refusal of an element type with no values.
+  - A native and a declared `std::vector<vec2>` parameter, both refusing a bad point in
+    `check` and passing a list with an evaluated element, the reference describing the
+    native's element, and a declared call refusing the bad point.

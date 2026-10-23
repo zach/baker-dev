@@ -18,7 +18,10 @@ struct TweakDescription {
     // of the game's own, implied for one of Baker's.
     std::span<const std::string_view> values{};
     ValueCount count = ValueCount::Exact;  // how many values it takes, as the reference says
-    std::string_view default_text{};       // the code's default, as Baker text: "2.5", "(0 1)"
+    // A list's element and length, as the reference's "element" and "length" give them: each
+    // element is held to them, which a list of the game's own type ("vec2") needs.
+    ListElement element{};
+    std::string_view default_text{};  // the code's default, as Baker text: "2.5", "(0 1)"
     TweakRange range{};
     double step = 0;
     std::string_view desc{};

@@ -297,7 +297,7 @@ Str reference_text(const Context& ctx, const LoadSession* packs) {
     return out;
 }
 
-// --- The reference as JSON (baker.reference/1.3, docs/reference-json.md) ---
+// --- The reference as JSON (baker.reference/1.4, docs/reference-json.md) ---
 
 const char* param_kind_name(detail::ParamKind k) {
     switch (k) {
@@ -343,6 +343,7 @@ void json_overloads(Str& out, const Vec<detail::Overload>& overloads) {
                 out += "], \"count\": ";
                 json_string(out, detail::count_name(p.count()));
             }
+            detail::json_list_element(out, p.element());
             out += '}';
         }
         out += "], \"result\": ";
@@ -365,7 +366,7 @@ void json_status(Str& out, Status status, Symbol replacement, std::string_view d
 
 Str reference_json(const Context& ctx, const LoadSession* packs) {
     const Context::Impl& impl = ctx.impl();
-    Str out = "{\n  \"schema\": \"baker.reference/1.3\",\n  \"functions\": [";
+    Str out = "{\n  \"schema\": \"baker.reference/1.4\",\n  \"functions\": [";
     Vec<const Function*> fs;
     for (const auto& f : impl.functions)
         if (!f->overloads.empty()) fs.push_back(f.get());

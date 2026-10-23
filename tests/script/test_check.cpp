@@ -771,8 +771,8 @@ TEST_CASE("types, objects and game value types declared from the reference check
     std::string json;
     write_reference_json(game, string_out(json));
     CHECK(json.find(R"j({"type": "vec2", "kind": "value", "raw": false, )j"
-                    R"j("values": ["float32", "float32"], "count": "exact"})j") !=
-          std::string::npos);
+                    R"j("values": ["float32", "float32"], "count": "exact", )j"
+                    R"j("element": null, "length": null})j") != std::string::npos);
     CHECK_FALSE(tool.eval("{tank hold}", "run.dta"));
 }
 
@@ -851,7 +851,8 @@ TEST_CASE("a function with a body and a described signature checks and runs (D21
     write_reference_json(ctx, string_out(json));
     CHECK(json.find(R"j({"name": "player.move", "tier": "native")j") != std::string::npos);
     CHECK(json.find(R"j({"type": "int", "kind": "value", "raw": false, "values": ["int"], )j"
-                    R"j("count": "exact"})j") != std::string::npos);
+                    R"j("count": "exact", "element": null, "length": null})j") !=
+          std::string::npos);
 }
 
 TEST_CASE("a described parameter takes as many values as its count says (D233)") {

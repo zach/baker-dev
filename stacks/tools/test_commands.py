@@ -193,7 +193,7 @@ def built_reference(s):
     code, out, _ = s.run("reference", "--baker-json", agent="")
     names = lambda r: [f["name"] for f in r["reference"]["functions"]]
     built = json.loads(written.read_text())
-    expect(code == 0 and built["reference"]["schema"] == "baker.reference/1.3" and
+    expect(code == 0 and built["reference"]["schema"] == "baker.reference/1.4" and
            names(built) == names(json.loads(out)),
            "the built reference is the game's reference --baker-json")
 

@@ -205,6 +205,7 @@ struct ParamText {
     // type), for the reference and for check without the game; empty when it does not say.
     std::span<const std::string_view> values;
     ValueCount count = ValueCount::Exact;  // how many it reads (Convert<T>::count)
+    ListElement element{};                 // a list's element and length (Convert<T>::element)
 };
 struct ParamInfo {
     const ParamText* text;
@@ -212,10 +213,14 @@ struct ParamInfo {
     // Whether an (evaluated, or literal) argument has the right node type; null: any.
     bool (*match)(const Node& n, bool promote) noexcept;
     bool raw;  // not evaluated before the call (Raw<T>, or an optional one)
+    // A list whose elements are described (text->element): held to them. Beside raw, in
+    // what was padding, so a declared call learns it without reaching the text.
+    bool listed;
 
     [[nodiscard]] std::string_view type() const noexcept { return text->type; }
     [[nodiscard]] std::span<const std::string_view> values() const noexcept { return text->values; }
     [[nodiscard]] ValueCount count() const noexcept { return text->count; }
+    [[nodiscard]] const ListElement& element() const noexcept { return text->element; }
 };
 
 template <class P>
@@ -573,7 +578,8 @@ template <class P>
 template <class P>
 inline constexpr ParamText kParamText{
     Param<P>::type(), param_values<P>(),
-    value_count<typename OptionalOf<std::remove_cvref_t<P>>::type>()};
+    value_count<typename OptionalOf<std::remove_cvref_t<P>>::type>(),
+    list_element<typename OptionalOf<std::remove_cvref_t<P>>::type>()};
 
 // The parameter descriptions of a signature, built at compile time: no allocation.
 template <class... P>
@@ -588,7 +594,8 @@ struct ParamTable {
         (
             [&] {
                 if constexpr (Param<P>::kind != ParamKind::Implicit)
-                    s.items[i++] = {&kParamText<P>, Param<P>::kind, Param<P>::match, is_raw<P>};
+                    s.items[i++] = {&kParamText<P>, Param<P>::kind, Param<P>::match, is_raw<P>,
+                                    !kParamText<P>.element.values.empty()};
             }(),
             ...);
         return s;
@@ -726,6 +733,9 @@ struct ParamDescription {
     // game's own ("vec2") be checked without the game; and how many it takes.
     std::span<const std::string_view> values{};
     ValueCount count = ValueCount::Exact;
+    // A list's element and length, as the reference's "element" and "length" give them:
+    // what lets a list of the game's own type ("vec2") be checked without the game.
+    ListElement element{};
 };
 struct OverloadDescription {
     std::span<const ParamDescription> params;

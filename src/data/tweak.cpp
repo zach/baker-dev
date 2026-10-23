@@ -398,7 +398,10 @@ TweakFindings check_tweaks(const Array& root, const TweakRegistry& tweaks) {
         }
         const Allowed may = allowed(trailing_meta(r.values, k.one_of), t.meta_);
         const Vec<Symbol>& one_of = may.texts;
-        for (const Node& v : values) {
+        // Each value; a list of the game's own type's elements, each of their values.
+        const ListElement element = t.list_element();
+        const bool nested = !element.type.empty() && !detail::value_type_known(element.type);
+        auto judge = [&](const Node& v) {
             const auto x = v.try_float();
             if (!range.empty() && x && (*x < range.min || *x > range.max))
                 add(errors,
@@ -435,6 +438,14 @@ TweakFindings check_tweaks(const Array& root, const TweakRegistry& tweaks) {
                                         ", not one of its tweak's " + names,
                                     where));
             }
+        };
+        for (const Node& v : values) {
+            const Array* a = nested ? v.try_array() : nullptr;
+            if (!a) {
+                judge(v);
+                continue;
+            }
+            for (const Node& inner : a->nodes()) judge(inner);
         }
     });
     // Keys beside a group's tweaks that no tweak reads: a misspelled key looks so.
@@ -483,13 +494,15 @@ TweakFindings check_tweaks(const Array& root, const TweakRegistry& tweaks) {
             List<Error>({warnings.data(), warnings.size()})};
 }
 
-// --- As JSON (baker.tweaks/1.4) ---
+// --- As JSON (baker.tweaks/1.5) ---
 
 namespace {
 // The tweak's values as one text: a single value bare, several in parentheses.
-Str values_text(const ValueList& v) {
+// One value bare; several, or a list's elements however many, in parentheses: a list of
+// one vec2 is ((0 0)), not (0 0), which reads as two numbers.
+Str values_text(const ValueList& v, bool list) {
     const auto nodes = v.nodes();
-    if (nodes.size() == 1) return detail::text_of(nodes[0]);
+    if (nodes.size() == 1 && !list) return detail::text_of(nodes[0]);
     return detail::text_of(Node(Array::make_copy(nodes)));
 }
 
@@ -503,7 +516,7 @@ void write_json(const TweakRegistry& tweaks, TextSink text) {
     tweaks.each([&](const TweakBase& t) { ts.push_back(&t); });
     std::sort(ts.begin(), ts.end(),
               [](const TweakBase* a, const TweakBase* b) { return a->path() < b->path(); });
-    Str out = "{\n  \"schema\": \"baker.tweaks/1.4\",\n  \"tweaks\": [";
+    Str out = "{\n  \"schema\": \"baker.tweaks/1.5\",\n  \"tweaks\": [";
     for (size_t i = 0; i < ts.size(); ++i) {
         const TweakBase& t = *ts[i];
         ValueList def, cur;
@@ -525,10 +538,12 @@ void write_json(const TweakRegistry& tweaks, TextSink text) {
             out += "], \"count\": ";
             detail::json_string(out, detail::count_name(t.value_count()));
         }
+        detail::json_list_element(out, t.list_element());
         out += ", \"default\": ";
-        detail::json_string(out, values_text(def));
+        const bool list = !t.list_element().type.empty();
+        detail::json_string(out, values_text(def, list));
         out += ", \"value\": ";
-        detail::json_string(out, values_text(cur));
+        detail::json_string(out, values_text(cur, list));
         out += Str(", \"bound\": ") + (t.bound() ? "true" : "false") + ", \"range\": ";
         if (const TweakRange r = t.range(); !r.empty()) {
             out += '[';
@@ -627,6 +642,43 @@ bool reads_as(std::span<const std::string_view> types, ValueCount count, const V
     if (values.size() < n || (count == ValueCount::Exact && values.size() != n)) return false;
     for (size_t i = 0; i < n; ++i)
         if (!reads_one(types[i], values, i).value_or(false)) return false;
+    return true;
+}
+
+void json_list_element(Str& out, const ListElement& element) {
+    if (element.type.empty()) {
+        out += R"(, "element": null, "length": null)";
+        return;
+    }
+    out += R"(, "element": {"type": )";
+    json_string(out, element.type);
+    out += ", \"values\": ";
+    if (element.values.empty()) {
+        out += "null, \"count\": null}";
+    } else {
+        out += '[';
+        for (size_t k = 0; k < element.values.size(); ++k) {
+            if (k) out += ", ";
+            json_string(out, element.values[k]);
+        }
+        out += "], \"count\": ";
+        json_string(out, count_name(element.count));
+        out += '}';
+    }
+    out += ", \"length\": ";
+    out += element.length ? decimal(static_cast<int64_t>(element.length)) : Str("null");
+}
+
+bool reads_list(const ListElement& element, const Values& values) {
+    if (element.values.empty()) return true;
+    if (element.length != 0 && values.size() != element.length) return false;
+    const bool nested = !value_type_known(element.type);  // a type of the game's own
+    for (const Node& n : values) {
+        const Array* a = nested ? n.try_array() : nullptr;
+        const Values one =
+            a ? Values(a->nodes(), a) : Values(std::span<const Node>(&n, 1), nullptr);
+        if (!reads_as(element.values, element.count, one)) return false;
+    }
     return true;
 }
 
