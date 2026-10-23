@@ -162,6 +162,17 @@ Expected<Project> read_project(std::string_view path, const LoadSession::Reader&
                 args.emplace_back(arg);
             }
             p.tool_args = List<Symbol>(std::span<const Symbol>(args.data(), args.size()));
+        } else if (key == Symbol("format")) {
+            for (size_t k = 1; k < part->size(); ++k) {
+                const Array* f = (*part)[k].try_array();
+                const std::optional<int64_t> n =
+                    f && f->size() == 2 ? (*f)[1].try_int() : std::nullopt;
+                const bool indent = f && f->tag() == Symbol("indent");
+                if (!n || (!indent && !(f && f->tag() == Symbol("width"))) || *n < 0 || *n > 1000)
+                    return Unexpected(places.at(
+                        f ? *f : *part, "the layout is (format (indent N) (width N)), 0 to 1000"));
+                (indent ? p.format.indent : p.format.width) = static_cast<int>(*n);
+            }
         } else if (key == Symbol("step_name")) {
             const auto name = part->size() == 2 ? (*part)[1].try_sym() : std::nullopt;
             if (!name) return Unexpected(places.at(*part, "the step's name is (step_name NAME)"));
@@ -220,11 +231,11 @@ Expected<Project> read_project(std::string_view path, const LoadSession::Reader&
             p.layers =
                 List<ProjectLayer>(std::span<const ProjectLayer>(layers.data(), layers.size()));
         } else {
-            return Unexpected(places.at(
-                *part, "a project has no '" + Str(key.str()) +
-                           "': it holds pack_levels, include_dirs, "
-                           "defines, reference, tool, build, console, step_name, scenarios, "
-                           "objectives, and layers"));
+            return Unexpected(
+                places.at(*part, "a project has no '" + Str(key.str()) +
+                                     "': it holds pack_levels, include_dirs, "
+                                     "defines, reference, tool, build, console, step_name, format, "
+                                     "scenarios, objectives, and layers"));
         }
     }
     if (!has_layers) return Unexpected(places.at(*root, "a project needs (layers ...)"));

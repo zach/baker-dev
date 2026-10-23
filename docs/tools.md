@@ -60,6 +60,19 @@ An editor works on text that rarely parses, and checks it on every pause:
   end of the text, an unterminated string or comment ends there, and the problems are listed
   beside the rest. It reads 2 MB in about 25 ms. The outline, folding, completion, hover, a
   rename and a highlighter can all work from it, with no lexer of the tool's own.
+- **Laid out as Baker writes it.** `tools::format_text(text, sink, {.layout = ...})` lays
+  out text as `write_dta` lays out a tree, with the project's `(format (indent 3) (width
+  100))`, keeping every comment, directive, macro and spelling. Only whitespace changes:
+  - a form goes on one line if it fits, else one item a line;
+  - a `;` comment stays on its line, and a blank line between forms stays (once);
+  - a table or a column of trailing comments written aligned stays aligned, re-padded when
+    a longer key is added;
+  - text that does not parse comes back unchanged, with its errors.
+
+  It returns the edits too, each a gap replaced by a number of line ends and spaces, so an
+  editor applies them without moving the cursor through unchanged text; `.begin` and
+  `.end` lay out only the forms a selection touches. Formatting twice changes nothing. 2 MB
+  takes about 60 ms.
 - **Values as Baker presents them.** `split_metadata(values)` separates a value from the
   metadata after it, `(width 2 (range 0 10))`, and `presented_kind(values)` gives the kind a
   value is shown as (its `(kind ...)`, or "color" for 3 or 4 numbers ranged 0 to 1). These
@@ -164,6 +177,7 @@ error, so a misspelling is caught.
 | `promote [--baker-from L] [--baker-to T] [--baker-write \| --baker-patch FILE]` | what promoting L into T would write; `--baker-write` writes; `--baker-patch` writes a unified diff and nothing else |
 | `sim [--baker-scenario NAME]... [--baker-seed N \| --baker-seeds A-B] [--baker-step-hz N] [--baker-json] [--baker-results DIR]` | the project's scenarios run and judged by its objectives ([`baker.sim/1.2`](sim-json.md)); exit 1 when one fails |
 | `compare --baker-before DIR --baker-after DIR` | which objectives broke or were fixed between two `sim --baker-results` ([`baker.compare/1`](sim-json.md)) |
+| `format [--baker-check] [--baker-json] [FILE...]` | lays out each file (the stack's own files under the project's directory if none is named) with the project's `(format ...)`; `--baker-check` changes nothing and exits 1, listing each file that would change, for CI and a pre-commit hook; `--baker-json`: `{"schema": "baker.format/1", "files": [{"file", "changed", "line_end", "edits": [[begin, end, newlines, spaces], ...], "errors"}]}` |
 
 Each runs on a fresh Context with your functions bound (`CommandHooks::bind`), the stack
 opened as the game opens it, and, for `eval`, your state reset (`CommandHooks::reset`).

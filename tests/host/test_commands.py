@@ -105,6 +105,27 @@ def diff_and_promote(s):
            "promote --baker-write writes the line")
 
 
+def format_files(s):
+    messy = s.dir / "data" / "messy.dta"
+    text = "(a   1) ; one\n\n\n(b\n 2)\n"
+    messy.write_text(text)
+    code, out, _ = s.run("format", "--baker-check", "data/messy.dta")
+    expect(code == 1 and "messy.dta" in out and messy.read_text() == text,
+           "format --baker-check lists an unformatted file and changes nothing")
+    code, out, _ = s.run("format", "--baker-json", "data/messy.dta")
+    r = json.loads(out)
+    expect(code == 0 and r["schema"] == "baker.format/1" and r["files"][0]["changed"]
+           and len(r["files"][0]["edits"]) >= 2 and messy.read_text() == text,
+           "format --baker-json gives the edits and changes nothing")
+    code, _, _ = s.run("format", "data/messy.dta")
+    expect(code == 0 and messy.read_text() == "(a 1) ; one\n\n(b 2)\n", "format rewrites the file")
+    code, out, _ = s.run("format", "--baker-check", "data/messy.dta")
+    expect(code == 0 and out == "", "a formatted file passes --baker-check")
+    messy.unlink()
+    code, out, _ = s.run("format", "--baker-check")
+    expect(code in (0, 1), "with no files, format takes the stack's own files")
+
+
 def shipping(s):
     """Under BAKER_SHIPPING, the commands that write refuse; the others run."""
     for command in ("diff", "promote"):
@@ -203,7 +224,8 @@ def main():
         print(__doc__)
         return 2
     writes = shipping if sys.argv[3:] == ["shipping"] else diff_and_promote
-    for case in (check, reference, eval_json, writes, host_io, scenarios, command_line):
+    for case in (check, reference, eval_json, writes, host_io, scenarios, command_line,
+                 format_files):
         case(Stack(sys.argv[1], sys.argv[2]))
     print(f"{len(FAILURES)} failures" if FAILURES else "all passed")
     return 1 if FAILURES else 0

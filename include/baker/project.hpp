@@ -43,6 +43,7 @@
 #include <baker/list.hpp>
 #include <baker/parse.hpp>
 #include <baker/symbol.hpp>
+#include <baker/write.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -116,6 +117,10 @@ struct Project {
     // (step_name turn): what one step of the game is called in sim's results, for a game
     // that steps in turns or events; empty: "step". Presentation only.
     Symbol step_name;
+    // (format (indent 3) (width 100)): how the project's files are laid out, for a formatter
+    // (tools::format_text) and the kit's format command; WriteOptions' defaults where the
+    // file says nothing.
+    WriteOptions format{};
 
     // The tool binary's path with `$build` resolved: `build_dir` if given (a tool's flag or
     // setting), else the project's (build ...), else "build" beside the project file. A

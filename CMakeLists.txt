@@ -174,7 +174,8 @@ endif()
 #     game links it only with the kit. Built with baker::script.
 if(BAKER_BUILD_SCRIPT)
   add_library(baker_tools src/tools/console.cpp src/tools/described.cpp src/tools/layers.cpp
-              src/tools/reference.cpp src/tools/structure.cpp src/tools/tweaks.cpp)
+              src/tools/reference.cpp src/tools/structure.cpp src/tools/tweaks.cpp
+              src/tools/format.cpp)
   add_library(baker::tools ALIAS baker_tools)
   baker_configure_library(baker_tools)
   target_link_libraries(baker_tools PUBLIC baker::script)

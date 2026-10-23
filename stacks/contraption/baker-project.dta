@@ -9,6 +9,7 @@
    (scenarios "sim")                    ; what `sim` runs (agent.md)
    (objectives "metrics")               ; what it judges them by
    (console 4558)                       ; the console's port, unless --console-port names one
+   (format (indent 3) (width 100))      ; how its files are laid out (format)
    (layers
       (default "data/default.dta")
       (local "data/local.dta" optional dev_only)   ; one developer's own tuning; sim and check skip it
