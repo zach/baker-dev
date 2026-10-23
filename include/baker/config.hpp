@@ -382,6 +382,15 @@ public:
     // below changes; reload() never does. Write-back refuses its values: it has no file.
     [[nodiscard]] Expected<void> push_layer_text(std::string_view name, std::string_view text,
                                                  LayerOptions options = {});
+    // A text layer's text replaced in place, for a peer that receives the layer again (a
+    // server resending a match's settings, a lobby host's edits): the layer keeps its
+    // place and options, and the layers above are read again with its macros. The same
+    // bytes as it holds change nothing: no read, no merge, no reload record. With
+    // `policy`, the new text is checked against the layers below it, without the version
+    // it replaces, and refused, changing nothing, if the policy refuses it. NotFound for
+    // an unknown layer; Refused for a file layer (reload() reads one again) or scratch.
+    [[nodiscard]] Expected<void> set_layer_text(std::string_view name, std::string_view text,
+                                                const LayerPolicy* policy = nullptr);
     [[nodiscard]] Expected<void> remove_layer(std::string_view name);
     // Removes the topmost layer below scratch.
     [[nodiscard]] Expected<void> pop_layer();
@@ -413,6 +422,15 @@ public:
     // scratch. For tools such as shape::validator, which read it (D145); changing it changes
     // nothing until the next merge, and is not supported.
     [[nodiscard]] Ref<Array> layer_root(std::string_view name) const;
+    // The layer's own tree as text, for a peer that must hold the same layer: a server
+    // sending a match's settings to its clients, which push it with push_layer_text under
+    // their own LayerPolicy. The tree is as read (includes spliced in, macros expanded,
+    // #remove kept) and reads back to an equal tree; comments and layout are not kept, and
+    // the layer's file is not touched. "scratch" writes the live edits as a layer, each
+    // edited path with its value. The same tree writes the same bytes, so text sent again
+    // unchanged is a no-op on a receiver's reload. NotFound for an unknown layer. Allocates
+    // only for the text; <baker/std_interop.hpp> has a std::string form.
+    [[nodiscard]] Expected<void> layer_text(std::string_view name, TextSink out) const;
 
     // A digest of the data, for hosts that must agree on it: lockstep peers, a replay, a
     // save loaded under other data. 64 bits, the same on every platform and build for the

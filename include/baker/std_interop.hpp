@@ -8,6 +8,7 @@
 // includes the standard containers, and nothing else in Baker includes it.
 
 #include <baker/array.hpp>
+#include <baker/config.hpp>
 #include <baker/error.hpp>
 #include <baker/list.hpp>
 #include <baker/path.hpp>
@@ -63,6 +64,13 @@ inline std::string to_string(const Array& array) {
 inline std::string to_dta(const Array& root, const WriteOptions& options = {}) {
     std::string out;
     write_dta(root, string_out(out), options);
+    return out;
+}
+
+// A layer as text for a peer (Config::layer_text).
+inline Expected<std::string> layer_text(const Config& config, std::string_view name) {
+    std::string out;
+    if (auto ok = config.layer_text(name, string_out(out)); !ok) return Unexpected(ok.error());
     return out;
 }
 

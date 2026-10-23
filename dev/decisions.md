@@ -7493,3 +7493,48 @@ keep theirs (§12 Q3).*
 - **Also:** `tools/local_matrix.sh` (and `--quick`) runs `clang-format --dry-run --Werror`
   over every source file first, as CI's format job does: step 7's commit failed CI on
   formatting alone, which no build of the matrix sees.
+
+## D236. A layer as text for a peer: `layer_text` and `set_layer_text`
+
+*The design is `dev/layer-text-note.md`, agreed with the owner; `set_layer_text` is the
+owner's choice, made while building it.*
+
+- **The need.** A server holds a match's settings as a layer, and a lobby's host may edit
+  them live before the match starts; every client must hold the same layer.
+- **`Config::layer_text(name, sink)`** writes the layer's own tree with `write_dta`: as
+  read (includes spliced in, macros expanded, `#remove` kept), without comments or layout.
+  `"scratch"` writes the live edits as a layer, from the tree the stack digest already
+  builds of them (`scratch_root`); empty scratch writes nothing. Commands are written as
+  they are, and the receiver's policy decides. `NotFound` for an unknown layer.
+  `<baker/std_interop.hpp>` gains `layer_text(cfg, name)`, returning a `std::string`, and
+  includes `<baker/config.hpp>` for it.
+- **Deviation: receiving again.** The note said a receiver's reload of the same text is a
+  no-op "as D221 makes it". D221 is about `reload()`, which never reads a text layer again,
+  and `push_layer_text` refuses a name that is taken, so a client could only
+  `remove_layer` and push: the layers above read twice and two changes for every resend.
+  Asked, the owner chose a new call:
+  - `Config::set_layer_text(name, text, policy)` replaces a text layer's text in place.
+    The layer keeps its place and options, and the layers above are read again with its
+    macros, as `remove_layer` reads them.
+  - Text identical to what the layer holds returns at once: no read, no merge, no reload
+    record, the same root.
+  - With a policy, the new text is checked against the layers below it without the version
+    it replaces (`check_candidate` takes a count of layers, merging those anew when it is
+    not the whole stack), and refused, changing nothing, if the policy refuses. It takes
+    no held report: a `check_layer_text` report was made against the whole stack.
+  - `NotFound` for an unknown layer; `Refused` for a file layer (`reload()` reads one) and
+    for scratch.
+  - `push_layer_text` still refuses a taken name, so a name clash that is a mistake fails.
+- **Located in the text received.** A refusal on the client names the line of the text it
+  received, which keeps none of the server file's layout: one line for a short layer.
+- **Cost.** Nothing until called: `layer_text` is one walk of the tree, allocating only the
+  text (and scratch's tree, built from the edits as a merge is). The candidate check's new
+  count leaves the common path as it was: `bench_layers` under cachegrind runs
+  9,169,444,926 instructions against main's (7244485) 9,170,571,961 (−0.01%).
+- **Tests.** A file layer with a macro, a removal, `1e-300` and `0.1` sent and pushed by a
+  peer: the same tree, digest and values, and the same bytes written twice; scratch after
+  three `set`s and a `clear_scratch` carries exactly the other two, a tuned `0.7f`
+  exactly; a layer with a command refused by a `data_only` receiver at the received line;
+  `set_layer_text` with the same bytes keeping the root and the reload record, new text in
+  place re-reading the layer above that tested its define, a policy judging against the
+  layers below without the old version and its refusal changing nothing, and the errors.

@@ -468,21 +468,25 @@ struct Config::Impl {
     // --- Checking a candidate layer (Config::check_layer) ---
 
     // The candidate `tree` (with a file layer's #autorun `commands`, read with `session`) on
-    // top of the stack: its effect, the policy's refusals, and the validators' warnings,
-    // `read_warnings` added.
+    // top of the stack, or of its first `below` layers (set_layer_text's replacement, without
+    // the layer it replaces and scratch): its effect, the policy's refusals, and the
+    // validators' warnings, `read_warnings` added.
     [[nodiscard]] LayerReport check_candidate(const Config& c, std::string_view name,
                                               const Ref<Array>& tree,
                                               std::span<const Node> commands,
                                               const LoadSession& session, const LayerPolicy& policy,
-                                              std::span<const Error> read_warnings) const;
+                                              std::span<const Error> read_warnings,
+                                              size_t below = SIZE_MAX) const;
     // A held report from a LayerChecker: the validators it left out (not any_thread), over
     // the stack with `candidate` on top, read with `session`; their warnings refuse under
     // the policy's warnings_refuse.
     [[nodiscard]] LayerReport check_left_out(const Config& c, const Ref<Array>& candidate,
                                              const LoadSession& session,
                                              const LayerPolicy& policy) const;
-    // Fills enabled_roots: the enabled layers' trees, then `candidate` if given.
-    std::span<const Ref<Array>> stack_layers(const Ref<Array>& candidate = nullptr) const;
+    // Fills enabled_roots: the enabled layers' trees among the first `count`, then
+    // `candidate` if given.
+    std::span<const Ref<Array>> stack_layers(const Ref<Array>& candidate = nullptr,
+                                             size_t count = SIZE_MAX) const;
 
     // --- Write-back ---
 
