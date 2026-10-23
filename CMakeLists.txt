@@ -162,6 +162,10 @@ if(BAKER_BUILD_SHAPE)
   add_library(baker::shape ALIAS baker_shape)
   baker_configure_library(baker_shape)
   target_link_libraries(baker_shape PUBLIC baker::data)
+  # Without baker::script nothing can evaluate a rule, and the validator says so (D238).
+  if(NOT BAKER_BUILD_SCRIPT)
+    target_compile_definitions(baker_shape PRIVATE BAKER_SHAPE_NO_SCRIPT=1)
+  endif()
 endif()
 
 # --- baker::tools: what only tools, and the host kit on their behalf, call: the reference,
@@ -174,6 +178,11 @@ if(BAKER_BUILD_SCRIPT)
   add_library(baker::tools ALIAS baker_tools)
   baker_configure_library(baker_tools)
   target_link_libraries(baker_tools PUBLIC baker::script)
+  # Rules between values: declared in shapes, evaluated here (D238).
+  if(BAKER_BUILD_SHAPE)
+    target_sources(baker_tools PRIVATE src/tools/rules.cpp)
+    target_link_libraries(baker_tools PUBLIC baker::shape)
+  endif()
 endif()
 
 # --- baker::host: the host kit (D186), what every host would write: the files the stack was

@@ -1,4 +1,4 @@
-# The vocabulary as JSON: `baker.reference/1.4`, `baker.tweaks/1.5`, `baker.shapes/1.2`
+# The vocabulary as JSON: `baker.reference/1.4`, `baker.tweaks/1.5`, `baker.shapes/1.3`
 
 Three documents describe what a program's data and script may say, for editors, agents,
 and other tools that should not scrape the Markdown reference:
@@ -7,7 +7,7 @@ and other tools that should not scrape the Markdown reference:
 |---|---|---|
 | `baker.reference/1.4` | `baker::tools::write_reference_json(ctx, sink, &session)` | `baker::tools` |
 | `baker.tweaks/1.5` | `baker::write_json(registry, sink)` | `baker::data` |
-| `baker.shapes/1.2` | `baker::shape::write_json(shapes, sink)` | `baker::shape` |
+| `baker.shapes/1.3` | `baker::shape::write_json(shapes, sink)` | `baker::shape` |
 
 They are separate so that a data-only program can write its tweaks and the script library
 does not depend on shapes. A tool that wants all three can wrap them in one object.
@@ -193,7 +193,7 @@ An element type that is neither Baker's nor given its values is refused by `add`
 tweak. A `ParamDescription` takes the same `.element`, and `check` holds a literal list
 argument to it, for a native's parameter too, unless an element is evaluated.
 
-## `baker.shapes/1.2`
+## `baker.shapes/1.3`
 
 `shapes` lists every shape in the set, by name. Each one has:
 
@@ -201,7 +201,9 @@ argument to it, for a native's parameter too, unless an element is evaluated.
 - `at`, the ancestors' tags (`*` for any);
 - `keyed`;
 - `file` and `line`;
-- `fields`.
+- `fields`;
+- `rules`, each with `message`, `expression` (as Baker text), `warn`, `file` and `line`
+  (added in 1.3).
 
 Each field has these entries:
 

@@ -6,6 +6,7 @@
 #include "data/text.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <optional>
 
 #if defined(_MSC_VER)
@@ -23,7 +24,7 @@ namespace {
 struct Names {
     baker::Symbol shapes{"shapes"}, at{"at"}, range{"range"}, step{"step"}, kind{"kind"},
         desc{"desc"}, note{"note"}, optional{"optional"}, list{"list"}, any_tag{"*"},
-        keyed{"keyed"}, one_of{"one_of"}, key_of{"key_of"};
+        keyed{"keyed"}, one_of{"one_of"}, key_of{"key_of"}, rule{"rule"}, warn{"warn"};
 };
 const Names& names() {
     static const Names n;
@@ -94,6 +95,7 @@ const Field* Shape::field(baker::Symbol field_name) const noexcept {
 struct Set::State {
     Vec<Shape> shapes;
     Vec<Vec<Field>> fields;  // parallel to shapes; Shape::fields is rebuilt from it
+    Vec<Vec<Rule>> rules;    // likewise, Shape::rules
     Vec<Ref<Array>> keep;    // the declarations the fields' text points into
 };
 
@@ -222,6 +224,33 @@ std::optional<uint32_t> rank_of(const LoadSession* packs, baker::Symbol file) no
 }
 }  // namespace
 
+namespace {
+
+// (rule "message" {expression} (warn)) into `r`; false, with a located error, if malformed.
+bool read_rule(const Array& a, Rule& r, Vec<Error>& errors) {
+    auto bad = [&](const Str& why) {
+        errors.push_back(make_error(ErrorCode::Syntax, why, a.file(), a.line()));
+        return false;
+    };
+    const auto message = a.size() >= 2 ? a[1].try_str() : std::nullopt;
+    if (!message || message->empty() || a.size() < 3)
+        return bad("a rule is declared as (rule \"message\" {expression}), optionally (warn)");
+    if (a[2].type() != baker::Type::Command)
+        return bad("rule \"" + Str(*message) + "\" holds " + detail::preview(a[2]) +
+                   ", not an {expression}");
+    r = Rule{*message, a[2], false, a.file(), a.line()};
+    for (uint32_t i = 3; i < a.size(); ++i) {
+        const Array* m = a[i].try_array();
+        if (!m || m->size() != 1 || !(*m)[0].is(names().warn))
+            return bad("rule \"" + Str(*message) + "\" has " + detail::preview(a[i]) +
+                       " after its expression; only (warn) may follow");
+        r.warn = true;
+    }
+    return true;
+}
+
+}  // namespace
+
 void Set::add(const Array& tree, Report& report, const LoadSession* packs) {
     Vec<Error> errors(report.errors.begin(), report.errors.end());
     Vec<Error> warnings(report.warnings.begin(), report.warnings.end());
@@ -245,6 +274,7 @@ void Set::add(const Array& tree, Report& report, const LoadSession* packs) {
             if (i == st_->shapes.size()) {
                 st_->shapes.emplace_back();
                 st_->fields.emplace_back();
+                st_->rules.emplace_back();
                 st_->shapes[i].name = *name;
             }
             Shape& s = st_->shapes[i];
@@ -268,6 +298,35 @@ void Set::add(const Array& tree, Report& report, const LoadSession* packs) {
                     Vec<baker::Symbol> path;
                     path_of(f->values(), path);
                     s.at = List<baker::Symbol>({path.data(), path.size()});
+                    continue;
+                }
+                if (*tag == n.rule) {
+                    // Declared again (the same message), a rule is replaced, as a field is;
+                    // a softer pack may make a harder pack's rule an error, nothing more.
+                    Rule rule;
+                    if (!read_rule(*f, rule, errors)) continue;
+                    Vec<Rule>& rs = st_->rules[i];
+                    auto old = std::find_if(rs.begin(), rs.end(), [&](const Rule& x) {
+                        return x.message == rule.message;
+                    });
+                    if (old == rs.end()) {
+                        rs.push_back(rule);
+                        continue;
+                    }
+                    const auto held = rank_of(packs, old->file);
+                    const auto next = rank_of(packs, rule.file);
+                    if (held && next && *next > *held &&
+                        ((rule.warn && !old->warn) ||
+                         detail::text_of(rule.expression) != detail::text_of(old->expression))) {
+                        warnings.push_back(make_error(
+                            ErrorCode::Refused,
+                            "shape " + quoted(*name) + ": rule \"" + Str(rule.message) +
+                                "\" is declared by a harder pack; a softer one may make it an "
+                                "error, not soften or change it, so that declaration holds",
+                            rule.file, rule.line));
+                        continue;
+                    }
+                    *old = rule;
                     continue;
                 }
                 // Declared again, a field takes the new type and whatever metadata the new
@@ -299,6 +358,7 @@ void Set::add(const Array& tree, Report& report, const LoadSession* packs) {
     for (size_t i = 0; i < st_->shapes.size(); ++i) {
         Shape& s = st_->shapes[i];
         s.fields = List<Field>({st_->fields[i].data(), st_->fields[i].size()});
+        s.rules = List<Rule>({st_->rules[i].data(), st_->rules[i].size()});
         if (s.keyed && s.at.empty())
             errors.push_back(make_error(
                 ErrorCode::Syntax,
@@ -621,6 +681,57 @@ struct Checker {
 
 }  // namespace
 
+namespace {
+
+// The records shapes with rules govern, found as Checker finds instances; a walk of its own
+// so that Checker::walk, which every shape check runs, is compiled as it was (D235).
+struct RuleWalker {
+    using Visit = Callback<void(const Array&, const Shape&, std::string_view)>;
+    const Visit& visit;
+    Vec<const Shape*> keyed, by_tag;  // shapes with rules, keyed at a path or by their tag
+    Vec<baker::Symbol> chain;
+    Str path;
+
+    [[nodiscard]] bool governs(const Shape& s) const {
+        if (s.at.empty()) return true;
+        if (s.at.size() != chain.size() - 1) return false;
+        for (size_t i = 0; i < s.at.size(); ++i)
+            if (s.at[i] != names().any_tag && s.at[i] != chain[i]) return false;
+        return true;
+    }
+    void walk(const Array& a) {
+        for (const Node& n : a) {
+            const Array* c = n.array();
+            if (!c) continue;
+            const auto tag = !c->tag().empty() ? std::optional(c->tag()) : std::nullopt;
+            if (tag && chain.empty() && *tag == names().shapes) continue;  // declarations
+            if (tag) {
+                chain.push_back(*tag);
+                path.clear();
+                for (const baker::Symbol t : chain)
+                    path += (path.empty() ? "" : "/") + Str(t.str());
+                for (const Shape* s : by_tag)
+                    if (s->name == *tag && governs(*s)) visit(*c, *s, path);
+                for (const Shape* s : keyed)
+                    if (governs(*s)) visit(*c, *s, path);
+            }
+            if (c->height() > 1) walk(*c);
+            if (tag) chain.pop_back();
+        }
+    }
+};
+
+}  // namespace
+
+void each_ruled(const Array& tree, const Set& shapes, const RuleWalker::Visit& visit) {
+    RuleWalker w{visit, {}, {}, {}, {}};
+    for (const Shape& s : shapes.shapes()) {
+        if (s.rules.empty()) continue;
+        (s.keyed && !s.at.empty() ? w.keyed : w.by_tag).push_back(&s);
+    }
+    if (!w.keyed.empty() || !w.by_tag.empty()) w.walk(tree);
+}
+
 void check(const Array& tree, const Set& shapes, Report& report, const LoadSession* packs) {
     Vec<Error> errors(report.errors.begin(), report.errors.end());
     Vec<Error> warnings(report.warnings.begin(), report.warnings.end());
@@ -650,6 +761,16 @@ Config::Validator validator() {
         if (!warn) return;
         for (const Error& e : report.errors) warn(e);
         for (const Error& w : report.warnings) warn(w);
+#if defined(BAKER_SHAPE_NO_SCRIPT)
+        // Nothing in this build can evaluate a rule: say so once, not at every reload.
+        static std::atomic<bool> told{false};
+        size_t rules = 0;
+        for (const Shape& s : set.shapes()) rules += s.rules.size();
+        if (rules != 0 && !told.exchange(true))
+            warn(make_error(ErrorCode::Refused,
+                            "the shapes hold " + detail::decimal(static_cast<int64_t>(rules)) +
+                                " rules, and this build has no baker::script to check them"));
+#endif
     };
 }
 
@@ -658,7 +779,7 @@ void write_json(const Set& shapes, TextSink text) {
     for (const Shape& sh : shapes.shapes()) ss.push_back(&sh);
     std::sort(ss.begin(), ss.end(),
               [](const Shape* a, const Shape* b) { return a->name.str() < b->name.str(); });
-    Str out = "{\n  \"schema\": \"baker.shapes/1.2\",\n  \"shapes\": [";
+    Str out = "{\n  \"schema\": \"baker.shapes/1.3\",\n  \"shapes\": [";
     for (size_t i = 0; i < ss.size(); ++i) {
         const Shape& sh = *ss[i];
         out += i ? ",\n    {\"name\": " : "\n    {\"name\": ";
@@ -698,7 +819,18 @@ void write_json(const Set& shapes, TextSink text) {
             detail::json_string(out, f.file.str());
             out += ", \"line\": " + detail::decimal(f.line) + "}";
         }
-        out += sh.fields.empty() ? "]}" : "\n    ]}";
+        out += sh.fields.empty() ? "], \"rules\": [" : "\n    ], \"rules\": [";
+        for (size_t j = 0; j < sh.rules.size(); ++j) {
+            const Rule& r = sh.rules[j];
+            out += j ? ",\n      {\"message\": " : "\n      {\"message\": ";
+            detail::json_string(out, r.message);
+            out += ", \"expression\": ";
+            detail::json_string(out, detail::text_of(r.expression));
+            out += Str(", \"warn\": ") + (r.warn ? "true" : "false") + ", \"file\": ";
+            detail::json_string(out, r.file.str());
+            out += ", \"line\": " + detail::decimal(r.line) + "}";
+        }
+        out += sh.rules.empty() ? "]}" : "\n    ]}";
     }
     out += ss.empty() ? "]\n}\n" : "\n  ]\n}\n";
     text(out);
