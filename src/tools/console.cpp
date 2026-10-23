@@ -88,6 +88,15 @@ Expected<Node> explain_node(Config& cfg, std::string_view path) {
         fields.push_back(tagged("value", e.value));
         fields.push_back(tagged("standing", Node(standing_name(e.standing))));
         add_source(fields, e.source, false);
+        if (e.section) {  // (chosen_by server ifdef): the define behind the value
+            Vec<Node> by;
+            by.emplace_back(Symbol("chosen_by"));
+            by.emplace_back(e.section->name);
+            by.emplace_back(Symbol(e.section->else_branch ? "else"
+                                   : e.section->negated   ? "ifndef"
+                                                          : "ifdef"));
+            fields.push_back(list(by));
+        }
         out.push_back(list(fields));
     }
     return list(out);

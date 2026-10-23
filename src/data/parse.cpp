@@ -47,6 +47,9 @@ struct LoadSession::State {
           packs(a),
           origins(a),
           definitions(a),
+          flags(a),
+          sections(a),
+          tested(a),
           macro_pack(a),
           warnings(a),
           files(a),
@@ -64,6 +67,10 @@ struct LoadSession::State {
         packs = o.packs;
         origins = o.origins;
         definitions = o.definitions;
+        flags = o.flags;
+        sections = o.sections;
+        tested = o.tested;
+        parses = o.parses;
         macro_pack = o.macro_pack;
         warnings = o.warnings;
         recorded = o.recorded;
@@ -87,11 +94,15 @@ struct LoadSession::State {
     bool disk = true;  // `reader` is the default
     Vec<Str> include_dirs;
     Vec<Node> autorun;
-    Vec<Str> required;                     // the files #require has read, normalized (spec §1)
-    Vec<Symbol> pack_levels;               // hardest first
-    Vec<Pack> packs;                       // in the order they were read
-    Vec<Origin> origins;                   // files that declared one, in the order read
-    Vec<Definition> definitions;           // macro definitions, in the order read
+    Vec<Str> required;                 // the files #require has read, normalized (spec §1)
+    Vec<Symbol> pack_levels;           // hardest first
+    Vec<Pack> packs;                   // in the order they were read
+    Vec<Origin> origins;               // files that declared one, in the order read
+    Vec<Definition> definitions;       // macro definitions, in the order read
+    Vec<ActiveDefine> flags;           // the flags that stand, in the order made
+    Vec<ConditionalSection> sections;  // the #ifdef branches the reads took
+    Vec<Symbol> tested;   // each name an #ifdef, #ifndef, #define or #undef named, as read
+    uint64_t parses = 0;  // the files parsed: a cache's replay parses none
     HashMap<Symbol, uint32_t> macro_pack;  // the pack that defined each macro, by index
     Vec<Error> warnings;
     // What the last top-level read did, if recorded (record_for_cache).
@@ -123,6 +134,7 @@ public:
           map_(session.source_map),
           size_(static_cast<uint32_t>(text.size())) {
         if (map_) map_->record_text(file, text);
+        ++s_.st_->parses;
     }
 
     bool run(Ref<Array>& out, Error& err) {
@@ -189,8 +201,14 @@ private:
         bool value;          // the condition's result
         bool seen_else;
         bool negated;
-        int32_t line;
+        int32_t line;  // where the current branch began: its #ifdef, or its #else
+        Symbol name;   // what it tests; empty inside a branch not read
     };
+    // The branch `c` ends at `line`: a section of the read, if it was read.
+    void section_ends(const Cond& c, int32_t line) {
+        if (c.active && !c.name.empty())
+            s_.st_->sections.push_back({c.name, c.negated, c.seen_else, file_, c.line, line});
+    }
 
     static constexpr uint32_t kNoColumn = UINT32_MAX;
     // An error at byte `at`, which gives its column.
@@ -315,6 +333,7 @@ private:
         switch (f.kind) {
             case Frame::DefineBody:
                 s_.define(f.name, std::move(arr));
+                s_.st_->tested.push_back(f.name);
                 defined(f.name, f.line, false);
                 return true;
             case Frame::Autorun:
@@ -529,12 +548,16 @@ private:
     bool conditional(const Token& t, bool parent_active) {
         const bool negated = t.text == "ifndef";
         bool value = false;
+        Symbol tested;
         if (parent_active) {
             Token name;
             if (!name_arg(t.text, name)) return false;
-            value = s_.is_defined(Symbol(name.text)) != negated;
+            tested = Symbol(name.text);
+            value = s_.is_defined(tested) != negated;
+            s_.st_->tested.push_back(tested);
         }
-        conds_.push_back({parent_active && value, parent_active, value, false, negated, t.line});
+        conds_.push_back(
+            {parent_active && value, parent_active, value, false, negated, t.line, tested});
         return true;
     }
 
@@ -543,14 +566,17 @@ private:
             return fail(ErrorCode::Directive, "#" + Str(t.text) + " without #ifdef", t.line,
                         t.begin);
         if (t.text == "endif") {
+            section_ends(conds_.back(), t.line);
             conds_.pop_back();
             return true;
         }
         Cond& c = conds_.back();
         if (c.seen_else)
             return fail(ErrorCode::Directive, "second #else for one #ifdef", t.line, t.begin);
+        section_ends(c, t.line);
         c.seen_else = true;
         c.active = c.parent_active && !c.value;
+        c.line = t.line;
         return true;
     }
 
@@ -612,7 +638,10 @@ private:
                 frames_.back().name = sym;
                 return true;
             }
-            s_.define(sym);
+            s_.define(sym, DefineFrom::File);
+            s_.st_->flags.back().file = file_;
+            s_.st_->flags.back().line = name.line;
+            s_.st_->tested.push_back(sym);
             defined(sym, name.line, true);
             return true;
         }
@@ -620,6 +649,7 @@ private:
             Token name;
             if (!name_arg(d, name)) return false;
             s_.undefine(Symbol(name.text));
+            s_.st_->tested.emplace_back(name.text);
             return true;
         }
         if (d == "autorun") {
@@ -756,14 +786,44 @@ LoadSession::~LoadSession() {
     detail::destroy(*st_->alloc, st_);
 }
 
-void LoadSession::define(Symbol name) {
+namespace {
+void drop_flag(Vec<ActiveDefine>& flags, Symbol name) {
+    flags.erase(std::remove_if(flags.begin(), flags.end(),
+                               [&](const ActiveDefine& f) { return f.name == name; }),
+                flags.end());
+}
+}  // namespace
+
+void LoadSession::define(Symbol name, DefineFrom from) {
     st_->defines[name] = nullptr;
+    drop_flag(st_->flags, name);
+    st_->flags.push_back({name, from, {}, 0});
 }
 void LoadSession::define(Symbol name, Ref<Array> body) {
+    if (!body) {
+        define(name);
+        return;
+    }
     st_->defines[name] = std::move(body);
+    drop_flag(st_->flags, name);  // a macro now, not a flag
 }
 void LoadSession::undefine(Symbol name) {
     st_->defines.erase(name);
+    drop_flag(st_->flags, name);
+}
+std::span<const ActiveDefine> LoadSession::active_defines() const noexcept {
+    return {st_->flags.data(), st_->flags.size()};
+}
+std::span<const ConditionalSection> LoadSession::conditional_sections() const noexcept {
+    return {st_->sections.data(), st_->sections.size()};
+}
+std::string_view define_from_name(DefineFrom from) noexcept {
+    switch (from) {
+        case DefineFrom::Host: return "host";
+        case DefineFrom::Project: return "project";
+        case DefineFrom::File: return "file";
+    }
+    return "host";
 }
 bool LoadSession::is_defined(Symbol name) const {
     return st_->defines.count(name) != 0;
@@ -835,6 +895,12 @@ std::span<const CacheFile> SessionAccess::files(const LoadSession& s) noexcept {
 }
 const SessionAccess::Defines& SessionAccess::defines(const LoadSession& s) noexcept {
     return s.st_->defines;
+}
+std::span<const Symbol> SessionAccess::tested(const LoadSession& s) noexcept {
+    return {s.st_->tested.data(), s.st_->tested.size()};
+}
+uint64_t SessionAccess::parses(const LoadSession& s) noexcept {
+    return s.st_->parses;
 }
 const SessionAccess::Defines& SessionAccess::defines_before(const LoadSession& s) noexcept {
     return s.st_->defines_before;

@@ -63,8 +63,28 @@ void json_errors(Str& out, const char* key, const List<Error>& errors) {
 
 }  // namespace
 
+namespace {
+// `  "defines": [...]`: the flags that stood for the read, in the order made, each with who
+// made it ("host", "project", or "file" with where), for a tool to show which were on.
+void json_defines(Str& out, const LoadSession* session) {
+    const std::span<const ActiveDefine> ds =
+        session ? session->active_defines() : std::span<const ActiveDefine>();
+    out += "  \"defines\": [";
+    for (size_t i = 0; i < ds.size(); ++i) {
+        out += i ? ",\n    {\"name\": " : "\n    {\"name\": ";
+        json_string(out, ds[i].name.str());
+        out += ", \"origin\": ";
+        json_string(out, define_from_name(ds[i].from));
+        out += ", \"file\": ";
+        json_string(out, ds[i].file.str());
+        out += ", \"line\": " + detail::decimal(ds[i].line) + '}';
+    }
+    out += ds.empty() ? "]\n" : "\n  ]\n";
+}
+}  // namespace
+
 void write_json(const CheckReport& report, TextSink text, const LoadSession* packs) {
-    Str out = "{\n  \"schema\": \"baker.check/1.3\",\n";
+    Str out = "{\n  \"schema\": \"baker.check/1.4\",\n";
     out += Str("  \"passed\": ") + (report.ok() ? "true" : "false") + ",\n";
     json_errors(out, "errors", report.errors);
     out += ",\n";
@@ -147,7 +167,9 @@ void write_json(const CheckReport& report, TextSink text, const LoadSession* pac
         json_string(out, p.stage.str());
         out += '}';
     }
-    out += ps.empty() ? "]\n}\n" : "\n  ]\n}\n";
+    out += ps.empty() ? "],\n" : "\n  ],\n";
+    json_defines(out, packs);
+    out += "}\n";
     text(out);
 }
 
@@ -297,7 +319,7 @@ Str reference_text(const Context& ctx, const LoadSession* packs) {
     return out;
 }
 
-// --- The reference as JSON (baker.reference/1.4, docs/reference-json.md) ---
+// --- The reference as JSON (baker.reference/1.5, docs/reference-json.md) ---
 
 const char* param_kind_name(detail::ParamKind k) {
     switch (k) {
@@ -366,7 +388,7 @@ void json_status(Str& out, Status status, Symbol replacement, std::string_view d
 
 Str reference_json(const Context& ctx, const LoadSession* packs) {
     const Context::Impl& impl = ctx.impl();
-    Str out = "{\n  \"schema\": \"baker.reference/1.4\",\n  \"functions\": [";
+    Str out = "{\n  \"schema\": \"baker.reference/1.5\",\n  \"functions\": [";
     Vec<const Function*> fs;
     for (const auto& f : impl.functions)
         if (!f->overloads.empty()) fs.push_back(f.get());
@@ -538,7 +560,9 @@ Str reference_json(const Context& ctx, const LoadSession* packs) {
         json_string(out, os[i]->file.str());
         out += '}';
     }
-    out += os.empty() ? "]\n}\n" : "\n  ]\n}\n";
+    out += os.empty() ? "],\n" : "\n  ],\n";
+    json_defines(out, packs);
+    out += "}\n";
     return out;
 }
 }  // namespace

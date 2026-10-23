@@ -231,6 +231,12 @@ Expected<void> Config::Impl::read(LayerState& layer, const LoadSession& before, 
     layer.root = std::move(*root);
     layer.map = map;
     layer.deps = std::move(deps);
+    // What its read tested, if it parsed: a cache's replay records none.
+    const auto tested = detail::SessionAccess::tested(*session);
+    const size_t from = std::min(detail::SessionAccess::tested(before).size(), tested.size());
+    layer.tested.assign(tested.data() + from, tested.data() + tested.size());  // EASTL: pointers
+    layer.tested_known =
+        detail::SessionAccess::parses(*session) > detail::SessionAccess::parses(before);
     layer.after = session;
     return {};
 }
@@ -647,6 +653,66 @@ Expected<void> Config::push_layer(std::string_view name, Ref<Array> overlay, Lay
     layer.after = impl_->session_below(impl_->layers, *at);
     impl_->layers.insert(impl_->layers.begin() + static_cast<ptrdiff_t>(*at), std::move(layer));
     impl_->change(*this, trigger_name("layer"));
+    return {};
+}
+
+Expected<void> Config::set_defines(std::span<const std::string_view> names) {
+    if (auto ok = impl_->may_change(*this); !ok) return ok;
+    LoadSession& base = impl_->base;
+    auto has = [](const Vec<Symbol>& v, Symbol s) {
+        return std::find(v.begin(), v.end(), s) != v.end();
+    };
+    Vec<Symbol> was(impl_->alloc), now(impl_->alloc), changed(impl_->alloc);
+    for (const ActiveDefine& d : base.active_defines())
+        if (d.from == DefineFrom::Host) was.push_back(d.name);
+    for (const std::string_view n : names)
+        if (!has(now, Symbol(n))) now.emplace_back(n);
+    for (const Symbol s : was)
+        if (!has(now, s)) changed.push_back(s);
+    for (const Symbol s : now)
+        if (!has(was, s)) changed.push_back(s);
+    if (changed.empty()) return {};
+    const LoadSession kept = base;  // to put back if a layer does not read
+    for (const Symbol s : was)
+        if (!has(now, s)) base.undefine(s);
+    for (const Symbol s : now)
+        if (!has(was, s)) base.define(s, DefineFrom::Host);
+    ++impl_->generation;
+    // Each layer that touched a changed name, read again; every other keeps its tree, and
+    // its session takes each changed name as the session below it now has it, since its own
+    // read neither tested nor set one.
+    Vec<LayerState> fresh = impl_->layers;
+    for (size_t i = 0; i < fresh.size(); ++i) {
+        LayerState& l = fresh[i];
+        const Rc<LoadSession> before = impl_->session_below(fresh, i);
+        if (l.path.empty()) {  // an overlay reads nothing: its session is the one below
+            l.after = before;
+            continue;
+        }
+        const bool touched =
+            !l.tested_known || std::any_of(l.tested.begin(), l.tested.end(),
+                                           [&](Symbol s) { return has(changed, s); });
+        if (touched) {
+            if (auto r = impl_->read(l, *before); !r) {
+                base = kept;
+                return r;
+            }
+            continue;
+        }
+        auto patched = Rc<LoadSession>::make(impl_->alloc, *l.after);
+        for (const Symbol s : changed) {
+            const auto stands =
+                std::find_if(before->active_defines().begin(), before->active_defines().end(),
+                             [&](const ActiveDefine& d) { return d.name == s; });
+            if (stands == before->active_defines().end())
+                patched->undefine(s);
+            else
+                patched->define(s, stands->from);
+        }
+        l.after = patched;
+    }
+    impl_->layers = std::move(fresh);
+    impl_->change(*this, trigger_name("defines"));
     return {};
 }
 

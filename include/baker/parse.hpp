@@ -109,6 +109,31 @@ struct Definition {
     bool flag = false;  // a macro with no body: #define NAME
 };
 
+// Who made a flag, for #ifdef: the host in code (LoadSession::define, ProjectOptions::defines),
+// the project file's (defines ...), or a file's #define.
+enum class DefineFrom : uint8_t { Host, Project, File };
+
+// A flag that stands, and who made it: for check's and the reference's JSON, and explain.
+struct ActiveDefine {
+    Symbol name;
+    DefineFrom from = DefineFrom::Host;
+    Symbol file;  // a file's #define: where
+    int32_t line = 0;
+};
+
+// A branch of an #ifdef or #ifndef that a read took: the lines of `file` it holds, and the
+// name that chose it. explain names it for a value read there.
+struct ConditionalSection {
+    Symbol name;
+    bool negated = false;      // #ifndef: taken because `name` was not defined
+    bool else_branch = false;  // the #else: taken because the test was false
+    Symbol file;
+    int32_t begin = 0, end = 0;  // the directive's line and the closing #else or #endif's
+};
+
+// "host", "project" or "file", as the JSON documents write a define's origin.
+[[nodiscard]] std::string_view define_from_name(DefineFrom from) noexcept;
+
 // State shared by all files read through it. Macros and defines persist from one file to
 // the next, as in the original; a fresh session starts empty. Copying a session copies
 // its defines, macros, include directories, reader, and limits.
@@ -129,7 +154,8 @@ public:
     LoadSession& operator=(LoadSession&& other) noexcept;
     ~LoadSession();
 
-    void define(Symbol name);                   // a flag, for #ifdef
+    // A flag, for #ifdef; `from` is who made it, the host's own code unless it says.
+    void define(Symbol name, DefineFrom from = DefineFrom::Host);
     void define(Symbol name, Ref<Array> body);  // a macro; null body means a flag
     void undefine(Symbol name);
     [[nodiscard]] bool is_defined(Symbol name) const;
@@ -158,6 +184,12 @@ public:
     // written: a name defined twice is listed twice, and one #undef'd stays listed
     // (is_defined says which stand). Macros a host defines in code are not listed.
     [[nodiscard]] std::span<const Definition> macro_definitions() const noexcept;
+    // The flags that stand, in the order they were made, each with who made it: the host's,
+    // the project's, and the files' #define, less those #undef'd. Macros are
+    // macro_definitions().
+    [[nodiscard]] std::span<const ActiveDefine> active_defines() const noexcept;
+    // Every #ifdef or #ifndef branch the session's reads took, in the order read.
+    [[nodiscard]] std::span<const ConditionalSection> conditional_sections() const noexcept;
     [[nodiscard]] const Origin* origin_of(Symbol file) const noexcept;  // null: none
     // Warnings from the files read, in order (the one-way rule), until cleared.
     [[nodiscard]] std::span<const Error> warnings() const noexcept;

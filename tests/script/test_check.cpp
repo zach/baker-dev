@@ -313,11 +313,11 @@ TEST_CASE("check's JSON is versioned, sorted, and the same bytes on every run (D
 
     // Without the session, the packs list is empty; an empty report is still a whole one.
     CHECK(to_json(CheckReport{}) ==
-          "{\n  \"schema\": \"baker.check/1.3\",\n  \"passed\": true,\n  \"errors\": [],\n"
+          "{\n  \"schema\": \"baker.check/1.4\",\n  \"passed\": true,\n  \"errors\": [],\n"
           "  \"warnings\": [],\n  \"demand\": [],\n  \"repeats\": [],\n  \"findings\": [],\n"
           "  \"load\": [],\n  \"shape_errors\": [],\n  \"shape_warnings\": [],\n"
           "  \"tweak_errors\": [],\n  \"tweak_warnings\": [],\n"
-          "  \"packs\": []\n}\n");
+          "  \"packs\": [],\n  \"defines\": []\n}\n");
 }
 
 TEST_CASE("the reference lists the session's packs and origins: the harness register (D95)") {

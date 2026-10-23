@@ -27,6 +27,9 @@ struct ExplainEntry {
     Node value{};    // packed as LayerEffectEntry::value; the symbol #remove for Removes
     Source source{};
     Standing standing = Standing::Wins;
+    // The innermost #ifdef or #ifndef branch the value was read in, if any: the define that
+    // chose it (with active_defines(), who made it).
+    std::optional<ConditionalSection> section{};
 };
 
 // What `layer` (a layer's name, or "scratch") sets: each value, the stack's value without the

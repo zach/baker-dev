@@ -20,7 +20,7 @@ stacks_cube compare --baker-before DIR --baker-after DIR
                                               --baker-results directories, baker.compare/1;
                                               exit 1 if one broke
 stacks_cube check                             baker::check over data, its #autorun script,
-                                              scenarios, metrics; baker.check/1.3 JSON with
+                                              scenarios, metrics; baker.check/1.4 JSON with
                                               passed, load and shape problems; exit 1 on any,
                                               or an undefined, unstubbed call; 2 if no load
 stacks_cube reference [--baker-json]          the vocabulary: functions, shapes, packs

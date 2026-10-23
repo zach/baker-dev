@@ -257,7 +257,8 @@ Expected<List<ProjectProblem>> open_project(Config& cfg, const Project& project,
         session.set_pack_levels(std::span<const Symbol>(levels.data(), levels.size()));
     }
     for (const ProjectEntry& e : project.include_dirs) session.add_include_dir(e.value.str());
-    for (const ProjectEntry& e : project.defines) session.define(e.value);
+    for (const ProjectEntry& e : project.defines) session.define(e.value, DefineFrom::Project);
+    for (const std::string_view d : options.defines) session.define(Symbol(d), DefineFrom::Host);
     Vec<ProjectProblem> problems;  // allocates only for a problem
     for (const ProjectLayer& l : project.layers) {
         if (options.skip.contains(l.name.str())) continue;

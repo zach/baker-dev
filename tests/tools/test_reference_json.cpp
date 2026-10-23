@@ -1,4 +1,4 @@
-// The machine-readable reference, baker.reference/1.4 (dev/tool-surface-plan.md §6).
+// The machine-readable reference, baker.reference/1.5 (dev/tool-surface-plan.md §6).
 #include <doctest.h>
 #include <baker/config.hpp>
 #include <baker/object.hpp>
@@ -49,7 +49,7 @@ TEST_CASE("the reference as JSON lists functions, types, classes, globals, and p
                  "{class Ghost (haunt () 1)}",
                  "lib.dta"));
     const std::string json = reference_json(ctx);
-    CHECK(json.rfind("{\n  \"schema\": \"baker.reference/1.4\",\n  \"functions\": [", 0) == 0);
+    CHECK(json.rfind("{\n  \"schema\": \"baker.reference/1.5\",\n  \"functions\": [", 0) == 0);
     CHECK(json == reference_json(ctx));  // the same bytes, run to run
     CHECK(json.back() == '\n');
 
@@ -83,7 +83,7 @@ TEST_CASE("the reference as JSON lists functions, types, classes, globals, and p
     CHECK(has(json,
               "  \"objects\": [\n"
               R"j(    {"name": "scheduler", "type": "Scheduler"})j"  // the Context's own
-              "\n  ],\n  \"packs\": [],\n  \"origins\": []\n}\n"));
+              "\n  ],\n  \"packs\": [],\n  \"origins\": [],\n  \"defines\": []\n}\n"));
 }
 
 TEST_CASE("the reference lists the objects added under a name, with their types") {

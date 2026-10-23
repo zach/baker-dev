@@ -38,7 +38,7 @@ struct LayerState {
     LayerState() = default;
     // A record the Config makes: its own containers from its allocator (D61). A copy keeps
     // its source's.
-    explicit LayerState(const Allocator& a) : name(a), path(a), file(a), deps(a) {}
+    explicit LayerState(const Allocator& a) : name(a), path(a), file(a), deps(a), tested(a) {}
 
     Str name;
     Str path;      // as given; empty for an overlay; the name, for text
@@ -50,6 +50,10 @@ struct LayerState {
     Vec<Dep> deps;
     Rc<LoadSession> after;  // macros and defines after this layer; read-only
     bool missing = false;   // optional, and its file is absent
+    // The names its read's #ifdef, #ifndef, #define and #undef named: set_defines reads it
+    // again only if one changed. Unknown when a cache replayed it, which parses nothing.
+    Vec<Symbol> tested;
+    bool tested_known = false;
 };
 
 // One path in scratch. The array is owned by scratch alone, so set() may change it in

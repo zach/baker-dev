@@ -47,6 +47,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
+#include <span>
 #include <string_view>
 
 namespace baker {
@@ -190,6 +191,13 @@ struct ProjectOptions {
     // Go on past a layer that does not read, as a tool that shows every problem at once
     // does; a game stops at the first.
     bool go_on = false;
+    // Flags the host defines beside the project's (defines ...), for #ifdef: the build's
+    // features, the platform, a command-line switch. Each is listed by active_defines() as
+    // the host's; Config::set_defines changes them later. The views need last only for the
+    // call.
+    //   static constexpr std::string_view kDefines[] = {"server", "steam"};
+    //   open_project(cfg, project, {.defines = kDefines});
+    std::span<const std::string_view> defines{};
 };
 
 // Sets `cfg.session()`'s pack levels, include directories, and defines from `project`, then

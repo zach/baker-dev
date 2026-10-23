@@ -7766,3 +7766,53 @@ owner's choices, made while building it.*
     outside a check; the Context's variables restored; a live edit to a file breaking a rule
     and warning at the reload; a layer softening a rule and adding one; and `check()`
     reporting a rule's game function as demand, `data` known.
+
+## D242. Defines a host supplies, who made each, and changing them live
+
+*The design is `dev/host-defines-note.md`, agreed with the owner.*
+
+- **Who made each define.**
+  - `LoadSession::define(name, DefineFrom)` records the origin: `Host` by default,
+    `Project` for a project file's `(defines ...)`, `File` for a `#define` (with its file
+    and line).
+  - `active_defines()` lists the flags that stand, in the order made, less those
+    `#undef`'d.
+  - Macros stay in `macro_definitions()`, and a flag redefined as a macro leaves the list.
+- **`ProjectOptions::defines`**, a span of names, are defined by `open_project` as the
+  host's, beside the project's own.
+- **`Config::set_defines(names)`** replaces the host's flags on an open stack.
+  - Each read now records the names its `#ifdef`, `#ifndef`, `#define` and `#undef` named
+    (`LayerState::tested`).
+  - A layer that touched a changed name is read again in place, with the sessions below it.
+  - Every other layer keeps its tree. Its session takes each changed name as the session
+    below now has it, so a lower file's own `#define` of the name still stands when the
+    host drops it.
+  - A cache's replay parses nothing and records no tests. A session counts the files it
+    parses, and a layer whose read parsed none is read again.
+  - One merge follows, recorded with the trigger `defines`. The same set changes nothing.
+    If a layer does not read, the host's defines are put back and nothing changes.
+  - It needs no development build: a shipping game decides a mode too.
+- **Deviation: what "keeps the rest" costs.** The note said the rest are kept. Layers
+  above a re-read one keep their trees, but their sessions are copied to carry the change,
+  so the layers above them read with the right defines. That copy is per layer, per
+  `set_defines`, and nothing on a read.
+- **The JSON.**
+  - `baker.check/1.4` and `baker.reference/1.5` gain `defines`: each flag's `name`,
+    `origin` (`"host"`, `"project"`, `"file"`), `file` and `line`.
+  - A field added, so a new minor version of each. The kit's example, the stacks' agent
+    guide and every test that pins a version follow.
+- **`explain`.**
+  - Each session records the `#ifdef` or `#ifndef` branches its reads took
+    (`conditional_sections()`): name, `#ifndef` or not, the `#else` or not, and the lines.
+  - `ExplainEntry::section` is the innermost one around the line a layer's value was read
+    at, and `config.explain` writes it as `(chosen_by server ifdef)`.
+- **Tests.**
+  - The host's, the project's and a file's defines listed with their origins, the host's
+    seen by `#ifdef`.
+  - `set_defines` re-reading only the layer that tested the name: the others keep the same
+    tree objects, and the value moves.
+  - The same set changing nothing, and a second set bringing the first back.
+  - A file's own `#define` standing when the host drops the name.
+  - A layer that does not read under the new set leaving defines and value as they were.
+  - `explain` naming the `#ifdef` and then its `#else` after a change.
+  - Check's JSON listing the host's define. The data tests run in the shipping build too.
