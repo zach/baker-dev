@@ -363,3 +363,22 @@ TEST_CASE("a list parameter's elements are checked, native or declared, and at a
     CHECK(tool.eval("{guard.walk ((0 0) (1 1))}", "t"));
     CHECK_FALSE(tool.eval("{guard.walk ((0 0) (1))}", "t"));
 }
+
+TEST_CASE("a described curve tweak holds data to a curve, and its range to each y") {
+    TweakRegistry tool;
+    DescribedTweaks described(tool);
+    REQUIRE(described.add(
+        {.path = "falloff", .type = "curve", .default_text = "((0 1) (10 0))", .range = {0, 1}}));
+    CHECK_FALSE(described.add({.path = "bad", .type = "curve", .default_text = "((5 1) (0 0))"}));
+    CHECK(tool.size() == 1);  // a refused tweak leaves the others registered
+    auto findings = [&](const char* text) {
+        const auto tree = ok(read_string(text, "t.dta"));
+        std::vector<std::string> out;
+        for (const Error& e : check_tweaks(*tree, tool).errors) out.emplace_back(to_string(e));
+        return out;
+    };
+    CHECK(findings("(falloff linear (0 1) (5 0.5) (10 0))").empty());
+    CHECK(findings("(falloff (0 1) (5 2))").size() == 1);    // y outside the range
+    CHECK(findings("(falloff (0 1) (0 0.5))").size() == 1);  // x not ascending
+    CHECK(findings("(falloff wobbly (0 1))").size() == 1);
+}

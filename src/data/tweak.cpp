@@ -87,11 +87,15 @@ void TweakBase::attach() {
 
 void TweakBase::detach() noexcept {
     registry_->lock();
-    if (prev_)
-        prev_->next_ = next_;
-    else
-        registry_->head_ = next_;
-    if (next_) next_->prev_ = prev_;
+    // A tweak never attached (a described one whose default did not read) is in no list;
+    // unlinking it would empty the registry's.
+    if (prev_ || registry_->head_ == this) {
+        if (prev_)
+            prev_->next_ = next_;
+        else
+            registry_->head_ = next_;
+        if (next_) next_->prev_ = prev_;
+    }
     prev_ = next_ = nullptr;
     registry_->unlock();
     detail::destroy(default_allocator(), extra_);
@@ -442,7 +446,13 @@ TweakFindings check_tweaks(const Array& root, const TweakRegistry& tweaks) {
                                     where));
             }
         };
+        // A curve's range holds each point's y; its x and its mode are not ranged.
+        const bool curve = t.info().name == "curve";
         for (const Node& v : values) {
+            if (curve) {
+                if (const Array* p = v.try_array(); p && p->size() >= 2) judge((*p)[1]);
+                continue;
+            }
             const Array* a = nested ? v.try_array() : nullptr;
             if (!a) {
                 judge(v);

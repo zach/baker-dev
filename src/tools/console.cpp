@@ -2,6 +2,7 @@
 // agents. Each result is data, so it prints as Baker text and
 // projects to JSON through eval_request.
 
+#include <baker/curve.hpp>
 #include <baker/tools/console.hpp>
 #include <baker/tools/layers.hpp>
 
@@ -151,6 +152,15 @@ Expected<void> bind_config_tools(Context& ctx, Config& cfg, const ConfigToolOpti
                 ErrorCode::NotFound, "nothing sets '" + Str(path.text) + "'; its default stands"));
         },
         "The value at a path, as get() reads it: several values come as one array.");
+    bind(
+        "curve.sample",
+        [tools](Name path, double x) -> Expected<double> {
+            auto curve = tools->cfg.get<Curve>(Path(path.text));
+            if (!curve) return Unexpected(std::move(curve).error());
+            return curve->sample(x);
+        },
+        "A curve's value at x: the path's values read as a curve (points (x y), with an "
+        "optional interpolation and extension).");
     bind(
         "config.source",
         [tools](Name path) -> Expected<Node> {

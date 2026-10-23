@@ -106,6 +106,32 @@ may set the key again, and removing the layer brings the key back. The merged tr
 holds a marker, and `#merge` ignores one (it only fills in what is missing).
 `layer_effect` lists a removal with the value `#remove`, and what it removed in `below`.
 
+### Curves
+
+A curve is a function designers tune, such as reward by stage, difficulty by time, or
+falloff by distance. It is a key's values: points `(x y)` in ascending x.
+
+```dta
+(falloff (0 1) (5 3) (10 8))                       ; monotone, clamped
+(difficulty catmull-rom loop (0 1) (30 4) (60 1))
+(reward linear (1 10) (2 25 0 15) (3 40))          ; a point's slopes: (x y in out)
+```
+
+- **Interpolation,** an optional symbol before the points, for the whole curve: `monotone`
+  (the default: smooth, and never above or below the two keys around it), `linear`,
+  `catmull-rom` (smooth, but it overshoots between keys that swing), or `constant` (each
+  key's value held to the next key). The names are RenderMan's and Houdini's.
+- **Beyond the points,** another optional symbol: `clamp` (the default: the end keys'
+  values), `extrapolate` (on along the end slopes), or `loop` (repeating the span of x).
+- **A point's slopes:** a third and fourth number give the slope (dy/dx) arriving at the
+  point and leaving it, as glTF's Hermite tangents do. They replace the slopes the
+  interpolation would compute there; a `linear` segment with one becomes a cubic, and a
+  `constant` curve has none. An engine that stores tangents as angles takes their atan.
+- **In C++,** `get<Curve>(path)` and `Tweak<Curve>` read one (`<baker/curve.hpp>`), and
+  `sample(x)` gives its value. **In script,** `{curve.sample path x}`.
+- **A layer replaces a whole curve,** points, interpolation and extension together, as it
+  replaces any key's values.
+
 ## The preprocessor
 
 Directives are handled while a file is read and never appear in the tree. Files read
@@ -309,8 +335,9 @@ Shapes are declared in data, in one `(shapes ...)` container, each tagged by its
       (cadence  float (range 0.2 5) (optional))))
 ```
 
-- **Types:** `int`, `float`, `bool`, `symbol`, `string`, `any`, `(list T)`, `(key_of
-  TABLE)`, or another shape's name.
+- **Types:** `int`, `float`, `bool`, `symbol`, `string`, `any`, `curve`, `(list T)`,
+  `(key_of TABLE)`, or another shape's name. A `curve` field's values are a curve (see
+  Curves, above), and its `(range lo hi)` holds every point's y.
 - **Metadata:** `range`, `step`, `kind`, `desc`, `note` (as a tweak's), and `optional`.
   A field without `optional` is required. A `symbol` or `(list symbol)` field may list the
   symbols it allows, `(button symbol (one_of light heavy kick special))`, in the order a tool

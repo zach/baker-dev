@@ -16,6 +16,7 @@ add_executable(baker_data_tests
   data/test_cache.cpp
   data/test_config.cpp
   data/test_core.cpp
+  data/test_curve.cpp
   data/test_corpus.cpp
   data/test_lookup.cpp
   data/test_m3b.cpp

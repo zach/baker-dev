@@ -290,7 +290,7 @@ TEST_CASE("a symbol field lists the symbols it allows, (one_of ...) (D203)") {
     CHECK_FALSE(check_text("(shapes (s (n symbol (one_of a 2))))").ok());
 }
 
-// --- As JSON, baker.shapes/1.3 (dev/tool-surface-plan.md §6, D203, D235). ---
+// --- As JSON, baker.shapes/1.4 (dev/tool-surface-plan.md §6, D203, D235, D245). ---
 
 TEST_CASE("the shapes as JSON: each shape and its fields") {
     shape::Set shapes;
@@ -305,7 +305,7 @@ TEST_CASE("the shapes as JSON: each shape and its fields") {
     REQUIRE(report.errors.empty());
     std::string json;
     shape::write_json(shapes, string_out(json));
-    CHECK(json.rfind("{\n  \"schema\": \"baker.shapes/1.3\",\n  \"shapes\": [\n", 0) == 0);
+    CHECK(json.rfind("{\n  \"schema\": \"baker.shapes/1.4\",\n  \"shapes\": [\n", 0) == 0);
     CHECK(json.find(R"j({"name": "boss_phase", "at": ["bosses", "*", "phases"], "keyed": true, )j"
                     R"j("file": "shapes.dta", "line": 2, "fields": [)j") != std::string::npos);
     CHECK(
@@ -562,4 +562,28 @@ TEST_CASE("a build without baker::script says once that rules went unchecked") {
         return r.find("has no baker::script to check them") != std::string::npos;
     });
     CHECK(told == (BAKER_TEST_SCRIPT ? 0 : 1));
+}
+
+TEST_CASE("a curve field holds a curve, and its range each point's y") {
+    const char* const shapes =
+        "(shapes (enemy (at enemies) (keyed)\n"
+        "   (falloff curve (range 0 1))\n"
+        "   (pace curve)))\n";
+    CHECK(check_text(std::string(shapes) + "(enemies (grunt (falloff (0 1) (10 0.5) (20 0)) "
+                                           "(pace catmull-rom loop (0 1) (60 3 0 0))))\n")
+              .errors.empty());
+    CHECK(texts(check_text(std::string(shapes) +
+                           "(enemies\n (grunt (falloff (0 1) (10 0.5) (5 0)) (pace (0 1))))\n")
+                    .errors) ==
+          std::vector<std::string>{"baker: 'falloff' is not a curve: (5 0) is not after the "
+                                   "point before it in x  (t.dta:5, at enemies/grunt/falloff)"});
+    CHECK(texts(check_text(std::string(shapes) +
+                           "(enemies\n (grunt (falloff (0 1) (10 2)) (pace wobbly (0 1))))\n")
+                    .errors) ==
+          std::vector<std::string>{
+              "baker: 'falloff''s point (10 2) has y outside 0.0 to 1.0  (t.dta:5, at "
+              "enemies/grunt/falloff)",
+              "baker: 'pace' is not a curve: wobbly is not an interpolation (monotone, linear, "
+              "catmull-rom, constant) or an extension (clamp, extrapolate, loop), or names one "
+              "twice  (t.dta:5, at enemies/grunt/pace)"});
 }

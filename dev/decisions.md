@@ -8094,3 +8094,59 @@ directory instead of each file:
   include directories searched; a Config's reload adding and removing a record;
   write-back into a record's file, and a value added under a folder's table refused;
   and Live noticing a new record's file.
+
+## D245. A curve as a value
+
+*Built 2026-10-23, from `dev/curve-note.md`.* A curve is a function designers tune, such as
+reward by stage or falloff by distance: `(falloff (0 1) (5 3) (10 8))`.
+
+- **Deviation: the syntax.** The note wrote `(falloff (curve (0 1) ...))`. An array whose
+  first node is a symbol is a key in Baker, so `(curve ...)` would be the key
+  `falloff.curve`, with `falloff` holding no values: explain, write-back and
+  `layer_effect` would name the inner path, and a layer that left out `(extend ...)` would
+  keep the one below it. The owner chose to make the curve the key's own values: the
+  points, after up to two bare symbols, the interpolation and the extension, in either
+  order. The extension's names are `clamp`, `extrapolate` and `loop`; the note's
+  `(extend linear)` became `extrapolate`, so no name is both an interpolation and an
+  extension. A layer then replaces the whole curve as it replaces any key's values.
+- **Interpolation.** `monotone` (the default) is Fritsch and Butland's: flat at a key that
+  is a peak or a valley, else a weighted harmonic mean of the two secants, which keeps each
+  segment within its keys. `catmull-rom` takes the secant across the two neighbours. Both
+  take the one-sided secant at the ends. A point's own slopes, `(x y in out)`, replace the
+  computed one on each side; a `linear` segment with one becomes a cubic Hermite through
+  it, and `constant` ignores them. `extrapolate` goes on along the end key's slope.
+- **C++.** `baker::Curve` (`<baker/curve.hpp>`, baker::data) views the tree's nodes, or
+  points a host keeps, which is how a host builds one to set a tweak. `read_curve` says why
+  values are not a curve without allocating, and `Convert<Curve>` makes `get<Curve>` and
+  `Tweak<Curve>` work; the tweak keeps its tree, so its curve stays valid until the next
+  reload. Writing one leaves out the defaults, and a whole number is written as an int.
+- **Script.** `{curve.sample path x}`, bound with `config.get` by `bind_config_tools`, in
+  every build.
+- **Checking.** A shape field type `curve`, its `(range lo hi)` on every y. A tweak's range
+  holds a curve's y alone in `check_tweaks`, and `DescribedTweaks` takes the type `curve`
+  with no value types. The tweaks JSON names the type `"curve"`; the shapes JSON is
+  `baker.shapes/1.4` for the new field type. The reference lists no tweaks, so it has
+  nothing to name.
+- **A fix found on the way.** A described tweak whose default did not read was destroyed
+  unattached, and `TweakBase::detach` took a tweak with no previous one for the head and
+  emptied the registry: every tweak a tool had described before it was lost. `detach` now
+  unlinks only a tweak that is in the list.
+- **Cost.** A scratch program, Release, pinned, best of 15; a curve's x spread over its
+  span:
+
+  | points | read | monotone | catmull-rom | linear | constant |
+  |---:|---:|---:|---:|---:|---:|
+  | 4 | 21 ns | 65 ns | 61 ns | 30 ns | 25 ns |
+  | 16 | 70 ns | 72 ns | 68 ns | 31 ns | 26 ns |
+  | 64 | 272 ns | 78 ns | 77 ns | 35 ns | 30 ns |
+
+  The cubic modes read the four keys around the segment for their slopes; the search reads
+  only x, which took 64-point monotone from 101 ns to 78. Reading checks every point once.
+  `tools/count_instructions.py` against main: lookup, set and frame unchanged.
+- **Tests.** Each interpolation at its keys, between them and beyond them under each
+  extension; one point and no points; monotone within its keys where catmull-rom
+  overshoots; a point's slopes, and a kink; every refusal `read_curve` gives; writing a
+  curve and reading it back, and a host's own points; `Tweak<Curve>` from data, a layer
+  replacing a curve whole, `set`, `check_tweaks` with a range on y alone, and the tweaks
+  JSON; the shape type with its range and refusals located; `curve.sample`; and a
+  described curve tweak, with a refused one leaving the registry whole.

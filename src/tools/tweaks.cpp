@@ -2,6 +2,7 @@
 // data without the game.
 
 #include <baker/config.hpp>
+#include <baker/curve.hpp>
 #include <baker/parse.hpp>
 #include <baker/tools/described.hpp>
 #include <baker/write.hpp>
@@ -28,7 +29,8 @@ struct DescribedParts {
           desc_text(d.desc),
           kind_text(d.kind),
           group_text(d.group),
-          counted(d.count) {
+          counted(d.count),
+          curve(d.type == "curve") {
         for (const std::string_view t : types) type_names.emplace_back(t);
         for (const std::string_view o : d.one_of) one_of_names.emplace_back(o);
         for (const TweakChoice& c : d.choices) choices.push_back({c.value, Symbol(c.name).str()});
@@ -56,6 +58,7 @@ struct DescribedParts {
     Vec<TweakChoice> choices;  // names interned
     TweakMeta described;
     ValueCount counted;  // how many values it takes
+    bool curve;          // a curve (<baker/curve.hpp>): read as one, with no value types
     ValueList fallback, current;
     bool has_current = false;
 };
@@ -86,15 +89,18 @@ public:
 
 private:
     bool assign(const Values& v, bool apply) override {
-        // A list by its elements; any other value by its value types.
-        if (!listed.type.empty()
+        // A curve as one; a list by its elements; any other value by its value types.
+        Curve c;
+        if (curve ? !!read_curve(v, c)
+            : !listed.type.empty()
                 ? !detail::reads_list(listed, v)
                 : !detail::reads_as({type_views.data(), type_views.size()}, counted, v))
             return false;
         if (apply) {
             current = ValueList();
-            const size_t n =
-                counted == ValueCount::Exact && listed.type.empty() ? type_views.size() : v.size();
+            const size_t n = counted == ValueCount::Exact && listed.type.empty() && !curve
+                                 ? type_views.size()
+                                 : v.size();
             for (size_t i = 0; i < n; ++i) current.push(v[i]);
             has_current = true;
         }
@@ -103,7 +109,7 @@ private:
     void reset() override { has_current = false; }
     [[nodiscard]] detail::ConvertInfo info() const noexcept override {
         using K = detail::ConvertKind;
-        if (type_views.size() != 1 || counted != ValueCount::Exact || !listed.type.empty())
+        if (curve || type_views.size() != 1 || counted != ValueCount::Exact || !listed.type.empty())
             return {type_text.view(), K::Compound};
         const std::string_view t = type_views[0];
         if (t == "float32" || t == "float") return {type_text.view(), K::Float};
@@ -157,7 +163,8 @@ Expected<void> DescribedTweaks::add(const TweakDescription& d) {
     if (list && element_types.empty())
         return refuse("its element type '" + Str(d.element.type) +
                       "' is not one of Baker's, and its description gives no value types for it");
-    if (types.empty() && !list)
+    const bool curve = d.type == "curve";
+    if (types.empty() && !list && !curve)
         return refuse("its type '" + Str(d.type) +
                       "' is not one of Baker's, and its description gives no value types");
     for (const auto set : {types, element_types})
@@ -170,7 +177,7 @@ Expected<void> DescribedTweaks::add(const TweakDescription& d) {
     if (!tree) return refuse("its default does not read: " + Str(tree.error().message()));
     std::span<const Node> nodes = (*tree)->nodes();
     // Several values, or a list, written in parentheses: (1 2), (fast loud), ((0 0) (1 0)).
-    if (nodes.size() == 1 && (types.size() > 1 || d.count != ValueCount::Exact || list))
+    if (nodes.size() == 1 && (types.size() > 1 || d.count != ValueCount::Exact || list || curve))
         if (const Array* a = nodes[0].try_array()) nodes = a->nodes();
     auto* t = detail::create<DescribedTweak>(default_allocator(), d, types, element_types,
                                              *impl_->registry);

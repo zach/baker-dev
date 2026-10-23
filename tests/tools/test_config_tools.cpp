@@ -172,3 +172,13 @@ TEST_CASE("a shipping build binds the reading tools only") {
     CHECK_FALSE(f.ctx.has_func("config.write_back"));
 }
 #endif
+
+TEST_CASE("curve.sample reads a path's curve and samples it") {
+    Fixture f;
+    REQUIRE(
+        f.cfg.push_layer("curves", f.dir.write("curves.dta", "(reward linear (1 10) (3 30))\n")));
+    CHECK(eval(f.ctx, "{curve.sample reward 2}") == "20.0");
+    CHECK(eval(f.ctx, "{curve.sample reward 9}") == "30.0");        // clamped
+    CHECK_FALSE(f.ctx.eval("{curve.sample box.width 1}", "test"));  // not a curve
+    CHECK_FALSE(f.ctx.eval("{curve.sample nosuch 1}", "test"));
+}
