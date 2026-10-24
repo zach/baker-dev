@@ -578,3 +578,39 @@ metadata's slot, where the note that travels with it also stops tripping shapes.
 step is a D-entry for the verbs alone, with the docs (`language.md`'s layer section, the
 cookbook's content paragraph) and the shapes refusal. It should be measured on the local
 matrix, MSVC included, before it goes in.
+
+## 11. Verification, the raw gate, and review
+
+*Added after the prototype, from the session's review round; `dev/syntax-ideas.md` on
+`claude/fervent-cray-l1kyf0` compares all eight branches.* An agent independent of the
+prototype rebuilt this branch, reran its tests and reproduced its numbers; a reviewer
+judged it under the data-oriented lens (`.claude/skills/acton-review/`) and the tool
+author's; and D101's raw gate (464 raw Harmonix files, `baker_parse_corpus --roundtrip
+--milo-paths` over a local clone of mariteaux/milo-script-library, nothing from it in the
+repository, D3) was run on the branch's build. Where a finding below disagrees with an
+earlier section, this section is the later word.
+
+- **Reviewed at** `39f5248`, the branch's final head.
+- **Verifier.** Builds; 23 of 23. Line counts per file, every instruction count (parse
+  −0.18%, check +2.19%, check_text +1.89%, check_pinned +15.3%), bytes, samples, the
+  26-list analysis and the round trip reproduce exactly. Corrections: the Hearth sample's
+  cottage half compares against a restated list, but the cottage's things are keyed and
+  `(households (cottage (things (phone #remove) (lamp -2 4 0))))` already gives the same
+  merged result today; the test meant to prove every layer reader goes through
+  `leaf_values` greps for `values_of(`, which no longer exists anywhere, so it guards
+  nothing; `bench <file>` fails on every stacks file that holds a `#require`.
+- **Raw gate.** 464/464, 0 failures.
+- **Technical director, 3 of 5, explore further.** An invariant hole: the marker flag is
+  set by the parser, `make_from` and `make_copy` but not by `Array::set`, so an overlay a
+  C++ tool builds with `make` and `set` merges with `#append` leaking into the merged
+  tree (verified). The +2.19% on a marker-free check is the new per-node scan in
+  `make_from`; setting the flag where a marker is made removes it. 11 of the 15 value
+  lists are Wayfarer cell geometry no package extends.
+- **Tool author, 3 of 5, adopt in part.** The agent loop loses idempotence: after
+  `promote --patch` lands, a `(cancels #append palm)` left in `agent.dta` gives
+  `jab low_kick palm palm`, silently (verified). A verb row cannot carry `#was`. The Duel
+  sample fails Duel's own shape check (`'reaction' takes one int, given 2 values`).
+- **Recommendation after review.** Promote's removal by extent now. `#append` and `#drop`
+  when a package that composes a list exists, rebuilt at zero cost when unused (the flag
+  set where a marker is made, `Array::set` included), with a warning when an appended
+  operand is already present, at about 150 lines; `#was` with at-metadata.
