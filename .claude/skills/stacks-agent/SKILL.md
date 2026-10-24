@@ -8,6 +8,11 @@ description: Work on a game stack's data as its agent (stacks/, dev/background/g
 A stack's game (`stacks/<game>/`) is also its own tool. Its data is Baker (`docs/language.md`).
 You work where a technical designer works: in data, never in the game's C++.
 
+Objectives and conditions are written infix: `(pass {0.3 <= $value <= 0.7})` is the command
+`{<= 0.3 $value 0.7}`, and `{{econ.count mill} >= 1}` is `{>= {econ.count mill} 1}`
+(`stacks/agent.md`). Keep one operator a brace and nest for more; write new ones the way the
+file around them is written.
+
 ```
 stacks/<game>/data/default.dta    the game's data. Read it; never edit it.
 stacks/<game>/data/agent.dta      YOUR layer, over default. Every experiment goes here.

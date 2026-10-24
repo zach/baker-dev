@@ -1,6 +1,9 @@
 #include "syntax.hpp"
 
+#include "experiments.hpp"
+
 #include <baker/parse.hpp>
+#include <baker/script.hpp>
 #include <baker/source_map.hpp>
 #include <baker/std_interop.hpp>
 
@@ -444,6 +447,35 @@ void mark_difference(const Node& a, const Node& b, std::string& path, std::strin
     }
 }
 
+void collect(const Node& n, std::vector<Symbol>& vars, std::vector<double>& numbers) {
+    if (n.type() == Type::Var && std::find(vars.begin(), vars.end(), n.var_name()) == vars.end())
+        vars.push_back(n.var_name());
+    if (const auto i = n.try_int()) numbers.push_back(static_cast<double>(*i));
+    if (const auto f = n.try_float()) numbers.push_back(*f);
+    if (n.is_array_like())
+        for (const Node& k : *n.array()) collect(k, vars, numbers);
+}
+
+std::string show(const Expected<Node>& r) {
+    return r ? to_string(*r) : "error: " + std::string(r.error().message());
+}
+
+// Replaces each subtree of `n` that is a recorded rewrite's result with what it replaced: the
+// original's tree back, if the rewrites are all that changed it. `used` counts each kind.
+Node undo(const Node& n, const std::vector<Rewrite>& rewrites, std::vector<int>& used) {
+    if (!n.is_array_like()) return n;
+    for (const Rewrite& w : rewrites)
+        if (n.type() == Type::Command && structurally_equal(n, w.after)) {
+            ++used[static_cast<size_t>(w.kind)];
+            return undo(w.before, rewrites, used);
+        }
+    const Array& a = *n.array();
+    std::vector<Node> kids;
+    kids.reserve(a.size());
+    for (const Node& k : a) kids.push_back(undo(k, rewrites, used));
+    return Node(Array::make_from(kids, a.file(), a.line()), n.type());
+}
+
 }  // namespace
 
 Expected<Ref<Array>> read(std::string_view text, std::string_view name) {
@@ -476,11 +508,17 @@ void Counts::add(const Counts& o) {
 }
 
 Expected<Converted> to_new(std::string_view path) {
+    auto text = read_text_file(path);
+    if (!text) return Unexpected(std::move(text).error());
+    return to_new(path, *text);
+}
+
+Expected<Converted> to_new(std::string_view path, std::string_view text) {
     LoadSession session;
     session.set_pack_levels({"engine", "game", "task", "live"});
     SourceMap map;
     session.source_map = &map;
-    auto root = read_file(path, session);
+    auto root = read_string(text, path, session);
     if (!root) return Unexpected(std::move(root).error());
     const SourceSpan* extent = map.extent(**root);
     const auto src = extent ? map.text(extent->file) : std::nullopt;
@@ -533,6 +571,163 @@ TextSize text_size(std::string_view t) {
     }
     s.chars = static_cast<int>(compact.size());
     return s;
+}
+
+// Evaluates `before` and `after` with each variable they read set to values around each
+// number they hold.
+std::string agree(const Rewrite& w, bool& evaluated) {
+    std::vector<Symbol> vars;
+    std::vector<double> numbers{0, 1};
+    collect(w.before, vars, numbers);
+    std::vector<Node> values;
+    for (const double x : numbers)
+        for (const double d : {-1.0, -1e-9, 0.0, 1e-9, 1.0}) values.emplace_back(x + d);
+    for (const double x : numbers)
+        if (x == static_cast<double>(static_cast<int64_t>(x)))
+            values.emplace_back(static_cast<int64_t>(x));
+    evaluated = false;
+    const std::vector<Symbol>& names = vars;
+    if (names.size() > 2) return {};
+    const size_t n2 = names.size() == 2 ? values.size() : 1;
+    for (size_t i = 0; i < (names.empty() ? 1 : values.size()); ++i) {
+        for (size_t j = 0; j < n2; ++j) {
+            Expected<Node> r[2];
+            Node stored[2];
+            for (int side = 0; side < 2; ++side) {
+                Context ctx;
+                if (!names.empty()) ctx.var(names[0]) = values[i];
+                if (names.size() == 2) ctx.var(names[1]) = values[j];
+                r[side] = ctx.eval(side == 0 ? w.before : w.after);
+                if (!names.empty()) stored[side] = ctx.var(names[0]).value();
+            }
+            if (!r[0] &&
+                std::string(r[0].error().message()).find("is not a function") != std::string::npos)
+                return {};  // a host function: not evaluable here
+            evaluated = true;
+            const bool same = r[0] && r[1] ? structurally_equal(*r[0], *r[1]) : !r[0] && !r[1];
+            if (!same || !structurally_equal(stored[0], stored[1]))
+                return to_string(w.before) + " gives " + show(r[0]) + ", " + to_string(w.after) +
+                       " gives " + show(r[1]);
+        }
+    }
+    return {};
+}
+
+std::span<const Original> originals() {
+    static constexpr Original kOriginals[] = {
+        {"calculator-functions", "examples/calculator/functions.dta"},
+        {"contraption-puzzle", "stacks/contraption/metrics/puzzle.dta"},
+        {"cube", "stacks/cube/metrics/cube.dta"},
+        {"duel", "stacks/duel/metrics/duel.dta"},
+        {"hearth", "stacks/hearth/metrics/hearth.dta"},
+        {"host-objectives", "tests/host/stack/metrics/objectives.dta"},
+        {"ledger", "stacks/ledger/metrics/ledger.dta"},
+        {"ledger-economy", "stacks/ledger/data/economy.dta"},
+        {"ledger-milestones", "stacks/ledger/data/default.dta"},
+        {"scripting-rules", "examples/scripting/rules.dta"},
+        {"scripts", "tests/corpus/scripts.dta"},
+        {"stuntline-track", "stacks/stuntline/metrics/track.dta"},
+        {"ui_menu", "tests/corpus/ui_menu.dta"},
+        {"wayfarer-world", "stacks/wayfarer/metrics/world.dta"},
+    };
+    return kOriginals;
+}
+
+Expected<std::string> original_text(std::string_view rel) {
+    const std::string root(repository_root());
+    for (const Original& o : originals())
+        if (o.path == rel)
+            return read_text_file(root + "/experiments/syntax-curly-infix/samples/" +
+                                  std::string(o.name) + ".original.dta");
+    return read_text_file(root + "/" + std::string(rel));
+}
+
+int written_infix(const Array& root, std::string_view file) {
+    int c = 0;
+    auto count = [&](auto& self, const Node& n) -> void {
+        if (!n.is_array_like()) return;
+        const Array& a = *n.array();
+        if (n.type() == Type::Command && a.written_infix() && a.file().str() == file) ++c;
+        for (const Node& k : a) self(self, k);
+    };
+    for (const Node& n : root) count(count, n);
+    return c;
+}
+
+std::string prove_rewrite(std::string_view path, std::string_view original, std::string* summary) {
+    auto read_as = [&](std::string_view text) {
+        LoadSession session;
+        session.set_pack_levels({"engine", "game", "task", "live"});
+        return read_string(text, path, session);
+    };
+    auto before = read_as(original);
+    if (!before) return "the original does not read: " + std::string(describe(before.error()));
+    // No brace of the original was rewritten, so the switch changed nothing in its read.
+    if (const int n = written_infix(**before, path); n != 0)
+        return "the original reads " + std::to_string(n) + " braces as infix";
+    auto text = read_text_file(path);
+    if (!text) return std::string(text.error().message());
+    auto after = read_as(*text);
+    if (!after) return "the rewrite does not read: " + std::string(describe(after.error()));
+    // The rewrite is the converter's: its tree, its marks.
+    auto c = to_new(path, original);
+    if (!c) return "the converter: " + std::string(describe(c.error()));
+    if (std::string d = first_difference(*c->tree, **after); !d.empty())
+        return "not the converter's tree: " + d;
+    if (std::string d = first_mark_difference(*c->tree, **after); !d.empty()) return "marks: " + d;
+    // The converter's tree is the original's but for the rewrites that rest on the
+    // vocabulary (a band as a chain, a turned comparison, an assignment, a merged nest):
+    // each undone, the tree is the original's exactly, and each evaluates as what it
+    // replaced.
+    std::vector<int> used(4, 0);
+    std::vector<Node> kids;
+    for (const Node& n : **after) kids.push_back(undo(n, c->rewrites, used));
+    const Ref<Array> undone = Array::make_from(kids, (*after)->file(), (*after)->line());
+    if (std::string d = first_difference(**before, *undone); !d.empty()) return "tree: " + d;
+    int kinds[4] = {}, evaluated = 0, host = 0;
+    for (const Rewrite& w : c->rewrites) {
+        ++kinds[static_cast<size_t>(w.kind)];
+        bool ran = false;
+        if (std::string d = agree(w, ran); !d.empty()) return "meaning: " + d;
+        ran ? ++evaluated : ++host;
+    }
+    for (size_t k = 0; k < 4; ++k)
+        if (used[k] != kinds[k])
+            return "rewrites: " + std::to_string(kinds[k]) + " of a kind recorded, " +
+                   std::to_string(used[k]) + " found in the tree";
+    // Comments and layout: every comment's text on its line, and the line count.
+    const TextStructure x = read_structure(original);
+    const TextStructure y = read_structure(*text);
+    if (x.comments.size() != y.comments.size())
+        return "comments: " + std::to_string(x.comments.size()) + " in the original, " +
+               std::to_string(y.comments.size()) + " in the rewrite";
+    for (size_t i = 0; i < x.comments.size(); ++i) {
+        const TextComment& a = x.comments[i];
+        const TextComment& b = y.comments[i];
+        if (a.line != b.line || original.substr(a.begin, a.end - a.begin) !=
+                                    std::string_view(*text).substr(b.begin, b.end - b.begin))
+            return "comment " + std::to_string(i + 1) + " (line " + std::to_string(a.line) +
+                   ") moved or changed";
+    }
+    const auto lines = [](std::string_view t) { return std::count(t.begin(), t.end(), '\n'); };
+    if (lines(original) != lines(*text))
+        return "lines: " + std::to_string(lines(original)) + " in the original, " +
+               std::to_string(lines(*text)) + " in the rewrite";
+    if (summary) {
+        const size_t n = c->rewrites.size();
+        *summary = "the converter's tree, " + std::to_string(written_infix(**after, path)) +
+                   " commands written infix; the original's tree " +
+                   (n == 0 ? std::string("exactly")
+                           : "but for " + std::to_string(n) + " rewrites (bands " +
+                                 std::to_string(kinds[0]) + ", turned " + std::to_string(kinds[1]) +
+                                 ", assignments " + std::to_string(kinds[2]) + ", merged nests " +
+                                 std::to_string(kinds[3]) + "), each undone exactly and " +
+                                 std::to_string(evaluated) + " evaluated equal, " +
+                                 std::to_string(host) + " calling the game's functions") +
+                   "; " + std::to_string(x.comments.size()) + " comments on their lines, " +
+                   std::to_string(lines(original)) + " lines";
+    }
+    return {};
 }
 
 std::string first_mark_difference(const Array& a, const Array& b) {

@@ -11,6 +11,7 @@
 #include <baker/array.hpp>
 #include <baker/expected.hpp>
 
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -85,6 +86,38 @@ struct Converted {
 // Reads the DTA file at `path` in edit mode and rewrites its operator calls as infix, in
 // place: each command's bytes are replaced, every other byte of the file is kept.
 [[nodiscard]] Expected<Converted> to_new(std::string_view path);
+// The same over `text` read as the file at `path`, its includes from beside it: an earlier
+// version of the file, such as its original before the in-tree rewrite.
+[[nodiscard]] Expected<Converted> to_new(std::string_view path, std::string_view text);
+
+// The files the in-tree rewrite changed (dev/syntax-curly-infix-design.md, section 7). Each
+// original is kept as samples/<name>.original.dta, git's copy from before the rewrite, so a
+// checkout without history can still prove the rewrite.
+struct Original {
+    std::string_view name;  // samples/<name>.original.dta
+    std::string_view path;  // the rewritten file, from the repository root
+};
+[[nodiscard]] std::span<const Original> originals();
+// The text a corpus file had before the rewrite: its original's, or its own.
+[[nodiscard]] Expected<std::string> original_text(std::string_view rel);
+// How many commands of `root` written in `file` (not in what it includes) read as infix.
+[[nodiscard]] int written_infix(const Array& root, std::string_view file);
+
+// Evaluates a rewrite's `before` and `after` with each variable they read set to values
+// around each number they hold. Returns the first disagreement, or empty; `evaluated` is
+// false when neither can run here (they call host functions a bare Context lacks).
+[[nodiscard]] std::string agree(const Rewrite& w, bool& evaluated);
+
+// What proves a rewritten file against its original's text, read as the file at `path`:
+// the original has no brace the infix rule rewrote (so it reads as with the switch off); the
+// file reads to the converter's tree of the original, written-infix marks included; that
+// tree, with each rewrite resting on the vocabulary (a band, a turned comparison, an
+// assignment, a merged nest) undone, is the original's tree exactly, and each such rewrite
+// evaluates as what it replaced; and the file keeps the original's comments, each on its
+// line, and its line count. Empty if all hold, else the first that does not; `summary` says
+// what was compared.
+[[nodiscard]] std::string prove_rewrite(std::string_view path, std::string_view original,
+                                        std::string* summary = nullptr);
 
 // Whether two trees carry the written-infix mark on the same commands; empty if they do,
 // else where they first differ.

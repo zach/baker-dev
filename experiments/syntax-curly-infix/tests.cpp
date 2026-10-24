@@ -1,5 +1,6 @@
-// The experiment's tests: the corpus round trip, the converter on real files, each form, and
-// the errors the reader reports. The core's own tests of the rule are in tests/data
+// The experiment's tests: the corpus round trip, the converter on real files (as they were
+// before the in-tree rewrite), the rewrite proved against its originals, each form, and the
+// errors the reader reports. The core's own tests of the rule are in tests/data
 // (test_parse.cpp, test_write.cpp, test_cache.cpp) and tests/script (test_eval.cpp,
 // test_check.cpp, test_object.cpp).
 #include "experiments.hpp"
@@ -11,7 +12,6 @@
 #include <doctest.h>
 
 #include <string>
-#include <utility>
 
 using namespace baker;
 using namespace baker::experiments;
@@ -22,11 +22,14 @@ std::string root_path(std::string_view rel) {
     return std::string(repository_root()) + "/" + std::string(rel);
 }
 
+// The converter over a corpus file as it was before the in-tree rewrite.
 const syntax::Converted& converted(std::string_view rel) {
     static std::string last;
     static syntax::Converted c;
     if (last != rel) {
-        auto r = syntax::to_new(root_path(rel));
+        auto text = syntax::original_text(rel);
+        REQUIRE(text);
+        auto r = syntax::to_new(root_path(rel), *text);
         REQUIRE(r);
         c = std::move(*r);
         last = std::string(rel);
@@ -55,7 +58,9 @@ TEST_CASE("the converter's text reads back to its tree, marks included, for ever
     for (const std::string& rel : corpus_files()) {
         if (!read_dta_file(root_path(rel))) continue;
         INFO(rel);
-        auto c = syntax::to_new(root_path(rel));
+        auto text = syntax::original_text(rel);
+        REQUIRE(text);
+        auto c = syntax::to_new(root_path(rel), *text);
         REQUIRE(c);
         LoadSession session;
         session.set_pack_levels({"engine", "game", "task", "live"});
@@ -114,39 +119,30 @@ TEST_CASE("an assignment of an operation on its own place becomes += and friends
     CHECK(c.counts.assignments == 2);
 }
 
-TEST_CASE("each sample, polished by hand, reads to the tree the converter makes of its original") {
-    static constexpr std::pair<std::string_view, std::string_view> kSamples[] = {
-        {"contraption-puzzle", "stacks/contraption/metrics/puzzle.dta"},
-        {"cube", "stacks/cube/metrics/cube.dta"},
-        {"duel", "stacks/duel/metrics/duel.dta"},
-        {"hearth", "stacks/hearth/metrics/hearth.dta"},
-        {"ledger", "stacks/ledger/metrics/ledger.dta"},
-        {"ledger-milestones", "stacks/ledger/data/default.dta"},
-        {"stuntline-track", "stacks/stuntline/metrics/track.dta"},
-        {"wayfarer-world", "stacks/wayfarer/metrics/world.dta"},
-        {"calculator-functions", "examples/calculator/functions.dta"},
-        {"scripting-rules", "examples/scripting/rules.dta"},
-        {"ui_menu", "tests/corpus/ui_menu.dta"},
-    };
-    for (const auto& [name, original] : kSamples) {
-        INFO(name);
-        const std::string dir = root_path("experiments/syntax-curly-infix/samples/");
-        auto sample = read_text_file(dir + std::string(name) + ".dta");
-        auto copy = read_text_file(dir + std::string(name) + ".original.dta");
-        auto source = read_text_file(root_path(original));
-        REQUIRE(sample);
-        REQUIRE(copy);
-        REQUIRE(source);
-        CHECK(*copy == *source);  // the original beside it is the file as it is
-        auto c = syntax::to_new(root_path(original));
-        REQUIRE(c);
-        LoadSession session;
-        session.set_pack_levels({"engine", "game", "task", "live"});
-        auto back = read_string(*sample, root_path(original), session);
-        REQUIRE(back);
-        CHECK(first_difference(*c->tree, **back).empty());
-        CHECK(syntax::first_mark_difference(*c->tree, **back).empty());
+TEST_CASE("each rewritten file reads to its original's tree, but for rewrites shown equal") {
+    for (const syntax::Original& o : syntax::originals()) {
+        INFO(o.path);
+        auto original = syntax::original_text(o.path);
+        REQUIRE(original);
+        std::string summary;
+        CHECK(syntax::prove_rewrite(root_path(o.path), *original, &summary) == "");
+        CHECK(summary.find("the converter's tree") == 0);
     }
+    CHECK(syntax::originals().size() == 14);
+}
+
+TEST_CASE("the converter changes no corpus file: the in-tree rewrite is complete") {
+    int infix = 0;
+    for (const std::string& rel : corpus_files()) {
+        INFO(rel);
+        auto now = read_text_file(root_path(rel));
+        REQUIRE(now);
+        auto c = syntax::to_new(root_path(rel));
+        if (!c) continue;  // Baker's own reader refuses it alone
+        CHECK(c->text == *now);
+        infix += syntax::written_infix(*c->tree, root_path(rel));
+    }
+    CHECK(infix > 50);
 }
 
 TEST_CASE("the reader: infix and prefix are one tree, and the printers give each back") {

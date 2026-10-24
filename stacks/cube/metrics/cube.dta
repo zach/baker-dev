@@ -3,4 +3,4 @@
 (objective cube.turns
    (desc "Twenty seconds of spinning make 2 to 10 full turns: visible, not a blur")
    (measure {cube.turns})
-   (pass {and {>= $value 2} {<= $value 10}}))
+   (pass {2 <= $value <= 10}))

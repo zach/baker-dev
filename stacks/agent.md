@@ -73,8 +73,14 @@ A stack keeps three directories side by side (design §2.4): `data/` (the layers
 (objective cube.turns
    (desc "Twenty seconds make 2 to 10 full turns")
    (measure {cube.turns})            ; evaluated after the run; the result is $value
-   (pass {and {>= $value 2} {<= $value 10}}))
+   (pass {2 <= $value <= 10}))       ; the command {<= 2 $value 10}
 ```
+
+A brace whose second element is an operator, with a number, variable or command among its
+operands, reads infix (dev/syntax-curly-infix-design.md):
+`{2 <= $value <= 10}` is the command `{<= 2 $value 10}`, `{$value == 0}` is `{== $value 0}`,
+and `{c ? a : b}` is `{if c a b}`. Write one operator a brace, nesting for more than one: a
+brace of two different operators is an error at the brace. The prefix spelling still reads.
 
 A run's result is `.dta`, so an agent reads results with the tools it reads data with:
 
@@ -94,7 +100,7 @@ pass, but a seed outside the band does not fail the run; the median's verdict do
 (objective duel.normal_vs_combo
    (over median)
    (measure {duel.win_rate 2})
-   (pass {and {>= $value 0.15} {<= $value 0.5}}))
+   (pass {0.15 <= $value <= 0.5}))
 ; in the JSON's medians, and in results.dta with --results:
 (median duel.normal_vs_combo (scenario normal_vs_combo) (value 0.36) (seeds 3) (pass 1))
 ```
