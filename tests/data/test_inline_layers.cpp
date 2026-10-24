@@ -1,6 +1,6 @@
 // Layer blocks inside a file, (#layer HEAD form*): the parser lifts them out into the
-// session, and a Config pushes them as sub-layers of their file
-// (dev/syntax-inline-layers-design.md). Built only with BAKER_INLINE_LAYERS.
+// session, and a Config pushes them as sub-layers of their file. A prototype, built only
+// with BAKER_INLINE_LAYERS.
 #include <doctest.h>
 #include <baker/cache.hpp>
 #include <baker/config.hpp>

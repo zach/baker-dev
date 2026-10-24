@@ -927,7 +927,7 @@ private:
     }
 
 #if BAKER_INLINE_LAYERS
-    // --- Layer blocks (dev/syntax-inline-layers-design.md) ---
+    // --- Layer blocks (BAKER_INLINE_LAYERS, a prototype) ---
 
     [[nodiscard]] bool in_head() const noexcept { return head_ != 0; }
 

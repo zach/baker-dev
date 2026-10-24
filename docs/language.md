@@ -124,6 +124,7 @@ in the order they are read; a Config's layers read in one session, bottom to top
 | `#undef N` | Remove a flag or macro. |
 | `#autorun {command}` | Collect the command into the session's `autorun()` list, for the host to run after loading. A Config reads each layer with a session of its own: `cfg.autorun()` returns its enabled layers' commands, bottom to top (D107). |
 | `[N node ...]` | At the top level of a file: define macro N. |
+| `(#layer HEAD form...)` | A layer block: the forms, as a layer of their own above the file (see Platforms and builds). |
 
 Paths may be quoted (`#include "shared/common.dta"`) or bare, and resolve against the
 including file's directory, then the session's include directories
@@ -149,7 +150,57 @@ session, which is what a file of shared definitions is for.
 
 ### Platforms and builds
 
-Defines usually come from the host, so one file serves every target:
+Defines usually come from the host, so one file serves every target. Say what a platform
+changes in a **layer block**: a bracketed block of data the file holds as a layer of its
+own (a prototype, built with `BAKER_INLINE_LAYERS`).
+
+```dta
+(renderer
+   (shadows 1 (desc "Cast shadows"))
+   (clear_color 0.1 0.1 0.2 (desc "Background")))
+
+(#layer (handheld (when HANDHELD))
+   (renderer (shadows 0)))
+```
+
+```cpp
+cfg.session().define("HANDHELD");          // before pushing the layers
+cfg.push_layer("default", "default.dta");  // layers: default, default:handheld
+```
+
+The parser lifts a block out of the file's tree, and a Config pushes it as the layer
+`FILE:NAME` directly above its file, so it merges like any layer: `(shadows 0)` changes the
+value and keeps the description. On a handheld `get("renderer.shadows")` is 0, `source()`
+and `explain` name `default:handheld` and the block's line, and `layer_effect` and `diff`
+take its name. Elsewhere the block is still there, disabled: the Layers panel lists it,
+and `set_layer_enabled("default:handheld", true)` tries the handheld's values on a PC.
+
+- **The head** is a name, `(#layer boss_faster ...)`, or `(name option...)` with the
+  options `(when COND)`, enabled while COND holds for the defines as the file is read, and
+  `(disabled)`, off until a host or a person enables it. COND is a define name,
+  `(not C)`, `(and C...)` or `(or C...)`; its names are never macro-expanded, as `#ifdef`'s
+  are not. An A/B pair is two blocks, one of them disabled, toggled from the panel:
+
+  ```dta
+  (#layer boss_faster (bosses (dragon (speed 1.5))))
+  (#layer (boss_slower (disabled)) (bosses (dragon (speed 0.8))))
+  ```
+
+- **Where it goes:** at the top level, or inside arrays that all have a tag, where its forms
+  are wrapped in those tags: `(renderer (fog 1) (#layer hh (shadows 0)))` is the layer
+  `(renderer (shadows 0))`. Wherever it is written, a block applies above its whole file.
+- **It holds data:** forms and `(key #remove)`, never another directive, so a block never
+  includes a file or collects an `#autorun`. Its names are unique in a load.
+- **One unit with its file:** reloading, removing, popping and placing a file's layer take
+  its blocks with it; a reload keeps a block you toggled unless its head changed.
+  Write-back into a block edits the block's own text. A text layer a host receives may
+  hold blocks: each is checked under the push's policy as a layer of its own.
+- A file with blocks is read from its text, never a binary cache, for now.
+
+`#ifdef` remains for what a block cannot say: a region that includes a platform's own file
+or defines a macro, values in the middle of a list, a branch inside a `{command}`, or a
+region that opens a bracket in one branch and closes it in another. It is read in place,
+so a later form in the same file still overrides it:
 
 ```dta
 (renderer
@@ -159,10 +210,6 @@ Defines usually come from the host, so one file serves every target:
    (shadows 1)
 #endif
 )
-```
-
-```cpp
-cfg.session().define("HANDHELD");   // before pushing the layers
 ```
 
 ### `#require`

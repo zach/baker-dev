@@ -28,7 +28,7 @@
 //                        #ifdef reads them. Inside a tagged array, the forms are wrapped in
 //                        its tags, so (renderer (#layer hh (shadows 0))) holds the tree
 //                        (renderer (shadows 0)). A block holds data: no directive but
-//                        #remove inside it (dev/syntax-inline-layers-design.md).
+//                        #remove inside it.
 //
 // Packs (spec §1, D80). A file whose first form is
 //   (pack name (level L) (requires other ...)
