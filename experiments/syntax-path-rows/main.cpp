@@ -2,7 +2,8 @@
 //   to-new <file.dta>      read DTA, print it as rows
 //   to-dta <file>          read rows, print DTA
 //   check                  round-trip every corpus file; exit 1 on an experiment fault
-//   bench [<file.dta>]     the rows reader against baker::read_string, same content
+//   bench [<file.dta>]     the rows reader against baker::read_string, same content (a
+//                          file's own forms: its #require and #include lines left out)
 //   bench --stacks [MB]    the same over the stacks' data, replicated to MB megabytes (1)
 //   stats <file.dta>...    leaves, depths, parentheses, lines and bytes, nested and as rows,
 //                          of each file's own forms (its includes read as empty)
@@ -62,9 +63,12 @@ size_t count_parens(std::string_view s) {
 // The leaves of a tree (tagged arrays with values, as collect_paths sees them) and the sum
 // of their depths.
 void leaves(const Array& a, size_t depth, size_t& count, size_t& depth_sum) {
+    static const Symbol meta[] = {"range", "step", "desc", "note", "kind", "group", "one_of"};
     for (size_t i = 0; i < a.size(); ++i) {
         const Array* c = a[i].try_array();
         if (!c || c->tag().empty()) continue;
+        // A tweak's metadata (D88) rides in its value's row: not a leaf of its own.
+        if (std::find(std::begin(meta), std::end(meta), c->tag()) != std::end(meta)) continue;
         bool values = false;
         for (size_t k = 1; k < c->size(); ++k)
             if (tag_of((*c)[k]).empty()) values = true;
@@ -295,7 +299,15 @@ int main(int argc, char** argv) {
             if (argc > 2) {
                 auto t = read_text_file(argv[2]);
                 if (!t) return fail(t.error());
-                text = *t;
+                // The file's own forms: its #require and #include lines left out, as the
+                // benchmark reads the text alone.
+                for (size_t at = 0; at < t->size();) {
+                    const size_t end = std::min(t->find('\n', at), t->size() - 1) + 1;
+                    const std::string_view line(t->data() + at, end - at);
+                    if (line.rfind("#require", 0) != 0 && line.rfind("#include", 0) != 0)
+                        text.append(line);
+                    at = end;
+                }
             } else {
                 text = generated_config_text(4 * 1024 * 1024);
             }
@@ -326,13 +338,17 @@ int main(int argc, char** argv) {
             leaves(**root, 0, n, depth);
             total_leaves += n;
             total_depth += depth;
+            // As written (comments and all), and both forms as the printers write them.
+            const std::string nested = to_dta(**root, {.indent = 3, .width = 96});
             const std::string rows = syntax::print(**root);
             std::printf(
-                "%s: %zu leaves, mean depth %.2f; nested %zu lines %zu bytes %zu parens; "
-                "rows %zu lines %zu bytes %zu parens\n",
+                "%s: %zu leaves, mean depth %.2f; written %zu lines %zu bytes %zu parens; "
+                "printed nested %zu lines %zu bytes %zu parens; rows %zu lines %zu bytes "
+                "%zu parens\n",
                 argv[i], n, n ? static_cast<double>(depth) / static_cast<double>(n) : 0.0,
-                count_lines(*text), text->size(), count_parens(*text), count_lines(rows),
-                rows.size(), count_parens(rows));
+                count_lines(*text), text->size(), count_parens(*text), count_lines(nested),
+                nested.size(), count_parens(nested), count_lines(rows), rows.size(),
+                count_parens(rows));
         }
         if (argc > 3)
             std::printf("all: %zu leaves, mean depth %.2f\n", total_leaves,
