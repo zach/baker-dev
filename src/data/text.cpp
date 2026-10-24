@@ -107,17 +107,6 @@ bool is_bare_symbol(std::string_view s) noexcept {
     return classify_number(s).kind == NumberKind::NotNumber;
 }
 
-bool is_infix_operand(const Node& n) noexcept {
-    switch (n.type()) {
-        case Type::Int:
-        case Type::Float:
-        case Type::Var:
-        case Type::Property:
-        case Type::Command: return true;
-        default: return false;
-    }
-}
-
 bool quoted_in_command(const Node& n) noexcept {
     const auto s = n.try_sym();
     return s && (is_operator_symbol(s->str()) || n.is("?") || n.is(":"));
@@ -141,10 +130,11 @@ InfixShape infix_shape(const Array& a) noexcept {
             return InfixShape::Chain;  // not `/*`, which would open a comment
         }
     }
-    // Printed prefix, would the reader take it infix? Slot 1 an operator or `?`, an operand
-    // at an even slot.
-    const auto head = n >= 3 && (n & 1) ? a[1].try_sym() : std::nullopt;
-    if (head && (is_operator_symbol(head->str()) || a[1].is("?")) && any_operand(a, 0, 2))
+    // Printed prefix, would the reader take it infix, or refuse it as malformed infix? Slot 1
+    // an operator or `?`, and an operand at an even slot (at slot 0, in an even brace).
+    const auto head = n >= 2 ? a[1].try_sym() : std::nullopt;
+    if (head && (is_operator_symbol(head->str()) || a[1].is("?")) &&
+        ((n & 1) ? any_operand(a, 0, 2) : is_infix_operand(a[0])))
         return InfixShape::Quoted;
     return InfixShape::None;
 }

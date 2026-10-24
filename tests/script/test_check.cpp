@@ -910,3 +910,38 @@ TEST_CASE("check holds variadic operators to their literal types, and `=` is a d
         "  (g {$i += one}))\n");
 #endif
 }
+
+TEST_CASE("check reports a head no call can have, as evaluation does, and names infix's fix") {
+    Context ctx;
+    const auto tree = parse(
+        "(rules\n"
+        "  (a {1 2})\n"
+        "  (b {\"f\" x})\n"
+        "  (c {[hp] 3})\n"
+        "  (d {0.3 $value <= 0.7})\n"
+        "  (e {$obj hit 1})\n"
+        "  (f {{find enemy} hit 1}))\n",
+        "rules.dta");
+    const CheckReport report = check(*tree, ctx);
+    REQUIRE(report.errors.size() == 4);
+    CHECK(to_string(report.errors[0]) ==
+          "baker: a command starts with a function or an object, not a int  (rules.dta:2)");
+    CHECK(to_string(report.errors[1]) ==
+          "baker: a command starts with a function or an object, not a string  (rules.dta:3)");
+    CHECK(to_string(report.errors[2]) ==
+          "baker: a command starts with a function or an object, not a property  (rules.dta:4)");
+#if BAKER_CURLY_INFIX
+    CHECK(to_string(report.errors[3]) ==
+          "baker: a command starts with a function or an object, not a float: infix needs an "
+          "operator between every two operands  (rules.dta:5)");
+#else
+    CHECK(to_string(report.errors[3]) ==
+          "baker: a command starts with a function or an object, not a float  (rules.dta:5)");
+#endif
+    // A variable or a command at the head is an object computed at run time: no error.
+    REQUIRE(report.demand.size() == 1);
+    CHECK(report.demand[0].name == Symbol("find"));
+    // Each is what evaluation says of it.
+    CHECK(ctx.eval((*parse("{1 2}", "x.dta"))[0]).error().message() ==
+          "a command starts with a function or an object, not a int");
+}

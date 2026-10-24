@@ -293,14 +293,20 @@ TEST_CASE("a prefix command quotes an operator at an odd slot, so every tree rou
     const Node prefix =
         command_of({Node(Symbol("<=")), Node(0.3), Node::var(Symbol("v")), Node(0.7)});
     const Node f_minus = command_of({Node(Symbol("f")), Node(Symbol("-")), Node(1)});
+    // An even brace whose head is an operand would read as malformed infix: quoted too.
+    const Node handler =
+        command_of({Node::var(Symbol("obj")), Node(Symbol("<=")), Node(1), Node(2)});
+    const Node bare = command_of({Node(0.3), Node(Symbol("-"))});
     CHECK(to_string(plus) == "{+ '-' 1}");
     CHECK(to_string(minus) == "{- - -}");  // bare symbols only: the guard keeps it a command
     CHECK(to_string(tern) == "{a ? b : c}");
     CHECK(to_string(tern_num) == "{1 '?' 2 ':' 3}");
-    CHECK(to_string(call) == "{f + 1 2}");  // an even count never fires: today's text
+    CHECK(to_string(call) == "{f + 1 2}");  // an even count under a call's head: today's text
     CHECK(to_string(prefix) == "{<= 0.3 $v 0.7}");
     CHECK(to_string(f_minus) == "{f '-' 1}");
-    const auto root = root_of({plus, minus, tern, tern_num, call, prefix, f_minus});
+    CHECK(to_string(handler) == "{$obj '<=' 1 2}");
+    CHECK(to_string(bare) == "{0.3 '-'}");
+    const auto root = root_of({plus, minus, tern, tern_num, call, prefix, f_minus, handler, bare});
     check_round_trip(*root);
     const auto again = parse(to_dta(*root));
     for (const Node& n : *again) CHECK_FALSE(n.array()->written_infix());

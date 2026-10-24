@@ -1,5 +1,7 @@
 #pragma once
 
+#include <baker/node.hpp>
+
 #include "common/containers.hpp"
 
 // Lexical rules shared by the parser and the printer. Keeping them in one place is what
@@ -92,7 +94,11 @@ inline constexpr std::array<bool, 256> kOperatorByte = [] {
 }
 // The guard: a brace fires only if an operand is a number, variable, property or command,
 // so a brace of bare symbols, `{wheat -> flour}`, means what it did.
-[[nodiscard]] bool is_infix_operand(const Node& n) noexcept;
+[[nodiscard]] inline bool is_infix_operand(const Node& n) noexcept {
+    const Type t = n.type();
+    return t == Type::Int || t == Type::Float || t == Type::Var || t == Type::Property ||
+           t == Type::Command;
+}
 // Whether a prefix-printed command must quote this node at an odd slot: an operator, or the
 // ternary's `?` and `:`, which the reader would otherwise take as infix (`{+ '-' 1}`).
 [[nodiscard]] bool quoted_in_command(const Node& n) noexcept;

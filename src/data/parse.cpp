@@ -592,10 +592,12 @@ private:
             return true;
         }
 
-        // The infix rule, after a test of slot 1 that a call (`{game add_score 10}`) fails.
+        // The infix rule, after a test of slot 1 that a call (`{game add_score 10}`) fails; an
+        // even brace only when its head is an operand, which only malformed infix gives.
         bool infix = false;
-        if (kCurlyInfix && f.kind >= Frame::Command && (kids.size() & 1) && kids.size() >= 3 &&
-            !(f.marks & kNoInfix) && infix_head(kids[1])) {
+        if (kCurlyInfix && f.kind >= Frame::Command && kids.size() >= 2 &&
+            ((kids.size() & 1) || is_infix_operand(kids[0])) && !(f.marks & kNoInfix) &&
+            infix_head(kids[1])) {
             const int r = infix_rule(kids.data(), kids.size(), f.start, f.line, f.begin);
             if (r < 0) return false;
             infix = r > 0;
@@ -635,7 +637,9 @@ private:
     // 0.7}`, and `{c ? a : b}` is `{if c a b}`: the nodes, and their spans, are permuted in
     // place and `kids` shrinks to the command. Only when an operand (an even slot) is a
     // number, variable, property or command, the guard, so a brace of bare symbols means
-    // what it did. An operator at slot 1 with neither shape is an error at the brace.
+    // what it did. An operator at slot 1 with neither shape is an error at the brace, and so
+    // is one after an operand head in an even brace (`{$v <= 0.7 0.3}`, `{$v <=}`), which
+    // no head-first call writes: quoted, `{$obj '<=' 1 2}`, it is a call.
     static bool infix_head(const Node& n) noexcept {
         const auto s = n.try_sym();
         if (!s || s->str().empty()) return false;
@@ -656,7 +660,8 @@ private:
             if (map_) std::swap(spans_[start + a], spans_[start + b]);
         };
         if (ternary) {
-            if (n != 3 && (n != 5 || !kids[3].is(":"))) return mixed(line, begin);
+            if (n != 3 && (n != 5 || !kids[3].is(":")))
+                return malformed(line, begin, "'?' in {...} takes {c ? a} or {c ? a : b}");
             // [c ? a : b] -> [if c a b]; the `if` is written nowhere, so its span is empty and
             // write-back refuses to replace it.
             swap(0, 1);
@@ -665,8 +670,19 @@ private:
             if (n == 5) swap(3, 4);
         } else {
             const Symbol head = *kids[1].try_sym();
-            for (size_t i = 3; i < n; i += 2)
-                if (!kids[i].is(head)) return mixed(line, begin);
+            for (size_t i = 3; i < n; i += 2) {
+                if (kids[i].is(head)) continue;
+                if (quoted_in_command(kids[i]))
+                    return malformed(line, begin,
+                                     "mixed operators in {...}: nest braces to say which applies "
+                                     "first");
+                return malformed(line, begin,
+                                 "infix {...} needs '" + Str(op) + "' between every two operands");
+            }
+            if (!(n & 1))
+                return malformed(
+                    line, begin,
+                    "infix {...} ends with '" + Str(op) + "': write an operand after it");
             // [k0 op k2 op k4 ...] -> [op k0 k2 k4 ...]: each operand moves left over the
             // operators before it, which end up past the command and are dropped.
             swap(0, 1);
@@ -676,9 +692,8 @@ private:
         if (map_) spans_.resize(start + size);  // the operators' spans go with them
         return static_cast<int>(size);
     }
-    int mixed(int32_t line, uint32_t begin) {
-        fail(ErrorCode::Syntax, "mixed operators in {...}: nest braces to say which applies first",
-             line, begin);
+    int malformed(int32_t line, uint32_t begin, std::string_view message) {
+        fail(ErrorCode::Syntax, message, line, begin);
         return -1;
     }
 

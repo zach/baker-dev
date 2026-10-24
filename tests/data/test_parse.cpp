@@ -364,9 +364,8 @@ TEST_CASE("mixed operators in one brace are an error at the brace, with its colu
     CHECK(e.column() == 4);
     CHECK(to_string(e) ==
           "baker: mixed operators in {...}: nest braces to say which applies first  (t.dta:2:4)");
-    // A ternary with the wrong second operator, or too many parts, is the same error.
-    CHECK(parse_error("{$c ? 1 x 2}").message() ==
-          "mixed operators in {...}: nest braces to say which applies first");
+    // A ternary with the wrong second operator, or too many parts, is an error too.
+    CHECK(parse_error("{$c ? 1 x 2}").message() == "'?' in {...} takes {c ? a} or {c ? a : b}");
     CHECK(parse_error("{$c ? 1 : 2 : 3}").column() == 1);
     // Nested braces say which applies first.
     auto root = parse("{and {0 < $value} {$value <= 10}}");
@@ -376,6 +375,57 @@ TEST_CASE("mixed operators in one brace are an error at the brace, with its colu
     CHECK((*both[2].array())[0].is("<="));
     CHECK(both[1].array()->written_infix());
     CHECK_FALSE(both.written_infix());
+}
+
+TEST_CASE("malformed infix is an error at the brace that names the fix") {
+    // An operand at an operator's slot, or a brace that ends with its operator: the shapes
+    // that read as a call of their first operand before, which check let pass.
+    const Error band = parse_error("(pass\n   {0.3 <= $value 0.7})");
+    CHECK(band.code() == ErrorCode::Syntax);
+    CHECK(band.message() == "infix {...} needs '<=' between every two operands");
+    CHECK(band.line() == 2);
+    CHECK(band.column() == 4);
+    CHECK(to_string(band) ==
+          "baker: infix {...} needs '<=' between every two operands  (t.dta:2:4)");
+    CHECK(parse_error("{$value <= 0.7 0.3}").message() ==
+          "infix {...} needs '<=' between every two operands");
+    const Error open = parse_error("(pass {$value <=})");
+    CHECK(open.message() == "infix {...} ends with '<=': write an operand after it");
+    CHECK(open.column() == 7);
+    // Their siblings: the operator at the end of a longer brace, an operand where the
+    // operator should be in an odd brace (not "mixed"), a ternary without ':', and heads
+    // that are a property, a command, a number.
+    CHECK(parse_error("{0.3 <= $value <=}").message() ==
+          "infix {...} ends with '<=': write an operand after it");
+    CHECK(parse_error("{$value <= 0.7 0.3 1}").message() ==
+          "infix {...} needs '<=' between every two operands");
+    CHECK(parse_error("{$c ? 1 2}").message() == "'?' in {...} takes {c ? a} or {c ? a : b}");
+    CHECK(parse_error("{$c ?}").message() == "'?' in {...} takes {c ? a} or {c ? a : b}");
+    CHECK(parse_error("{[hp] -= 5 1}").message() ==
+          "infix {...} needs '-=' between every two operands");
+    CHECK(parse_error("{{econ.count mill} >=}").message() ==
+          "infix {...} ends with '>=': write an operand after it");
+    CHECK(parse_error("{1 + 2 +}").message() ==
+          "infix {...} ends with '+': write an operand after it");
+    CHECK(parse_error("#autorun {$i +=}").message() ==
+          "infix {...} ends with '+=': write an operand after it");
+    // What stays a command: a call's head (a symbol) before an operator argument, an
+    // operator quoted (an object's handler named by one), a prefix call, a head-first call
+    // through a command or variable, and a ternary or chain of the right shape.
+    auto root = parse(
+        "{f + 1 2} {f <=} {$obj '<=' 1 2} {$obj '-'} {<= 0.3 $v 0.7} {- 5 2 1} "
+        "{{find enemy} hit 10 2} {$obj move 1 2} {$c ? 1} {0.3 <= $v <= 0.7}");
+    CHECK(command_at(root, 0)[0].is("f"));
+    CHECK(command_at(root, 1).size() == 2);
+    CHECK(command_at(root, 2)[0].type() == Type::Var);
+    CHECK(command_at(root, 2)[1].is("<="));
+    CHECK(command_at(root, 3).size() == 2);
+    CHECK(command_at(root, 4)[0].is("<="));
+    CHECK(command_at(root, 5).size() == 4);
+    CHECK(command_at(root, 6)[1].is("hit"));
+    CHECK(command_at(root, 7)[1].is("move"));
+    CHECK(command_at(root, 8)[0].is("if"));
+    CHECK(command_at(root, 9).written_infix());
 }
 
 TEST_CASE("the guard, quoting and macros keep today's braces as they are") {
@@ -406,11 +456,12 @@ TEST_CASE("the guard, quoting and macros keep today's braces as they are") {
     CHECK(e[2].is("-"));
     CHECK(e.written_infix());
     CHECK(command_at(root, 2)[0].try_int() == 1);
-    // An even count, a unary minus, a call with an operator argument, and a prefix call
-    // are commands as today; `{<= 0.3 $v 0.7}` written prefix is not flagged.
-    root = parse("{1 + 2 +} {- 5} {f + 1 2} {<= 0.3 $v 0.7} {$x = 1}");
+    // An even count under a call's head, a unary minus, a call with an operator argument,
+    // and a prefix call are commands as today; `{<= 0.3 $v 0.7}` written prefix is not
+    // flagged.
+    root = parse("{f + 2 +} {- 5} {f + 1 2} {<= 0.3 $v 0.7} {$x = 1}");
     CHECK(command_at(root, 0).size() == 4);
-    CHECK(command_at(root, 0)[0].try_int() == 1);
+    CHECK(command_at(root, 0)[0].is("f"));
     CHECK(command_at(root, 1)[0].is("-"));
     CHECK(command_at(root, 1).size() == 2);
     CHECK(command_at(root, 2)[0].is("f"));

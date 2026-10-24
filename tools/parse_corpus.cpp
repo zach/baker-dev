@@ -60,8 +60,14 @@ std::string normal(const fs::path& p) {
 // rule rewrote (`fired`), and how many it left alone only because no operand was a number,
 // variable, property or command (`guarded`: an operator at slot 1 among bare symbols).
 struct InfixCount {
-    uint64_t fired = 0, guarded = 0;
+    uint64_t fired = 0, guarded = 0, refused = 0;  // refused: files the rule fails, malformed
 };
+bool refused_by_infix(const baker::Error& e) {
+    const std::string_view m = e.message();
+    return e.code() == baker::ErrorCode::Syntax &&
+           (m.starts_with("infix {...}") || m.starts_with("mixed operators in {...}") ||
+            m.starts_with("'?' in {...}"));
+}
 bool operator_symbol(std::string_view s) {
     return !s.empty() && s.find_first_not_of("+-*/%<>=!&|^~") == std::string_view::npos;
 }
@@ -193,6 +199,7 @@ int main(int argc, char** argv) {
         }
         if (!root) {
             ++failed;
+            if (refused_by_infix(root.error())) ++infix.refused;
             std::printf("FAIL %s\n     %s\n", item.file.generic_string().c_str(),
                         baker::to_string(root.error()).data());
             continue;
@@ -214,9 +221,12 @@ int main(int argc, char** argv) {
     std::printf("%zu/%zu files parsed (%.2f%%)", ok, total,
                 total ? 100.0 * static_cast<double>(ok) / static_cast<double>(total) : 100.0);
     if (roundtrip) std::printf(", %zu round-trip failures", roundtrip_failed);
-    std::printf("; infix rule: %llu braces fired, %llu held back by the guard",
-                static_cast<unsigned long long>(infix.fired),
-                static_cast<unsigned long long>(infix.guarded));
+    std::printf(
+        "; infix rule: %llu braces fired, %llu held back by the guard, %llu files "
+        "refused as malformed infix",
+        static_cast<unsigned long long>(infix.fired),
+        static_cast<unsigned long long>(infix.guarded),
+        static_cast<unsigned long long>(infix.refused));
     if (milo) {
         std::sort(absent_all.begin(), absent_all.end());
         absent_all.erase(std::unique(absent_all.begin(), absent_all.end()), absent_all.end());

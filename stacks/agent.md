@@ -80,7 +80,9 @@ A brace whose second element is an operator, with a number, variable or command 
 operands, reads infix (dev/syntax-curly-infix-design.md):
 `{2 <= $value <= 10}` is the command `{<= 2 $value 10}`, `{$value == 0}` is `{== $value 0}`,
 and `{c ? a : b}` is `{if c a b}`. Write one operator a brace, nesting for more than one: a
-brace of two different operators is an error at the brace. The prefix spelling still reads.
+brace of two different operators, or with an operand or an operator missing
+(`{0.3 <= $value 0.7}`, `{$value <=}`), is an error at the brace. The prefix spelling still
+reads.
 
 A run's result is `.dta`, so an agent reads results with the tools it reads data with:
 
