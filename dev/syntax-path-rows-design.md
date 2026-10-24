@@ -605,3 +605,40 @@ The next step is the owner's answers to §9, then:
 3. the hook on main with this branch's tests;
 4. a section in `docs/language.md`;
 5. the stacks-agent skill writing `agent.dta` as rows.
+
+## 11. Verification, the raw gate, and review
+
+*Added after the prototype, from the session's review round; `dev/syntax-ideas.md` on
+`claude/fervent-cray-l1kyf0` compares all eight branches.* An agent independent of the
+prototype rebuilt this branch, reran its tests and reproduced its numbers; a reviewer
+judged it under the data-oriented lens (`.claude/skills/acton-review/`) and the tool
+author's; and D101's raw gate (464 raw Harmonix files, `baker_parse_corpus --roundtrip
+--milo-paths` over a local clone of mariteaux/milo-script-library, nothing from it in the
+repository, D3) was run on the branch's build. Where a finding below disagrees with an
+earlier section, this section is the later word.
+
+- **Reviewed at** `d89146f`, the branch's final head.
+- **Verifier.** Builds; 23 of 23 by default, 21 of 23 with the switch (the two designed
+  failures). Line counts, the +0.47% parse count, allocations (43; 26 against 137 per MB),
+  the 1 MB counts (within 0.06%), every sample and the gate counters reproduce exactly. The
+  +297 adoption figure is an estimate; wall-clock ratios ran somewhat lower on a loaded
+  machine. Gaps: the host commands (`diff --rows`, `promote --patch --rows`, the journal
+  export) are not built; no D-entry; `promote --patch` is not tested at the host level;
+  the dotted variant has no test of its own.
+- **Raw gate.** Rows on: 464/464, 0 failures, 0 tags begin with `/`. Dotted variant:
+  464/464 with **1 round-trip failure**, and 1,097 tags holding `.` or `/` (35 at top
+  level, `motto.btn`, `tutorials.btn`, …) would read as rows: the sigil-free form is out.
+- **Technical director, 2 of 5, explore further.** The cost is measured and the benefit
+  is not: the repository's layer files are a few lines and no misplaced-bracket bug is on
+  record. The +0.47% is GCC's alone and moves with the inliner. The note never weighs the
+  zero-grammar alternative: a host-kit `set PATH VALUE --layer agent` over `cfg.set` and
+  `write_back_to`. Whether a file has a row decides its duplicate rule, an action at a
+  distance.
+- **Tool author, 4 of 5, adopt in part.** A hand rewrite of a Duel layer went from 28
+  parentheses to 12 and read back to the same tree. Four edges first: the host commands
+  above; `#row` overloads the public `SourceSpan::macro`, whose documented meaning it
+  changes; a stray row in a D31 list file switches the file's duplicate rule and the error
+  names an unrelated line; `write_back_to` appends new rows at the file's end.
+- **Recommendation after review.** Compare rows with a host `set` command in the stacks'
+  agent loop before taking the grammar; fix the four edges either way; promote's removal
+  stands on its own.
