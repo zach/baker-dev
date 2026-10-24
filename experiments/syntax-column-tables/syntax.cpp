@@ -308,6 +308,12 @@ private:
             if (is_hole(nt))
                 return fail<void>(ErrorCode::Directive, "'_' is a hole, not a column name", nt.line,
                                   nt.begin);
+            // The rewrite writes the name into every row, so a line break in it would move
+            // every line after the row and every error located there.
+            if (span(nt).find('\n') != std::string_view::npos)
+                return fail<void>(ErrorCode::Directive,
+                                  "a column name is written on one line: every row repeats it",
+                                  nt.line, nt.begin);
             const std::string name(symbol_text(nt));
             for (const Column& existing : columns)
                 if (existing.name == name)
@@ -888,6 +894,12 @@ bool usable_tag(const Array& a) {
     return !tag.str().empty() && tag.str() != kHole;
 }
 
+// A column's name is on one line, as the reader requires: its rewrite writes the name into
+// every row, where a line break would move the lines after it.
+bool usable_column(const Array& f) {
+    return usable_tag(f) && f.tag().str().find('\n') == std::string_view::npos;
+}
+
 // A keyed table (D142): a tagged array of two or more keyed records whose children are all
 // tagged arrays.
 bool candidate(const Array& a) {
@@ -898,7 +910,7 @@ bool candidate(const Array& a) {
         if (!usable_tag(row)) return false;
         for (uint32_t j = 1; j < row.size(); ++j) {
             if (row[j].type() != Type::Array) return false;
-            if (!usable_tag(*row[j].array())) return false;
+            if (!usable_column(*row[j].array())) return false;
         }
     }
     return true;

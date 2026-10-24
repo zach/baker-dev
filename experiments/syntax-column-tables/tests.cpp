@@ -258,6 +258,20 @@ TEST_CASE("the header's own errors") {
     CHECK(error_of("(t #columns (a _) (k 1 2))") == "'_' is a hole, not a column name @1:16");
     CHECK(error_of("(t #columns () (k 1))") == "#columns declares no columns @1:4");
     CHECK(error_of("(t #columns (a\n(k 1)") == "the #columns list is not closed @1:4");
+    // Every row repeats a column's name, so one written across lines would move the lines
+    // after each row. libFuzzer found it.
+    CHECK(error_of("(t #columns ('a\nb' c)\n   (k 1 2))") ==
+          "a column name is written on one line: every row repeats it @1:14");
+}
+
+TEST_CASE("the printer heads no table whose field tag spans lines") {
+    auto root = read_string("(t (k ('a\nb' 1) (c 2)) (j ('a\nb' 3) (c 4)))", "t.dta");
+    REQUIRE(root);
+    const std::string printed = syntax::print(**root);
+    CHECK(printed.find("#columns") == std::string::npos);
+    auto back = syntax::read(printed, "t.new");
+    REQUIRE(back);
+    CHECK(first_difference(**root, **back).empty());
 }
 
 TEST_CASE("a directive is not a cell; between rows it passes through with its arguments") {
