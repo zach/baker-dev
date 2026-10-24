@@ -36,6 +36,9 @@ bool spans_hold(const Node& n, const SourceMap& map, std::string_view text, uint
             if (sp.file.empty()) continue;
             if (sp.begin > sp.end || sp.end > text.size()) return false;
             if (!sp.literal() || (*a)[i].array()) continue;
+            // A layer verb or pin (#remove, #append, #drop, #was) is a directive, read only
+            // in its slot: alone it is an error, and no write-back replaces it.
+            if (text[sp.begin] == '#') continue;
             // A leading space, so a token starting with BOM bytes is not read as a BOM.
             const std::string token = " " + std::string(text.substr(sp.begin, sp.end - sp.begin));
             auto alone = read_string(token, "token.dta");

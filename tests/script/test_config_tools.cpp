@@ -67,6 +67,29 @@ TEST_CASE("the reading tools: get, source, explain, layers, effect, diff") {
     CHECK_FALSE(f.ctx.eval("{config.effect nosuch}", "test"));
 }
 
+TEST_CASE("the reading tools name a layer's verbs: op, stale, composes, and the composed value") {
+    Fixture f;
+    REQUIRE(f.cfg.push_layer(
+        "dlc", f.dir.write("dlc.dta", "(phase #append 40)\n(box (height 4 #was 2))\n")));
+    CHECK(eval(f.ctx, "{config.get phase}") == "(10 20 30 40)");  // the list as composed
+    CHECK(eval(f.ctx, "{config.source phase}") ==
+          "(source (layer default) (file \"" + f.file("default.dta") + "\") (line 4))");
+    CHECK(eval(f.ctx, "{config.explain phase}") ==
+          "(((layer default) (value (10 20 30)) (standing wins) (file \"" + f.file("default.dta") +
+              "\") (line 4)) ((layer dlc) (value 40) (op '#append') "
+              "(standing composes) (file \"" +
+              f.file("dlc.dta") + "\") (line 1)))");
+    CHECK(eval(f.ctx, "{config.effect dlc}") ==
+          "(((path phase) (value 40) (op '#append') (below (10 20 30)) (file \"" +
+              f.file("dlc.dta") +
+              "\") (line 1) (shadowed 0)) ((path box.height) (value 4) "
+              "(below 1) (file \"" +
+              f.file("dlc.dta") + "\") (line 2) (shadowed 0) (stale 1)))");
+    CHECK(eval(f.ctx, "{config.diff default dlc}") ==
+          "(((path box.width) (a 2)) ((path box.height) (a 1) (b 4)) ((path phase) (a (10 20 30)) "
+          "(b 40) (op_b '#append')))");
+}
+
 TEST_CASE("a tool reads the results as JSON through eval_request") {
     Fixture f;
     std::string reply;

@@ -1,0 +1,1 @@
+(a '#append' 1) ('#was') (b 1 '#was') {c '#drop' 2} (d '#append' (e #remove)) (items #append rope (t (u #remove))) (r 26 #was 30 (note "x")) (s 1 '#was' 2 '#was' 3) (k #remove #was (1 2)) '#drop'
