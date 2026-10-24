@@ -14,7 +14,7 @@ option(BAKER_BUILD_HARNESS    "Build examples/harness-imgui (fetches Dear ImGui 
 option(BAKER_BUILD_FUZZERS    "Build libFuzzer targets (Clang only)" OFF)
 option(BAKER_BUILD_EXPERIMENTS "Build experiments/ (syntax sketches on branches; never shipped)" OFF)
 option(BAKER_USE_EASTL        "Internal containers from EASTL instead of the STL (D55, D61)" OFF)
-option(BAKER_AT_METADATA      "A tagged child whose tag begins with '@' is metadata (the at-metadata syntax experiment, dev/syntax-at-metadata-design.md)" OFF)
+option(BAKER_AT_METADATA      "A tagged child whose tag begins with '@' is metadata (the at-metadata syntax experiment)" OFF)
 set(BAKER_SANITIZE "" CACHE STRING "Sanitizers to enable, e.g. address,undefined")
 
 if(NOT DEFINED CMAKE_CXX_STANDARD)

@@ -15,7 +15,7 @@
 namespace baker {
 
 // BAKER_AT_METADATA: a tagged child whose tag begins with '@' is metadata, never a value and
-// never a field (the at-metadata experiment, dev/syntax-at-metadata-design.md). Off, every
+// never a field (the at-metadata experiment). Off, every
 // symbol is as before and no array has a metadata boundary.
 #if defined(BAKER_AT_METADATA) && BAKER_AT_METADATA
 inline constexpr bool kAtMetadata = true;
