@@ -673,6 +673,11 @@ earlier section, this section is the later word.
   metadata as metadata, a layout `write_back_to` itself produces; `(@desc)` on a scenario
   is ignored and a misspelt `(@rnage)` in data is silent; the migration warning misses an
   old word that is not last; files grow 0.3% to 2.5% from renames alone.
+- **Fuzzing.** libFuzzer under ASan and UBSan with `BAKER_AT_METADATA=ON`, built as CI's
+  fuzz job is and seeded with the corpus, the fuzz regressions and the samples, after
+  porting main's harness fix for `(key #remove)` (`cd35137`): 1,075,950 executions in 25
+  minutes, 2,028 edges, no failure. Short of spec §8's 10 million, which belongs to an
+  adoption step.
 - **Recommendation after review.** Build the spelling-only pass of section 10 with
   `metadata()` returning only `@` children and every bare old word and unknown `@word`
   reported, measure it to zero on parse, `find_float` and `set`, and decide it together
