@@ -479,7 +479,7 @@ Baker's read of the original: **68 files, 0 tree, 0 value-digest (D222), 0 sessi
 (packs, origins, macro definitions) mismatches**; 18 files rewritten: 11 packs, 2 origins,
 12 containers into 30 `#shape`s, 2 `#define` bodies.
 
-**The rest of the repository.** 9 doc code blocks (all rewritten by the tool, checked) and
+**The rest of the repository.** 9 doc code blocks (each rewritten by the tool) and
 their prose; about 101 lines of test text in 11 files (`test_preprocessor.cpp` 38,
 `test_shape.cpp` 26, `test_check.cpp` 14, `test_cache.cpp` 6, `test_received_layers.cpp`
 4, `test_config.cpp` 3, `test_layer_check.cpp` 3, and 7 more in four files), some of which
@@ -537,7 +537,9 @@ UBSan; clang-tidy finds nothing in `shape.cpp`. The full `ctest` passes (23 test
 - Prototype limits, each a located error: a `#`-led symbol containing `'` (DTA text has no
   spelling for it quoted, D13); a declaration that would move out of an `#ifdef`; an
   included file whose first form is a `(pack ...)` or `(origin "...")` read as data; `#pack`
-  in both branches of one conditional is refused as a second `#pack`.
+  in both branches of one conditional is refused as a second `#pack`. Not an error but a
+  limit: a table `#shape` in a file included inside an array takes its place from that
+  file's root, not the including file's.
 - `tools/migrate_dta.py` was not written; the migrator is the experiment's C++.
 - The raw gate (`baker_parse_corpus --milo-paths --roundtrip` over the 464 raw files), the
   count of raw files using `#define NAME (body)`, `bench_compare.py` on `bench_parse`, and
