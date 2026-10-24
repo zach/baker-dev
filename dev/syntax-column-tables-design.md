@@ -611,3 +611,36 @@ the objections point to: an aligning option in the printer for keyed tables, tod
 laid out as a grid; if designers still ask for the header after using it, build the strict
 grammar of section 2 in the parser behind a CMake switch and hold it to
 `count_instructions.py` against `bench_parse`.
+
+## 11. Verification, the raw gate, and review
+
+*Added after the prototype, from the session's review round; `dev/syntax-ideas.md` on
+`claude/fervent-cray-l1kyf0` compares all eight branches.* An agent independent of the
+prototype rebuilt this branch, reran its tests and reproduced its numbers; a reviewer
+judged it under the data-oriented lens (`.claude/skills/acton-review/`) and the tool
+author's; and D101's raw gate (464 raw Harmonix files, `baker_parse_corpus --roundtrip
+--milo-paths` over a local clone of mariteaux/milo-script-library, nothing from it in the
+repository, D3) was run on the branch's build. Where a finding below disagrees with an
+earlier section, this section is the later word.
+
+- **Reviewed at** `2f53a8a`, the branch's final head.
+- **Verifier.** Builds; 23 of 23; 34 experiment cases, also under ASan and UBSan. Every
+  instruction count reproduces within 0.16% and every corpus count exactly. Corrections:
+  the lexer row's text is the printer's 3,973,706 bytes, not the 4,194,408 its label
+  says; on today's runs the time ratios read about 3.3x to 5.7x, not 3.5x to 7.2x (the
+  experiment still under the 40 MB/s floor). The note recommends the strict rule, but the
+  prototype defaults to the brief's rule and the Duel sample needs it: `to-dta --strict`
+  refuses `samples/duel-default.columns.dta` ("row low_kick has 12 cells, #columns
+  declares 10"). Nothing warns on a second `#columns`, and the Ledger exporter is
+  unchanged.
+- **Raw gate.** Not run: the branch changes no core code, and the translator only reads
+  headed text, which the raw corpus does not hold.
+- **Technical director, 2 of 5, decline.** The keyed tables average 4.6 rows of 3.5
+  fields; a header repeats for sibling tables of one schema (Contraption grows 13.5%); the
+  zero cost on headerless files is reasoned, not measured.
+- **Tool author, 2 of 5, decline.** A positional cell hides its field from a diff;
+  moving a value into a neighbouring hole read silently; every write-back that widens a
+  cell drifts the alignment; `promote` into a headed file is refused, which breaks the
+  agent's hand-off on exactly the table an agent tunes.
+- **Recommendation after review.** Decline, as section 10 says; an aligning printer for
+  today's keyed tables first.
