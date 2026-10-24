@@ -82,7 +82,9 @@ bool check_parse(std::string_view data) {
         return !e.message().empty() && e.file() == Symbol("fuzz.dta") && e.line() >= 1 &&
                e.line() <= lines;
     }
-    uint64_t budget = 100000;
+    // A tree that macro sharing made larger than the reader's node limit is skipped: its
+    // print cannot be read back under the limits the text was read with.
+    uint64_t budget = s.limits.max_nodes;
     for (const Node& n : **first)
         if (!fits(n, budget)) return true;
 
