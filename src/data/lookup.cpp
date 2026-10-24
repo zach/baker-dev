@@ -242,12 +242,18 @@ Expected<const Array*> Array::find_array(Symbol tag) const {
 }
 
 void Array::sort_for_lookup() {
-    // A stable merge sort. std::stable_sort would take its buffer from operator new.
-    const auto less = [](const Node& a, const Node& b) {
+    // A stable merge sort. std::stable_sort would take its buffer from operator new. The
+    // rank of a child: untagged, then tagged, then metadata (kAtMetadata, D28), so the
+    // value run and the boundary survive the sort.
+    const auto rank = [](Symbol t) { return t.empty() ? 0 : t.is_meta() ? 2 : 1; };
+    const auto less = [&](const Node& a, const Node& b) {
         const Symbol tb = detail::tag_of(b);
         if (tb.empty()) return false;
         const Symbol ta = detail::tag_of(a);
-        return ta.empty() || tag_less(ta, tb);
+        if (ta.empty()) return true;
+        if constexpr (kAtMetadata)
+            if (rank(ta) != rank(tb)) return rank(ta) < rank(tb);
+        return tag_less(ta, tb);
     };
     Node* d = data();
     const size_t n = size_;
@@ -267,11 +273,17 @@ void Array::sort_for_lookup() {
 
 const Array* Array::find_sorted(Symbol tag) const noexcept {
     if (tag.empty()) return nullptr;  // '' is no tag (D125)
-    const Node* it = std::partition_point(begin(), end(), [tag](const Node& n) {
+    // The run to search: the metadata children from the boundary, or the tagged children
+    // before it (kAtMetadata); with no boundary, every tagged child.
+    const Node* first = begin();
+    const Node* last = end();
+    if constexpr (kAtMetadata)
+        if (const uint32_t m = meta_first()) (tag.is_meta() ? first : last) = begin() + m;
+    const Node* it = std::partition_point(first, last, [tag](const Node& n) {
         const Symbol t = detail::tag_of(n);
         return t.empty() || tag_less(t, tag);
     });
-    return it != end() && detail::tag_of(*it) == tag ? it->try_array() : nullptr;
+    return it != last && detail::tag_of(*it) == tag ? it->try_array() : nullptr;
 }
 
 namespace detail {

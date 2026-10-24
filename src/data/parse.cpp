@@ -93,6 +93,7 @@ private:
     }
 
 public:
+    [[nodiscard]] std::string_view source() const noexcept { return src_; }
     // The 1-based column of byte `at`, in characters (code points) from its line's start,
     // a byte-order mark aside. On the error path only: nothing tracks it per token.
     [[nodiscard]] int32_t column_at(size_t at) const noexcept {
@@ -584,6 +585,8 @@ private:
         record(arr, f.start, f.begin, t.end);
         truncate(f.start);
         if (arr->height() > s_.limits.max_depth) return too_deep(f.line, f.begin);
+        if constexpr (kAtMetadata)
+            if (f.kind == Frame::Array && !metadata_placed(*arr, f)) return false;
         const SourceSpan span{file_, f.begin, t.end, {}};
         switch (f.kind) {
             case Frame::DefineBody:
@@ -832,6 +835,45 @@ private:
         if (t.text == "ifdef" || t.text == "ifndef") return conditional(t, false);
         if (t.text == "else" || t.text == "endif") return else_or_endif(t);
         return true;
+    }
+
+    // kAtMetadata: metadata comes after the value. In the parenthesized array `a` just
+    // closed, every child after the first metadata child, (@tag ...), must be a tagged
+    // array; metadata past the boundary's 14 bits is refused. One test per array; the
+    // loop runs only for an array with metadata.
+    bool metadata_placed(const Array& a, const FrameInfo& f) {
+        const uint32_t m = a.meta_first();
+        for (uint32_t i = m ? m + 1 : Array::kMaxMetaFirst + 1; i < a.size(); ++i) {
+            const Symbol tag = tag_of(a[i]);
+            if (m ? !tag.empty() : !tag.is_meta()) continue;
+            const auto [line, at] = child_at(f, i);
+            if (!m)
+                return fail(ErrorCode::Limit, "metadata past child 16383: " + preview(a[i]), line,
+                            at);
+            return fail(
+                ErrorCode::Syntax,
+                "metadata comes after the value: move " + preview(a[m]) + " after " + preview(a[i]),
+                line, at);
+        }
+        return true;
+    }
+    // Where child `i` of the array opened at `f.begin` is written: its line and byte offset,
+    // found by lexing the text again from the bracket (an error path only). The array's own
+    // line and no column when the text does not show it (a macro's or an include's nodes).
+    std::pair<int32_t, uint32_t> child_at(const FrameInfo& f, uint32_t i) {
+        Lexer scan(lex_.source().substr(f.begin), file_);
+        Token t;
+        Error ignored;
+        for (int depth = 0, child = -1; scan.next(t, ignored) && t.kind != Tok::End;) {
+            if (t.kind == Tok::Close) {
+                if (--depth == 0) break;
+                continue;
+            }
+            if (depth == 1 && static_cast<uint32_t>(++child) == i)
+                return {f.line + t.line - 1, f.begin + t.begin};
+            if (t.kind == Tok::Open) ++depth;
+        }
+        return {f.line, kNoColumn};
     }
 
     // `(key #remove)`: the marker is the tagged array's one value (D143).

@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <new>
+#include <optional>
 #include <type_traits>
 
 namespace baker {
@@ -60,9 +61,20 @@ Ref<Array> Array::make_copy(std::span<const Node> nodes, Symbol file, int32_t li
     return Ref<Array>::adopt(a);
 }
 
+namespace {
+// kAtMetadata: whether `n` is a metadata child, (@tag ...): a parenthesized array whose
+// first node is a symbol beginning with '@'. data()[0] is readable even in an empty array.
+bool is_meta_child(const Node& n) noexcept {
+    const Array* a = n.try_array();
+    const auto tag = a ? (*a)[0].try_sym() : std::nullopt;
+    return tag && tag->is_meta();
+}
+}  // namespace
+
 void Array::finish() noexcept {
     uint16_t h = 0;
-    uint16_t below = 0;  // the children's flags, for kHasRemoval (D143)
+    uint16_t below = 0;       // the children's flags, for kHasRemoval (D143)
+    uint32_t first_meta = 0;  // the boundary (kAtMetadata): in the pass that reads each tag
     uint32_t* tags = tag_run();
     for (uint32_t i = 0; i < size_; ++i) {
         if (const Array* a = data()[i].array()) {
@@ -70,13 +82,18 @@ void Array::finish() noexcept {
             below = static_cast<uint16_t>(below | a->flags_);
         }
         tags[i] = tag_key(data()[i]);
+        if constexpr (kAtMetadata)
+            if (tags[i] != kNoTag && !first_meta && i && is_meta_child(data()[i])) first_meta = i;
     }
     height_ = above(h);
     if (size_ == 2 && data()[1].type() == Type::Symbol) {
         static const Symbol marker("#remove");
         if (data()[1].is(marker)) below = kHasRemoval;
     }
-    flags_ = static_cast<uint16_t>(flags_ | (below & kHasRemoval));
+    flags_ = static_cast<uint16_t>((flags_ & kFlagBits) | (below & kHasRemoval));
+    if constexpr (kAtMetadata)  // past the bits, metadata reads as values; the parser refuses it
+        if (first_meta <= kMaxMetaFirst)
+            flags_ = static_cast<uint16_t>(flags_ | (first_meta << kMetaShift));
 }
 
 void Array::set(size_t i, Node node) noexcept {
@@ -87,6 +104,17 @@ void Array::set(size_t i, Node node) noexcept {
     if (const Array* a = node.array())
         flags_ = static_cast<uint16_t>(flags_ | (a->flags_ & kHasRemoval));
     tag_run()[i] = tag_key(node);
+    if constexpr (kAtMetadata) {  // the boundary moves only if this slot is or was it
+        const uint32_t m = meta_first();
+        const bool meta = i > 0 && is_meta_child(node);
+        if (meta ? (m == 0 || i < m) : (m != 0 && i == m)) {
+            uint32_t first = meta ? static_cast<uint32_t>(i) : 0;
+            for (uint32_t k = static_cast<uint32_t>(i) + 1; !first && k < size_; ++k)
+                if (is_meta_child(data()[k])) first = k;
+            flags_ = static_cast<uint16_t>((flags_ & kFlagBits) |
+                                           ((first <= kMaxMetaFirst ? first : 0) << kMetaShift));
+        }
+    }
     detail::Owner& owner = detail::owner_of(this);
     if (owner.kind != detail::kArena) {
         data()[i] = std::move(node);

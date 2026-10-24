@@ -14,14 +14,26 @@
 
 namespace baker {
 
+// BAKER_AT_METADATA: a tagged child whose tag begins with '@' is metadata, never a value and
+// never a field (the at-metadata experiment, dev/syntax-at-metadata-design.md). Off, every
+// symbol is as before and no array has a metadata boundary.
+#if defined(BAKER_AT_METADATA) && BAKER_AT_METADATA
+inline constexpr bool kAtMetadata = true;
+#else
+inline constexpr bool kAtMetadata = false;
+#endif
+
 namespace detail {
 
 struct SymbolEntry {
     const char* text;  // NUL-terminated
-    uint32_t size;
-    uint32_t index;  // dense, in interning order; 0 is the empty symbol
+    uint32_t size;     // the high bit: the text begins with '@' (kAtMetadata), set when interned
+    uint32_t index;    // dense, in interning order; 0 is the empty symbol
     uint64_t hash;
 };
+
+inline constexpr uint32_t kSymbolMetaBit = 0x80000000u;
+inline constexpr uint32_t kSymbolSizeMask = ~kSymbolMetaBit;
 
 [[nodiscard]] constexpr uint64_t hash_symbol_text(std::string_view s) noexcept {
     uint64_t h = 14695981039346656037ull;  // FNV-1a
@@ -44,10 +56,16 @@ public:
     Symbol(std::string_view text);  // NOLINT(google-explicit-constructor)
     Symbol(const char* text) : Symbol(std::string_view(text)) {}  // NOLINT
 
-    [[nodiscard]] std::string_view str() const noexcept { return {e_->text, e_->size}; }
+    [[nodiscard]] std::string_view str() const noexcept {
+        if constexpr (kAtMetadata) return {e_->text, e_->size & detail::kSymbolSizeMask};
+        return {e_->text, e_->size};
+    }
     [[nodiscard]] const char* c_str() const noexcept { return e_->text; }
     [[nodiscard]] uint64_t hash() const noexcept { return e_->hash; }
     [[nodiscard]] bool empty() const noexcept { return e_->size == 0; }
+    // Whether the text begins with '@', the metadata sigil (kAtMetadata): one load of the
+    // size word, set when the symbol was interned; never set when the switch is off.
+    [[nodiscard]] bool is_meta() const noexcept { return (e_->size & detail::kSymbolMetaBit) != 0; }
     // Dense index, in interning order (the empty symbol is 0), for tables indexed by
     // symbol: baker::script keeps its functions and variables this way.
     [[nodiscard]] uint32_t index() const noexcept { return e_->index; }

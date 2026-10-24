@@ -64,7 +64,8 @@ private:
         for (size_t i = static_cast<size_t>(hash) & mask;; i = (i + 1) & mask) {
             const detail::SymbolEntry* e = t.slots[i].load(std::memory_order_acquire);
             if (!e) return nullptr;
-            if (e->hash == hash && e->size == text.size() &&
+            const uint32_t size = kAtMetadata ? e->size & detail::kSymbolSizeMask : e->size;
+            if (e->hash == hash && size == text.size() &&
                 std::memcmp(e->text, text.data(), text.size()) == 0)
                 return e;
         }
@@ -94,8 +95,11 @@ private:
         auto* chars = mem + sizeof(detail::SymbolEntry);
         if (!text.empty()) std::memcpy(chars, text.data(), text.size());
         chars[text.size()] = '\0';
-        return new (mem) detail::SymbolEntry{chars, static_cast<uint32_t>(text.size()),
-                                             static_cast<uint32_t>(count_ + 1), hash};
+        uint32_t size = static_cast<uint32_t>(text.size());
+        if constexpr (kAtMetadata)
+            if (text[0] == '@')
+                size |= detail::kSymbolMetaBit;  // the metadata sigil (text is not empty)
+        return new (mem) detail::SymbolEntry{chars, size, static_cast<uint32_t>(count_ + 1), hash};
     }
 
     char* alloc(size_t n) {
