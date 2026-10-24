@@ -957,6 +957,8 @@ Reject layout_of(const Array& a, const PrintOptions& o, size_t indent, Layout& o
             seen.push_back(col);
         }
     }
+    // No row has a field: the header would declare no columns, which the reader refuses.
+    if (names.empty()) return Reject::Coverage;
     // One order every row agrees with, earliest appearance first (Kahn's algorithm).
     const int n = static_cast<int>(names.size());
     std::vector<int> indeg(n, 0);

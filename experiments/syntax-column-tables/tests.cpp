@@ -264,6 +264,21 @@ TEST_CASE("the header's own errors") {
           "a column name is written on one line: every row repeats it @1:14");
 }
 
+TEST_CASE("the printer heads no table whose rows have no fields") {
+    // Too wide for nested text, a table of keys alone was headed with no columns, which the
+    // reader refuses. libFuzzer found it.
+    const std::string text =
+        "(wheat (base_price) "
+        "(spoil_days_and_a_very_long_key_that_will_not_fit_on_one_line_of_eighty_columns))";
+    auto root = read_string(text, "t.dta");
+    REQUIRE(root);
+    const std::string printed = syntax::print(**root);
+    CHECK(printed.find("#columns") == std::string::npos);
+    auto back = syntax::read(printed, "t.new");
+    REQUIRE(back);
+    CHECK(first_difference(**root, **back).empty());
+}
+
 TEST_CASE("the printer heads no table whose field tag spans lines") {
     auto root = read_string("(t (k ('a\nb' 1) (c 2)) (j ('a\nb' 3) (c 4)))", "t.dta");
     REQUIRE(root);
