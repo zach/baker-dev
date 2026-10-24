@@ -639,6 +639,11 @@ earlier section, this section is the later word.
   above; `#row` overloads the public `SourceSpan::macro`, whose documented meaning it
   changes; a stray row in a D31 list file switches the file's duplicate rule and the error
   names an unrelated line; `write_back_to` appends new rows at the file's end.
+- **Fuzzing.** libFuzzer under ASan and UBSan with `BAKER_PATH_ROWS=ON`, built as CI's
+  fuzz job is and seeded with the corpus, the fuzz regressions and the samples, after
+  porting main's harness fix for `(key #remove)` (`d09f51d`): 1,025,153 executions in 25
+  minutes, 2,366 edges, no failure. Short of spec §8's 10 million, which belongs to an
+  adoption step.
 - **Recommendation after review.** Compare rows with a host `set` command in the stacks'
   agent loop before taking the grammar; fix the four edges either way; promote's removal
   stands on its own.
