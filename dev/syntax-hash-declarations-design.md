@@ -2,8 +2,9 @@
 
 *Syntax prototype `hash-declarations` (`experiments/syntax-hash-declarations/`), merged from
 the proposals declare-directives, one-macro-one-hash, reader-forms and tables-declare-rows.
-Nothing here is adopted. The core is unchanged on this branch; `baker::shape` gains one
-feature, a list's arity, which the prototype needed and which stands alone (§4).*
+Nothing here is adopted. The core change is written behind a CMake switch,
+`BAKER_HASH_DECLARATIONS`, off by default (§8, §11); `baker::shape` gains one feature, a
+list's arity, which the prototype needed and which stands alone (§4).*
 
 ## 1. Thesis
 
@@ -511,6 +512,57 @@ the migrator, and `check_received`. One real feature in `baker::shape`: `(list T
 `(list T N M)`, with `Field::min_count` and `max_count`, the located Range error, and D145's
 rule for counts.
 
+**Built in the core, behind `BAKER_HASH_DECLARATIONS`** (CMake, off by default; off, every
+library reads, prints and caches as at 3c460d9). With it on, `is_directive` (`text.hpp`) is
+the `#`+letter test, shared by the lexer and `is_bare_symbol`. `directive()` opens a
+`Frame::Declare` for `#pack`, `#origin` and `#shape`, and `close()` hands the form to
+`declare_pack`, `declare_origin` (the name or source now at index 0) or the session's list of
+`ShapeDecl`s (`LoadSession::shapes()`: the form as a `Ref<Array>` in the load's arena, its file
+and line, and the file the read began with), pushing nothing. A second `#pack` or `#origin`, a
+declaration below a file's top level or without its `(`, an `#origin` without a string first,
+an unknown `#foo` and `#define N (body)` are located Directive errors. The first-form tests and
+`Frame::DefineBody`'s path are compiled out. A pack is its whole file's: the file's
+definitions above `#pack` are attributed to it in the order made, and its macro uses above
+`#pack` are checked for the one-way rule when `#pack` is read. The cache's meta tree gains a
+`shapes` list, `kVersion` 7. `shape::Set::add(const LoadSession&, Report&, const Array* layer)`
+replaces the container scan; given a layer's tree it takes only the declarations that layer's
+read made, so a disabled layer's shapes do not hold, as its `(shapes ...)` did not. The
+validator calls it per enabled layer, and the host kit's `check` and `reference` both read
+`read_session()`. The checker checks a top-level `(shapes ...)` as data. `check` and
+`check_validator` warn, per layer, of a first-form `(pack ...)`, a first-form `(origin "...")`
+and a top-level `(shapes ...)` read as data (`reference.cpp`), and `run_check` refuses a
+candidate's `#shape` under `data_only` or `scalars_only` (`config_check.cpp`). What stays the
+translator's: the at-the-table `#shape` (the core refuses it, located: "#shape is written at a
+file's top level"), and the translator's notes, which `check`'s warnings replace.
+
+**Its cost, measured.** Lines (`tools/count_lines.py` against 3c460d9): the core 15,190 →
+15,388 of 15,500 (+198), counting both sides of every `#if` and the `#if` lines themselves.
+With the switch's scaffolding removed, as adopting it would (the off branches and the `#if`
+lines), +128: `parse.cpp` +69, `parse.hpp` +7, `text.hpp` and `text.cpp` +6, `cache.cpp` +15,
+`config_check.cpp` +6, `reference.cpp` +23, `session.hpp` +2. §4 estimated +100: the parser
+took more (+69 against +40; the placement and once-per-file errors, the whole-file attribution
+and the macro uses above `#pack` were not in the estimate), the cache less (+15 against +30),
+and the warnings went to `reference.cpp`, where `check` is. `baker::shape` 567 → 589 of 600
+(+22; +1 without the switch), the host kit 2,361 → 2,372 of 2,400 (+11; +3).
+Instructions per operation (`tools/count_instructions.py`, cachegrind, Release, N and 2N
+differenced):
+
+| Case | 3c460d9 | Switch off | Switch on |
+|------|--------:|-----------:|----------:|
+| parse | 1,845,499 | 1,845,499 (+0.00%) | 1,838,626 (-0.37%) |
+| lookup | 203 | 203 | 203 |
+| lookup_text | 365 | 365 | 365 |
+| set | 623 | 623 | 631 (+1.28%) |
+| frame | 197 | 197 | 197 |
+
+The script cannot pass CMake flags, so the switch-on column is `tools/count` built with
+`-DBAKER_HASH_DECLARATIONS=ON` and counted the same way; the switch-off build counted 1,845,503
+on that run, so 4 instructions of a parse are run-to-run noise. The parse saving is all in
+`Parser::run`: `close()` no longer tests every array for a first form. Lexing is unchanged
+(`lex_token` 458,409 a parse either way), as the letter test is reached only on `#` atoms and
+the parse case has none. The 8 instructions of `set` are all inside glibc's `memcmp`, whose path
+depends on its operands' addresses; no Baker function's count moves per operation.
+
 **Passed.** `check`: 68 corpus files, 0 failures (no skip list). `migrate-check`: 68, 0
 mismatches of tree, value digest or session. `baker_syntax_hash-declarations_tests`: 21
 cases, 1,110 assertions, also clean under ASan and UBSan, among them: every new form and
@@ -525,29 +577,57 @@ refusal; the wrong-depth finding. `baker_shape_tests`: 11 cases, one new, also u
 UBSan; clang-tidy finds nothing in `shape.cpp`. The full `ctest` passes (23 tests).
 `tools/local_matrix.sh`'s other configurations were not run on this shared machine.
 
+With the core switch on, `ctest` passes 18 of 23 tests; the five that fail read files in
+today's spellings, by design (§11 lists them). The doctest suites pass whole:
+`baker_data_tests` 248 cases (9 new in `tests/data/test_declarations.cpp`: every form and
+error of §2, conditionals, the whole-file pack, edit mode, an include's declarations, the cache
+round trip, the received-text refusal), `baker_shape_tests` 12 (one new: a disabled layer's
+`#shape` does not hold), `baker_script_tests` 125, `baker_host_tests` 39, `baker_alloc_tests` 6,
+and the experiment's 19, whose front end is then the identity, so they run on the core. Before
+the tests' own texts were spelled in the new form, 30 data cases and 6 script cases failed, each
+on a `(pack ...)`, `(origin "...")`, `(shapes ...)` or `#define N (body)` it wrote;
+`tests/support/hash_spelling.hpp` rewrites such text line for line, used by `TempDir::write`,
+the preprocessor tests' reader and a few constants, so the suites' pack, origin, shape, cache
+and policy cases now run on the new reader. The data, shape and experiment suites are also clean
+under ASan and UBSan, with the switch and without. Without the switch, `ctest` passes 23 of 23,
+with the suites as before (data 239 cases, shape 11, the experiment 21). clang-tidy finds
+nothing in the changed `src/` files, with the switch or without.
+
+**The migrate-check through the core.** `core-record`, in a build without the switch, writes
+what Baker reads of each corpus file today; `core-check`, in a build with it, reads each file
+migrated by `to-new` and compares: the tree less its `(shapes ...)` containers, its value digest
+(D222), and the session (packs, origins, macro definitions, 52 shape-declaration records, every
+shape and field `baker::shape` makes of them, its errors and warnings, the session's warnings).
+**68 files: 0 tree, 0 digest and 0 session mismatches.** 365 entries in the 18 migrated files
+differ only in their line number, each by one: the migrator removes a container's `(shapes`
+line, so what follows is declared a line earlier. `core-check` tallies those apart, and reports
+a planted session difference as a mismatch.
+
 **Not proved, or not re-provided.**
-- The core change itself: no parser, session, cache or policy code was written. Its line
-  costs are estimates.
-- Write-back and edit-mode spans through the prototype: the translator changes byte offsets
-  (a quoted `#1`, `(shapes (` for `#shape (`), so `write_back` through it would be wrong.
-  Error lines are exact, but for an error inside a declaration moved to the front, which
-  reads as one line; columns on a changed line are not.
-- A legacy `(shapes ...)` still declares shapes in the prototype, since the translator fakes
-  `#shape` with that container and the shape library still scans for it.
-- Prototype limits, each a located error: a `#`-led symbol containing `'` (DTA text has no
-  spelling for it quoted, D13); a declaration that would move out of an `#ifdef`; an
-  included file whose first form is a `(pack ...)` or `(origin "...")` read as data; `#pack`
-  in both branches of one conditional is refused as a second `#pack`. Not an error but a
+- The at-the-table `#shape` in the core: it stays the translator's (§9, question 1).
+- Write-back through a file that declares with `#`: the core reads it directly, so its spans
+  are the text's, but no write-back test covers a file with a declaration. Through the
+  translator, write-back and edit-mode spans would be wrong: it changes byte offsets (a quoted
+  `#1`, `(shapes (` for `#shape (`). Its error lines are exact, but for an error inside a
+  declaration moved to the front, which reads as one line; columns on a changed line are not.
+- Without the core switch, a legacy `(shapes ...)` still declares shapes in the prototype,
+  since the translator fakes `#shape` with that container; with it, it is data.
+- The translator's limits, each a located error (the core has none of them): a `#`-led
+  symbol containing `'` (DTA text has no spelling for it quoted, D13); a declaration that
+  would move out of an `#ifdef`; an included file whose first form is a `(pack ...)` or
+  `(origin "...")` read as data; `#pack` in both branches of one conditional is refused as a
+  second `#pack`. Not an error but a
   limit: a table `#shape` in a file included inside an array takes its place from that
   file's root, not the including file's.
 - `tools/migrate_dta.py` was not written; the migrator is the experiment's C++.
-- The raw gate (`baker_parse_corpus --milo-paths --roundtrip` over the 464 raw files), the
-  count of raw files using `#define NAME (body)`, `bench_compare.py` on `bench_parse`, and
-  `bench_cache`'s read were not run: the corpus is not on this machine, and the core is
-  unchanged here.
-- The kit's `check` and `reference` agreeing over the stacks was not tested, only read from
-  the code.
-- `tests/corpus/odd_tokens.dta` does not gain `(hashes ...)`: Baker's reader would refuse it.
+- The raw gate and the count of raw files using `#define NAME (body)` are in §11.
+  `bench_compare.py` on `bench_parse` and `bench_cache`'s read were not run (the machine is
+  shared; the instruction counts above stand in for the parse).
+- The kit's `check` and `reference` both read the session now; their agreement over the stacks
+  was not tested.
+- `tests/corpus/odd_tokens.dta` does not gain `(hashes ...)`: without the switch Baker's reader
+  refuses it, and the corpus is shared by both builds.
+- `layer_effect`, `diff` and `explain` list no declaration (question 8).
 
 ## 9. Open questions for the owner
 
@@ -555,7 +635,9 @@ UBSan; clang-tidy finds nothing in `shape.cpp`. The full `ctest` passes (23 test
    Recommended: keep `#shape` top-level with `(at ...)`, and add the finding "shape 'x'
    governs no array" (prototyped; silent over the six stacks). The table form works and
    reads well, but it puts vocabulary in `default.dta`, where the agent writes and which no
-   pack's review covers, and it cannot say `*`. Alternative: admit both.
+   pack's review covers, and it cannot say `*`. Alternative: admit both. The core change
+   (§8) follows the recommendation: `#shape` is top-level, and the table form stays the
+   translator's.
 2. **`(map T)`, and `(list T N)` as a tuple with named components?** Recommended: neither
    now. `(list T N)` covers 11 of 16 list fields; `(desc "x y w h")` names the components;
    `(map T)` would nest Duel's move shape in the fighter's, which `(at fighters * moves)`
@@ -569,9 +651,14 @@ UBSan; clang-tidy finds nothing in `shape.cpp`. The full `ctest` passes (23 test
 5. **reader-forms' tree-shaped conditional (`#(ifdef N (then ...) (else ...))`)?**
    Recommended: never. It loses the bracket-spanning `#ifdef` real DTA uses, and
    `read_structure` already gives tools the conditional tokens.
-6. **Drop `#define NAME (body)`?** Recommended: re-run the raw gate with the rule removed
-   first, and drop it only if 464 of 464 still parse; it is two lines of the repository's
-   corpus and the grammar's one layout-sensitive rule.
+6. **Drop `#define NAME (body)`?** Recommended: no, keep it. The raw gate, re-run with the
+   core change (§11), fails 194 of the 464 raw files with the form refused, every one of them
+   on that form (127 write a body themselves, 67 include a file that does); with the form kept
+   and the rest of the switch on, 464 of 464 parse with 0 round-trip failures. Keep `#define
+   NAME (body)` as DTA's heritage macro form (D11) beside `[NAME ...]`, which Baker's own files
+   and docs use, and let `check` suggest `[NAME ...]` for Baker's files rather than the reader
+   refuse it. The cost of keeping it: the grammar's one layout-sensitive rule stays, and
+   `#define kMax (4)` and `#define kMax` + newline + `(4)` still mean different things (§5).
 7. **Raise the shape budget for arity, or move `read_field` into the data library?**
    Recommended: neither. The arity is in, at 567 of 600, and the session reader and `count`
    leave about 28 lines spare.
@@ -583,15 +670,17 @@ UBSan; clang-tidy finds nothing in `shape.cpp`. The full `ctest` passes (23 test
 
 **Adopt in part.** Take the `#`+letter rule now: it is two lines in the lexer and printer,
 closes D101's lone-`#` mismatch and reads 59 community files, and nothing in the repository
-depends on the old error. Take the arity, which is built and tested and stands alone. Take
-`#pack`, `#origin` and a top-level `#shape` together, as one step with `kVersion` 7, the
-policy classification, the three `check` warnings and the governs-nothing finding: they end
-position sniffing, restore spec §6's per-shape form, and close the received-layer gap this
-prototype found, for about 100 core lines, a third of what is left, and no measurable
-runtime gain or loss. Hold `[NAME ...]`-only until the raw gate is re-run, and defer the
-at-the-table form. The next step is a design note in `dev/` for that one step, with the
-D-entry's measurements re-taken on a quiet machine (`bench_compare.py` on `bench_parse`,
-`count_instructions.py`'s parse case, `bench_cache`) and the migration as its own commit.
+depends on the old error; the raw gate does not notice it (§11). Take the arity, which is built
+and tested and stands alone. Take `#pack`, `#origin` and a top-level `#shape` together, as
+one step with `kVersion` 7, the policy classification, the three `check` warnings and the
+governs-nothing finding: they end position sniffing, restore spec §6's per-shape form, and
+close the received-layer gap this prototype found, for 128 core lines once the switch is
+removed (measured, §8), and no measurable runtime cost: a parse is 0.37% fewer instructions.
+Keep `#define NAME (body)`: refusing it fails 194 of D101's 464 raw files, and keeping it the
+switch passes 464 of 464 (§11). Defer the at-the-table form. The next step is a design note
+in `dev/` for that one step, with the D-entry's measurements re-taken on a quiet machine
+(`bench_compare.py` on `bench_parse`, `count_instructions.py`'s parse case, `bench_cache`) and
+the migration as its own commit.
 
 ## 11. Verification, the raw gate, and review
 
@@ -629,3 +718,56 @@ earlier section, this section is the later word.
   `count` in `baker.shapes`, the governs-nothing finding, a received-shape policy rule) and
   the `#`-before-a-letter rule; the directives held until `diff`, `layer_effect` and the
   tolerant read can show a declaration.
+
+### The core change, written
+
+*Added after the review: commits 74f10a3 to ef9480d and this section, on 3c460d9. §8 has
+what was built and its measured cost; where it disagrees with an earlier section, this is the
+later word.*
+
+- **Off, nothing moves.** The default build's `ctest` passes 23 of 23, and
+  `count_instructions.py` against 3c460d9 reads the same count in all five cases (a parse
+  1,845,499 instructions both sides).
+- **On, five tests fail, by design.** Each reads a file the switch reads differently, which
+  this branch does not migrate, since the default build reads it as it is: `baker_bake` bakes
+  `tests/corpus`, whose `macros.dta` writes `#define kMaxPlayers (4)`; three cases of
+  `baker_host_commands` read `tests/host/stack/data/default.dta`, whose `(shapes ...)` is now
+  data (the shape check finds nothing, and `check`'s warning about it reaches stderr);
+  `baker_example_live_ops` stages overlays whose `(pack ...)` and `(origin ...)` are now data,
+  which its policy's `allow` refuses as paths; `baker_example_host_check` and
+  `baker_example_host_play` read `examples/host/data/default.dta`, whose `(shapes ...)` warning
+  reaches stderr ahead of the expected output. No other test fails, and no failure is a bug.
+- **The migrate-check through the core:** 68 files, 0 tree, 0 digest, 0 session mismatches
+  (§8).
+- **The raw gate with the switch on** (`baker_parse_corpus --roundtrip --milo-paths`, the same
+  464 raw files): **270 of 464 parse (58.19%)**, with 0 round-trip failures among them. All 194
+  failures are one class, `#define NAME (body)`: 127 files write a body themselves and 67
+  include one of 15 included paths that do, most of them a game's `config/macros.dta`. 146 raw
+  files hold a same-line `#define NAME (` (2,135 times, a few in comments). No file fails on the
+  letter rule: with the switch off, any `#`-led atom of two bytes or more outside a skipped
+  branch is a directive, and all 464 read, so no raw file writes one as a symbol; a lone `#`
+  now prints bare and reads back. With `#define NAME (body)` kept and the rest of the switch
+  on (measured with a one-line change, reverted, not committed), **464 of 464 parse, 0
+  round-trip failures**, the same 7 files including one of the 6 files the dump lacks as with
+  the switch off. That answers question 6: keep the form (§9, §10). It weighs on the thesis
+  only there: `#pack`, `#origin`, `#shape` and the letter rule cost D101's bar nothing.
+- **Fuzzing.** `baker_parse_fuzzer` built as CI builds it (clang-18, ASan and UBSan,
+  RelWithDebInfo) with the switch on, seeded with `tests/corpus`, the fuzz regressions, the
+  experiment's 15 new-form samples and one text of every new form. A first 10-minute run found,
+  after 109,286 executions, an input the harness refused and Baker did not: the harness reads
+  every literal token alone, and `(key #remove)`'s marker reads only in that slot (D143). The
+  same is so with the switch off, and is the likely cause of this branch's failed CI fuzz job
+  at 66ba7b7; the fix is the harness's, with `tests/fuzz_regressions/remove_marker_alone.bin`.
+  A second 10-minute run from the grown corpus: **519,956 executions, no crash and no failed
+  round trip**. With the switch off, the fixed harness ran CI's own 2-minute job clean (225,800
+  executions). The build and the corpus are kept for a longer run.
+- **CI** at 66ba7b7 failed two jobs and passed the rest (MSVC, libc++, TSan, the sanitizers,
+  clang-tidy, format and the stacks among them): the fuzz job, as above, and the release dry
+  run, since four shipped comments named this note; ef9480d rewords them, and
+  `publish.py check` passes locally.
+- **Not run.** `tools/local_matrix.sh` (debug, C++23, shipping, Clang, data-only, plain
+  refcounts, EASTL, the ImGui harness) on this shared machine; the harness's two-line change
+  under the switch compiles only there. CI runs the default build, never the switch.
+- **The recommendation after review stands**, but for question 6: the core change bears out
+  its cost estimate within 28 lines, and costs no instructions; what holds the directives back
+  is still that `diff`, `layer_effect` and the tolerant read show no declaration.
