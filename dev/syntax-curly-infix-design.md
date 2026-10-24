@@ -568,3 +568,37 @@ one pain it was meant to relieve; it saves no lines and 1.7% of the bytes, so th
 the whole of the case. The next step is the gate run with the counter; then a D-entry
 recording it, the switch deleted, `read_structure` taught the rule, docs/language.md's
 section, and one `to-new` over stacks/ and examples/ in the same change.
+
+## 11. Verification, the raw gate, and review
+
+*Added after the prototype, from the session's review round; `dev/syntax-ideas.md` on
+`claude/fervent-cray-l1kyf0` compares all eight branches.* An agent independent of the
+prototype rebuilt this branch, reran its tests and reproduced its numbers; a reviewer
+judged it under the data-oriented lens (`.claude/skills/acton-review/`) and the tool
+author's; and D101's raw gate (464 raw Harmonix files, `baker_parse_corpus --roundtrip
+--milo-paths` over a local clone of mariteaux/milo-script-library, nothing from it in the
+repository, D3) was run on the branch's build. Where a finding below disagrees with an
+earlier section, this section is the later word.
+
+- **Reviewed at** `ed037c5`. The later commits add only the fuzz harness's `#remove` fix,
+  its regression input and the fuzz record in section 8.
+- **Verifier.** Builds; 23 of 23 suites with the switch on, 21 of 21 off; 13 experiment
+  cases. Every cachegrind count, line count, sample and converter count reproduces
+  exactly; the per-call deltas reproduce with an independent driver (the branch does not
+  commit its own, so that table cannot be rerun from the branch alone). Corrections: the
+  `--operators` instruction row was measured on the first 999,700 bytes of the 5.3 MB
+  print, which the note does not say; the `bench_compare` row came from an earlier commit
+  and was not reproduced; wall-clock ratios differ within noise.
+- **Raw gate.** Switch on: 464/464 parsed, 0 round-trip failures; the infix rule fired on
+  **0 braces**, 0 held back by the guard. Section 10's condition for the reader is met.
+- **Technical director, 3 of 5, adopt in part.** The infix tree is the prefix chain's
+  tree, so every saving belongs to the vocabulary: over the 76 rewritten commands, prefix
+  chains use the same 252 brackets and fewer atoms (318 against 338). The reader buys
+  reading order alone, unmeasured, for most of the remaining budget, and a second spelling
+  every text tool must learn, the stacks' agent docs included.
+- **Tool author, 3 of 5, adopt in part.** `check` passes malformed infix:
+  `{0.3 <= $value 0.7}`, `{$value <= 0.7 0.3}` and `{$value <=}` give no error, where the
+  prefix typo is one.
+- **Recommendation after review.** The vocabulary now, as its own step with the property
+  fix; the infix reader held until `check` rejects malformed infix and a trial shows it
+  reads better than prefix chains.
