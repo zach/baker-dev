@@ -46,6 +46,7 @@ enum class ErrorCode : uint8_t {
     NotFound,   // a lookup found nothing
     Refused,    // an operation was declined: write-back without one literal source, a
                 // mutation of a frozen config
+    Collision,  // two names share a hash (set_symbol_collision_handler)
 };
 
 [[nodiscard]] std::string_view error_code_name(ErrorCode code) noexcept;
@@ -115,6 +116,18 @@ private:
 //     in {%}  (boss.dta:9)
 //     in {bob attack}  (boss.dta:4)
 [[nodiscard]] std::string_view describe(const Error& error);
+
+// Two names that share a hash (symbol_hash). Symbols stay correct, since interning compares
+// text, but code that keys on Symbol::hash(), a switch over "x"_hash or a save keyed by hash,
+// cannot tell the two apart. A build that is not shipping checks each name the first time it
+// is interned, and reports such a pair to this handler: an Error (ErrorCode::Collision)
+// naming both names and their hash, located at the data file and line being read when the
+// name came from one. Both names stay interned, distinct Symbols. The default handler writes
+// the report to stderr and aborts. A handler may intern names; it runs outside the symbol
+// table's lock, on the thread that interned the second name. Returns the handler it
+// replaces; null restores the default. Shipping builds do not check, and never call it.
+using SymbolCollisionHandler = void (*)(const Error& report);
+SymbolCollisionHandler set_symbol_collision_handler(SymbolCollisionHandler handler) noexcept;
 // Writes "{bob attack}  (boss.dta:4)".
 void write(const StackEntry& entry, TextSink out);
 

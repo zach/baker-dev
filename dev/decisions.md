@@ -8189,3 +8189,54 @@ nothing promised it.
   literal, from runtime text, and from a data file, a non-ASCII one among them; compile
   time, run time, `_sym` and `Symbol` agreeing, and `_sym` interning the same Symbol as text
   does. The header gate compiles `symbol.hpp` alone.
+
+## D247. Two names that share a hash are reported (builds that are not shipping)
+
+*A spec from the owner, by way of a research session; the default's behaviour is the
+owner's choice.* With games keying on `Symbol::hash()` (D246), two names of one 64-bit hash
+would make a `switch` or a save lookup take one for the other, silently. Baker's own table
+compares text and stays correct.
+
+- **Where.** On the insert path alone: the lock-free probe that finds an interned name is
+  unchanged (D197). A new name takes the lock and probes again; that probe, in a build that
+  is not shipping, notes the first entry it passes with the same hash and other text. Every
+  earlier name of that hash starts its probe at the same slot, so the new one passes it.
+  The insert is out of line now (`add`), and `table()` forced inline: the first version cost
+  `lookup_text` 15 instructions a call, from the larger function, and then 2, from
+  `table()` no longer inlining.
+- **The report.** After the lock is released, so a handler may intern: an `Error` with the
+  new `ErrorCode::Collision` (named `collision` in the check JSON), naming both names and
+  the hash in hex, and saying that only code keyed on the hash is at risk. Both names stay
+  interned, distinct Symbols. `set_symbol_collision_handler(fn)` (`<baker/error.hpp>`) sets
+  the handler, a function pointer in an atomic, and returns the one it replaces; null
+  restores the default. The owner chose a default that writes the report to stderr and
+  aborts, in every build that is not shipping. Under `BAKER_SHIPPING` the check and the
+  report compile out.
+- **Located.** A thread-local intern site, set once per file and not once per name: each
+  parser sets its file and a pointer to its current line, and puts the includer's back when
+  it ends; a binary cache's load sets the cache's name for its interning. A collision from
+  a data file is reported at its file and line, an included file's at that file.
+- **The test seam.** `detail::intern_hashed(text, hash)` (D246's, for `"x"_sym`) plants a
+  name under another's hash, as no practical FNV-1a 64 collision exists. The spec asked for
+  a seam only tests see; this one is in the public header's `detail`, documented as
+  requiring the text's own hash.
+- **Cost** (Release, this container):
+  - `tools/count_instructions.py` against D246: lookup and lookup_text unchanged; parse +23
+    instructions a file (the site, set and restored).
+  - A scratch `intern_threads` driver, best of 5, per call per thread, before and after:
+    interned names from 1, 2 and 4 threads, 9.3, 9.4 and 9.3 ns against 9.3, 9.6 and
+    9.7 ns. New names, the insert path, from 1 thread, 119–135 ns against 119–124; from 4,
+    900–940 against 903–989. From 2 threads, consistently slower: 518–589 ns against
+    631–750 in three runs. The critical section does no more work, as one thread shows;
+    two threads inserting at once contend differently. It is load-time only.
+  - `tools/bench_compare.py` (lookup and parse, 7 runs a side): rows moved both ways, rows
+    that never intern among them (`try_find` on an array −39%), with no change in
+    instructions: code layout.
+- **Not tested:** a collision from a binary cache. A cache cannot be written in the test's
+  process without interning its names first, so a cache's names are never new there. Its
+  load interns through the same constructor and sets its site.
+- **Tests.** A planted collision reported once with both names, and in shipping not at all;
+  interning either again reports nothing; both distinct, working Symbols; a collision in a
+  data file at its line, through an `#include` at the included file's line and the
+  includer's after it; four threads interning while one plants a collision, reported once,
+  which TSan in CI runs.

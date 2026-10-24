@@ -2,6 +2,7 @@
 
 #include "arena.hpp"
 #include "common/containers.hpp"
+#include "intern_site.hpp"
 #include "lexer.hpp"
 #include "merge.hpp"
 #include "session.hpp"
@@ -189,7 +190,14 @@ public:
           size_(static_cast<uint32_t>(text.size())) {
         if (map_) map_->record_text(file, text);
         ++s_.st_->parses;
+        // A name this file brings that shares a hash with another is reported at its line.
+        if constexpr (!kShipping) outer_site_ = set_intern_site({file, &line_});
     }
+    ~Parser() {
+        if constexpr (!kShipping) (void)set_intern_site(outer_site_);
+    }
+    Parser(const Parser&) = delete;
+    Parser& operator=(const Parser&) = delete;
 
     bool run(Ref<Array>& out, Error& err) {
         err_ = &err;
@@ -933,6 +941,7 @@ private:
     int32_t pack_line_ = 0;  // where it declared it
     bool origin_ = false;    // this file declared its origin
     Vec<Symbol> warned_;     // macros this file has been warned about
+    InternSite outer_site_;  // the intern site of the read that included this file
 };
 
 }  // namespace detail

@@ -28,7 +28,8 @@ namespace baker {
 // with no normalisation: the same on every platform, compiler and build mode. It is a
 // promise: a change of the algorithm is a breaking change, and the library's own build
 // checks golden values. A hash is an extra key for a game, never the name's replacement:
-// data files and caches keep the text. Two names may share a hash, if very rarely.
+// data files and caches keep the text. Two names may share a hash, if very rarely; a build
+// that is not shipping reports it (set_symbol_collision_handler, <baker/error.hpp>).
 [[nodiscard]] constexpr uint64_t symbol_hash(std::string_view text) noexcept {
     uint64_t h = 14695981039346656037ull;  // FNV-1a 64: offset basis, then prime
     for (const char c : text) {

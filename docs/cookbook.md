@@ -743,6 +743,17 @@ save.write_u64(player.weapon.hash());
   is cheaper to compare and cannot collide.
 - **What it is not.** A hash is an extra key for the game, never the name's replacement:
   data files and the binary cache keep the text, and reading them never depends on a hash.
+- **Two names that share a hash.** It is very unlikely, about 3 in a million among ten
+  million names, but a `switch` or a save keyed by hash would take one name for the other
+  without an error. A build that is not shipping checks every name the first time it is
+  interned, whether from code, a data file or a binary cache, and reports a pair that
+  shares a hash: an `Error` with `ErrorCode::Collision`, naming both names and the hash, at
+  the data file and line being read. The default writes it to stderr and aborts;
+  `baker::set_symbol_collision_handler(fn)` takes it instead, to log it or fail a build
+  step. Both names stay interned, distinct Symbols: only code keyed on the hash is at risk.
+  A shipping build does not check, and pays nothing for it. A game that ships hash-keyed
+  data runs that data through a build that is not shipping, in CI for example, so a
+  collision is found before it ships.
 
 ## Repro scripts
 

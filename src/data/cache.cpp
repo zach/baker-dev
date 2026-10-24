@@ -6,6 +6,7 @@
 
 #include "arena.hpp"
 #include "common/containers.hpp"
+#include "intern_site.hpp"
 #include "session.hpp"
 #include "text.hpp"
 
@@ -442,7 +443,8 @@ Expected<Ref<Array>> load(char* file, size_t bytes, std::string_view name, const
         cipher->decrypt(cipher->user,
                         {reinterpret_cast<std::byte*>(file) + sizeof h, bytes - sizeof h});
 
-    // Intern the symbols into their slots.
+    // Intern the symbols into their slots: a name that shares a hash is reported at the cache.
+    const detail::InternSiteScope site(name);
     char* slots = file + h.symbols;
     const char* slots_end = slots + size_t{h.symbol_slots} * 16;
     size_t p = h.symbols + size_t{h.symbol_slots} * 16;
