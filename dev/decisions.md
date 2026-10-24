@@ -7840,6 +7840,10 @@ layout rule, alignment, blank lines and the kit's command are the owner's choice
     here, not an assertion.
   - The project's `(format ...)` and its error.
   - The `format` command's `--baker-check`, `--baker-json`, rewrite, and no-file form.
+- **Found at the 0.6.0 release.** The corpus test walked `stacks/`, which the released tree
+  lacks, and the directory iterator threw: every verify job failed and nothing was
+  published. It skips a root the tree lacks and requires more than 20 files, which the
+  released tree's 29 meet; the development tree adds the stacks' 39.
 
 ## D240. Tweaks that agree across a change: `read_consistent`
 
