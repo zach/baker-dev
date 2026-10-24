@@ -24,15 +24,19 @@ reformatted, so comments and layout stay as they are):
 What it will not decide, it reports: a tagged array with no untagged value whose last child
 is tagged with a metadata key, (ball (kind ball) (pos 1 2)) or (limits (min 0) (step 0.5)),
 is D218's ambiguity. Today it reads as all value; under the rule it still does, so nothing
-is renamed, and a person decides whether (step 0.5) was meant as metadata.
+is renamed, and a person decides whether (step 0.5) was meant as metadata. In --md, a code
+span or block whose top-level form is tagged with a metadata key, `(range 0 10)` in prose,
+is reported too: it names metadata without a value, so no rule can tell.
 
---cpp reads a C++ file as its string literals' text: a '"' is a literal's edge (whitespace),
-'\\"' is a DTA string's quote, and '\\n' is a newline. --md does the same for a Markdown
-file, so the fenced blocks and inline code in the documentation migrate alike. Both are
-best effort over text that is not all DTA; read the diff.
+--cpp reads each run of adjacent C++ string literals, as the compiler joins them, as one DTA
+text: escapes decoded, raw strings as written, comments and character literals skipped.
+--md reads ```dta and unmarked fenced blocks and inline code spans as DTA, ```cpp blocks as
+C++, and skips blocks in other languages. Every character keeps its source offset, so a
+rename lands in the file exactly; read the diff all the same.
 """
 
 import argparse
+import re
 import sys
 
 META_KEYS = ("range", "step", "desc", "note", "kind", "group", "one_of")
@@ -56,13 +60,12 @@ class Tok:
         self.closed = False
 
 
-def lex(src, mode):
+def lex(src):
     """The lexer's token rules, frozen: whitespace, ; and /* */ comments, "strings",
-    'quoted symbols', atoms ending at the six brackets, a quote, ';' or a control character.
-    In --cpp and --md mode a bare '"' is whitespace and '\\"' a string's quote."""
+    'quoted symbols', atoms ending at the six brackets, a quote, ';' or a
+    control character. Every token advances; nothing in the text stops it."""
     toks = []
     i, n, line = 0, len(src), 1
-    cpp = mode in ("cpp", "md")
     while i < n:
         c = src[i]
         if c == "\n":
@@ -70,33 +73,19 @@ def lex(src, mode):
             i += 1
         elif c <= " ":
             i += 1
-        elif cpp and c == "\\" and i + 1 < n and src[i + 1] in "nt":  # a C++ escape: whitespace
-            i += 2
-        elif cpp and c == '"':  # a literal's edge
-            i += 1
         elif c == ";":
             end = src.find("\n", i)
             i = n if end < 0 else end
         elif c == "/" and i + 1 < n and src[i + 1] == "*":
             end = src.find("*/", i + 2)
-            seg = src[i : n if end < 0 else end + 2]
-            line += seg.count("\n")
-            i += len(seg)
-        elif c == '"' or (cpp and c == "\\" and i + 1 < n and src[i + 1] == '"'):
-            begin = i
-            i += 2 if cpp else 1
-            while True:
-                end = src.find('\\"' if cpp else '"', i)
-                if end < 0:
-                    end = n
-                    break
-                if cpp and src[end - 1] == "\\" and src[max(0, end - 2) : end] != "\\\\":
-                    i = end + 2  # an escaped quote inside the string: \\\" in the C++
-                    continue
-                break
-            stop = min(n, end + (2 if cpp else 1))
-            line += src.count("\n", begin, stop)
-            toks.append(Tok("string", src[begin:stop], begin, stop, line))
+            stop = n if end < 0 else end + 2
+            line += src.count("\n", i, stop)
+            i = stop
+        elif c == '"':  # its escapes, \n and \q, hold no quote: it ends at the next one
+            end = src.find('"', i + 1)
+            stop = n if end < 0 else end + 1
+            toks.append(Tok("string", src[i:stop], i, stop, line))
+            line += src.count("\n", i, stop)
             i = stop
         elif c == "'":
             end = src.find("'", i + 1)
@@ -112,10 +101,111 @@ def lex(src, mode):
             i += 1
         else:
             begin = i
-            while i < n and src[i] not in ATOM_END and not (cpp and src[i] == "\\"):
+            while i < n and src[i] not in ATOM_END:
                 i += 1
             toks.append(Tok("atom", src[begin:i], begin, i, line))
     return toks
+
+
+# --- The DTA inside other files: runs of (text, offsets) ---
+#
+# A run is the DTA text some part of a file spells, and for each of its characters the
+# offset in the file it came from (an int base when the run is a contiguous slice).
+
+ESCAPES = {"n": "\n", "t": "\t", "r": "\r", '"': '"', "'": "'", "\\": "\\", "0": "\0"}
+
+
+def cpp_runs(src, base=0):
+    """Each run of adjacent C++ string literals, joined as the compiler joins them."""
+    runs, text, at = [], [], []
+    i, n = 0, len(src)
+
+    def close():
+        if text:
+            runs.append(("".join(text), list(at)))
+        text.clear()
+        at.clear()
+
+    while i < n:
+        c = src[i]
+        if src.startswith("//", i):
+            end = src.find("\n", i)
+            i = n if end < 0 else end
+        elif src.startswith("/*", i):
+            end = src.find("*/", i + 2)
+            i = n if end < 0 else end + 2
+        elif c == "R" and src.startswith('R"', i) and not (i and (src[i - 1].isalnum() or src[i - 1] == "_")):
+            open_ = src.find("(", i + 2)
+            if open_ < 0:
+                i += 1
+                continue
+            delim = ")" + src[i + 2 : open_] + '"'
+            end = src.find(delim, open_ + 1)
+            end = n if end < 0 else end
+            for k in range(open_ + 1, end):
+                text.append(src[k])
+                at.append(base + k)
+            i = end + len(delim)
+        elif c == '"':
+            i += 1
+            while i < n and src[i] != '"' and src[i] != "\n":
+                if src[i] == "\\" and i + 1 < n:
+                    e = src[i + 1]
+                    if e == "x":
+                        m = re.match(r"[0-9a-fA-F]+", src[i + 2 :])
+                        digits = m.group(0) if m else ""
+                        text.append(chr(int(digits, 16)) if digits else "x")
+                        at.append(base + i)
+                        i += 2 + len(digits)
+                        continue
+                    text.append(ESCAPES.get(e, e))
+                    at.append(base + i)
+                    i += 2
+                else:
+                    text.append(src[i])
+                    at.append(base + i)
+                    i += 1
+            i += 1
+        elif c == "'":
+            if i and src[i - 1].isalnum():  # a digit separator: 1'000
+                i += 1
+                continue
+            j = i + 1
+            while j < n and src[j] != "'" and src[j] != "\n":
+                j += 2 if src[j] == "\\" else 1
+            i = j + 1
+        elif c <= " ":
+            i += 1
+        else:  # any other token ends a run
+            close()
+            i += 1
+    close()
+    return runs
+
+
+def md_runs(src):
+    """```dta and unmarked fenced blocks and inline code spans as DTA; ```cpp blocks as C++."""
+    runs = []
+    offset = 0
+    lang = None  # inside a fence: its language
+    start = 0
+    for line in src.splitlines(keepends=True):
+        fence = line.lstrip().startswith("```")
+        if lang is None and fence:
+            lang = line.lstrip()[3:].strip().lower()
+            start = offset + len(line)
+        elif lang is not None and fence:
+            body = src[start:offset]
+            if lang in ("", "dta"):
+                runs.append((body, start))
+            elif lang in ("cpp", "c++"):
+                runs.extend(cpp_runs(body, start))
+            lang = None
+        elif lang is None:
+            for m in re.finditer(r"`([^`\n]+)`", line):
+                runs.append((m.group(1), offset + m.start(1)))
+        offset += len(line)
+    return runs
 
 
 def bracket_tree(toks):
@@ -164,11 +254,13 @@ def plain_tag(t, keys):
 
 
 class Migration:
-    def __init__(self, src, name):
+    """The renames one DTA text needs, by offset in that text, and its review list."""
+
+    def __init__(self, src, prose=False):
         self.src = src
-        self.name = name
-        self.renames = []  # (byte offset to insert '@' at, key)
-        self.review = []  # (line, text): D218's ambiguity, for a person
+        self.prose = prose  # a Markdown run: a lone metadata form is reported
+        self.renames = []  # (offset to insert '@' at, key)
+        self.review = []  # (offset, text): for a person
         self.done = set()  # arrays a shape or func rule handled
 
     def rename(self, t, key):
@@ -177,13 +269,20 @@ class Migration:
         self.renames.append((at, key))
         self.done.add(id(t))
 
-    def walk(self, t, in_shapes=False):
+    def note(self, t):
+        text = self.src[t.begin : min(t.end, t.begin + 72)].replace("\n", " ")
+        self.review.append((t.begin, text + ("..." if t.end - t.begin > 72 else "")))
+
+    def walk(self, t):
         if t.kind != "open":
             return
         if t.text == "(" and tag_of(t) == "shapes" and t.parent is not None and t.parent.text == "":
             for decl in t.children[1:]:
                 self.shape(decl)
             return
+        if self.prose and t.parent is not None and t.parent.text == "" and \
+                plain_tag(t, FIELD_KEYS + SHAPE_KEYS + FUNC_KEYS):
+            self.note(t)
         if t.text == "{" and len(t.children) >= 3 and t.children[0].kind == "atom" and \
                 t.children[0].text in ("func", "override"):
             for form in t.children[3:]:
@@ -211,8 +310,7 @@ class Migration:
             for k, key in trailing:
                 self.rename(k, key)
         else:
-            text = self.src[t.begin : min(t.end, t.begin + 72)].replace("\n", " ")
-            self.review.append((t.line, text + ("..." if t.end - t.begin > 72 else "")))
+            self.note(t)
 
     def shape(self, decl):
         if tag_of(decl) is None:
@@ -231,17 +329,36 @@ class Migration:
                 if key is not None:
                     self.rename(meta, key)
 
+
+class FileMigration:
+    """The renames a whole file needs, by source offset, over its runs of DTA."""
+
+    def __init__(self, src, mode):
+        self.src = src
+        self.renames = []
+        self.review = []  # (line, text)
+        if mode == "cpp":
+            runs = cpp_runs(src)
+        elif mode == "md":
+            runs = md_runs(src)
+        else:
+            runs = [(src, 0)]
+        for text, at in runs:
+            m = Migration(text, prose=mode == "md")
+            m.walk(bracket_tree(lex(text)))
+            where = (lambda k, at=at: at + k) if isinstance(at, int) else (lambda k, at=at: at[k])
+            self.renames += [(where(k), key) for k, key in m.renames]
+            self.review += [(src.count("\n", 0, where(k)) + 1, s) for k, s in m.review]
+
     def apply(self):
         out = self.src
-        for at, _ in sorted(self.renames, reverse=True):
+        for at, _ in sorted(set(self.renames), reverse=True):
             out = out[:at] + "@" + out[at:]
         return out
 
 
-def migrate(src, name, mode="dta"):
-    m = Migration(src, name)
-    m.walk(bracket_tree(lex(src, mode)))
-    return m
+def migrate(src, mode="dta"):
+    return FileMigration(src, mode)
 
 
 def main():
@@ -257,11 +374,13 @@ def main():
     mode = "cpp" if args.cpp else "md" if args.md else "dta"
     total = {}
     review_count = 0
+    changed = 0
     for path in args.files:
         with open(path, encoding="utf-8", newline="") as f:
             src = f.read()
-        m = migrate(src, path, mode)
+        m = migrate(src, mode)
         out = m.apply()
+        changed += out != src
         by_key = {}
         for _, key in m.renames:
             by_key[key] = by_key.get(key, 0) + 1
@@ -287,7 +406,8 @@ def main():
     if args.report:
         n = sum(total.values())
         keys = ", ".join(f"{k} {v}" for k, v in sorted(total.items()))
-        print(f"total: {n} renames ({keys}); {review_count} to review")
+        print(f"total: {n} renames in {changed} of {len(args.files)} files ({keys}); "
+              f"{review_count} to review")
 
 
 if __name__ == "__main__":
