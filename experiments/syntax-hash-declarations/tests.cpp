@@ -506,7 +506,7 @@ TEST_CASE("nothing in the text crashes the reader: the fuzz regressions and torn
         if (r) CHECK(first_difference(**r, *ok(syntax::read(syntax::print(**r), "again"))).empty());
         ++files;
     }
-    CHECK(files == 4);
+    CHECK(files == 5);
     const std::string_view sample =
         "#pack (a (level game))\n#shape (s (f int))\n(t #shape (u (g float)) (k 1) \"s\n"
         "#define N (4)\n(x #1 #remove 'q) [m 1] {c $v} ; c\n/* b */ #origin (\"o\")\n";
