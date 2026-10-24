@@ -642,5 +642,9 @@ earlier section, this section is the later word.
   moving a value into a neighbouring hole read silently; every write-back that widens a
   cell drifts the alignment; `promote` into a headed file is refused, which breaks the
   agent's hand-off on exactly the table an agent tunes.
+- **Fuzzing.** Not run with libFuzzer: the branch changes no core code. The translator's
+  prefix and mutation test (about 50,000 reads over every prefix of the samples and 2,000
+  mutations of each, under both rules) passes under ASan and UBSan, after it found the
+  directory-path crash section 8 records.
 - **Recommendation after review.** Decline, as section 10 says; an aligning printer for
   today's keyed tables first.
