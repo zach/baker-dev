@@ -47,16 +47,25 @@ Expected<Node> define(Args a, bool override) {
     for (; i < a.size(); ++i) {
         const Array* meta = a.raw(i).try_array();
         if (!meta || meta->empty()) break;
-        if ((*meta)[0].is("status") && meta->size() >= 2) {
+        if constexpr (kAtMetadata) {  // by the sigil: (status 1) as the first form is the body
+            static const Symbol status_key("@status"), doc_key("@doc");
+            const auto tag = (*meta)[0].try_sym();
+            if (!tag || !tag->is_meta()) break;
+            if (*tag != status_key && *tag != doc_key)
+                return Unexpected(a.error(quoted(name) + " has unknown metadata " + quoted(*tag) +
+                                              ": (@status ...) or (@doc ...)",
+                                          ErrorCode::Syntax));
+        }
+        if ((*meta)[0].is(kAtMetadata ? "@status" : "status") && meta->size() >= 2) {
             const Symbol s = (*meta)[1].try_sym().value_or(Symbol());
             status = s == "stub"          ? Status::Stub
                      : s == "provisional" ? Status::Provisional
                      : s == "deprecated"  ? Status::Deprecated
                                           : Status::Normal;
             if (meta->size() >= 3) replacement = (*meta)[2].try_sym().value_or(Symbol());
-        } else if ((*meta)[0].is("doc") && meta->size() >= 2) {
+        } else if ((*meta)[0].is(kAtMetadata ? "@doc" : "doc") && meta->size() >= 2) {
             doc = (*meta)[1].try_str().value_or("");
-        } else {
+        } else if (!kAtMetadata) {
             break;
         }
     }

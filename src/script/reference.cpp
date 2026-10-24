@@ -83,7 +83,9 @@ struct Checker {
         for (size_t i = 3; i < a.size(); ++i) {
             const Array* m = a[i].try_array();
             if (!m || m->size() < 2) break;
-            if ((*m)[0].is("status")) stub = (*m)[1].is("stub");
+            if constexpr (kAtMetadata)  // as define() reads it: the leading (@...) forms
+                if (!m->tag().is_meta()) break;
+            if ((*m)[0].is(kAtMetadata ? "@status" : "status")) stub = (*m)[1].is("stub");
         }
         defined[*name] = {params->size(), stub, a.file()};
     }

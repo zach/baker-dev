@@ -12,10 +12,16 @@ namespace baker::shape {
 
 namespace {
 
+// The grammar's words. Under kAtMetadata they carry the sigil, so a field may be named at,
+// kind, desc or keyed, and an unknown @word is an error instead of silence.
+constexpr const char* word(const char* plain, const char* at) noexcept {
+    return baker::kAtMetadata ? at : plain;
+}
 struct Names {
-    baker::Symbol shapes{"shapes"}, at{"at"}, range{"range"}, step{"step"}, kind{"kind"},
-        desc{"desc"}, note{"note"}, optional{"optional"}, list{"list"}, any_tag{"*"},
-        keyed{"keyed"}, one_of{"one_of"};
+    baker::Symbol shapes{"shapes"}, at{word("at", "@at")}, range{word("range", "@range")},
+        step{word("step", "@step")}, kind{word("kind", "@kind")}, desc{word("desc", "@desc")},
+        note{word("note", "@note")}, optional{word("optional", "@optional")}, list{"list"},
+        any_tag{"*"}, keyed{word("keyed", "@keyed")}, one_of{word("one_of", "@one_of")};
 };
 const Names& names() {
     static const Names n;
@@ -92,7 +98,7 @@ const Shape* Set::find(baker::Symbol name) const noexcept {
 namespace {
 
 // Reads one field declaration: (name type (range lo hi) (step s) (kind k) (desc "")
-// (note "") (optional) (one_of a b ...)).
+// (note "") (optional) (one_of a b ...)); under kAtMetadata each word carries the sigil.
 bool read_field(const Array& a, Field& f, Vec<Error>& errors) {
     auto bad = [&](std::string_view why) {
         errors.push_back(make_error(ErrorCode::Syntax, why, a.file(), a.line()));
@@ -120,6 +126,10 @@ bool read_field(const Array& a, Field& f, Vec<Error>& errors) {
         const Array* m = a[i].try_array();
         const auto tag = m && !m->empty() ? (*m)[0].try_sym() : std::nullopt;
         if (!tag) return bad("field " + quoted(f.name) + " has metadata that is not (tag ...)");
+        if constexpr (baker::kAtMetadata)
+            if (!tag->is_meta())
+                return bad("field " + quoted(f.name) + " has (" + Str(tag->str()) +
+                           " ...), which is not metadata: write (@" + Str(tag->str()) + " ...)");
         const Values v = m->values();
         if (*tag == n.range) {
             const auto lo = v.size() == 2 ? v[0].try_float() : std::nullopt;
@@ -153,7 +163,9 @@ bool read_field(const Array& a, Field& f, Vec<Error>& errors) {
                 if (std::find(all.begin(), all.end(), *sym) == all.end()) all.push_back(*sym);
             }
             f.one_of = List<baker::Symbol>({all.data(), all.size()});
-        }  // other metadata is the tools' business
+        } else if constexpr (baker::kAtMetadata) {
+            return bad("field " + quoted(f.name) + " has unknown metadata " + quoted(*tag));
+        }  // without the sigil, other metadata is the tools' business
     }
     return true;
 }
@@ -205,7 +217,9 @@ void Set::add(const Array& tree, Report& report, const LoadSession* packs) {
             Shape& s = st_->shapes[i];
             s.file = a->file();
             s.line = a->line();
-            for (const Node& c : a->values()) {
+            // Every child after the name: the shape's own metadata too (kAtMetadata), which
+            // values() leaves out.
+            for (const Node& c : a->nodes().subspan(1)) {
                 const Array* f = c.try_array();
                 const auto tag = f && !f->empty() ? (*f)[0].try_sym() : std::nullopt;
                 if (!tag) {
@@ -219,6 +233,15 @@ void Set::add(const Array& tree, Report& report, const LoadSession* packs) {
                     s.keyed = true;
                     continue;
                 }
+                if constexpr (baker::kAtMetadata)  // a shape's own (@desc ...) and (@note ...)
+                    if (tag->is_meta() && *tag != n.at) {
+                        if (*tag != n.desc && *tag != n.note)
+                            errors.push_back(make_error(
+                                ErrorCode::Syntax,
+                                "shape " + quoted(*name) + " has unknown metadata " + quoted(*tag),
+                                f->file(), f->line()));
+                        continue;
+                    }
                 if (*tag == n.at) {
                     Vec<baker::Symbol> path;
                     for (const Node& p : f->values()) {
@@ -265,10 +288,11 @@ void Set::add(const Array& tree, Report& report, const LoadSession* packs) {
         Shape& s = st_->shapes[i];
         s.fields = List<Field>({st_->fields[i].data(), st_->fields[i].size()});
         if (s.keyed && s.at.empty())
-            errors.push_back(make_error(
-                ErrorCode::Syntax,
-                "shape " + quoted(s.name) + " is (keyed) but has no (at ...): keyed under what?",
-                s.file, s.line));
+            errors.push_back(make_error(ErrorCode::Syntax,
+                                        "shape " + quoted(s.name) + " is (" + Str(n.keyed.str()) +
+                                            ") but has no (" + Str(n.at.str()) +
+                                            " ...): keyed under what?",
+                                        s.file, s.line));
     }
     report.errors = List<Error>({errors.data(), errors.size()});
     report.warnings = List<Error>({warnings.data(), warnings.size()});

@@ -15,10 +15,14 @@ namespace {
 
 constinit TweakRegistry g_registry;
 
-// The metadata keys, interned once: a panel reads them for every tweak every frame.
+// The metadata keys, interned once: a panel reads them for every tweak every frame. Under
+// kAtMetadata they are spelled with the sigil, (@range 0 10), and found among an array's
+// metadata children.
 struct Keys {
-    Symbol range{"range"}, step{"step"}, desc{"desc"}, note{"note"}, kind{"kind"}, group{"group"},
-        one_of{"one_of"};
+    Symbol range{kAtMetadata ? "@range" : "range"}, step{kAtMetadata ? "@step" : "step"},
+        desc{kAtMetadata ? "@desc" : "desc"}, note{kAtMetadata ? "@note" : "note"},
+        kind{kAtMetadata ? "@kind" : "kind"}, group{kAtMetadata ? "@group" : "group"},
+        one_of{kAtMetadata ? "@one_of" : "one_of"};
 };
 const Keys& keys() {
     static const Keys k;
@@ -27,8 +31,10 @@ const Keys& keys() {
 
 // A tweak's value without the metadata written after it: (color 1 0.5 0 (range 0 1)) is
 // three numbers (D88). Only trailing arrays tagged with the keys a tweak reads are left out,
-// so a value whose own elements are tagged arrays reads as before.
+// so a value whose own elements are tagged arrays reads as before. Under kAtMetadata the
+// values end before the metadata already (Array::values()), for every reader.
 Values without_metadata(const Values& v) {
+    if constexpr (kAtMetadata) return v;
     const Keys& k = keys();
     size_t n = v.size();
     for (; n > 0; --n) {
@@ -251,6 +257,12 @@ std::string_view TweakBase::kind() const {
 }
 
 ValueMetadata split_metadata(const Values& all) noexcept {
+    if constexpr (kAtMetadata) {  // the array's own boundary, when `all` is its value run
+        const Array* a = all.source();
+        if (a && a->size() > 0 && all.begin() == a->begin() + 1)
+            return {a->values(), a->metadata()};
+        return {all, {}};
+    }
     const Values values = without_metadata(all);
     return {values, all.nodes().subspan(values.size())};
 }
@@ -329,6 +341,7 @@ namespace {
 // The metadata array tagged `key` written after a value, as (range 0 10) in
 // (speed 4 (range 0 10)); null if none.
 const Array* trailing_meta(const Values& all, Symbol key) {
+    if constexpr (kAtMetadata) return all.source() ? all.source()->meta(key) : nullptr;
     for (size_t n = all.size(); n > 0; --n) {
         const Array* a = all[n - 1].try_array();
         if (!a || a->empty()) break;

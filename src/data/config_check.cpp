@@ -135,6 +135,22 @@ void find_code(const Array& a, Vec<Symbol>& tags, Vec<Error>& out) {
     }
 }
 
+// kAtMetadata: the first array in `a` with a value and, as its last child, a bare (range
+// ...), (desc ...) or another of the old metadata keys: a field now, which the migrator
+// spells (@range ...). One warning per layer, at the first such array, so an unmigrated file
+// is noticed at its first check.
+const Array* unmigrated_metadata(const Array& a) {
+    static const Symbol keys[] = {"range", "step", "desc", "note", "kind", "group", "one_of"};
+    if (const Array* last = a.size() > 1 ? a[a.size() - 1].try_array() : nullptr;
+        last && !last->empty() && has_values(a))
+        for (const Symbol& k : keys)
+            if ((*last)[0].is(k)) return last;
+    for (const Node& n : a)
+        if (const Array* c = n.try_array())
+            if (const Array* found = unmigrated_metadata(*c)) return found;
+    return nullptr;
+}
+
 bool under(const Path& path, const Path& prefix) noexcept {
     if (prefix.size() > path.size()) return false;
     for (size_t i = 0; i < prefix.size(); ++i)
@@ -181,6 +197,15 @@ LayerReport run_check(const Basis& b, std::string_view name, const Ref<Array>& c
                 at ? at->file() : Symbol(), at ? at->line() : 0));
         }
     }
+    if constexpr (kAtMetadata)
+        if (const Array* m = unmigrated_metadata(tree))
+            warnings.push_back(
+                make_error(ErrorCode::Syntax,
+                           "(" + Str(m->tag().str()) +
+                               " ...) directly after a value reads as a field; if it is "
+                               "metadata, write (@" +
+                               Str(m->tag().str()) + " ...)",
+                           m->file(), m->line()));
     const Array& stack = b.root;
     Finder finder(alloc);
     // supplier() and source_in(), through the finder: the enabled layer, from the top, whose
