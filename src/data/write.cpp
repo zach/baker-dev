@@ -137,7 +137,7 @@ bool is_section(const Array& a) noexcept {
     return tagged_child;
 }
 
-// The lines form (dev/syntax-indent-lines-design.md): `n`, a tagged Array, as `tag values`
+// The lines form: `n`, a tagged Array, as `tag values`
 // at `indent`, its array children on deeper lines: tagged ones as lines, the rest as rows
 // of bracket groups packed to the width. A head holding a value may be followed only by
 // groups (a deeper atom-first line under it would read as a continued value list, which

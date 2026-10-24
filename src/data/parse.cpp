@@ -672,7 +672,7 @@ private:
     }
 
 #if BAKER_INDENT_LINES
-    // The layout (dev/syntax-indent-lines-design.md), for a token first on its line while
+    // The layout, for a token first on its line while
     // no bracket is open. A conditional takes no part, so it may sit at the margin. Any
     // other token's indent closes every open line at or past it, and must land on an open
     // line's indent; an atom (not a macro, which splices as today) then opens a line: an

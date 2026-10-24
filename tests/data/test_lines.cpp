@@ -1,4 +1,4 @@
-// The indent-lines experiment in the core (dev/syntax-indent-lines-design.md): a line that
+// The indent-lines experiment in the core: a line that
 // begins with an atom is an array. Built only when the build reads lines
 // (-DBAKER_INDENT_LINES=ALWAYS or DIRECTIVE); empty otherwise.
 #include <doctest.h>
@@ -57,7 +57,7 @@ TEST_CASE("lines: the brief's snippets") {
         "      lives int\nplayer\n   speed 3.5   ; how fast\n   lives 3\nwaves {spawn grunt 3}\n",
         "(shapes (player (speed float (range 0 10)) (lives int))) (player (speed 3.5) (lives 3))"
         " (waves {spawn grunt 3})");
-    // stacks/hearth/data/default.dta:45-55: tuple rows keep their parentheses, as values
+    // Hearth's households: tuple rows keep their parentheses, as values
     same(
         "households\n   cottage\n      desc \"Two rooms and a couple\"\n      size 14 10\n"
         "      walls\n         (0 -5 14 0.2) (0 5 14 0.2)\n         (1 -3 0.2 4)\n"

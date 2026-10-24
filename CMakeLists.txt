@@ -14,7 +14,7 @@ option(BAKER_BUILD_HARNESS    "Build examples/harness-imgui (fetches Dear ImGui 
 option(BAKER_BUILD_FUZZERS    "Build libFuzzer targets (Clang only)" OFF)
 option(BAKER_BUILD_EXPERIMENTS "Build experiments/ (syntax sketches on branches; never shipped)" OFF)
 option(BAKER_USE_EASTL        "Internal containers from EASTL instead of the STL (D55, D61)" OFF)
-# The indent-lines experiment (dev/syntax-indent-lines-design.md): a line that begins with an
+# The indent-lines experiment: a line that begins with an
 # atom is an array. OFF (today's reader), ALWAYS (every file), or DIRECTIVE (a file from its
 # #lines on). Public: WriteOptions changes with it.
 set(BAKER_INDENT_LINES "OFF" CACHE STRING "Read indented lines as arrays: OFF, ALWAYS or DIRECTIVE")
