@@ -64,7 +64,7 @@ Ref<Array> Array::make_copy(std::span<const Node> nodes, Symbol file, int32_t li
 namespace {
 // kAtMetadata: whether `n` is a metadata child, (@tag ...): a parenthesized array whose
 // first node is a symbol beginning with '@'. data()[0] is readable even in an empty array.
-bool is_meta_child(const Node& n) noexcept {
+[[maybe_unused]] bool is_meta_child(const Node& n) noexcept {
     const Array* a = n.try_array();
     const auto tag = a ? (*a)[0].try_sym() : std::nullopt;
     return tag && tag->is_meta();
