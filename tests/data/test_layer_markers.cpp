@@ -56,7 +56,9 @@ TEST_CASE("the verbs and the pin read in their slots and print back bare") {
     }
     // Elsewhere the symbol is quoted, so it reads back as the symbol it is.
     for (const char* text : {"('#append')", "(a '#was' 1)", "(a 1 '#was')", "{f '#drop'}",
-                             "(a 1 '#was' 2 '#was' 3)", "(a (b '#drop' 1))"}) {
+                             "(a 1 '#was' 2 '#was' 3)", "(a (b '#drop' 1))",
+                             // a marker is never a tag, even over a row that holds one
+                             "('#append' (k #remove))", "('#was' '#drop' (k 1 #was 2))"}) {
         auto tree = ok(read_string(text, "q.dta"));
         const std::string printed = to_dta(*tree);
         CHECK(printed.find('\'') != std::string::npos);
@@ -103,6 +105,7 @@ TEST_CASE("every misplaced marker is a located Directive error with its form as 
         {"(a #remove 1 #was 1)", "(key #remove)"},
         {"(a #remove (note \"x\"))", "(key #remove)"},
         {"[p #was 1]", "(key v... #was w...)"},
+        {"('#append' #drop x)", "(key #append v...)"},
     };
     for (const Case& c : cases) {
         auto r = read_string(c.text, "bad.dta");

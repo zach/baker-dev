@@ -1,0 +1,1 @@
+( '#append' '#drop' (k 1 #was 2) (k #drop (t 1)) ) ( '#remove' ( (k #remove) ( ) ) ) ('#was' (k #append 1))

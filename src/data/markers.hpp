@@ -67,8 +67,7 @@ enum class Marker : uint8_t { None, Remove, Append, Drop, Was };
 // Whether `nodes` holds a marker after its first node. The parser knows when it pushed
 // one; an array built in C++ is scanned once, in make_from, so the flag is the same.
 [[nodiscard]] inline bool holds_marker(std::span<const Node> nodes) noexcept {
-    // Only a tagged array holds one: the root, and any untagged array, are never scanned.
-    for (size_t i = 1; i < nodes.size() && nodes[0].type() == Type::Symbol; ++i)
+    for (size_t i = 1; i < nodes.size(); ++i)
         if (marker_of(nodes[i]) != Marker::None) return true;
     return false;
 }
@@ -90,11 +89,11 @@ enum class Marker : uint8_t { None, Remove, Append, Drop, Was };
 // null, or the hint of the marker out of place. Shared by the parser, which refuses the
 // array, and the printer, which quotes the marker where the parser would not take it.
 [[nodiscard]] inline const char* marker_form_error(std::span<const Node> nodes) noexcept {
-    const bool tagged = !nodes.empty() && nodes[0].try_sym().has_value();
+    const bool tagged = !nodes.empty() && nodes[0].try_sym() && marker_of(nodes[0]) == Marker::None;
     size_t values = 0, pins = 0;  // untagged nodes before and after #was
     Marker verb = Marker::None;
     bool was = false;
-    for (size_t i = 1; i < nodes.size(); ++i) {
+    for (size_t i = tagged ? 1 : 0; i < nodes.size(); ++i) {  // a marker is never a tag
         const Marker m = marker_of(nodes[i]);
         if (m == Marker::None) {
             if (tag_of(nodes[i]).empty()) ++(was ? pins : values);
