@@ -74,26 +74,34 @@ bool is_meta_child(const Node& n) noexcept {
 void Array::finish() noexcept {
     uint16_t h = 0;
     uint16_t below = 0;       // the children's flags, for kHasRemoval (D143)
-    uint32_t first_meta = 0;  // the boundary (kAtMetadata): in the pass that reads each tag
+    uint32_t first_meta = 0;  // the boundary (kAtMetadata), from the word tag_key loads
     uint32_t* tags = tag_run();
     for (uint32_t i = 0; i < size_; ++i) {
         if (const Array* a = data()[i].array()) {
             if (a->height_ > h) h = a->height_;
             below = static_cast<uint16_t>(below | a->flags_);
         }
-        tags[i] = tag_key(data()[i]);
-        if constexpr (kAtMetadata)
-            if (tags[i] != kNoTag && !first_meta && i && is_meta_child(data()[i])) first_meta = i;
+        if constexpr (kAtMetadata) {  // tag_key, and the sigil bit of the size word it reads
+            const Array* a = data()[i].try_array();
+            const auto tag = a ? a->data()[0].try_sym() : std::nullopt;
+            tags[i] = tag && !tag->empty() ? key_of(*tag) : kNoTag;
+            if (tag && tag->is_meta() && !first_meta && i) first_meta = i;
+        } else {
+            tags[i] = tag_key(data()[i]);
+        }
     }
     height_ = above(h);
     if (size_ == 2 && data()[1].type() == Type::Symbol) {
         static const Symbol marker("#remove");
         if (data()[1].is(marker)) below = kHasRemoval;
     }
-    flags_ = static_cast<uint16_t>((flags_ & kFlagBits) | (below & kHasRemoval));
-    if constexpr (kAtMetadata)  // past the bits, metadata reads as values; the parser refuses it
-        if (first_meta <= kMaxMetaFirst)
+    if constexpr (kAtMetadata) {  // sort_for_lookup re-runs this: the old boundary goes first
+        flags_ = static_cast<uint16_t>((flags_ & kFlagBits) | (below & kHasRemoval));
+        if (first_meta <= kMaxMetaFirst)  // past the bits, metadata reads as values (refused)
             flags_ = static_cast<uint16_t>(flags_ | (first_meta << kMetaShift));
+    } else {
+        flags_ = static_cast<uint16_t>(flags_ | (below & kHasRemoval));
+    }
 }
 
 void Array::set(size_t i, Node node) noexcept {

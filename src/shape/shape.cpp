@@ -219,7 +219,9 @@ void Set::add(const Array& tree, Report& report, const LoadSession* packs) {
             s.line = a->line();
             // Every child after the name: the shape's own metadata too (kAtMetadata), which
             // values() leaves out.
-            for (const Node& c : a->nodes().subspan(1)) {
+            const baker::Values children =
+                baker::kAtMetadata ? baker::Values(a->nodes().subspan(1), a) : a->values();
+            for (const Node& c : children) {
                 const Array* f = c.try_array();
                 const auto tag = f && !f->empty() ? (*f)[0].try_sym() : std::nullopt;
                 if (!tag) {

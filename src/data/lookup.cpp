@@ -242,18 +242,16 @@ Expected<const Array*> Array::find_array(Symbol tag) const {
 }
 
 void Array::sort_for_lookup() {
-    // A stable merge sort. std::stable_sort would take its buffer from operator new. The
-    // rank of a child: untagged, then tagged, then metadata (kAtMetadata, D28), so the
-    // value run and the boundary survive the sort.
-    const auto rank = [](Symbol t) { return t.empty() ? 0 : t.is_meta() ? 2 : 1; };
-    const auto less = [&](const Node& a, const Node& b) {
+    // A stable merge sort. std::stable_sort would take its buffer from operator new. Under
+    // kAtMetadata the metadata follow the other tagged children (D28), so the value run and
+    // the boundary survive the sort.
+    const auto less = [](const Node& a, const Node& b) {
         const Symbol tb = detail::tag_of(b);
         if (tb.empty()) return false;
         const Symbol ta = detail::tag_of(a);
-        if (ta.empty()) return true;
         if constexpr (kAtMetadata)
-            if (rank(ta) != rank(tb)) return rank(ta) < rank(tb);
-        return tag_less(ta, tb);
+            if (!ta.empty() && ta.is_meta() != tb.is_meta()) return tb.is_meta();
+        return ta.empty() || tag_less(ta, tb);
     };
     Node* d = data();
     const size_t n = size_;

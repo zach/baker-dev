@@ -585,8 +585,10 @@ private:
         record(arr, f.start, f.begin, t.end);
         truncate(f.start);
         if (arr->height() > s_.limits.max_depth) return too_deep(f.line, f.begin);
-        if constexpr (kAtMetadata)
-            if (f.kind == Frame::Array && !metadata_placed(*arr, f)) return false;
+        if constexpr (kAtMetadata)  // inline: an array without metadata pays two compares
+            if ((arr->meta_first() || arr->size() > Array::kMaxMetaFirst) &&
+                f.kind == Frame::Array && !metadata_placed(*arr, f))
+                return false;
         const SourceSpan span{file_, f.begin, t.end, {}};
         switch (f.kind) {
             case Frame::DefineBody:
@@ -839,8 +841,8 @@ private:
 
     // kAtMetadata: metadata comes after the value. In the parenthesized array `a` just
     // closed, every child after the first metadata child, (@tag ...), must be a tagged
-    // array; metadata past the boundary's 14 bits is refused. One test per array; the
-    // loop runs only for an array with metadata.
+    // array; metadata past the boundary's 14 bits is refused. Called only for an array with
+    // metadata, or with more children than the boundary can name.
     bool metadata_placed(const Array& a, const FrameInfo& f) {
         const uint32_t m = a.meta_first();
         for (uint32_t i = m ? m + 1 : Array::kMaxMetaFirst + 1; i < a.size(); ++i) {

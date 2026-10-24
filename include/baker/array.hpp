@@ -447,11 +447,10 @@ public:
     // the first metadata child, so (color 0.9 0.5 0.2 (@range 0 1)) is three numbers to
     // every reader: one compare and a subspan, from the boundary finish() keeps in flags_.
     [[nodiscard]] Values values() const noexcept {
-        uint32_t end = size_;
-        if constexpr (kAtMetadata)
-            if (const uint32_t m = meta_first()) end = m;
-        return {end > 1 ? std::span<const Node>(data() + 1, end - 1) : std::span<const Node>(),
-                this};
+        if constexpr (kAtMetadata)  // m >= 1: slot 0 is never metadata
+            if (const uint32_t m = meta_first())
+                return {std::span<const Node>(data() + 1, m - 1), this};
+        return {size_ ? nodes().subspan(1) : std::span<const Node>(), this};
     }
     // kAtMetadata: the metadata children, (@range 0 1) (@desc "..."), in the order written:
     // every child from the first whose tag begins with '@'. Empty when there are none, and

@@ -64,8 +64,8 @@ private:
         for (size_t i = static_cast<size_t>(hash) & mask;; i = (i + 1) & mask) {
             const detail::SymbolEntry* e = t.slots[i].load(std::memory_order_acquire);
             if (!e) return nullptr;
-            const uint32_t size = kAtMetadata ? e->size & detail::kSymbolSizeMask : e->size;
-            if (e->hash == hash && size == text.size() &&
+            if (e->hash == hash &&
+                (kAtMetadata ? e->size & detail::kSymbolSizeMask : e->size) == text.size() &&
                 std::memcmp(e->text, text.data(), text.size()) == 0)
                 return e;
         }
