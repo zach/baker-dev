@@ -488,7 +488,13 @@ file and reverses by `git revert`.
 - clang-format and clang-tidy clean on every changed file.
 - libFuzzer (ASan and UBSan, switch on, CI's seeds plus the eleven infix samples, the
   dictionary with `?`, `:`, `<=`, `+=`, `&&` added; the harness now also checks that the
-  written-infix marks survive print and re-read): FUZZ-RESULT
+  written-infix marks survive print and re-read): 504,621 executions at 1,083 a second, from
+  23 seeds to 1,437 corpus entries and from 1,398 to 1,986 covered edges, with no crash, no
+  sanitizer report, no harness failure and no artifact. The process then ended without
+  libFuzzer's final report, stopped from outside on a machine where other prototypes were
+  fuzzing too. The brief asked for 10M executions; that run was not completed, and at this
+  rate it needs about two and a half hours of one core. CI's two-minute job runs the same
+  harness.
 
 **Not done, or not proved.**
 - The D101 gate over the 464 raw Harmonix files: not run (not in the repository; the brief
