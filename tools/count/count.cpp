@@ -1,7 +1,7 @@
 // Small, fixed workloads for counting instructions (tools/count_instructions.py), one per
 // case: `baker_count CASE N` runs the case N times after its setup. The tool runs each case
 // with N and 2N under cachegrind, so setup and startup cancel and what remains is the
-// instructions of N operations.
+// instructions of N operations. parse_file takes the text to read as a third argument.
 #include <baker/config.hpp>
 #include <baker/parse.hpp>
 
@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <string_view>
 
@@ -68,6 +69,12 @@ int main(int argc, char** argv) {
         const std::string text = config_text(16 * 1024);
         for (long i = 0; i < n; ++i)
             if (!baker::read_string(text, "count.dta")) return 2;
+    } else if (which == "parse_file") {  // a file's text (argv[3]), read into a tree
+        std::ifstream in(argc > 3 ? argv[3] : "", std::ios::binary);
+        const std::string text((std::istreambuf_iterator<char>(in)), {});
+        if (text.empty()) return 2;
+        for (long i = 0; i < n; ++i)
+            if (!baker::read_string(text, "count.dta")) return 2;
     } else if (which == "lookup") {  // find_float by a held Symbol, the last of 20 children
         const auto root = twenty();
         const baker::Array& obj = *root->try_find("obj");
@@ -104,7 +111,9 @@ int main(int argc, char** argv) {
         }
 #endif
     } else {
-        std::fprintf(stderr, "usage: baker_count CASE N; cases: parse lookup lookup_text set%s\n",
+        std::fprintf(stderr,
+                     "usage: baker_count CASE N [FILE]; cases: parse parse_file lookup "
+                     "lookup_text set%s\n",
                      BAKER_COUNT_HOST ? " frame" : "");
         return 2;
     }

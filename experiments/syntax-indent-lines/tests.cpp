@@ -279,3 +279,42 @@ TEST_CASE("a conditional's branch: a line opened in it closes in it (the transla
     same("#ifndef X\nlist\n   (1 2)\n#else\nlist\n   (3 4)\n#endif\nnext 1\n",
          "(list (1 2)) (next 1)");
 }
+
+TEST_CASE("the migration tool keeps comments and directives, and every tree") {
+    const syntax::Conversion c = syntax::to_lines_text(
+        "; The test game's data.\n(shapes\n   (player\n      (speed float (range 0 10))\n"
+        "      (lives int)))\n(player\n   (speed 3.5)   ; how fast\n   (lives 3))\n"
+        "(waves {spawn grunt 3})\n");
+    CHECK(c.text ==
+          "; The test game's data.\nshapes\n   player\n      speed float (range 0 10)\n"
+          "      lives int\nplayer\n   speed 3.5   ; how fast\n   lives 3\n"
+          "waves {spawn grunt 3}\n");
+    CHECK(c.arrays == 9);
+    CHECK(c.lines == 8);
+    // Kept: a child of a key holding a value, a continued value list, a shared line.
+    const std::string kept =
+        "(objective a\n   (desc \"x\"))\n(objectives a\n   b c)\n(x 1) (y 2)\n(z\n   (w 1)\n)\n";
+    const syntax::Conversion k = syntax::to_lines_text(kept);
+    CHECK(k.text ==
+          "objective a\n   (desc \"x\")\n(objectives a\n   b c)\n(x 1) (y 2)\nz\n   w 1\n");
+    CHECK(k.under_values == 1);
+    CHECK(k.continued == 1);
+    CHECK(k.shares_line == 1);
+    CHECK(first_difference(*brackets(kept), *lines(k.text)).empty());
+
+    size_t files = 0;
+    for (const std::string& rel : corpus_files()) {
+        const std::string path = std::string(repository_root()) + "/" + rel;
+        auto original = read_dta_file(path);
+        if (!original) continue;
+        ++files;
+        INFO(rel);
+        const syntax::Conversion converted = syntax::to_lines_text(*read_text_file(path));
+        LoadSession session;
+        session.set_pack_levels({"engine", "game", "task", "live"});
+        auto back = syntax::read_with(converted.text, path, session);
+        REQUIRE(back);
+        CHECK(first_difference(**original, **back).empty());
+    }
+    CHECK(files > 50);
+}

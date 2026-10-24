@@ -10,6 +10,13 @@
 //                           line, which the layout would make arrays of (the corpus by default)
 //   count <file.dta>...     lines, bytes and parentheses of each file (alone) as written,
 //                           reprinted bracketed in the house style, and as lines (Markdown)
+//   convert [--write DIR] [<file.dta>...]
+//                           the migration tool on each file (the corpus by default): its
+//                           text with the parentheses of each array the layout reads back as
+//                           that array deleted, comments and directives kept, read back
+//                           with its includes and compared; lines, bytes and parentheses
+//                           before and after (Markdown); --write saves each under DIR
+//   to-lines-text <file>    the migration tool's text for one file
 //   trees [<file>...]       each file's tree as this build reads it (the corpus by default):
 //                           a hash of its text, or its error; two builds' outputs, diffed,
 //                           are the gate's exact answer (what a build that reads lines changes)
@@ -24,6 +31,8 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -44,7 +53,7 @@ int usage() {
     std::fprintf(stderr,
                  "usage: baker_syntax_%.*s to-new <file.dta> | to-dta <file> | check | bench "
                  "[<file.dta>...] | gate [<file.dta>...] | count <file.dta>... | trees "
-                 "[<file>...]\n",
+                 "[<file>...] | convert [--write DIR] [<file.dta>...] | to-lines-text <file>\n",
                  static_cast<int>(syntax::kName.size()), syntax::kName.data());
     return 2;
 }
@@ -180,6 +189,76 @@ int trees(int argc, char** argv) {
     return 0;
 }
 
+int convert(int argc, char** argv) {
+    std::string dir;
+    int from = 2;
+    if (argc > 3 && std::string_view(argv[2]) == "--write") {
+        dir = argv[3];
+        from = 4;
+    }
+    struct Totals {
+        size_t files = 0, lines[2] = {}, bytes[2] = {}, parens[2] = {}, arrays = 0, first = 0,
+               made = 0, why[6] = {};
+    } t;
+    size_t failures = 0;
+    std::printf(
+        "| file | lines | bytes | parens | arrays: first on line / made lines | same tree |\n"
+        "|---|---:|---:|---:|---:|---|\n");
+    for (const std::string& path : files_or_corpus(argc, argv, from)) {
+        auto text = read_text_file(path);
+        if (!text) return fail(text.error());
+        auto original = read_dta_file(path);
+        if (!original) continue;  // a file Baker cannot read alone is not the tool's
+        const syntax::Conversion c = syntax::to_lines_text(*text);
+        LoadSession session;
+        session.set_pack_levels({"engine", "game", "task", "live"});
+        auto back = syntax::read_with(c.text, path, session);
+        std::string same =
+            back ? first_difference(**original, **back) : std::string(describe(back.error()));
+        if (same.empty())
+            same = "yes";
+        else
+            ++failures;
+        std::printf("| %s | %zu -> %zu | %zu -> %zu | %zu -> %zu | %zu: %zu / %zu | %s |\n",
+                    shown(path).c_str(), lines_of(*text), lines_of(c.text), text->size(),
+                    c.text.size(), parens_of(*text), parens_of(c.text), c.arrays, c.first_on_line,
+                    c.lines, same.c_str());
+        ++t.files;
+        t.lines[0] += lines_of(*text);
+        t.lines[1] += lines_of(c.text);
+        t.bytes[0] += text->size();
+        t.bytes[1] += c.text.size();
+        t.parens[0] += parens_of(*text);
+        t.parens[1] += parens_of(c.text);
+        t.arrays += c.arrays;
+        t.first += c.first_on_line;
+        t.made += c.lines;
+        t.why[0] += c.untagged;
+        t.why[1] += c.in_brackets;
+        t.why[2] += c.under_values;
+        t.why[3] += c.continued;
+        t.why[4] += c.layout;
+        t.why[5] += c.shares_line;
+        if (!dir.empty()) {
+            std::string out = dir + "/" + shown(path);
+            std::filesystem::create_directories(std::filesystem::path(out).parent_path());
+            std::ofstream(out, std::ios::binary) << c.text;
+        }
+    }
+    std::printf(
+        "| **%zu files** | %zu -> %zu | %zu -> %zu | %zu -> %zu | %zu: %zu / %zu | %zu "
+        "differ |\n",
+        t.files, t.lines[0], t.lines[1], t.bytes[0], t.bytes[1], t.parens[0], t.parens[1], t.arrays,
+        t.first, t.made, failures);
+    std::printf(
+        "\nkept in brackets, of %zu first on their line: %zu untagged or a macro, %zu in a "
+        "bracketed parent, %zu under a parent holding a value, %zu with a line inside that "
+        "begins with a value, %zu off the layout's indent (or a tab), %zu sharing their last "
+        "line\n",
+        t.first, t.why[0], t.why[1], t.why[2], t.why[3], t.why[4], t.why[5]);
+    return failures ? 1 : 0;
+}
+
 int count(int argc, char** argv) {
     if (argc < 3) return usage();
     struct Row {
@@ -246,5 +325,12 @@ int main(int argc, char** argv) {
     if (cmd == "gate") return gate(argc, argv);
     if (cmd == "count") return count(argc, argv);
     if (cmd == "trees") return trees(argc, argv);
+    if (cmd == "convert") return convert(argc, argv);
+    if (cmd == "to-lines-text" && argc > 2) {
+        auto text = read_text_file(argv[2]);
+        if (!text) return fail(text.error());
+        std::fputs(syntax::to_lines_text(*text).text.c_str(), stdout);
+        return 0;
+    }
     return usage();
 }

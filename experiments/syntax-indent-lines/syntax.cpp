@@ -420,11 +420,11 @@ private:
 
 }  // namespace
 
-Expected<Ref<Array>> translate(std::string_view text, std::string_view name) {
+Expected<Ref<Array>> translate_with(std::string_view text, std::string_view name,
+                                    LoadSession& session) {
     std::vector<Shift> shifts;
     auto bracketed = Layout(text, name).run(shifts);
     if (!bracketed) return Unexpected(std::move(bracketed).error());
-    LoadSession session;
 #if BAKER_INDENT_LINES
     session.lines = false;  // the text is bracketed now: read as today
 #endif
@@ -439,6 +439,11 @@ Expected<Ref<Array>> translate(std::string_view text, std::string_view name) {
             return Unexpected(std::move(moved));
         }
     return root;
+}
+
+Expected<Ref<Array>> translate(std::string_view text, std::string_view name) {
+    LoadSession session;
+    return translate_with(text, name, session);
 }
 
 size_t top_level_lines(std::string_view text) {
@@ -470,8 +475,7 @@ std::string translator_print(const Array& root) {
 
 #if BAKER_INDENT_LINES
 // The build reads lines (BAKER_INDENT_LINES): the core's reader and printer.
-Expected<Ref<Array>> read(std::string_view text, std::string_view name) {
-    LoadSession session;
+Expected<Ref<Array>> read_with(std::string_view text, std::string_view name, LoadSession& session) {
     session.lines = true;  // from the start, in a DIRECTIVE build too
     return read_string(text, name, session);
 }
@@ -481,12 +485,17 @@ std::string print(const Array& root) {
     return to_dta(root, options);
 }
 #else
-Expected<Ref<Array>> read(std::string_view text, std::string_view name) {
-    return translate(text, name);
+Expected<Ref<Array>> read_with(std::string_view text, std::string_view name, LoadSession& session) {
+    return translate_with(text, name, session);
 }
 std::string print(const Array& root) {
     return translator_print(root);
 }
 #endif
+
+Expected<Ref<Array>> read(std::string_view text, std::string_view name) {
+    LoadSession session;
+    return read_with(text, name, session);
+}
 
 }  // namespace baker::experiments::syntax
