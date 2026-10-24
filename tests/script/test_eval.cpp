@@ -70,8 +70,11 @@ TEST_CASE("errors name the function and the call site") {
     CHECK(e.line() == 1);
 
     e = eval_error(ctx, "\n\n{+ 1 two}");
-    CHECK(e.message() == "no overload of '+' takes (int symbol); it has (int int) (float float)");
+    CHECK(e.message() == "argument 2 of '+' is symbol, not number");
     CHECK(e.line() == 3);
+    CHECK(eval_error(ctx, "{+ two 1}").message() == "argument 1 of '+' is symbol, not number");
+    CHECK(eval_error(ctx, "{< 1 2 x}").message() == "argument 3 of '<' is symbol, not number");
+    CHECK(eval_error(ctx, "{/ 1}").message() == "'/' takes at least 2 arguments, given 1");
 
     e = eval_error(ctx, "{not two}");
     CHECK(e.message() == "argument 1 of 'not' is symbol, not bool");
@@ -343,4 +346,113 @@ TEST_CASE("run_autorun restores what the last run's commands defined (D146)") {
     const List<Error> failed = ctx.run_autorun(mixed);
     REQUIRE(failed.size() == 1);
     CHECK(ok(ctx.eval("{after}")).try_int() == 1);
+}
+
+// --- The operators as a vocabulary: variadic, chained, assigning (the infix note) ---
+
+TEST_CASE(
+    "arithmetic folds left over any number of arguments; ints stay ints until a float joins") {
+    Context ctx;
+    CHECK(eval_ok(ctx, "{1 - 2 - 3}").as_int() == -4);
+    CHECK(eval_ok(ctx, "{- 1 2 3}").as_int() == -4);
+    CHECK(eval_ok(ctx, "{1 + 2 + 3 + 4}").as_int() == 10);
+    CHECK(eval_ok(ctx, "{2 * 3 * 4}").as_int() == 24);
+    CHECK(eval_error(ctx, "{+ 1}").message() == "'+' takes at least 2 arguments, given 1");
+    CHECK(eval_ok(ctx, "{- 5}").as_int() == -5);
+    CHECK(eval_ok(ctx, "{- 2.5}").as_float() == -2.5);
+    CHECK(eval_ok(ctx, "{1 + 2 + 0.5}").as_float() == 3.5);
+    CHECK(eval_ok(ctx, "{1 + 2 + 0.5}").type() == Type::Float);
+    CHECK(eval_ok(ctx, "{100 / 4 / 5}").as_float() == 5.0);
+    CHECK(eval_ok(ctx, "{100 / 4 / 5}").type() == Type::Float);
+    CHECK(eval_ok(ctx, "{9223372036854775807 + 1 + 1}").as_int() == INT64_MIN + 1);  // wraps
+    CHECK(eval_ok(ctx, "{7 % 3}").as_int() == 1);
+    CHECK(eval_error(ctx, "{7 % 3 % 2}").message() == "'%' takes 2 arguments, given 3");
+    // Infix and prefix are one tree, so one result.
+    CHECK(structurally_equal(eval_ok(ctx, "{+ {+ 1 2} 3}"), eval_ok(ctx, "{1 + 2 + 3}")));
+}
+
+TEST_CASE(
+    "a comparison chain tests every adjacent pair, evaluates each argument once, and stops at the "
+    "first miss") {
+    Context ctx;
+    int evaluations = 0;
+    REQUIRE(ctx.func("value", [&] {
+        ++evaluations;
+        return 0.5;
+    }));
+    ctx.var("value") = 0.5;
+    CHECK(eval_ok(ctx, "{0.3 <= $value <= 0.7}").as_int() == 1);
+    CHECK(eval_ok(ctx, "{0.3 <= {value} <= 0.7}").as_int() == 1);
+    CHECK(evaluations == 1);
+    ctx.var("value") = 0.8;
+    CHECK(eval_ok(ctx, "{0.3 <= $value <= 0.7}").as_int() == 0);
+    CHECK(eval_ok(ctx, "{0.7 >= $value >= 0.3}").as_int() == 0);
+    ctx.var("value") = 0.3;
+    CHECK(eval_ok(ctx, "{0.3 <= $value <= 0.7}").as_int() == 1);
+    CHECK(eval_ok(ctx, "{0.3 < $value < 0.7}").as_int() == 0);
+    CHECK(eval_ok(ctx, "{1 < 2 < 3 < 4}").as_int() == 1);
+    CHECK(eval_ok(ctx, "{1 < 2 < 2 < 4}").as_int() == 0);
+    CHECK(eval_ok(ctx, "{1 == 1.0 == 1}").as_int() == 1);
+    CHECK(eval_ok(ctx, "{1 != 2 != 1}").as_int() == 1);  // adjacent pairs, not all distinct
+    ctx.var("s") = Symbol("a");
+    CHECK(eval_ok(ctx, "{$s == a == b}").as_int() == 0);  // a variable fires the guard
+    CHECK(eval_ok(ctx, "{$s == a == a}").as_int() == 1);
+    // Stops at the first pair that fails: nothing after it is evaluated.
+    int untaken = 0;
+    REQUIRE(ctx.func("untaken", [&] { return ++untaken; }));
+    CHECK(eval_ok(ctx, "{3 < 2 < {untaken}}").as_int() == 0);
+    CHECK(untaken == 0);
+    // A nested pair of comparisons under and, for the mixed case.
+    ctx.var("value") = 5;
+    CHECK(eval_ok(ctx, "{and {0 < $value} {$value <= 10}}").as_int() == 1);
+    CHECK(eval_ok(ctx, "{{0 < $value} && {$value <= 10}}").as_int() == 1);
+    CHECK(eval_ok(ctx, "{{$value < 0} || {$value > 10}}").as_int() == 0);
+    CHECK(eval_ok(ctx, "{! {$value > 10}}").as_int() == 1);
+    CHECK(eval_error(ctx, "{< 1 two}").message() == "argument 2 of '<' is symbol, not number");
+    CHECK(eval_error(ctx, "{<= 1}").message() == "'<=' takes at least 2 arguments, given 1");
+}
+
+TEST_CASE(
+    "+= and friends load, apply, store and return the value, over $variables and [properties]") {
+    Context ctx;
+    ctx.var("i") = 0;
+    CHECK(eval_ok(ctx, "{$i += 1}").as_int() == 1);
+    CHECK(eval_ok(ctx, "{$i += 1}").as_int() == 2);
+    CHECK(ctx.var("i")->as_int() == 2);
+    CHECK(eval_ok(ctx, "{$i *= 10}").as_int() == 20);
+    CHECK(eval_ok(ctx, "{$i -= 5}").as_int() == 15);
+    CHECK(eval_ok(ctx, "{$i /= 2}").as_float() == 7.5);
+    CHECK(ctx.var("i")->type() == Type::Float);
+    CHECK(eval_ok(ctx, "{do ($n) {set $n 0} {$n += 1} {$n += 1} {$n += 1} $n}").as_int() == 3);
+    // An unset variable is an error, as reading it is; so is a place that holds no number.
+    CHECK(eval_error(ctx, "{$fresh += 1}").message() == "$fresh is not set");
+    ctx.var("name") = Symbol("bob");
+    CHECK(eval_error(ctx, "{$name += 1}").message() == "$name holds symbol, not a number");
+    CHECK(eval_error(ctx, "{$i += x}").message() == "argument 2 of '+=' is symbol, not number");
+    CHECK(eval_error(ctx, "{3 += 1}").message() ==
+          "argument 1 of '+=' must be a $variable, not int");
+    // `=` is nothing: no silent assignment.
+    CHECK(eval_error(ctx, "{$i = 1}").message() == "'=' is not a function");
+}
+
+TEST_CASE("the ternary is if: lazy, and one tree with the prefix form") {
+    Context ctx;
+    int taken = 0, untaken = 0;
+    REQUIRE(ctx.func("taken", [&] { return ++taken; }));
+    REQUIRE(ctx.func("untaken", [&] { return ++untaken; }));
+    ctx.var("difficulty") = 3;
+    CHECK(eval_ok(ctx, "{{$difficulty > 2} ? 12 : 9}").as_int() == 12);
+    ctx.var("difficulty") = 1;
+    CHECK(eval_ok(ctx, "{{$difficulty > 2} ? 12 : 9}").as_int() == 9);
+    CHECK(eval_ok(ctx, "{1 ? {taken} : {untaken}}").as_int() == 1);
+    CHECK(eval_ok(ctx, "{0 ? {untaken}}").as_int() == 0);
+    CHECK(taken == 1);
+    CHECK(untaken == 0);
+    ctx.var("x") = 15;
+    CHECK(eval_ok(ctx,
+                  "{func clamp ($x $lo $hi) {{$x < $lo} ? $lo : {{$x > $hi} ? $hi : $x}}}"
+                  "{clamp 15 0 10} ")
+              .as_int() == 10);
+    CHECK(eval_ok(ctx, "{clamp -5 0 10}").as_int() == 0);
+    CHECK(eval_ok(ctx, "{clamp 5 0 10}").as_int() == 5);
 }

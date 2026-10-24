@@ -289,7 +289,8 @@ template <class T>
 }
 
 // Whether `type` is one of Baker's single-value types: "int8" to "uint64", "int", "float32",
-// "float", "bool", "symbol", "string", or "value" (any one value).
+// "float", "number" (an int or a float), "bool", "symbol", "string", or "value" (any one
+// value).
 [[nodiscard]] bool value_type_known(std::string_view type) noexcept;
 // Whether `values` hold a value of each of `types` in order, as a Convert that reads them
 // with Values::read would take them; false if a type is not one of Baker's.
@@ -536,6 +537,13 @@ public:
     // Whether this array, or one below it, is a `(key #remove)`: a Config layer's removal,
     // which a merge strips from what it adds to the stack (dev/decisions.md D143).
     [[nodiscard]] bool has_removal() const noexcept { return (flags_ & kHasRemoval) != 0; }
+    // Whether this command was written infix, `{0.3 <= $value <= 0.7}` for `{<= 0.3 $value
+    // 0.7}`, so the printer gives the spelling back (dev/syntax-curly-infix-design.md). The
+    // parser sets it; a tool may. Equality, the digest and evaluation ignore it.
+    [[nodiscard]] bool written_infix() const noexcept { return (flags_ & kWrittenInfix) != 0; }
+    void set_written_infix(bool on) noexcept {
+        flags_ = static_cast<uint16_t>(on ? flags_ | kWrittenInfix : flags_ & ~kWrittenInfix);
+    }
 
     [[nodiscard]] Symbol file() const noexcept { return file_; }
     [[nodiscard]] int32_t line() const noexcept { return line_; }
@@ -569,6 +577,7 @@ public:
 private:
     static constexpr uint16_t kSortedForLookup = 1;
     static constexpr uint16_t kHasRemoval = 2;
+    static constexpr uint16_t kWrittenInfix = 4;
 
     Array(uint32_t block, uint32_t size, Symbol file, int32_t line) noexcept
         : block_(block), size_(size), file_(file), line_(line) {}
@@ -623,7 +632,7 @@ private:
     Symbol file_;
     int32_t line_;
     uint16_t height_ = 1;
-    uint16_t flags_ = 0;  // kSortedForLookup, kHasRemoval
+    uint16_t flags_ = 0;  // kSortedForLookup, kHasRemoval, kWrittenInfix
     // uint32_t tags[size_], padded to 8, follows (D77), then Node nodes[size_].
 };
 

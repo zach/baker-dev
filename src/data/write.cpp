@@ -18,9 +18,10 @@ char close_of(Type t) noexcept {
     return t == Type::Command ? '}' : t == Type::Property ? ']' : ')';
 }
 
-// `marker`: the slot is a key's only value, where #remove reads back bare (D143).
-void put_symbol(Str& out, std::string_view s, bool marker = false) {
-    if (detail::is_bare_symbol(s) || (marker && s == detail::remove_marker().str())) {
+// `marker`: the slot is a key's only value, where #remove reads back bare (D143). `quote`:
+// an operator at an odd slot of a prefix command, which must not read back as infix.
+void put_symbol(Str& out, std::string_view s, bool marker = false, bool quote = false) {
+    if (!quote && (detail::is_bare_symbol(s) || (marker && s == detail::remove_marker().str()))) {
         out += s;
     } else {
         out += '\'';
@@ -35,7 +36,27 @@ bool marker_slot(const Node& n, const Array& a, uint32_t i) noexcept {
     return n.type() == Type::Array && a.size() == 2 && i == 1 && a[0].try_sym();
 }
 
-void put_atom(Str& out, const Node& n, bool marker = false) {
+// How `n`, an array-like node, prints: a command by its infix shape
+// (dev/syntax-curly-infix-design.md); every other array as today.
+detail::InfixShape shape_of(const Node& n, const Array& a) noexcept {
+    return n.type() == Type::Command ? detail::infix_shape(a) : detail::InfixShape::None;
+}
+// Whether `a[i]` is an odd slot of a command printed prefix that the reader would take as an
+// infix operator: `{+ '-' 1}` quotes it.
+bool quote_slot(const Array& a, uint32_t i, detail::InfixShape shape) noexcept {
+    return shape == detail::InfixShape::Quoted && (i & 1) && detail::quoted_in_command(a[i]);
+}
+bool infix(detail::InfixShape shape) noexcept {
+    return shape == detail::InfixShape::Chain || shape == detail::InfixShape::Ternary;
+}
+// What goes between operands i-1 and i of an infix command: the operator, or the ternary's
+// `?` and then `:`.
+std::string_view separator(const Array& a, detail::InfixShape shape, uint32_t i) noexcept {
+    if (shape == detail::InfixShape::Ternary) return i == 2 ? "?" : ":";
+    return a[0].try_sym()->str();
+}
+
+void put_atom(Str& out, const Node& n, bool marker = false, bool quote = false) {
     char buf[64];
     switch (n.type()) {
         case Type::Int: {
@@ -50,7 +71,7 @@ void put_atom(Str& out, const Node& n, bool marker = false) {
             if (text.find_first_of(".eEni") == Str::npos) out += ".0";
             break;
         }
-        case Type::Symbol: put_symbol(out, n.try_sym()->str(), marker); break;
+        case Type::Symbol: put_symbol(out, n.try_sym()->str(), marker, quote); break;
         case Type::String:
             out += '"';
             for (char c : n.string()->view()) {
@@ -80,43 +101,60 @@ void put_atom(Str& out, const Node& n, bool marker = false) {
     }
 }
 
-// Compact form; stops once `out` exceeds `limit` bytes. Returns false if it stopped.
-bool put_flat(Str& out, const Node& n, size_t limit, bool marker = false) {
+// Compact form; stops once `out` exceeds `limit` bytes. Returns false if it stopped. An
+// infix command prints `{k0 op k2 ...}`: its operator at slot 0 goes between the operands.
+bool put_flat(Str& out, const Node& n, size_t limit, bool marker = false, bool quote = false) {
     if (!n.is_array_like()) {
-        put_atom(out, n, marker);
+        put_atom(out, n, marker, quote);
         return out.size() <= limit;
     }
     out += open_of(n.type());
     const Array& a = *n.array();
-    for (uint32_t i = 0; i < a.size(); ++i) {
-        if (i > 0) out += ' ';
-        if (!put_flat(out, a[i], limit, marker_slot(n, a, i))) return false;
+    const detail::InfixShape shape = shape_of(n, a);
+    const uint32_t first = infix(shape) ? 1 : 0;
+    for (uint32_t i = first; i < a.size(); ++i) {
+        if (i > first) {
+            out += ' ';
+            if (first) {
+                out += separator(a, shape, i);
+                out += ' ';
+            }
+        }
+        if (!put_flat(out, a[i], limit, marker_slot(n, a, i), quote_slot(a, i, shape)))
+            return false;
     }
     out += close_of(n.type());
     return out.size() <= limit;
 }
 
-void put_pretty(Str& out, const Node& n, size_t indent, const WriteOptions& o,
-                bool marker = false) {
+void put_pretty(Str& out, const Node& n, size_t indent, const WriteOptions& o, bool marker = false,
+                bool quote = false) {
     if (!n.is_array_like()) {
-        put_atom(out, n, marker);
+        put_atom(out, n, marker, quote);
         return;
     }
     const size_t width = o.width > 0 ? static_cast<size_t>(o.width) : 0;
     const size_t budget = width > indent ? width - indent : 0;
     // The compact form if it fits, written once; else taken back.
     const size_t mark = out.size();
-    if (put_flat(out, n, mark + budget, marker)) return;
+    if (put_flat(out, n, mark + budget, marker, quote)) return;
     out.resize(mark);
     const size_t step = o.indent > 0 ? static_cast<size_t>(o.indent) : 0;
     const Array& a = *n.array();
+    const detail::InfixShape shape = shape_of(n, a);
+    const uint32_t first = infix(shape) ? 1 : 0;
     out += open_of(n.type());
-    for (uint32_t i = 0; i < a.size(); ++i) {
-        if (i > 0) {
+    // One child a line; an infix command's operator ends each line but the last.
+    for (uint32_t i = first; i < a.size(); ++i) {
+        if (i > first) {
+            if (first) {
+                out += ' ';
+                out += separator(a, shape, i);
+            }
             out += '\n';
             out.append(indent + step, ' ');
         }
-        put_pretty(out, a[i], indent + step, o, marker_slot(n, a, i));
+        put_pretty(out, a[i], indent + step, o, marker_slot(n, a, i), quote_slot(a, i, shape));
     }
     out += close_of(n.type());
 }

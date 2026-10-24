@@ -455,6 +455,9 @@ private:
         char open = '(';
         uint32_t begin = 0;    // offset of the opening bracket
         bool removes = false;  // holds #remove, which must be its one value (D143)
+        // An odd slot was written as something other than a bare symbol token: a quoted
+        // symbol, `{+ '-' 1}`, or a macro use. Such a brace is never read infix.
+        bool no_infix = false;
     };
     struct Cond {
         bool active;         // tokens in the current branch are read
@@ -518,17 +521,20 @@ private:
 
     bool symbol(const Token& t) {
         const Symbol sym(t.text);
-        const FrameInfo& f = frames_.back();
+        FrameInfo& f = frames_.back();
         const bool naming_macro = f.kind == Frame::MacroDef && scratch_.size() == f.start;
+        const bool odd = ((scratch_.size() - f.start) & 1) != 0;
         if (!t.quoted && !naming_macro && !s_.st_->defines.empty()) {
             if (const Array* body = s_.macro(sym)) {
                 if (pack_ >= 0) one_way(sym, t.line);
+                if (odd || body->size() != 1) f.no_infix = true;
                 const SourceSpan from{file_, t.begin, t.end, sym};
                 for (const Node& n : *body)
                     if (!push(n, from)) return false;
                 return true;
             }
         }
+        if (t.quoted && odd) f.no_infix = true;
         return push(Node(sym), here(t));
     }
 
@@ -580,7 +586,12 @@ private:
             return true;
         }
 
+        bool infix = false;
+        if ((f.kind == Frame::Command || f.kind == Frame::Autorun) && kids.size() >= 3 &&
+            (kids.size() & 1) && !f.no_infix && !infix_rule(kids, f, infix))
+            return false;
         Ref<Array> arr = arena_.make_array(kids, file_, f.line);
+        if (infix) arr->set_written_infix(true);
         record(arr, f.start, f.begin, t.end);
         truncate(f.start);
         if (arr->height() > s_.limits.max_depth) return too_deep(f.line, f.begin);
@@ -606,6 +617,62 @@ private:
                     return declare_origin(*arr);
                 return push(Node(std::move(arr)), span);
         }
+    }
+
+    // The infix rule (dev/syntax-curly-infix-design.md). A brace of 2k+1 nodes whose odd
+    // slots are one bare operator, `{0.3 <= $value <= 0.7}`, is the command `{<= 0.3 $value
+    // 0.7}`, and `{c ? a : b}` is `{if c a b}`: the nodes, and their spans, are permuted in
+    // place and `kids` shrinks to the command. Only when an operand (an even slot) is a
+    // number, variable, property or command, the guard, so a brace of bare symbols means
+    // what it did. An operator at slot 1 with neither shape is an error at the brace.
+    bool infix_rule(std::span<Node>& kids, const FrameInfo& f, bool& fired) {
+        const auto op = kids[1].try_sym();
+        if (!op) return true;
+        const bool ternary = kids[1].is(sym_question());
+        if (!ternary && !is_operator_symbol(op->str())) return true;
+        bool operand = false;
+        for (size_t i = 0; i < kids.size(); i += 2) operand = operand || is_infix_operand(kids[i]);
+        if (!operand) return true;
+        const size_t n = kids.size();
+        auto swap = [&](size_t a, size_t b) {
+            kids[a].swap(kids[b]);
+            if (map_) std::swap(spans_[f.start + a], spans_[f.start + b]);
+        };
+        if (ternary) {
+            if (n != 3 && (n != 5 || !kids[3].is(sym_colon()))) return mixed(f);
+            // [c ? a : b] -> [if c a b]; the `if` takes the `?`'s span.
+            swap(0, 1);
+            kids[0] = Node(sym_if());
+            if (n == 5) swap(3, 4);
+        } else {
+            for (size_t i = 3; i < n; i += 2)
+                if (!kids[i].is(*op)) return mixed(f);
+            // [k0 op k2 op k4 ...] -> [op k0 k2 k4 ...]: each operand moves left over the
+            // operators before it, which end up past the command and are dropped.
+            swap(0, 1);
+            for (size_t i = 3, j = 4; j < n; ++i, j += 2) swap(i, j);
+        }
+        kids = kids.first((n + 3) / 2);
+        if (map_) spans_.resize(f.start + kids.size());  // the operators' spans go with them
+        fired = true;
+        return true;
+    }
+    bool mixed(const FrameInfo& f) {
+        return fail(ErrorCode::Syntax,
+                    "mixed operators in {...}: nest braces to say which applies first", f.line,
+                    f.begin);
+    }
+    static const Symbol& sym_question() {
+        static const Symbol s("?");
+        return s;
+    }
+    static const Symbol& sym_colon() {
+        static const Symbol s(":");
+        return s;
+    }
+    static const Symbol& sym_if() {
+        static const Symbol s("if");
+        return s;
     }
 
     static const Symbol& sym_pack() {

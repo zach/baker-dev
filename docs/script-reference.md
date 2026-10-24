@@ -8,11 +8,17 @@ A parameter in [brackets] is optional, `unevaluated` is passed as written, and
 
 ## Functions
 
+### `!`
+
+- `{! bool}` → bool
+
+*Native.* As `not`: `{! $a}`.
+
 ### `!=`
 
-- `{!= value value}` → bool
+- `{!= value value values...}` → bool
 
-*Native.* Inequality.
+*Native.* Inequality of every adjacent pair.
 
 ### `%`
 
@@ -20,66 +26,87 @@ A parameter in [brackets] is optional, `unevaluated` is passed as written, and
 
 *Native.* Remainder of int division, with the sign of the dividend.
 
+### `&&`
+
+- `{&& values...}` → bool
+
+*Native.* As `and`, for infix: `{$a && $b}`.
+
 ### `*`
 
-- `{* int int}` → int
-- `{* float float}` → float
+- `{* number number number...}` → value
 
-*Native.* Product.
+*Native.* Product: `{* 2 3 4}`, or infix `{2 * 3 * 4}`.
+
+### `*=`
+
+- `{*= $variable number}` → value
+
+*Native.* `{$x *= n}`: multiplies the place and returns the new value.
 
 ### `+`
 
-- `{+ int int}` → int
-- `{+ float float}` → float
+- `{+ number number number...}` → value
 
-*Native.* Sum.
+*Native.* Sum: `{+ 1 2 3}`, or infix `{1 + 2 + 3}`.
+
+### `+=`
+
+- `{+= $variable number}` → value
+
+*Native.* `{$x += n}` or, in a method, `{[property] += n}`: adds to the place and returns the new value.
 
 ### `-`
 
-- `{- int int}` → int
-- `{- float float}` → float
-- `{- int}` → int
-- `{- float}` → float
+- `{- number number...}` → value
 
-*Native.* Difference, or with one argument, negation.
+*Native.* Difference, left to right: `{10 - 2 - 3}` is 5; with one argument, negation.
+
+### `-=`
+
+- `{-= $variable number}` → value
+
+*Native.* `{$x -= n}`: subtracts from the place and returns the new value.
 
 ### `/`
 
-- `{/ float float}` → float
+- `{/ number number number...}` → value
 
-*Native.* Quotient, always a float.
+*Native.* Quotient, left to right, always a float.
+
+### `/=`
+
+- `{/= $variable number}` → value
+
+*Native.* `{$x /= n}`: divides the place, always to a float, and returns the new value.
 
 ### `<`
 
-- `{< int int}` → bool
-- `{< float float}` → bool
+- `{< number number number...}` → bool
 
-*Native.* Less than.
+*Native.* Less than: `{< 1 2}`, or chained, `{1 < $x < 10}`.
 
 ### `<=`
 
-- `{<= int int}` → bool
-- `{<= float float}` → bool
+- `{<= number number number...}` → bool
 
-*Native.* Less than or equal.
+*Native.* Less than or equal: `{0.3 <= $value <= 0.7}` is a band.
 
 ### `==`
 
-- `{== value value}` → bool
+- `{== value value values...}` → bool
 
-*Native.* Equality: numbers by value (1 equals 1.0), anything else by structure.
+*Native.* Equality: numbers by value (1 equals 1.0), anything else by structure; chained, every adjacent pair.
 
 ### `>`
 
-- `{> int int}` → bool
-- `{> float float}` → bool
+- `{> number number number...}` → bool
 
 *Native.* Greater than.
 
 ### `>=`
 
-- `{>= int int}` → bool
-- `{>= float float}` → bool
+- `{>= number number number...}` → bool
 
 *Native.* Greater than or equal.
 
@@ -172,6 +199,12 @@ A parameter in [brackets] is optional, `unevaluated` is passed as written, and
 - `{wait_tick values...}` → value
 
 *Native.* Suspends a `{scheduler thread_task ...}`; only as one of its commands.
+
+### `||`
+
+- `{|| values...}` → bool
+
+*Native.* As `or`, for infix: `{$a || $b}`.
 
 ## Types
 

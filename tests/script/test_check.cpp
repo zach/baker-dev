@@ -106,7 +106,7 @@ TEST_CASE("check: literal types against overloads, and {set} needs a variable") 
     const CheckReport report = check(*tree, ctx);
     REQUIRE(report.errors.size() == 3);
     CHECK(report.errors[0].message() ==
-          "'+' is given (int symbol); it takes (int int) (float float)");
+          "'+' is given (int symbol); it takes (number number number...)");
     CHECK(report.errors[1].message() == "'set' is given (symbol int); it takes ($variable value)");
     CHECK(report.errors[2].message() == "'not' takes 1 argument, given 0");
     CHECK(report.errors[2].line() == 3);
@@ -863,4 +863,33 @@ TEST_CASE("a tool tells a type already known from a refusal without reading word
     CHECK(ctx.has_type("Tank"));
     CHECK(ctx.declare_object("scheduler", "Tank").error().code() == ErrorCode::Refused);
     CHECK(ctx.declare_object("t", "Plane").error().code() == ErrorCode::Type);
+}
+
+TEST_CASE("check holds variadic operators to their literal types, and `=` is a demand") {
+    Context ctx;
+    const auto tree = parse(
+        "(rules\n"
+        "  (a {+ 1 \"x\"})\n"
+        "  (b {1 + 2 + \"x\"})\n"
+        "  (c {0.3 <= $value <= 0.7})\n"
+        "  (d {1 < 2 < three})\n"
+        "  (e {$x = 1})\n"
+        "  (f {$i += 1})\n"
+        "  (g {$i += one}))\n",
+        "rules.dta");
+    const CheckReport report = check(*tree, ctx);
+    REQUIRE(report.errors.size() == 4);
+    CHECK(to_string(report.errors[0]) ==
+          "baker: '+' is given (int string); it takes (number number number...)  (rules.dta:2)");
+    CHECK(
+        to_string(report.errors[1]) ==
+        "baker: '+' is given (int int string); it takes (number number number...)  (rules.dta:3)");
+    CHECK(to_string(report.errors[2]) ==
+          "baker: '<' is given (int int symbol); it takes (number number number...)  "
+          "(rules.dta:5)");
+    CHECK(to_string(report.errors[3]) ==
+          "baker: '+=' is given (? symbol); it takes ($variable number)  (rules.dta:8)");
+    REQUIRE(report.demand.size() == 1);
+    CHECK(report.demand[0].name == Symbol("="));
+    CHECK(report.demand[0].sites[0].line == 6);
 }

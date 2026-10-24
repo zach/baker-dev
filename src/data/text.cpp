@@ -107,6 +107,48 @@ bool is_bare_symbol(std::string_view s) noexcept {
     return classify_number(s).kind == NumberKind::NotNumber;
 }
 
+bool is_infix_operand(const Node& n) noexcept {
+    switch (n.type()) {
+        case Type::Int:
+        case Type::Float:
+        case Type::Var:
+        case Type::Property:
+        case Type::Command: return true;
+        default: return false;
+    }
+}
+
+bool quoted_in_command(const Node& n) noexcept {
+    const auto s = n.try_sym();
+    return s && (is_operator_symbol(s->str()) || n.is("?") || n.is(":"));
+}
+
+namespace {
+bool any_operand(const Array& a, uint32_t from, uint32_t step) noexcept {
+    for (uint32_t i = from; i < a.size(); i += step)
+        if (is_infix_operand(a[i])) return true;
+    return false;
+}
+}  // namespace
+
+InfixShape infix_shape(const Array& a) noexcept {
+    const uint32_t n = a.size();
+    const auto op = n >= 3 ? a[0].try_sym() : std::nullopt;
+    if (op && a.written_infix() && any_operand(a, 1, 1)) {
+        if (a[0].is("if")) {
+            if (n <= 4) return InfixShape::Ternary;
+        } else if (is_operator_symbol(op->str())) {
+            return InfixShape::Chain;
+        }
+    }
+    // Printed prefix, would the reader take it infix? Slot 1 an operator or `?`, an operand
+    // at an even slot.
+    const auto head = n >= 3 && (n & 1) ? a[1].try_sym() : std::nullopt;
+    if (head && (is_operator_symbol(head->str()) || a[1].is("?")) && any_operand(a, 0, 2))
+        return InfixShape::Quoted;
+    return InfixShape::None;
+}
+
 void append_path_name(Str& out, std::string_view name) {
     const bool bare = is_bare_symbol(name) && name.find_first_of("./") == std::string_view::npos;
     if (!bare) out += '\'';

@@ -582,6 +582,10 @@ Node Raw<Var>::load() const {
     return r ? std::move(*r) : Node();
 }
 
+bool Raw<Var>::is_set() const noexcept {
+    return !cell_ || VarRef(cell_, name_).is_set();
+}
+
 // --- Built-ins ---
 
 namespace {

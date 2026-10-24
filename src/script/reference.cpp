@@ -101,7 +101,13 @@ struct Checker {
         const size_t n = command.size() - first;
         for (size_t i = 0; i < n && i < o.params.size(); ++i) {
             const detail::ParamInfo& p = o.params[i];
-            if (p.kind == detail::ParamKind::Rest) return true;
+            if (p.kind == detail::ParamKind::Rest) {
+                // A typed rest (`number...`) holds every remaining literal to its type.
+                for (size_t k = i; p.match && k < n; ++k)
+                    if (!evaluable(command[k + first]) && !p.match(command[k + first], true))
+                        return false;
+                return true;
+            }
             if (evaluable(command[i + first])) continue;
             if (p.match ? !p.match(command[i + first], true)
                         : !p.values().empty() && !reads_values(p.values(), command[i + first]))

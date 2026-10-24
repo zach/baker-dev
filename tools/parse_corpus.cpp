@@ -56,6 +56,34 @@ std::string normal(const fs::path& p) {
     return p.lexically_normal().generic_string();
 }
 
+// The infix rule's gate (dev/syntax-curly-infix-design.md): how many braces of a corpus the
+// rule rewrote (`fired`), and how many it left alone only because no operand was a number,
+// variable, property or command (`guarded`: an operator at slot 1 among bare symbols).
+struct InfixCount {
+    uint64_t fired = 0, guarded = 0;
+};
+bool operator_symbol(std::string_view s) {
+    return !s.empty() && s.find_first_not_of("+-*/%<>=!&|^~") == std::string_view::npos;
+}
+bool operand(const baker::Node& n) {
+    const baker::Type t = n.type();
+    return t == baker::Type::Int || t == baker::Type::Float || t == baker::Type::Var ||
+           t == baker::Type::Property || t == baker::Type::Command;
+}
+void count_infix(const baker::Array& a, bool command, InfixCount& c) {
+    if (command && a.written_infix()) {
+        ++c.fired;
+    } else if (command && a.size() >= 3 && (a.size() & 1)) {
+        const auto op = a[1].try_sym();
+        bool any = false;
+        for (uint32_t i = 0; i < a.size(); i += 2) any = any || operand(a[i]);
+        if (op && (operator_symbol(op->str()) || a[1].is("?")) && !any) ++c.guarded;
+    }
+    for (const baker::Node& n : a)
+        if (const baker::Array* child = n.array())
+            count_infix(*child, n.type() == baker::Type::Command, c);
+}
+
 bool fits(const baker::Node& n, uint64_t& budget) {
     if (budget == 0) return false;
     --budget;
@@ -116,6 +144,7 @@ int main(int argc, char** argv) {
               [](const Item& a, const Item& b) { return a.file < b.file; });
 
     size_t ok = 0, failed = 0, roundtrip_failed = 0, stubbed_files = 0;
+    InfixCount infix;
     std::vector<std::string> absent_all;
     for (const Item& item : items) {
         // With --milo-paths, includes the dump lacks, read as empty.
@@ -169,6 +198,7 @@ int main(int argc, char** argv) {
             continue;
         }
         ++ok;
+        count_infix(**root, false, infix);
         if (!roundtrip) continue;
         uint64_t budget = 10'000'000;
         bool small = true;
@@ -184,6 +214,9 @@ int main(int argc, char** argv) {
     std::printf("%zu/%zu files parsed (%.2f%%)", ok, total,
                 total ? 100.0 * static_cast<double>(ok) / static_cast<double>(total) : 100.0);
     if (roundtrip) std::printf(", %zu round-trip failures", roundtrip_failed);
+    std::printf("; infix rule: %llu braces fired, %llu held back by the guard",
+                static_cast<unsigned long long>(infix.fired),
+                static_cast<unsigned long long>(infix.guarded));
     if (milo) {
         std::sort(absent_all.begin(), absent_all.end());
         absent_all.erase(std::unique(absent_all.begin(), absent_all.end()), absent_all.end());

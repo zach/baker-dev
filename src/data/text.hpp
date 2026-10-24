@@ -64,6 +64,33 @@ struct Number {
 // True if `s` reads back as this symbol when written bare (unquoted).
 [[nodiscard]] bool is_bare_symbol(std::string_view s) noexcept;
 
+// The infix rule (dev/syntax-curly-infix-design.md): a {...} whose odd slots are one bare
+// operator reads head-first, `{0.3 <= $value <= 0.7}` for `{<= 0.3 $value 0.7}`. An
+// operator is a symbol of these bytes only; a table, so the parser's test is one load a byte.
+inline constexpr std::array<bool, 256> kOperatorByte = [] {
+    std::array<bool, 256> t{};
+    for (const char c : std::string_view("+-*/%<>=!&|^~")) t[static_cast<unsigned char>(c)] = true;
+    return t;
+}();
+[[nodiscard]] constexpr bool is_operator_symbol(std::string_view s) noexcept {
+    if (s.empty()) return false;
+    for (const char c : s)
+        if (!kOperatorByte[static_cast<unsigned char>(c)]) return false;
+    return true;
+}
+// The guard: a brace fires only if an operand is a number, variable, property or command,
+// so a brace of bare symbols, `{wheat -> flour}`, means what it did.
+[[nodiscard]] bool is_infix_operand(const Node& n) noexcept;
+// Whether a prefix-printed command must quote this node at an odd slot: an operator, or the
+// ternary's `?` and `:`, which the reader would otherwise take as infix (`{+ '-' 1}`).
+[[nodiscard]] bool quoted_in_command(const Node& n) noexcept;
+// How a command prints so that it re-reads to itself: flagged written_infix() and of the
+// shape, as a chain `{k0 op k2 ...}` or a ternary `{c ? a : b}` (`if` with two or three
+// arguments); prefix with its odd-slot operators quoted when the reader would otherwise take
+// it infix, `{+ '-' 1}`; else prefix, as today.
+enum class InfixShape : uint8_t { None, Quoted, Chain, Ternary };
+[[nodiscard]] InfixShape infix_shape(const Array& command) noexcept;
+
 // Appends a path segment naming `name`: bare where a Path reads it back as that name,
 // otherwise 'quoted'.
 void append_path_name(Str& out, std::string_view name);

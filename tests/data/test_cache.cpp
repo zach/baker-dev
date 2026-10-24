@@ -590,3 +590,13 @@ TEST_CASE("a cache replays packs' harness metadata and files' origins (D91)") {
     CHECK(o->source == Symbol("bosses.xlsx"));
     CHECK(o->tool == Symbol("export"));
 }
+
+TEST_CASE("the written-infix flag rides the cache, so a cached tree prints as it was written") {
+    auto root = ok(read_string("(pass {0.3 <= $value <= 0.7})\n{$i += 1}", "t.dta"));
+    auto cached = ok(read_cache_bytes(bytes_of(*root)));
+    CHECK(structurally_equal(*root, *cached));
+    const Array& band = *(*(*cached)[0].array())[1].array();
+    CHECK(band.written_infix());
+    CHECK((*cached)[1].array()->written_infix());
+    CHECK(to_dta(*cached) == "(pass {0.3 <= $value <= 0.7})\n{$i += 1}\n");
+}

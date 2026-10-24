@@ -183,6 +183,8 @@ public:
     [[nodiscard]] Expected<void> store(Node v) const;
     // The variable's value (Int 0 if unset); for a property, its value or Int 0.
     [[nodiscard]] Node load() const;
+    // Whether the variable is set; a property counts as set.
+    [[nodiscard]] bool is_set() const noexcept;
 
 private:
     Node* cell_ = nullptr;
@@ -1020,12 +1022,22 @@ struct ConfigToolOptions {
 
 // --- Template definitions. ---
 
+namespace detail {
+// Whether an argument is evaluated before it is read: a command, a [property] or a
+// $variable, adjacent in Type, so one comparison.
+static_assert(Type::Property == Type(uint8_t(Type::Command) + 1) &&
+              Type::Var == Type(uint8_t(Type::Command) + 2));
+[[nodiscard]] constexpr bool evaluated_first(Type t) noexcept {
+    return uint8_t(uint8_t(t) - uint8_t(Type::Command)) <= 2;
+}
+}  // namespace detail
+
 template <class T>
 Expected<T> Args::get(size_t i) const {
     // The common case: a literal that converts.
     if (i < size_) {
         const Node& n = base_[i];
-        if (evaluated_ || (n.type() != Type::Command && n.type() != Type::Var)) {
+        if (evaluated_ || !detail::evaluated_first(n.type())) {
             T out{};
             if (Values(std::span<const Node>(&n, 1), command_).read(0, out)) return out;
         }
@@ -1037,7 +1049,7 @@ template <class T>
 bool Args::read_into(size_t i, T& out, Expected<Node>& error) const {
     if (i < size_) {
         const Node& n = base_[i];
-        if (evaluated_ || (n.type() != Type::Command && n.type() != Type::Var))
+        if (evaluated_ || !detail::evaluated_first(n.type()))
             if (Values(std::span<const Node>(&n, 1), command_).read(0, out)) return true;
     }
     return read_slow(i, out, error);
@@ -1060,7 +1072,7 @@ Expected<T> Args::get_slow(size_t i) const {
     if (i >= size_) return Unexpected(type_error(i, Node(), kInfo.name));
     const Node* n = base_ + i;
     Node value;
-    if (!evaluated_ && (n->type() == Type::Command || n->type() == Type::Var)) {
+    if (!evaluated_ && detail::evaluated_first(n->type())) {
         auto r = eval_node(*n);
         if (!r) return Unexpected(std::move(r).error());
         value = std::move(*r);

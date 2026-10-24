@@ -122,13 +122,124 @@ Expected<Node> Context::Impl::run_script(const ScriptBody& body, Args& args,
 
 namespace {
 
+// A number, int or float, as the operators take it: a value type of its own, so a type
+// error and `check` say "not number" and the reference shows `{+ number number...}`.
+struct Number {
+    Node value;
+};
+// The rest of a variadic operator's arguments, each a number: `{+ 1 2 3}`. Its own kind of
+// rest parameter, so `check` holds every literal to the type (reference.cpp).
+struct Numbers {
+    Args rest;
+};
+
+}  // namespace
+
+template <>
+struct Convert<Number> {
+    static constexpr std::string_view name = "number";
+    static constexpr bool scalar = true;
+    static bool from(const Values& v, Number& out) noexcept {
+        if (v.empty() || !v[0].is_number()) return false;
+        out.value = v[0];
+        return true;
+    }
+};
+
+namespace detail {
+template <>
+struct Param<Numbers> {
+    using Holder = Numbers;
+    static constexpr ParamKind kind = ParamKind::Rest;
+    static constexpr std::string_view type() { return "number..."; }
+    static bool match_number(const Node& n, bool) noexcept { return n.is_number(); }
+    static constexpr auto match = &match_number;
+    static bool read(const Args& a, size_t i, std::optional<Holder>& out, Expected<Node>&) {
+        out.emplace(Numbers{a.rest(i)});
+        return true;
+    }
+    static Numbers pass(Numbers& h) noexcept { return h; }
+};
+}  // namespace detail
+
+namespace {
+
+double as_double(const Node& n) noexcept {
+    return n.type() == Type::Int ? static_cast<double>(*n.try_int()) : *n.try_float();
+}
+
+// Argument `i` of `rest`, evaluated once, which must be a number; `first` is the argument
+// number of rest's first, for the message.
+Expected<Node> number_at(const Args& rest, size_t i, size_t first) {
+    auto v = rest.eval(i);
+    if (!v || v->is_number()) return v;
+    return Unexpected(rest.error("argument " + detail::decimal(static_cast<int64_t>(first + i)) +
+                                 " of " + quoted(rest.name()) + " is " + Str(type_name(v->type())) +
+                                 ", not number"));
+}
+
+enum class Op : uint8_t { Add, Sub, Mul, Div };
+
+// `a op b` for two numbers: ints stay ints (wrapping) until a float joins.
+Node arith(Op op, const Node& a, const Node& b) noexcept {
+    if (a.type() == Type::Int && b.type() == Type::Int) {
+        const auto x = static_cast<uint64_t>(*a.try_int());
+        const auto y = static_cast<uint64_t>(*b.try_int());
+        switch (op) {
+            case Op::Add: return wrap(x + y);
+            case Op::Sub: return wrap(x - y);
+            default: return wrap(x * y);
+        }
+    }
+    const double x = as_double(a);
+    const double y = as_double(b);
+    switch (op) {
+        case Op::Add: return x + y;
+        case Op::Sub: return x - y;
+        default: return x * y;
+    }
+}
+
+// `acc op rest[0] op rest[1] ...`, left to right; rest is argument `first` on.
+Expected<Node> fold(Op op, Node acc, const Args& rest, size_t first) {
+    for (size_t i = 0; i < rest.size(); ++i) {
+        auto v = number_at(rest, i, first);
+        if (!v) return v;
+        acc = arith(op, acc, *v);
+    }
+    return acc;
+}
+
 // == and != compare numbers by value (1 equals 1.0), anything else structurally.
 bool equal(const Node& a, const Node& b) noexcept {
     if (a.is_number() && b.is_number()) {
         if (a.type() == Type::Int && b.type() == Type::Int) return *a.try_int() == *b.try_int();
-        return *a.try_float() == *b.try_float();
+        return as_double(a) == as_double(b);
     }
     return structurally_equal(a, b);
+}
+bool less(const Node& a, const Node& b) noexcept {
+    if (a.type() == Type::Int && b.type() == Type::Int) return *a.try_int() < *b.try_int();
+    return as_double(a) < as_double(b);
+}
+bool less_eq(const Node& a, const Node& b) noexcept {
+    if (a.type() == Type::Int && b.type() == Type::Int) return *a.try_int() <= *b.try_int();
+    return as_double(a) <= as_double(b);
+}
+
+// `cmp` over every adjacent pair of a, b and the rest, each evaluated once, stopping at the
+// first pair that fails. `first` > 0: the rest must be numbers, and is argument `first` on.
+template <class Cmp>
+Expected<bool> chain(const Node& a, const Node& b, const Args& rest, Cmp cmp, size_t first = 0) {
+    if (!cmp(a, b)) return false;
+    Node prev = b;
+    for (size_t i = 0; i < rest.size(); ++i) {
+        auto v = first ? number_at(rest, i, first) : rest.eval(i);
+        if (!v) return Unexpected(std::move(v).error());
+        if (!cmp(prev, *v)) return false;
+        prev = std::move(*v);
+    }
+    return true;
 }
 
 template <class F>
@@ -201,18 +312,40 @@ void register_builtins(Context& ctx) {
         ctx, "override", [](Args a) { return define(a, true); },
         "As `func`, but may replace a native function, which it logs.");
 
-    // --- Arithmetic. Ints stay ints (wrapping on overflow); a float makes it float. ---
-    add(ctx, "+", [](int64_t a, int64_t b) { return wrap(uint64_t(a) + uint64_t(b)); }, "Sum.");
-    add(ctx, "+", [](double a, double b) { return a + b; });
+    // --- Arithmetic: variadic, folded left (dev/syntax-curly-infix-design.md). Ints stay
+    // ints (wrapping on overflow) until a float joins. ---
     add(
-        ctx, "-", [](int64_t a, int64_t b) { return wrap(uint64_t(a) - uint64_t(b)); },
-        "Difference, or with one argument, negation.");
-    add(ctx, "-", [](double a, double b) { return a - b; });
-    add(ctx, "-", [](int64_t a) { return wrap(0 - uint64_t(a)); });
-    add(ctx, "-", [](double a) { return -a; });
-    add(ctx, "*", [](int64_t a, int64_t b) { return wrap(uint64_t(a) * uint64_t(b)); }, "Product.");
-    add(ctx, "*", [](double a, double b) { return a * b; });
-    add(ctx, "/", [](double a, double b) { return a / b; }, "Quotient, always a float.");
+        ctx, "+",
+        [](const Number& a, const Number& b, Numbers more) {
+            return fold(Op::Add, arith(Op::Add, a.value, b.value), more.rest, 3);
+        },
+        "Sum: `{+ 1 2 3}`, or infix `{1 + 2 + 3}`.");
+    add(
+        ctx, "-",
+        [](const Number& a, Numbers more) -> Expected<Node> {
+            if (more.rest.size() > 0) return fold(Op::Sub, a.value, more.rest, 2);
+            if (const auto i = a.value.try_int()) return Node(wrap(0 - static_cast<uint64_t>(*i)));
+            return Node(-*a.value.try_float());
+        },
+        "Difference, left to right: `{10 - 2 - 3}` is 5; with one argument, negation.");
+    add(
+        ctx, "*",
+        [](const Number& a, const Number& b, Numbers more) {
+            return fold(Op::Mul, arith(Op::Mul, a.value, b.value), more.rest, 3);
+        },
+        "Product: `{* 2 3 4}`, or infix `{2 * 3 * 4}`.");
+    add(
+        ctx, "/",
+        [](const Number& a, const Number& b, Numbers more) -> Expected<Node> {
+            double q = as_double(a.value) / as_double(b.value);
+            for (size_t i = 0; i < more.rest.size(); ++i) {
+                auto v = number_at(more.rest, i, 3);
+                if (!v) return v;
+                q /= as_double(*v);
+            }
+            return Node(q);
+        },
+        "Quotient, left to right, always a float.");
     add(
         ctx, "%",
         [](int64_t x, int64_t y) -> Expected<int64_t> {
@@ -222,42 +355,98 @@ void register_builtins(Context& ctx) {
         },
         "Remainder of int division, with the sign of the dividend.");
 
-    // --- Comparison. ---
-    add(
-        ctx, "==", [](const Node& a, const Node& b) { return equal(a, b); },
-        "Equality: numbers by value (1 equals 1.0), anything else by structure.");
-    add(ctx, "!=", [](const Node& a, const Node& b) { return !equal(a, b); }, "Inequality.");
-    add(ctx, "<", [](int64_t a, int64_t b) { return a < b; }, "Less than.");
-    add(ctx, "<", [](double a, double b) { return a < b; });
-    add(ctx, "<=", [](int64_t a, int64_t b) { return a <= b; }, "Less than or equal.");
-    add(ctx, "<=", [](double a, double b) { return a <= b; });
-    add(ctx, ">", [](int64_t a, int64_t b) { return a > b; }, "Greater than.");
-    add(ctx, ">", [](double a, double b) { return a > b; });
-    add(ctx, ">=", [](int64_t a, int64_t b) { return a >= b; }, "Greater than or equal.");
-    add(ctx, ">=", [](double a, double b) { return a >= b; });
+    // --- Assignment: `{$x += 1}`, `{[hp] -= $n}`: load, apply, store, return the value. ---
+    auto assign = [](Op op) {
+        return [op](Raw<Var> place, const Number& by) -> Expected<Node> {
+            if (!place.is_set())
+                return Unexpected(
+                    make_error(ErrorCode::Type, "$" + Str(place.name().str()) + " is not set"));
+            const Node current = place.load();
+            if (!current.is_number())
+                return Unexpected(make_error(
+                    ErrorCode::Type,
+                    (place.is_property() ? Str("[...]") : "$" + Str(place.name().str())) +
+                        " holds " + Str(type_name(current.type())) + ", not a number"));
+            Node value = op == Op::Div ? Node(as_double(current) / as_double(by.value))
+                                       : arith(op, current, by.value);
+            auto r = place.store(value);
+            if (!r) return Unexpected(std::move(r).error());
+            return value;
+        };
+    };
+    add(ctx, "+=", assign(Op::Add),
+        "`{$x += n}` or, in a method, `{[property] += n}`: adds to the place and returns the "
+        "new value.");
+    add(ctx, "-=", assign(Op::Sub),
+        "`{$x -= n}`: subtracts from the place and returns the new value.");
+    add(ctx, "*=", assign(Op::Mul), "`{$x *= n}`: multiplies the place and returns the new value.");
+    add(ctx, "/=", assign(Op::Div),
+        "`{$x /= n}`: divides the place, always to a float, and returns the new value.");
 
-    // --- Logic. and/or stop at the first argument that decides the result. ---
+    // --- Comparison: chained over every adjacent pair, each argument evaluated once, stopping
+    // at the first pair that fails: `{0.3 <= $value <= 0.7}`. ---
     add(
-        ctx, "and",
-        [](Args a) -> Expected<bool> {
-            for (size_t i = 0; i < a.size(); ++i) {
-                auto v = a.get<bool>(i);
-                if (!v || !*v) return v;
-            }
-            return true;
-        },
-        "True if every argument is; stops at the first false one.");
+        ctx, "==", [](const Node& a, const Node& b, Args rest) { return chain(a, b, rest, equal); },
+        "Equality: numbers by value (1 equals 1.0), anything else by structure; chained, "
+        "every adjacent pair.");
     add(
-        ctx, "or",
-        [](Args a) -> Expected<bool> {
-            for (size_t i = 0; i < a.size(); ++i) {
-                auto v = a.get<bool>(i);
-                if (!v || *v) return v;
-            }
-            return false;
+        ctx, "!=",
+        [](const Node& a, const Node& b, Args rest) {
+            return chain(a, b, rest, [](const Node& x, const Node& y) { return !equal(x, y); });
         },
-        "True if any argument is; stops at the first true one.");
-    add(ctx, "not", [](bool v) { return !v; }, "Negation.");
+        "Inequality of every adjacent pair.");
+    add(
+        ctx, "<",
+        [](const Number& a, const Number& b, Numbers more) {
+            return chain(a.value, b.value, more.rest, less, 3);
+        },
+        "Less than: `{< 1 2}`, or chained, `{1 < $x < 10}`.");
+    add(
+        ctx, "<=",
+        [](const Number& a, const Number& b, Numbers more) {
+            return chain(a.value, b.value, more.rest, less_eq, 3);
+        },
+        "Less than or equal: `{0.3 <= $value <= 0.7}` is a band.");
+    add(
+        ctx, ">",
+        [](const Number& a, const Number& b, Numbers more) {
+            return chain(
+                a.value, b.value, more.rest,
+                [](const Node& x, const Node& y) { return less(y, x); }, 3);
+        },
+        "Greater than.");
+    add(
+        ctx, ">=",
+        [](const Number& a, const Number& b, Numbers more) {
+            return chain(
+                a.value, b.value, more.rest,
+                [](const Node& x, const Node& y) { return less_eq(y, x); }, 3);
+        },
+        "Greater than or equal.");
+
+    // --- Logic. and/or stop at the first argument that decides the result; `&&`, `||` and
+    // `!` are the same functions, for infix: `{{0 < $v} && {$v <= 10}}`. ---
+    const auto all = [](Args a) -> Expected<bool> {
+        for (size_t i = 0; i < a.size(); ++i) {
+            auto v = a.get<bool>(i);
+            if (!v || !*v) return v;
+        }
+        return true;
+    };
+    const auto any = [](Args a) -> Expected<bool> {
+        for (size_t i = 0; i < a.size(); ++i) {
+            auto v = a.get<bool>(i);
+            if (!v || *v) return v;
+        }
+        return false;
+    };
+    const auto negate = [](bool v) { return !v; };
+    add(ctx, "and", all, "True if every argument is; stops at the first false one.");
+    add(ctx, "or", any, "True if any argument is; stops at the first true one.");
+    add(ctx, "not", negate, "Negation.");
+    add(ctx, "&&", all, "As `and`, for infix: `{$a && $b}`.");
+    add(ctx, "||", any, "As `or`, for infix: `{$a || $b}`.");
+    add(ctx, "!", negate, "As `not`: `{! $a}`.");
 }
 
 }  // namespace baker
