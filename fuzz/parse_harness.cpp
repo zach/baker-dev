@@ -79,6 +79,22 @@ bool check_parse(std::string_view data) {
     if (!edited || !structurally_equal(**first, **edited)) return false;
     uint64_t span_budget = 2000;
     if (!spans_hold(Node(*edited), map, data, span_budget)) return false;
+#if BAKER_INLINE_LAYERS
+    // Layer blocks: the same in both reads, their spans hold, and each tree prints and
+    // reads back as itself.
+    if (s.blocks().size() != edit.blocks().size()) return false;
+    for (size_t i = 0; i < s.blocks().size(); ++i) {
+        const Block& b = s.blocks()[i];
+        if (b.name != edit.blocks()[i].name || !structurally_equal(*b.tree, *edit.blocks()[i].tree))
+            return false;
+        if (!spans_hold(Node(edit.blocks()[i].tree), map, data, span_budget)) return false;
+        uint64_t block_budget = 100000;
+        if (!fits(Node(b.tree), block_budget)) continue;
+        LoadSession again = make_session();
+        auto back = read_string(to_dta(*b.tree), "block.dta", again);
+        if (!back || !structurally_equal(*b.tree, **back)) return false;
+    }
+#endif
 
     // The binary cache gives the same tree back.
     std::string bytes;

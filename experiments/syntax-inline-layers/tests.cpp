@@ -122,8 +122,8 @@ TEST_CASE("regions a block cannot express are left as they are, and named") {
     const syntax::Conversion c = syntax::to_blocks(text);
     CHECK(kinds(c) ==
           "spans a bracket, holds a directive, holds a directive, nested in another region, "
-          "holds values, not tagged forms, inside an untagged array, command or property, "
-          "inside an untagged array, command or property");
+          "holds values, not tagged forms, inside a command or property, inside an untagged "
+          "array");
     CHECK(c.blocks.empty());
     CHECK(c.text == text);
 }

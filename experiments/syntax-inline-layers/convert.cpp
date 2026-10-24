@@ -147,7 +147,10 @@ std::vector<Found> find_regions(std::string_view text, const std::vector<Tok>& t
                 f.then.begin = line_end(text, name_end);
                 f.depth = frames.size();
                 for (const Frame& fr : frames) {
-                    if (fr.bracket != '(' || fr.tag.empty()) f.region.kind = Region::Kind::Untagged;
+                    if (fr.bracket != '(' && f.region.kind == Region::Kind::Converted)
+                        f.region.kind = Region::Kind::InCommand;
+                    else if (fr.tag.empty() && f.region.kind == Region::Kind::Converted)
+                        f.region.kind = Region::Kind::Untagged;
                     f.tags.push_back(fr.tag);
                 }
                 if (!open.empty()) {
@@ -292,7 +295,8 @@ std::string_view describe(Region::Kind kind) {
         case Region::Kind::HoldsDirective: return "holds a directive";
         case Region::Kind::Nested: return "nested in another region";
         case Region::Kind::Values: return "holds values, not tagged forms";
-        case Region::Kind::Untagged: return "inside an untagged array, command or property";
+        case Region::Kind::InCommand: return "inside a command or property";
+        case Region::Kind::Untagged: return "inside an untagged array";
     }
     return "?";
 }
@@ -325,6 +329,7 @@ Conversion to_blocks(std::string_view text) {
     for (Found& f : found) {
         out.regions.push_back(f.region);
         if (f.region.kind != Region::Kind::Converted) continue;
+        out.top_level += f.depth == 0;
         // The branch read when the define is set, and the one read when it is not.
         const Branch& yes = f.region.negated ? f.other : f.then;
         const Branch& no = f.region.negated ? f.then : f.other;

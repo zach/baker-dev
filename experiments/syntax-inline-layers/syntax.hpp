@@ -41,7 +41,8 @@ struct Region {
         HoldsDirective,  // a branch holds a directive (#include, #define, another #ifdef)
         Nested,          // inside another region
         Values,          // a branch holds values, not only tagged forms
-        Untagged,        // inside a command, a property, or an array with no tag yet
+        InCommand,       // inside a {command} or a [property]: script, not data
+        Untagged,        // inside an array with no tag (yet)
     };
     int line = 0;  // the #ifdef's
     std::string define;
@@ -55,6 +56,7 @@ struct Conversion {
     std::string text;                 // the file, its convertible regions now blocks
     std::vector<Region> regions;      // every region found, in order
     std::vector<std::string> blocks;  // the blocks written, by name
+    size_t top_level = 0;             // converted regions at the file's top level
 };
 
 // Converts each #ifdef/#ifndef region whose branches hold whole tagged forms, at the top

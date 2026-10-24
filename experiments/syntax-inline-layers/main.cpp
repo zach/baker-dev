@@ -125,8 +125,10 @@ int main(int argc, char** argv) {
         return diffs.empty() ? 0 : 1;
     }
     if (cmd == "survey" && argc > 2) {
-        std::map<std::string, int> kinds;
-        int files = 0, with = 0, regions = 0, defines = 0;
+        // --check: each file with a converted region merged against its conversion too.
+        const bool check = argc > 3 && std::string_view(argv[3]) == "--check";
+        std::map<std::string, int> kinds, checked;
+        int files = 0, with = 0, regions = 0, defines = 0, top = 0;
         std::map<std::string, int> names;
         std::error_code ec;
         for (fs::recursive_directory_iterator it(argv[2], ec), end; it != end; it.increment(ec)) {
@@ -141,10 +143,27 @@ int main(int argc, char** argv) {
                 ++kinds[std::string(syntax::describe(r.kind))];
                 if (names[r.define]++ == 0) ++defines;
             }
+            top += static_cast<int>(c.top_level);
+            if (!check || c.blocks.empty()) continue;
+            int sets = 0, order = 0;
+            const auto diffs =
+                syntax::check_conversion(it->path().string(), *text, c.text, &sets, &order);
+            bool unread = false, single = false;  // a set of one define, or none, differs
+            for (const std::string& d : diffs) {
+                unread = unread || d.find(": the ") != std::string::npos;
+                single = single || d.substr(0, d.find('}')).find(' ') == std::string::npos;
+            }
+            ++checked[unread           ? "a set did not read (an include the dump lacks?)"
+                      : single         ? "differ under a set of one define, or none"
+                      : !diffs.empty() ? "differ only with two or more defines set together"
+                      : order > 0      ? "equal up to key order"
+                                       : "equal under every define set"];
         }
         std::printf("%d files, %d with conditionals, %d regions over %d defines\n", files, with,
                     regions, defines);
         for (const auto& [k, n] : kinds) std::printf("  %5d  %s\n", n, k.c_str());
+        std::printf("  of the converted, %d at the top level\n", top);
+        for (const auto& [k, n] : checked) std::printf("  files: %5d  %s\n", n, k.c_str());
         return 0;
     }
     if (cmd == "bench") {
