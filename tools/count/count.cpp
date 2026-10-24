@@ -38,6 +38,22 @@ std::string config_text(size_t bytes) {
     return text;
 }
 
+// Config-style text whose every value carries metadata, spelled with the sigil
+// (dev/syntax-at-metadata-design.md): what a tuned stack's data file looks like. A build
+// without BAKER_AT_METADATA reads each (@range ...) as a plain child.
+std::string metadata_text(size_t bytes) {
+    std::string text;
+    int id = 0;
+    while (text.size() < bytes) {
+        const std::string n = std::to_string(id++);
+        text += "(entry_" + n + "\n   (name \"Entry number " + n + "\")\n   (speed " + n +
+                ".5 (@range 0 100) (@step 0.5) (@desc \"Metres per second\"))\n"
+                "   (color 0.2 0.4 0.8 1.0 (@range 0 1) (@desc \"Tint\"))\n"
+                "   (tags fast loud blue)\n   (limits (min 0) (max 100) (@note \"bounds\")))\n";
+    }
+    return text;
+}
+
 // An array of 20 children, (key0 0.5) ... (key19 19.5), as bench_lookup's.
 baker::Ref<baker::Array> twenty() {
     std::string text = "(obj";
@@ -66,6 +82,10 @@ int main(int argc, char** argv) {
     const long n = argc > 2 ? std::strtol(argv[2], nullptr, 10) : 0;
     if (which == "parse") {  // 16 KB of config text, read into a tree
         const std::string text = config_text(16 * 1024);
+        for (long i = 0; i < n; ++i)
+            if (!baker::read_string(text, "count.dta")) return 2;
+    } else if (which == "parse_meta") {  // 16 KB of text with metadata on every value
+        const std::string text = metadata_text(16 * 1024);
         for (long i = 0; i < n; ++i)
             if (!baker::read_string(text, "count.dta")) return 2;
     } else if (which == "lookup") {  // find_float by a held Symbol, the last of 20 children
@@ -104,8 +124,9 @@ int main(int argc, char** argv) {
         }
 #endif
     } else {
-        std::fprintf(stderr, "usage: baker_count CASE N; cases: parse lookup lookup_text set%s\n",
-                     BAKER_COUNT_HOST ? " frame" : "");
+        std::fprintf(
+            stderr, "usage: baker_count CASE N; cases: parse parse_meta lookup lookup_text set%s\n",
+            BAKER_COUNT_HOST ? " frame" : "");
         return 2;
     }
     return 0;
