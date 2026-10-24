@@ -82,7 +82,7 @@ struct Edit {
 
 #ifdef BAKER_PATH_ROWS
 // Whether `main`'s text holds a row at its top level, written "(/": then a key the layer
-// lacks is added to it as a row (dev/syntax-path-rows-design.md).
+// lacks is added to it as a row.
 bool holds_rows(const SourceMap& map, const Array& root, Symbol main, std::string_view text) {
     for (size_t i = 0; i < root.size(); ++i) {
         const SourceSpan* sp = map.span(root, i);

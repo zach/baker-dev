@@ -14,8 +14,8 @@
 // are not in the dump at all: each is read as empty and counted, so the run measures the
 // parser, not the dump.
 //
-// --gate counts, in each file's text, what a row keyed by a path would reinterpret
-// (dev/syntax-path-rows-design.md): parenthesized arrays whose bare tag begins with '/' (a
+// --gate counts, in each file's text, what a row keyed by a path would reinterpret:
+// parenthesized arrays whose bare tag begins with '/' (a
 // row's sigil; a lone '/' aside), and those whose bare tag holds '.' or '/' (a sigil-free
 // dotted tag), each listed with its file and line.
 

@@ -14,7 +14,7 @@ option(BAKER_BUILD_HARNESS    "Build examples/harness-imgui (fetches Dear ImGui 
 option(BAKER_BUILD_FUZZERS    "Build libFuzzer targets (Clang only)" OFF)
 option(BAKER_BUILD_EXPERIMENTS "Build experiments/ (syntax sketches on branches; never shipped)" OFF)
 option(BAKER_USE_EASTL        "Internal containers from EASTL instead of the STL (D55, D61)" OFF)
-# A prototype on its branch (dev/syntax-path-rows-design.md): rows keyed by a path at a
+# A prototype on its branch: rows keyed by a path at a
 # file's top level, (/a.b.c 1); and, for the owner's decision only, the same read from a bare
 # dotted tag, (a.b.c 1).
 option(BAKER_PATH_ROWS        "Rows keyed by a path, (/a.b.c 1) (prototype)" OFF)

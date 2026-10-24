@@ -712,7 +712,7 @@ private:
     // In a file with rows, each tag heads one array at each level: the arrays sharing a tag
     // in nodes[from..] are joined, in the order written, at the first one's place, and the
     // joined children folded in turn. A key written twice, by two rows or by a row and a
-    // literal, is an error at the second: D31's first-wins holds only in files without rows.
+    // literal, is an error at the second: first-wins (D31) holds only in files without rows.
     // Grouped by sorting, in buffers kept a depth (as MergeScratch's, D127): no allocation
     // once they are warm.
     BAKER_ROWS_COLD bool fold(Vec<Node>& nodes, Vec<SourceSpan>* spans, size_t from, Str& path,
