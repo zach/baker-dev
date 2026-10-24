@@ -610,6 +610,10 @@ earlier section, this section is the later word.
   `promote --patch` lands, a `(cancels #append palm)` left in `agent.dta` gives
   `jab low_kick palm palm`, silently (verified). A verb row cannot carry `#was`. The Duel
   sample fails Duel's own shape check (`'reaction' takes one int, given 2 values`).
+- **Fuzzing.** libFuzzer under ASan and UBSan (the markers are always on), built as CI's
+  fuzz job is and seeded with the corpus, the fuzz regressions and the samples: 1,083,088
+  executions in 25 minutes, 2,018 edges, no failure, beside section 8's 1,000,000 inputs
+  from a random driver. Short of spec §8's 10 million, which belongs to an adoption step.
 - **Recommendation after review.** Promote's removal by extent now. `#append` and `#drop`
   when a package that composes a list exists, rebuilt at zero cost when unused (the flag
   set where a marker is made, `Array::set` included), with a warning when an appended
