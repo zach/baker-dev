@@ -556,3 +556,37 @@ existing test in the `DIRECTIVE` build). If the owner wants the form later, the 
 is the opt-in done so that it is free: `#lines` as a file's first line choosing a second
 instantiation of the parse loop, measured against D143's bar, with the migration tool,
 the `trees` gate and the samples on this branch as the starting point.
+
+## 11. Verification, the raw gate, and review
+
+*Added after the prototype, from the session's review round; `dev/syntax-ideas.md` on
+`claude/fervent-cray-l1kyf0` compares all eight branches.* An agent independent of the
+prototype rebuilt this branch, reran its tests and reproduced its numbers; a reviewer
+judged it under the data-oriented lens (`.claude/skills/acton-review/`) and the tool
+author's; and D101's raw gate (464 raw Harmonix files, `baker_parse_corpus --roundtrip
+--milo-paths` over a local clone of mariteaux/milo-script-library, nothing from it in the
+repository, D3) was run on the branch's build. Where a finding below disagrees with an
+earlier section, this section is the later word.
+
+- **Reviewed at** `b1a88ae`, the branch's final head.
+- **Verifier.** Builds; 23 of 23 OFF and DIRECTIVE; ALWAYS fails 11 of 249 data cases, as
+  section 8 says. All 12 cachegrind counts, the migration tool's counts, the samples and
+  the line budget reproduce exactly. Corrections: `test_lines.cpp` is 262 lines, not 258;
+  the closing-pile count depends on how comments are stripped (499/107 with careful
+  stripping, against 489/106); the core layout tests sit under `#if BAKER_INDENT_LINES`,
+  so the default build runs none of them.
+- **Raw gate.** Sections 3, 8 and 10 say it was not run; this is the run. OFF and
+  DIRECTIVE: 464/464, 0 failures, and tree hashes identical to today on all 426 files that
+  read alone. ALWAYS: 464/464 parse, but **76 of the 426 read to a different tree with no
+  error** (51 in `rb1/ps2/tutorial`, 11 in `gh2/ps2_deluxe/ui`, 11 in `rb1/ps2/ui`), because
+  Harmonix scripts write a bare macro alone on a line at top level
+  (`tutorial_11_tuning.dta:33` `START_BG_MUSIC`, `:35` `WAIT_FOR_VO`), which the layout
+  reads as an array. The silent class is 16% of the raw corpus.
+- **Technical director, 2 of 5, decline.** Ran the same gate and calls the 76 files fatal;
+  the per-token test costs every parse whether or not the file uses the form; the opt-in
+  as a second parse loop is neither built nor costed.
+- **Tool author, 2 of 5, adopt in part (the printer defaults).** A wrapped row continued
+  at its key's own indent, which is what an editor's auto-indent gives, moves to the
+  parent with no error; every stack would hold two spellings for good.
+- **Recommendation after review.** Decline the layout; take indent 3 and width 100 as the
+  printer's defaults, as section 10 says.
