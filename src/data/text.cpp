@@ -137,8 +137,8 @@ InfixShape infix_shape(const Array& a) noexcept {
     if (op && a.written_infix() && any_operand(a, 1, 1)) {
         if (a[0].is("if")) {
             if (n <= 4) return InfixShape::Ternary;
-        } else if (is_operator_symbol(op->str())) {
-            return InfixShape::Chain;
+        } else if (is_operator_symbol(op->str()) && is_bare_symbol(op->str())) {
+            return InfixShape::Chain;  // not `/*`, which would open a comment
         }
     }
     // Printed prefix, would the reader take it infix? Slot 1 an operator or `?`, an operand

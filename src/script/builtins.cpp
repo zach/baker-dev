@@ -360,7 +360,7 @@ void register_builtins(Context& ctx) {
         return [op](Raw<Var> place, const Number& by) -> Expected<Node> {
             if (!place.is_set())
                 return Unexpected(
-                    make_error(ErrorCode::Type, "$" + Str(place.name().str()) + " is not set"));
+                    make_error(ErrorCode::NotFound, "$" + Str(place.name().str()) + " is not set"));
             const Node current = place.load();
             if (!current.is_number())
                 return Unexpected(make_error(

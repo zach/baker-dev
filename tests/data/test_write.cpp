@@ -326,6 +326,10 @@ TEST_CASE("a command flagged written infix prints infix and reads back flagged")
     auto four = root_of({Node(Symbol("if")), Node(1), Node(2), Node(3), Node(4)});
     four->set_written_infix(true);
     CHECK(to_string(Node(four, Type::Command)) == "{if 1 2 3 4}");
+    // An operator that would open a comment, `/*`, never prints between operands.
+    auto comment = root_of({Node(Symbol("/*")), Node(1), Node(2)});
+    comment->set_written_infix(true);
+    CHECK(to_string(Node(comment, Type::Command)) == "{'/*' 1 2}");
     // The flag is not equality, and set() on a flagged command keeps the printer honest.
     CHECK(structurally_equal(*sum, *parse("{+ 1 2 3}")->begin()->array()));
     const_cast<Array&>(*sum).set(1, Node(Symbol("a")));
