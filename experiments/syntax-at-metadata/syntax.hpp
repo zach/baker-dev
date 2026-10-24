@@ -33,7 +33,8 @@ constexpr std::string_view kExtension = ".dta";  // the same lexer: a converted 
 [[nodiscard]] Expected<Ref<Array>> read(std::string_view text, std::string_view name);
 
 // Prints a root array in the form: each top-level node on its own line, metadata spelled
-// with the sigil by the migration rules.
+// with the sigil by the migration rules, and among one-line siblings the metadata in one
+// column (whitespace only: the printer's option, not a rule of the form).
 [[nodiscard]] std::string print(const Array& root);
 
 // The tree with the sigil removed from every metadata tag: what the unmigrated text reads

@@ -5,6 +5,7 @@
 #include <baker/write.hpp>
 
 #include <algorithm>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -191,6 +192,89 @@ std::optional<Error> placement_error(std::string_view text, std::string_view nam
     return std::nullopt;
 }
 
+// --- The metadata column: align_meta() ---
+//
+// margin-bars' survivor, as the printer's option and never a parser rule: among consecutive
+// one-line siblings at one indent, each one's first metadata child starts in one column.
+// Whitespace only, so the corpus round trip holds it to that. The core's form would be
+// WriteOptions::align_meta in put_pretty, over the children it has already decided to break.
+
+constexpr size_t kNoMeta = std::string::npos;
+
+// If `line` is one whole array (closers of its parents may follow), where its first
+// metadata child begins: the '(' of a "(@" directly inside it. kNoMeta when it has none;
+// nullopt when the line is not one whole array.
+std::optional<size_t> meta_at(std::string_view line, size_t indent) {
+    if (indent >= line.size() || line[indent] != '(') return std::nullopt;
+    int depth = 0;
+    size_t found = kNoMeta;
+    bool closed = false;
+    for (size_t i = indent; i < line.size(); ++i) {
+        const char c = line[i];
+        if (closed) {
+            if (c != ')' && c != '}' && c != ']') return std::nullopt;
+            continue;
+        }
+        if (c == '"' || c == '\'') {
+            const size_t end = line.find(c, i + 1);
+            if (end == std::string_view::npos) return std::nullopt;
+            i = end;
+        } else if (c == '(' || c == '{' || c == '[') {
+            if (depth == 1 && c == '(' && found == kNoMeta && i + 1 < line.size() &&
+                line[i + 1] == '@')
+                found = i;
+            ++depth;
+        } else if (c == ')' || c == '}' || c == ']') {
+            closed = --depth == 0;
+        }
+    }
+    return closed ? std::optional<size_t>(found) : std::nullopt;
+}
+
+std::string align_meta(const std::string& text, size_t width) {
+    std::vector<std::string> lines;
+    for (size_t at = 0; at < text.size();) {
+        const size_t nl = text.find('\n', at);
+        const size_t end = nl == std::string::npos ? text.size() : nl;
+        lines.emplace_back(text.substr(at, end - at));
+        at = end + 1;
+    }
+    struct Row {
+        size_t indent;
+        std::optional<size_t> meta;
+    };
+    std::vector<Row> rows;
+    for (const std::string& l : lines) {
+        const size_t indent = l.find_first_not_of(' ');
+        rows.push_back({indent, indent == std::string::npos ? std::nullopt : meta_at(l, indent)});
+    }
+    for (size_t first = 0; first < lines.size();) {
+        if (!rows[first].meta) {
+            ++first;
+            continue;
+        }
+        size_t last = first + 1;  // a group: whole one-line arrays at one indent
+        while (last < lines.size() && rows[last].meta && rows[last].indent == rows[first].indent)
+            ++last;
+        size_t column = 0, with_meta = 0;
+        for (size_t i = first; i < last; ++i)
+            if (*rows[i].meta != kNoMeta) {
+                column = std::max(column, *rows[i].meta);
+                ++with_meta;
+            }
+        for (size_t i = first; with_meta > 1 && i < last; ++i) {
+            const size_t at = *rows[i].meta;
+            if (at == kNoMeta || lines[i].size() + (column - at) > width) continue;
+            lines[i].insert(at, column - at, ' ');
+        }
+        first = last;
+    }
+    std::string out;
+    for (const std::string& l : lines) out += l + "\n";
+    if (!text.empty() && text.back() != '\n') out.pop_back();
+    return out;
+}
+
 }  // namespace
 
 Expected<Ref<Array>> read(std::string_view text, std::string_view name) {
@@ -203,7 +287,10 @@ Expected<Ref<Array>> read(std::string_view text, std::string_view name) {
 std::string print(const Array& root) {
     std::vector<Node> out;
     for (const Node& n : root) out.push_back(convert(n, false, true));
-    return to_dta(*Array::make_from(out, root.file(), root.line()), {.indent = 3, .width = 96});
+    constexpr int kWidth = 96;
+    return align_meta(
+        to_dta(*Array::make_from(out, root.file(), root.line()), {.indent = 3, .width = kWidth}),
+        kWidth);
 }
 
 Ref<Array> strip_sigils(const Array& root) {

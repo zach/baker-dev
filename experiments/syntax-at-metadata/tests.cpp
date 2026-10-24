@@ -6,6 +6,7 @@
 #include "experiments.hpp"
 #include "syntax.hpp"
 
+#include <baker/cache.hpp>
 #include <baker/config.hpp>
 #include <baker/parse.hpp>
 #include <baker/std_interop.hpp>
@@ -90,7 +91,7 @@ TEST_CASE("D218's rule names the metadata, and only after a value") {
     CHECK(migrated("(shapes (household (at households) (keyed) (desc string)"
                    " (size (list float) (desc \"x z\")) (walls any (optional))))") ==
           "(shapes\n   (household\n      (@at households)\n      (@keyed)\n      (desc string)\n"
-          "      (size (list float) (@desc \"x z\"))\n      (walls any (@optional))))\n");
+          "      (size (list float) (@desc \"x z\"))\n      (walls any         (@optional))))\n");
     CHECK(migrated("{func boss.find_cover ($player) (status stub) (doc \"d\") {nearest_marker}}") ==
           "{func boss.find_cover ($player) (@status stub) (@doc \"d\") {nearest_marker}}\n");
     // Already migrated text is left alone.
@@ -141,7 +142,58 @@ TEST_CASE("an error is located") {
     CHECK(r.error().line() == 1);
 }
 
+TEST_CASE("the printer puts one-line siblings' metadata in one column, whitespace only") {
+    const std::string out = migrated(
+        "(cube (spin 45 (range -720 720) (step 5) (desc \"Degrees per second\"))"
+        " (size 1 (range 0.1 5) (step 0.1) (desc \"Edge, in meters\"))"
+        " (color 0.9 0.5 0.2 (range 0 1) (desc \"Cube color\")) (name \"cube\")"
+        " (tilt 20 (range -90 90) (desc \"Degrees about x\")))");
+    CHECK(out ==
+          "(cube\n"
+          "   (spin 45           (@range -720 720) (@step 5) (@desc \"Degrees per second\"))\n"
+          "   (size 1            (@range 0.1 5) (@step 0.1) (@desc \"Edge, in meters\"))\n"
+          "   (color 0.9 0.5 0.2 (@range 0 1) (@desc \"Cube color\"))\n"
+          "   (name \"cube\")\n"
+          "   (tilt 20           (@range -90 90) (@desc \"Degrees about x\")))\n");
+    // A broken array, a line the width would overflow, and a lone row are left alone.
+    CHECK(migrated("(a (x 1 (range 0 1)))") == "(a (x 1 (@range 0 1)))\n");
+    auto back = syntax::read(out, "t.dta");
+    REQUIRE(back);
+    auto plain = read_string(out, "t.dta");
+    REQUIRE(plain);
+    CHECK(first_difference(**back, **plain).empty());
+}
+
 // --- With the switch on: what the core reads differently ---
+
+TEST_CASE("the converted cube file reads its color as three floats; the original does not") {
+    const std::string path = std::string(repository_root()) + "/stacks/cube/data/default.dta";
+    auto original = read_dta_file(path);
+    REQUIRE(original);
+    auto converted = syntax::read(syntax::print(**original), path);
+    REQUIRE(converted);
+    if constexpr (kAtMetadata) {
+        auto color = (*converted)->get<std::array<float, 3>>("cube.color");
+        REQUIRE(color);
+        CHECK((*color)[0] == 0.9f);
+        CHECK(*(*converted)->get<std::string_view>("cube.color.@desc") == "Cube color");
+        CHECK(*(*converted)->get<float>("cube.spin.@range.1") == 720.0f);
+        CHECK(!(*converted)->get<float>("cube.spin.@range.2"));  // indices count values from 0
+        CHECK(!(*original)->get<std::array<float, 3>>("cube.color"));
+        // A binary cache keeps the boundary: it rides in the array header (D143's way).
+        std::string bytes;
+        REQUIRE(write_cache(**converted, string_out(bytes)));
+        auto cached = read_cache_bytes(bytes, "cube.datb");
+        REQUIRE(cached);
+        const Array& color_array = *(*cached)->try_get(Path("cube.color"));
+        CHECK(color_array.meta_first() == 4);
+        CHECK(color_array.values().size() == 3);
+        CHECK((*cached)->get<std::array<float, 3>>("cube.color"));
+    } else {  // the switch off: every reader sees five children, as today's text gives
+        CHECK(!(*converted)->get<std::array<float, 3>>("cube.color"));
+        CHECK((*converted)->try_get(Path("cube.color"))->values().size() == 5);
+    }
+}
 
 TEST_CASE("a value ends before its metadata, for every reader") {
     if constexpr (kAtMetadata) {
