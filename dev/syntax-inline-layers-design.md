@@ -553,5 +553,17 @@ earlier section, this section is the later word.
   push; `ui_menu.dta`'s real reader, a plain `read_file`, would reject the converted file;
   the Duel A/B replaces host code a project-file stack does not have. `check` never sees
   a disabled block, and the printer cannot write one.
+- **Fuzzing.** libFuzzer under ASan and UBSan with `BAKER_INLINE_LAYERS=ON`, built as
+  CI's fuzz job is and seeded with the corpus, the fuzz regressions and the samples. The
+  first run stopped after 140,554 executions on a real bug in this prototype: a
+  `[property]` directly in a top-level block's forms, `(#layer x [c 1])`, became a
+  property at the block tree's top level, which prints as a macro definition, so the
+  block did not print back as itself (D13's top-level property case, which `push()`
+  refuses for a file's own top level). Fixed in `283d74e`: such a block is a located
+  error ("block 'x': a [property] cannot appear at a block's top level, where '[' defines
+  a macro"), and inside tagged arrays the forms are wrapped and a property stays legal;
+  +8 core lines on the cold block path (15,463 with the switch, about +229 adopted).
+  Resumed from the grown corpus: 978,786 more executions, 2,146 edges, no failure;
+  1,119,340 in all, short of spec §8's 10 million.
 - **Recommendation after review.** Decline, as section 10 says; `(when COND)` on the
   project file's layer entries if conditional platform layers are wanted.
