@@ -588,5 +588,15 @@ earlier section, this section is the later word.
 - **Tool author, 2 of 5, adopt in part (the printer defaults).** A wrapped row continued
   at its key's own indent, which is what an editor's auto-indent gives, moves to the
   parent with no error; every stack would hold two spellings for good.
+- **Fuzzing.** libFuzzer under ASan and UBSan with `BAKER_INDENT_LINES=ALWAYS`, built as
+  CI's fuzz job is and seeded with the corpus, the fuzz regressions and the samples, after
+  porting main's harness fix for `(key #remove)` (`b94a465`). The first run stopped after
+  853,555 executions on a file holding a second `(origin "...")` after its own: held as
+  data, it prints as the root's first form, which the reader consumes as a declaration
+  (D91), so the print round trip loses it. That reproduces on main in three lines and is
+  not this branch's: it is a tree today's text cannot spell, as D13's are, so the harness
+  skips its print round trip and the input is `tests/fuzz_regressions/origin_first_form.bin`
+  (`da74957`). Resumed from the grown corpus: 1,027,204 more executions, 2,048 edges, no
+  failure; 1,880,759 in all, short of spec §8's 10 million.
 - **Recommendation after review.** Decline the layout; take indent 3 and width 100 as the
   printer's defaults, as section 10 says.
