@@ -5,7 +5,14 @@
 //   check                 round-trip every corpus file; exit 1 on an experiment fault
 //   migrate-check         migrate every corpus file's text, read it back through the new
 //                         reader, compare the trees, packs, origins and macros; exit 1 on a
-//                         mismatch
+//                         mismatch (the translator's: without the core switch)
+//   core-record           each corpus file as this build reads it, as text: without the
+//                         core switch (BAKER_HASH_DECLARATIONS) the file as it is, with it
+//                         the file migrated; the tree less its (shapes ...) containers, its
+//                         value digest (D222), and the session (packs, origins, macros,
+//                         shape declarations, the shapes they make, warnings)
+//   core-check <record>   with the core switch: core-record's, compared with a record a
+//                         build without the switch wrote; exit 1 on a mismatch
 //   bench [<file.dta>]    the experiment's reader against baker::read_string, same content:
 //                         the parse benchmark's 4 MB text, or a file (its #requires resolved,
 //                         the stacks' pack levels), with the translate pass timed alone
@@ -22,11 +29,16 @@
 #include <baker/std_interop.hpp>
 
 #include <baker/config.hpp>
+#if BAKER_SYNTAX_SHAPE
+#include <baker/shape.hpp>
+#endif
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <string>
@@ -74,6 +86,250 @@ std::string session_record(const LoadSession& s) {
     for (const Definition& d : s.macro_definitions())
         out += std::string(d.flag ? "flag " : "macro ") + std::string(d.name.str()) + "\n";
     return out;
+}
+
+// --- core-record and core-check: the core's reader against today's, across two builds ---
+
+// Every node with its type, so two builds' trees compare as text whatever their printers.
+void dump(std::string& out, const Node& n) {
+    switch (n.type()) {
+        case Type::Int: out += "i" + std::to_string(*n.try_int()); return;
+        case Type::Float: {
+            char buf[40];
+            std::snprintf(buf, sizeof buf, "f%.17g", *n.try_float());
+            out += buf;
+            return;
+        }
+        case Type::Symbol: out += "s'" + std::string(n.try_sym()->str()) + "'"; return;
+        case Type::String: out += "\"" + std::string(*n.try_str()) + "\""; return;
+        case Type::Var: out += "$" + std::string(n.var_name().str()); return;
+        default: break;
+    }
+    const Array* a = n.array();
+    if (!a) {
+        out += "?" + std::string(type_name(n.type()));
+        return;
+    }
+    out += n.type() == Type::Command ? '{' : n.type() == Type::Property ? '[' : '(';
+    for (uint32_t i = 0; i < a->size(); ++i) {
+        if (i) out += ' ';
+        dump(out, (*a)[i]);
+    }
+    out += n.type() == Type::Command ? '}' : n.type() == Type::Property ? ']' : ')';
+}
+std::string dumped(const Array& a) {
+    std::string out;
+    dump(out, Node(Ref<Array>(const_cast<Array*>(&a))));
+    return out;
+}
+
+// A top-level (shapes (NAME ...) ...) today's reader keeps in the tree: what the migrator
+// splits into #shape declarations.
+bool shapes_container(const Node& n) {
+    const Array* a = n.array();
+    if (!a || a->size() < 2 || !(*a)[0].is(Symbol("shapes"))) return false;
+    for (uint32_t i = 1; i < a->size(); ++i) {
+        const Array* c = (*a)[i].array();
+        if (!c || c->empty() || !(*c)[0].try_sym()) return false;
+    }
+    return true;
+}
+
+std::string record_of(const std::string& rel, const Array& tree, const LoadSession& s) {
+    std::string out = "== " + rel + "\n";
+    // The tree, less the containers (with the switch, a tree never holds one).
+    std::vector<Node> data, decls;
+    for (const Node& n : tree) {
+        if (shapes_container(n))
+            for (const Node& c : *n.array()) decls.push_back(c);
+        else
+            data.push_back(n);
+    }
+    const Ref<Array> kept = Array::make_from(data, tree.file(), tree.line());
+    char hex[32];
+    std::snprintf(hex, sizeof hex, "%016llx", static_cast<unsigned long long>(digest(*kept)));
+    out += "digest " + std::string(hex) + "\ntree " + dumped(*kept) + "\n";
+    out += session_record(s);
+    for (const Definition& d : s.macro_definitions())
+        out += "defined " + std::string(d.name.str()) + " " + std::string(d.file.str()) + ":" +
+               std::to_string(d.line) + "\n";
+#if BAKER_HASH_DECLARATIONS
+    (void)decls;
+    for (const ShapeDecl& d : s.shapes())
+        out += "declared " + std::string(d.file.str()) + ":" + std::to_string(d.line) + " " +
+               dumped(*d.form) + "\n";
+#else
+    for (const Node& d : decls)
+        if (const Array* a = d.array())  // a container's children, its tag aside
+            out += "declared " + std::string(a->file().str()) + ":" + std::to_string(a->line()) +
+                   " " + dumped(*a) + "\n";
+#endif
+#if BAKER_SYNTAX_SHAPE
+    // What the declarations make: each shape and field, and the library's own report.
+    shape::Set set;
+    shape::Report report;
+#if BAKER_HASH_DECLARATIONS
+    set.add(s, report);
+#else
+    set.add(tree, report, &s);
+#endif
+    for (const shape::Shape& sh : set.shapes()) {
+        out += "shape " + std::string(sh.name.str()) + " " + std::string(sh.file.str()) + ":" +
+               std::to_string(sh.line) + (sh.keyed ? " keyed" : "") + " at";
+        for (const Symbol a : sh.at) out += " " + std::string(a.str());
+        out += "\n";
+        for (const shape::Field& f : sh.fields) {
+            char range[96];
+            std::snprintf(range, sizeof range, " %d %.17g %.17g %.17g %u %u", f.ranged ? 1 : 0,
+                          f.min, f.max, f.step, f.min_count, f.max_count);
+            out += "  field " + std::string(f.name.str()) + " " +
+                   std::to_string(static_cast<int>(f.type)) + "/" +
+                   std::to_string(static_cast<int>(f.element)) + "/" + std::string(f.shape.str()) +
+                   range + (f.optional ? " optional" : "") + " " + std::string(f.kind.str()) +
+                   " '" + std::string(f.desc) + "' " + std::string(f.file.str()) + ":" +
+                   std::to_string(f.line) + "\n";
+        }
+    }
+    for (const Error& e : report.errors) out += "shape-error " + std::string(describe(e)) + "\n";
+    for (const Error& e : report.warnings)
+        out += "shape-warning " + std::string(describe(e)) + "\n";
+#endif
+    for (const Error& w : s.warnings()) out += "warning " + std::string(describe(w)) + "\n";
+    return out;
+}
+
+// Each corpus file this build reads: as it is without the switch, migrated with it.
+std::map<std::string, std::string> core_records() {
+    std::map<std::string, std::string> out;
+    const std::string root(repository_root());
+    for (const std::string& rel : corpus_files()) {
+        LoadSession s;
+        s.set_pack_levels({"engine", "game", "task", "live"});
+#if BAKER_HASH_DECLARATIONS
+        syntax::serve_migrated(s);
+#endif
+        auto tree = read_file(root + "/" + rel, s);
+        out[rel] = tree ? record_of(rel, **tree, s)
+                        : "== " + rel + "\nunread " + std::string(describe(tree.error())) + "\n";
+    }
+    return out;
+}
+
+int core_record() {
+    for (const auto& [rel, record] : core_records()) std::fputs(record.c_str(), stdout);
+    return 0;
+}
+
+// When two record lines differ only in the numbers after a ':' (file:line), by one shift,
+// that shift (today's line less the core's); else 0.
+int line_shift(const std::string& x, const std::string& y) {
+    size_t i = 0, j = 0;
+    int shift = 0;
+    while (i < x.size() && j < y.size()) {
+        if (x[i] == ':' && y[j] == ':' && i + 1 < x.size() && j + 1 < y.size() &&
+            std::isdigit(static_cast<unsigned char>(x[i + 1])) &&
+            std::isdigit(static_cast<unsigned char>(y[j + 1]))) {
+            size_t ei = i + 1, ej = j + 1;
+            while (ei < x.size() && std::isdigit(static_cast<unsigned char>(x[ei]))) ++ei;
+            while (ej < y.size() && std::isdigit(static_cast<unsigned char>(y[ej]))) ++ej;
+            const int d =
+                std::stoi(x.substr(i + 1, ei - i - 1)) - std::stoi(y.substr(j + 1, ej - j - 1));
+            if (d != 0 && shift != 0 && d != shift) return 0;
+            if (d != 0) shift = d;
+            i = ei;
+            j = ej;
+            continue;
+        }
+        if (x[i] != y[j]) return 0;
+        ++i;
+        ++j;
+    }
+    return i == x.size() && j == y.size() ? shift : 0;
+}
+
+// Splits a record file back into its files' records.
+std::map<std::string, std::string> split_records(const std::string& text) {
+    std::map<std::string, std::string> out;
+    std::string rel;
+    size_t at = 0;
+    while (at < text.size()) {
+        const size_t nl = std::min(text.find('\n', at), text.size());
+        const std::string line = text.substr(at, nl - at);
+        if (line.rfind("== ", 0) == 0) rel = line.substr(3);
+        out[rel] += line + "\n";
+        at = nl + 1;
+    }
+    return out;
+}
+
+int core_check(const char* record_path) {
+    std::ifstream in(record_path);
+    if (!in) {
+        std::fprintf(stderr, "cannot read %s\n", record_path);
+        return 2;
+    }
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const auto today = split_records(text);
+    const auto mine = core_records();
+    int files = 0, unread = 0, trees = 0, digests = 0, sessions = 0, moved_files = 0;
+    std::map<int, int> shifts;
+    for (const auto& [rel, was] : today) {
+        if (was.find("\nunread ") != std::string::npos) {
+            ++unread;  // today's reader refuses it alone: nothing to compare
+            continue;
+        }
+        ++files;
+        const auto it = mine.find(rel);
+        if (it == mine.end()) {
+            std::printf("missing  %s\n", rel.c_str());
+            ++sessions;
+            continue;
+        }
+        // Line by line; a line of the tree, the digest or the session that differs counts once.
+        auto lines_of = [](const std::string& r) {
+            std::vector<std::string> v;
+            for (size_t a = 0; a < r.size();) {
+                const size_t nl = std::min(r.find('\n', a), r.size());
+                v.push_back(r.substr(a, nl - a));
+                a = nl + 1;
+            }
+            return v;
+        };
+        const auto a = lines_of(was), b = lines_of(it->second);
+        bool tree = false, dig = false, session = false, moved = false;
+        for (size_t i = 0; i < std::max(a.size(), b.size()); ++i) {
+            const std::string x = i < a.size() ? a[i] : "", y = i < b.size() ? b[i] : "";
+            if (x == y) continue;
+            // Only a line number differs: the migrator removes a (shapes line, so what
+            // follows it is declared a line or more earlier. Tallied by the shift.
+            if (const int shift = line_shift(x, y); shift != 0) {
+                ++shifts[shift];
+                moved = true;
+                continue;
+            }
+            const bool t = x.rfind("tree ", 0) == 0, d = x.rfind("digest ", 0) == 0;
+            (t ? tree : d ? dig : session) = true;
+            std::printf("%-8s %s\n  today: %s\n  core:  %s\n",
+                        t   ? "tree"
+                        : d ? "digest"
+                            : "session",
+                        rel.c_str(), x.c_str(), y.c_str());
+        }
+        trees += tree;
+        digests += dig;
+        sessions += session;
+        moved_files += moved;
+    }
+    std::printf(
+        "%d corpus files compared (%d today's reader refuses alone): %d tree, %d digest, %d "
+        "session mismatches\n",
+        files, unread, trees, digests, sessions);
+    for (const auto& [shift, n] : shifts)
+        std::printf(
+            "%d entries (declarations, fields, definitions, warnings) %d line%s later today, "
+            "in %d files: the (shapes line the migrator removes\n",
+            n, shift, shift == 1 ? "" : "s", moved_files);
+    return trees + digests + sessions == 0 ? 0 : 1;
 }
 
 int migrate_check() {
@@ -300,6 +556,8 @@ int main(int argc, char** argv) {
         return faults.empty() ? 0 : 1;
     }
     if (cmd == "migrate-check") return migrate_check();
+    if (cmd == "core-record") return core_record();
+    if (cmd == "core-check" && argc > 2) return core_check(argv[2]);
     if (cmd == "bench") {
         std::string text, converted, name = "bench.dta";
         if (argc > 2) {

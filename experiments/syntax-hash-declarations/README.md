@@ -10,3 +10,8 @@ trees, packs, origins and macros, `bench` and `count` compare the readers (wall 
 cachegrind), `bench-stack` and `count-stack` measure a stack's reload, toggle and push with
 a pack's shapes in the tree and out of it, and `samples/` holds real files in the new form
 (`duel-at-table/` is Duel with its shapes written at their tables).
+
+The core reads the new form itself when built with `-DBAKER_HASH_DECLARATIONS=ON`; the front
+end is then the identity. `core-record` (a build without the switch) and `core-check
+<record>` (a build with it) compare the core's read of the migrated corpus with today's read
+of the original: trees, value digests and sessions (design note §11).
