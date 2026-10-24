@@ -522,3 +522,36 @@ on its own: a `(when COND)` flag on the project file's `(layers ...)` entries, b
 gives conditional, toggleable platform and experiment layers with no parser change, no
 cache question and no second conditional form, at an estimated 10 to 15 lines; in-file
 blocks wait for a stack that writes a platform variant or an A/B and feels the file count.
+
+## 11. Verification, the raw gate, and review
+
+*Added after the prototype, from the session's review round; `dev/syntax-ideas.md` on
+`claude/fervent-cray-l1kyf0` compares all eight branches.* An agent independent of the
+prototype rebuilt this branch, reran its tests and reproduced its numbers; a reviewer
+judged it under the data-oriented lens (`.claude/skills/acton-review/`) and the tool
+author's; and D101's raw gate (464 raw Harmonix files, `baker_parse_corpus --roundtrip
+--milo-paths` over a local clone of mariteaux/milo-script-library, nothing from it in the
+repository, D3) was run on the branch's build. Where a finding below disagrees with an
+earlier section, this section is the later word.
+
+- **Reviewed at** `85d53e7`, the branch's final head.
+- **Verifier.** Builds; 23 of 23 with the switch, 21 of 21 in a fresh default build;
+  258 data cases. `count_lines`, the cachegrind counts, the samples and the corpus check
+  reproduce exactly; the bench rows within noise. Corrections: section 4 omits the
+  prototype's own size (985 code lines, 1,200 raw); reload is never timed (bench-layers
+  times the first push only); `bench_compare.py` as committed configures the new side with
+  the switch off; the fuzz run's driver and block seeds are not committed, so it cannot be
+  rerun from the branch; `bench <file>` exits silently when an include does not resolve.
+- **Raw gate.** Switch on: 464/464, 0 failures. The note's own survey of the same corpus
+  (1,024 conditional regions, 162 convertible) stands; its arithmetic checks.
+- **Technical director, 2 of 5, decline.** Section 6's "build time, not run time" is
+  refuted: a platform condition the bake could settle becomes a file the bake refuses,
+  and shipping refuses the toggle that is the feature's only payoff. Platform variants,
+  A/B arms and live-ops alternatives are three data problems the block fits none of.
+- **Tool author, 2 of 5, decline.** Three claims do not hold: shipping refuses
+  `set_layer_enabled` (`src/data/config.cpp:731-732`), so the live-ops flip still needs a
+  push; `ui_menu.dta`'s real reader, a plain `read_file`, would reject the converted file;
+  the Duel A/B replaces host code a project-file stack does not have. `check` never sees
+  a disabled block, and the printer cannot write one.
+- **Recommendation after review.** Decline, as section 10 says; `(when COND)` on the
+  project file's layer entries if conditional platform layers are wanted.
