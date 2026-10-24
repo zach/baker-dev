@@ -261,18 +261,39 @@ LayerReport run_check(const Basis& b, std::string_view name, const Ref<Array>& c
 }
 
 // Reads a candidate's text as push_layer_text does, with `session` (a copy of the stack's
-// read session, so its packs meet the stack's), then checks it on `b`.
-Expected<LayerReport> check_text_on(const Basis& b, std::string_view name, std::string_view text,
-                                    LoadSession& session, const LayerPolicy& policy) {
+// read session, so its packs meet the stack's), then checks it with `check(name, tree,
+// commands, read_warnings)`; and each layer block the text declares, as a candidate of its
+// own named FILE:NAME (BAKER_INLINE_LAYERS), its effect and refusals in the same report.
+template <class Check>
+Expected<LayerReport> check_text_with(std::string_view name, std::string_view text,
+                                      LoadSession& session, [[maybe_unused]] const Allocator& alloc,
+                                      Check&& check) {
     // Text only and reaching no other file, as a layer from outside must be (D142).
     session.text_only = session.refuse_includes = true;
     session.clear_autorun();
+#if BAKER_INLINE_LAYERS
+    session.clear_blocks();
+#endif
     const size_t known = session.warnings().size();
     auto tree = read_string(text, name, session);
     if (!tree) return Unexpected(std::move(tree).error());
     const auto all = session.warnings();
-    return run_check(b, name, *tree, session.autorun(), session, policy,
-                     all.subspan(std::min(known, all.size())));
+    LayerReport report =
+        check(name, *tree, session.autorun(), all.subspan(std::min(known, all.size())));
+#if BAKER_INLINE_LAYERS
+    if (session.blocks().empty()) return report;
+    Vec<LayerEffectEntry> effect(report.effect.begin(), report.effect.end(), alloc);
+    Vec<Error> refusals(report.refusals.begin(), report.refusals.end(), alloc);
+    Vec<Error> warnings(report.warnings.begin(), report.warnings.end(), alloc);
+    for (const Block& b : session.blocks()) {
+        const LayerReport r = check(Str(name) + ":" + Str(b.name.str()), b.tree, {}, {});
+        effect.insert(effect.end(), r.effect.begin(), r.effect.end());
+        refusals.insert(refusals.end(), r.refusals.begin(), r.refusals.end());
+        warnings.insert(warnings.end(), r.warnings.begin(), r.warnings.end());
+    }
+    report = {List<LayerEffectEntry>(effect), List<Error>(refusals), List<Error>(warnings), {}};
+#endif
+    return report;
 }
 
 }  // namespace
@@ -370,15 +391,13 @@ Expected<LayerReport> Config::check_layer(std::string_view name, const Ref<Array
 Expected<LayerReport> Config::check_layer_text(std::string_view name, std::string_view text,
                                                const LayerPolicy& policy) const {
     LoadSession session = impl_->as_read;
-    session.clear_autorun();
-    const size_t known = session.warnings().size();
-    session.text_only = session.refuse_includes = true;
-    auto tree = read_string(text, name, session);
-    if (!tree) return Unexpected(std::move(tree).error());
-    const auto all = session.warnings();
-    LayerReport report = impl_->check_candidate(*this, name, *tree, session.autorun(), session,
-                                                policy, all.subspan(std::min(known, all.size())));
-    stamp(report, text_subject(name, text), policy);
+    auto report = check_text_with(
+        name, text, session, impl_->alloc,
+        [&](std::string_view n, const Ref<Array>& tree, std::span<const Node> commands,
+            std::span<const Error> read_warnings) {
+            return impl_->check_candidate(*this, n, tree, commands, session, policy, read_warnings);
+        });
+    if (report) stamp(*report, text_subject(name, text), policy);
     return report;
 }
 
@@ -462,7 +481,12 @@ Expected<LayerReport> LayerChecker::check_text(std::string_view name, std::strin
     auto report = on_state(*state_, [&](const Basis& b) {
         LoadSession session(state_->alloc);
         session = state_->session;
-        return check_text_on(b, name, text, session, policy);
+        return check_text_with(
+            name, text, session, state_->alloc,
+            [&](std::string_view n, const Ref<Array>& tree, std::span<const Node> commands,
+                std::span<const Error> read_warnings) {
+                return run_check(b, n, tree, commands, session, policy, read_warnings);
+            });
     });
     if (report) stamp(*report, text_subject(name, text), policy);
     return report;

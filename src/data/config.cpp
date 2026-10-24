@@ -141,6 +141,11 @@ Expected<Ref<Array>> Config::Impl::read_through_cache(std::string_view path, con
         Str bytes(alloc);
         if (root && write_cache(**root, detail::str_out(bytes), &session))
             (void)writer(cache, bytes);
+#if BAKER_INLINE_LAYERS
+        if (root && warn && !session.blocks().empty())  // which no cache holds yet
+            warn(make_error(ErrorCode::Io, "'" + Str(path) + "' declares layer blocks: not cached",
+                            Symbol(path)));
+#endif
         return root;
     }
 }
@@ -169,6 +174,9 @@ Expected<void> Config::Impl::read(LayerState& layer, const LoadSession& before, 
                                   Vec<Error>* warnings) const {
     auto session = Rc<LoadSession>::make(alloc, before);
     session->clear_autorun();
+#if BAKER_INLINE_LAYERS
+    session->clear_blocks();
+#endif
     auto map = options.edit_mode ? Rc<SourceMap>::make(alloc, alloc) : nullptr;
     session->source_map = map.get();
     Vec<Dep> deps(alloc);
@@ -246,10 +254,35 @@ bool Config::Impl::changed(const LayerState& layer, Symbol& first) const {
     return false;
 }
 
+#if BAKER_INLINE_LAYERS
+void Config::Impl::add_blocks(Vec<LayerState>& out, size_t at,
+                              std::span<const LayerState> old) const {
+    for (const Block& b : out[at].after->blocks()) {
+        LayerState l = out[at];
+        l.block = true;
+        l.name += ":" + Str(b.name.str());
+        l.path.clear();
+        l.deps.clear();
+        l.root = b.tree;
+        l.options.enabled = !b.disabled && b.holds;
+        for (const LayerState& o : old) {
+            if (!o.block) break;
+            if (o.name != l.name) continue;
+            for (const Block& ob : o.after->blocks())  // what its head said when it was read
+                if (ob.name == b.name && (!ob.disabled && ob.holds) == l.options.enabled)
+                    l.options.enabled = o.options.enabled;
+        }
+        out.push_back(std::move(l));
+    }
+}
+#endif
+
 Expected<void> Config::Impl::reread(Vec<LayerState>& ls, size_t from, uint64_t* read_ns,
                                     uint32_t* files) const {
-    Vec<LayerState> fresh;
+    while (from > 0 && from < ls.size() && ls[from].block) --from;  // read with its file
+    Vec<LayerState> fresh(alloc);
     for (size_t i = from; i < ls.size(); ++i) {
+        if (ls[i].block) continue;  // made again below its file
         LayerState l = ls[i];
         const auto before = fresh.empty() ? session_below(ls, from) : fresh.back().after;
         if (l.path.empty()) {
@@ -260,8 +293,13 @@ Expected<void> Config::Impl::reread(Vec<LayerState>& ls, size_t from, uint64_t* 
                 for (const Dep& d : l.deps) *files += d.present ? 1u : 0u;
         }
         fresh.push_back(std::move(l));
+#if BAKER_INLINE_LAYERS
+        if (!fresh.back().path.empty())
+            add_blocks(fresh, fresh.size() - 1, {ls.data() + i + 1, ls.size() - i - 1});
+#endif
     }
-    for (size_t i = from; i < ls.size(); ++i) ls[i] = std::move(fresh[i - from]);
+    ls.resize(from);
+    for (LayerState& l : fresh) ls.push_back(std::move(l));
     return {};
 }
 
@@ -525,7 +563,12 @@ Expected<size_t> Config::Impl::placement(LayerOptions& opts) const {
     const auto at = find_layer(anchor);
     if (!at)
         return Unexpected(make_error(ErrorCode::NotFound, "no layer named '" + Str(anchor) + "'"));
-    return below ? *at : *at + 1;
+    // A file and its blocks are one unit: below one is below the file, above one is above
+    // its last block.
+    size_t lo = *at, hi = *at + 1;
+    while (lo > 0 && layers[lo].block) --lo;
+    while (hi < layers.size() && layers[hi].block) ++hi;
+    return below ? lo : hi;
 }
 
 Expected<void> Config::Impl::admit(const Config& c, const LayerOptions& opts, std::string_view name,
@@ -551,21 +594,38 @@ Expected<void> Config::Impl::push_read(Config& c, LayerState&& layer, LayerOptio
     const Rc<LoadSession> below = session_below(layers, *at);
     Vec<Error> read_warnings(alloc);
     if (auto r = read(layer, *below, nullptr, &read_warnings); !r) return r;
+    // The layer and its blocks, one unit.
+    Vec<LayerState> unit(alloc);
+    unit.push_back(std::move(layer));
+#if BAKER_INLINE_LAYERS
+    add_blocks(unit, 0, {});
+    for (size_t i = 1; i < unit.size(); ++i)
+        if (find_layer(unit[i].name))
+            return Unexpected(refused("there is already a layer named '" + unit[i].name + "'"));
+#endif
+    const LayerState& file = unit[0];
     if (opts.policy) {
         // A file has no report that holds: no check reads by path.
-        const uint64_t subject = layer.text ? text_subject(layer.name, *layer.text) : 0;
-        if (auto r = admit(c, opts, layer.name, layer.root, subject, *at == layers.size(),
-                           layer.after->autorun(), *layer.after, read_warnings);
+        const uint64_t subject = file.text ? text_subject(file.name, *file.text) : 0;
+        if (auto r = admit(c, opts, file.name, file.root, subject, *at == layers.size(),
+                           file.after->autorun(), *file.after, read_warnings);
             !r)
             return r;
+        // Each block is a candidate of its own, unless a report on the text holds: it has them.
+        const bool held = subject && c.holds(opts, subject, *at == layers.size()) != Holding::No;
+        for (size_t i = 1; i < unit.size() && !held; ++i)
+            if (auto r = refuse_unless(check_candidate(c, unit[i].name, unit[i].root, {},
+                                                       *file.after, *opts.policy, {}));
+                !r)
+                return r;
     }
     if (*at == layers.size()) {
-        layers.push_back(std::move(layer));
+        for (LayerState& l : unit) layers.push_back(std::move(l));
     } else {
         // The layers above read with the macros below them, now this one's too (D144).
         Vec<LayerState> placed = layers;
-        placed.insert(placed.begin() + static_cast<ptrdiff_t>(*at), std::move(layer));
-        if (auto r = reread(placed, *at + 1); !r) return r;
+        placed.insert(placed.begin() + static_cast<ptrdiff_t>(*at), unit.begin(), unit.end());
+        if (auto r = reread(placed, *at + unit.size()); !r) return r;
         layers = std::move(placed);
     }
     change(c, trigger_name("layer"));
@@ -621,9 +681,16 @@ Expected<void> Config::remove_layer(std::string_view name) {
     const auto at = impl_->find_layer(name);
     if (!at)
         return Unexpected(make_error(ErrorCode::NotFound, "no layer named '" + Str(name) + "'"));
-    // The layers above were read with this one's macros; read them again without.
+    if (impl_->layers[*at].block)
+        return Unexpected(refused(
+            "'" + Str(name) + "' is a block of its file: disable it, or remove the file's layer"));
+    // The layers above were read with this one's macros; read them again without. The
+    // layer's blocks go with it.
     Vec<LayerState> rest = impl_->layers;
-    rest.erase(rest.begin() + static_cast<ptrdiff_t>(*at));
+    size_t end = *at + 1;
+    while (end < rest.size() && rest[end].block) ++end;
+    rest.erase(rest.begin() + static_cast<ptrdiff_t>(*at),
+               rest.begin() + static_cast<ptrdiff_t>(end));
     if (auto r = impl_->reread(rest, *at); !r) return r;
     impl_->layers = std::move(rest);
     impl_->change(*this, trigger_name("layer"));
@@ -634,6 +701,7 @@ Expected<void> Config::pop_layer() {
     if (auto ok = impl_->may_change(*this); !ok) return ok;
     if (impl_->layers.empty())
         return Unexpected(make_error(ErrorCode::NotFound, "no layer to pop"));
+    while (impl_->layers.back().block) impl_->layers.pop_back();  // a file with its blocks
     impl_->layers.pop_back();
     impl_->change(*this, trigger_name("layer"));
     return {};

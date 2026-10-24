@@ -125,6 +125,7 @@ struct Block {
     Symbol file;
     int32_t line = 0;
     bool disabled = false;  // (disabled) in its head: off until a host enables it
+    Node when;          // its COND as written, a name or an array; a default (Int) node without one
     bool holds = true;  // its (when COND) against the defines when it was read; true without one
     Ref<Array> tree;    // the forms, wrapped in the enclosing tags; a root array
 };

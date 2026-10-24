@@ -815,6 +815,11 @@ void replay(const Array& meta, LoadSession& s) {
 }
 
 Expected<void> bytes_of(const Array& root, const LoadSession* session, Str& out) {
+#if BAKER_INLINE_LAYERS
+    if (session && !session->blocks().empty())  // a load's blocks are not in its tree
+        return Unexpected(make_error(ErrorCode::Refused,
+                                     "the cache format holds no layer blocks: read the text"));
+#endif
     Ref<Array> meta = session ? record_of(*session) : nullptr;
     return Writer().run(root, meta.get(), session ? session->cipher : nullptr, out);
 }

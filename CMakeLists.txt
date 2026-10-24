@@ -15,8 +15,11 @@ option(BAKER_BUILD_FUZZERS    "Build libFuzzer targets (Clang only)" OFF)
 option(BAKER_BUILD_EXPERIMENTS "Build experiments/ (syntax sketches on branches; never shipped)" OFF)
 option(BAKER_USE_EASTL        "Internal containers from EASTL instead of the STL (D55, D61)" OFF)
 # A prototype on this branch (dev/syntax-inline-layers-design.md): (#layer ...) blocks in a file
-# are sub-layers of it. OFF compiles the hook out, and #layer is an unknown directive again.
-option(BAKER_INLINE_LAYERS    "Layer blocks inside a file: (#layer name forms...) (prototype)" ON)
+# are sub-layers of it. Off by default, so the default build is today's Baker; on with the
+# experiments, whose syntax-inline-layers converter and tests need it. Off, #layer is an
+# unknown directive again.
+option(BAKER_INLINE_LAYERS "Layer blocks inside a file: (#layer name forms...) (prototype)"
+       ${BAKER_BUILD_EXPERIMENTS})
 set(BAKER_SANITIZE "" CACHE STRING "Sanitizers to enable, e.g. address,undefined")
 
 if(NOT DEFINED CMAKE_CXX_STANDARD)

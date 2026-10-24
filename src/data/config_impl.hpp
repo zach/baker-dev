@@ -50,6 +50,10 @@ struct LayerState {
     Vec<Dep> deps;
     Rc<LoadSession> after;  // macros and defines after this layer; read-only
     bool missing = false;   // optional, and its file is absent
+    // A layer block of the file layer directly below it, named FILE:NAME (BAKER_INLINE_LAYERS):
+    // its tree is the block's, its map, file, text and session its file's, and its path is
+    // empty, since it is read with its file and never alone.
+    bool block = false;
 };
 
 // One path in scratch. The array is owned by scratch alone, so set() may change it in
@@ -359,9 +363,16 @@ struct Config::Impl {
     }
 
     // Re-reads `ls[from..]` in order (each sees the macros of the ones below), all or
-    // nothing.
+    // nothing. A file and its blocks are one unit: `from` inside one re-reads from its file,
+    // and each file's blocks are made again from what it now says.
     Expected<void> reread(Vec<LayerState>& ls, size_t from, uint64_t* read_ns = nullptr,
                           uint32_t* files = nullptr) const;
+#if BAKER_INLINE_LAYERS
+    // Appends the blocks of the file layer `out[at]` after it, each a LayerState of its own,
+    // enabled as its head says; a block `old` holds under the same name, whose head said the
+    // same then, keeps the enabled state a host gave it.
+    void add_blocks(Vec<LayerState>& out, size_t at, std::span<const LayerState> old) const;
+#endif
 
     // Where push_layer puts a layer: its index in the stack, from opts.below or .above, which
     // it clears (D144).

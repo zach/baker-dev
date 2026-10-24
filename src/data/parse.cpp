@@ -452,16 +452,7 @@ public:
     }
 
 private:
-    enum class Frame : uint8_t {
-        Root,
-        Array,
-        Command,
-        Property,
-        MacroDef,
-        DefineBody,
-        Autorun,
-        Layer  // (#layer HEAD form*), BAKER_INLINE_LAYERS
-    };
+    enum class Frame : uint8_t { Root, Array, Command, Property, MacroDef, DefineBody, Autorun };
     struct FrameInfo {
         Frame kind;
         size_t start;
@@ -470,6 +461,7 @@ private:
         char open = '(';
         uint32_t begin = 0;    // offset of the opening bracket
         bool removes = false;  // holds #remove, which must be its one value (D143)
+        bool block = false;    // (#layer HEAD form*), BAKER_INLINE_LAYERS
     };
     struct Cond {
         bool active;         // tokens in the current branch are read
@@ -581,7 +573,7 @@ private:
         std::span<Node> kids(scratch_.data() + f.start, scratch_.size() - f.start);
 #if BAKER_INLINE_LAYERS
         if (frames_.size() == head_) head_ = 0;  // the block's head array is read
-        if (f.kind == Frame::Layer) return close_block(f, kids, t.end);
+        if (f.block) return close_block(f, kids, t.end);
 #endif
         if (f.removes && kids.size() != 2) return bad_remove(f.line, f.begin);
 
@@ -939,8 +931,9 @@ private:
 
     [[nodiscard]] bool in_head() const noexcept { return head_ != 0; }
 
-    // (#layer HEAD form*): #layer is the first token inside '('. HEAD is a name, read here
-    // unexpanded as #ifdef's is, or an array the block's close reads.
+    // (#layer HEAD form*): #layer is the first token inside '(', at the top level or inside
+    // tagged arrays. HEAD is a name, read here unexpanded as #ifdef's is, or an array that
+    // close_block reads.
     bool open_block(const Token& t) {
         FrameInfo& f = frames_.back();
         if (f.kind != Frame::Array || scratch_.size() != f.start)
@@ -953,19 +946,17 @@ private:
                 return fail(ErrorCode::Directive,
                             "a layer block sits at a file's top level or inside tagged arrays",
                             t.line, t.begin);
-        f.kind = Frame::Layer;
+        f.block = true;
         ++in_block_;
         Token next;
         if (!lex_.peek(next, *err_)) return false;
-        if (next.kind == Tok::Symbol) {
-            (void)lex_.next(next, *err_);
-            return push(Node(Symbol(next.text)), here(next));
-        }
         if (next.kind == Tok::Open && next.bracket == '(') {
             head_ = static_cast<uint32_t>(frames_.size());
             return true;
         }
-        return bad_head(next.line, next.begin);
+        if (next.kind != Tok::Symbol) return bad_head(next.line, next.begin);
+        (void)lex_.next(next, *err_);
+        return push(Node(Symbol(next.text)), here(next));
     }
 
     bool bad_head(int32_t line, uint32_t at) {
@@ -976,93 +967,73 @@ private:
     }
 
     // COND: a define name, (not C), (and C...) or (or C...), against the defines as they
-    // stand. `ok` is cleared by anything else.
+    // stand. Anything else clears `ok`.
     bool condition(const Node& c, bool& ok) const {
         if (const auto s = c.try_sym()) return s_.is_defined(*s);
         const Array* a = c.try_array();
         const Symbol tag = a ? a->tag() : Symbol();
         if (tag == "not" && a->size() == 2) return !condition((*a)[1], ok);
-        if ((tag == "and" || tag == "or") && a->size() > 1) {
-            bool all = true, any = false;
-            for (size_t i = 1; i < a->size(); ++i) {
-                const bool v = condition((*a)[i], ok);
-                all = all && v;
-                any = any || v;
-            }
-            return tag == "and" ? all : any;
+        if ((tag != "and" && tag != "or") || a->size() < 2) return ok = false;
+        bool any = false, all = true;
+        for (size_t i = 1; i < a->size(); ++i) {
+            const bool v = condition((*a)[i], ok);
+            any = any || v;
+            all = all && v;
         }
-        ok = false;
-        return false;
+        return tag == "and" ? all : any;
     }
 
     // The block closes: its head is read, its forms become its tree, wrapped in the tags
     // that enclose it, and the session records it. The tree around it gets nothing.
     bool close_block(const FrameInfo& f, std::span<Node> kids, uint32_t end) {
         --in_block_;
-        const Array* head = kids.empty() ? nullptr : kids[0].try_array();
-        Symbol name = head           ? head->tag()
-                      : kids.empty() ? Symbol()
-                                     : kids[0].try_sym().value_or(Symbol());
+        const Array* head = kids[0].try_array();  // the head: an array or a name
+        const Symbol name = head ? head->tag() : kids[0].try_sym().value_or(Symbol());
         if (name.empty()) return bad_head(f.line, f.begin);
-        bool disabled = false, holds = true;
-        for (size_t i = 1; head && i < head->size(); ++i) {
+        bool disabled = false, holds = true, ok = true;
+        Node when;
+        for (size_t i = 1; head && i < head->size() && ok; ++i) {
             const Array* opt = (*head)[i].try_array();
             const Symbol tag = opt ? opt->tag() : Symbol();
-            bool ok = true;
             if (tag == "when" && opt->size() == 2)
-                holds = condition((*opt)[1], ok);
+                holds = condition(when = (*opt)[1], ok);
             else if (tag == "disabled" && opt->size() == 1)
                 disabled = true;
             else
                 ok = false;
-            if (!ok)
-                return fail(ErrorCode::Directive,
-                            "block '" + Str(name.str()) +
-                                "': its options are (when COND) and (disabled), where COND is a "
-                                "define name, (not C), (and C...) or (or C...)",
-                            head->line(), f.begin);
         }
-        for (const Block& b : s_.st_->blocks)
-            if (b.name == name && b.file == file_)
+        if (!ok)
+            return fail(ErrorCode::Directive,
+                        "block '" + Str(name.str()) +
+                            "': its options are (when COND) and (disabled), where COND is a "
+                            "define name, (not C), (and C...) or (or C...)",
+                        head->line(), f.begin);
+        for (const Block& b : s_.st_->blocks)  // one name per load: it names a sub-layer
+            if (b.name == name)
                 return fail(ErrorCode::Refused,
-                            "block '" + Str(name.str()) +
-                                "' is declared twice in this file "
-                                "(first on line " +
-                                detail::decimal(b.line) + ")",
+                            "block '" + Str(name.str()) + "' is declared twice (first at " +
+                                Str(b.file.str()) + ":" + detail::decimal(b.line) + ")",
                             f.line, f.begin);
-        // At the top level the forms are the tree. Inside tagged arrays they are wrapped in
-        // the tags from the root, so that (renderer (#layer hh (shadows 0))) holds
-        // ((renderer (shadows 0))): each wrapper is built in the block's own slots, spanned
-        // by the tag's token and the block's extent. make_array takes the slots' nodes.
-        Ref<Array> tree;
-        if (frames_.size() == 1) {
-            tree = arena_.make_array(kids.subspan(1), file_, f.line);
-            record(tree, f.start + 1, f.begin, end);
-        }
+        // Inside tagged arrays the forms are wrapped in their tags, innermost first, so that
+        // (renderer (#layer hh (shadows 0))) holds ((renderer (shadows 0))). Each wrapper is
+        // made in the block's slots, its tag over the head, and spans the block's extent.
         const SourceSpan extent{file_, f.begin, end, {}};
-        auto slot = [&](size_t k, const Node& n, const SourceSpan& sp) {
-            scratch_[f.start + k] = n;
-            if (map_) spans_[f.start + k] = sp;
-        };
         for (size_t i = frames_.size(); i-- > 1;) {
-            if (i + 1 < frames_.size()) {  // an outer wrapper holds the inner one
-                truncate(f.start + 2);
-                slot(1, Node(tree), extent);
-            }
-            slot(0, scratch_[frames_[i].start], map_ ? spans_[frames_[i].start] : SourceSpan{});
-            tree = arena_.make_array({scratch_.data() + f.start, scratch_.size() - f.start}, file_,
-                                     frames_[i].line);
-            record(tree, f.start, f.begin, end);
-        }
-        if (frames_.size() > 1) {  // the root holds the outermost wrapper
+            scratch_[f.start] = scratch_[frames_[i].start];
+            if (map_) spans_[f.start] = spans_[frames_[i].start];
+            Ref<Array> wrap = arena_.make_array(
+                {scratch_.data() + f.start, scratch_.size() - f.start}, file_, frames_[i].line);
+            record(wrap, f.start, f.begin, end);
             truncate(f.start + 1);
-            slot(0, Node(tree), extent);
-            tree = arena_.make_array({scratch_.data() + f.start, 1}, file_, f.line);
-            record(tree, f.start, f.begin, end);
+            scratch_.emplace_back(std::move(wrap));
+            if (map_) spans_.push_back(extent);
         }
+        Ref<Array> tree = arena_.make_array(
+            {scratch_.data() + f.start + 1, scratch_.size() - f.start - 1}, file_, f.line);
+        record(tree, f.start + 1, f.begin, end);
         truncate(f.start);
         if (tree->height() > s_.limits.max_depth) return too_deep(f.line, f.begin);
-        s_.st_->blocks.push_back({name, file_, f.line, disabled, holds, std::move(tree)});
+        s_.st_->blocks.push_back({name, file_, f.line, disabled, when, holds, std::move(tree)});
         return true;
     }
 #else

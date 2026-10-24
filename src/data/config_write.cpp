@@ -150,7 +150,7 @@ Node as_written(const Node& old, const Node& value) {
 Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
                                   const Vec<Node>& values, bool insert,
                                   const LoadSession::Reader& read_file) const {
-    if (layer.path.empty())
+    if (layer.file.empty())
         return Unexpected(refused(quoted(path) + " comes from layer '" + layer.name +
                                   "', which has no source file"));
     if (layer.text)
@@ -246,7 +246,7 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
         file = main;
         const auto text = map.text(main);
         if (!text) return Unexpected(refused("no source text for '" + layer.file + "'", main));
-        if (cur == layer.root.get()) {
+        if (cur == layer.root.get() && !layer.block) {  // a block's root has an extent
             // A new top-level form at the end of the file.
             const bool newline = !text->empty() && text->back() != '\n';
             const auto end = static_cast<uint32_t>(text->size());
@@ -417,6 +417,8 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
         return Unexpected(
             make_error(ErrorCode::NotFound, "no layer named '" + Str(ti ? from : to) + "'"));
     if (fi == ti) return Unexpected(refused("cannot promote a layer into itself"));
+    if (impl_->layers[*ti].block)  // its re-read would need its file's (BAKER_INLINE_LAYERS)
+        return Unexpected(refused("promote into a layer block is not built: write_back_to it"));
     const Ref<Array> tree = fi ? impl_->layers[*fi].root : impl_->scratch_root();
     // Each path the source holds, valued as the Config reads it with the source on top:
     // the enabled layers below, then the source, merged, so a repeated tag folds as a
