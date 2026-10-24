@@ -5,8 +5,9 @@
 //
 // An array becomes a line when: it is parenthesized, closed, and tagged by a symbol that is
 // not a macro; its '(' is first on its line, at the margin or at its parent line's body
-// indent; its ')' ends its line (other closers aside); its parent is the root or a line
-// that holds no value beyond its tag and ends with its tag; and every line of its own that begins
+// indent, which is not a row wrapped under the node after the parent's tag; its ')' ends
+// its line (other closers aside); its parent is the root or a line that holds no value
+// beyond its tag; and every line of its own that begins
 // inside it begins with a bracket, a macro or a directive, at one indent deeper than its own (an
 // atom there continues its values, which a line would read as a child). A conditional
 // takes no part, as in the layout. The result is read back and compared by the caller.
@@ -85,6 +86,12 @@ Conversion to_lines_text(std::string_view text) {
         if (owner[i] >= 0 && is_atom(tok[i].kind) && !argument[i] &&
             static_cast<int32_t>(i) != br[owner[i]].tag)
             values[owner[i]] = true;
+    // Whether a bracket's own lines line up under the node after its tag: rows it wraps.
+    auto wrapped = [&](size_t b) {
+        const int32_t o = open_tok[b], after = o + 2;
+        return o >= 0 && after < close_tok[b] && !first[after] && body[b] != UINT32_MAX &&
+               body[b] == indent[o] + (tok[after].begin - tok[o].begin);
+    };
     for (size_t b = 0; b < br.size(); ++b) {
         if (br[b].open == '(') ++out.arrays;
         const int32_t o = open_tok[b], c = close_tok[b], p = br[b].parent;
@@ -99,9 +106,8 @@ Conversion to_lines_text(std::string_view text) {
             continue;
         if (p >= 0 && !line[p] && kept(&Conversion::in_brackets)) continue;
         if (p >= 0 && values[p] && kept(&Conversion::under_values)) continue;
-        // Its parent's nodes are all on the parent's line or all below it: a group's row
-        // continued on the next line stays a row of groups.
-        if (p >= 0 && !last[br[p].tag] && kept(&Conversion::beside_tag)) continue;
+        // A row wrapped under the node after its parent's tag stays a row of groups.
+        if (p >= 0 && wrapped(p) && kept(&Conversion::beside_tag)) continue;
         auto tab = [&](size_t j) {
             return text.substr(tok[j].begin - indent[j], indent[j]).find('\t') !=
                    std::string_view::npos;
@@ -140,10 +146,8 @@ Conversion to_lines_text(std::string_view text) {
         const TextToken& close = tok[close_tok[b]];
         cuts.emplace_back(close.begin, close.end);
         // Rows aligned under the node after its tag move left with it: one space a line.
-        const int32_t o = open_tok[b], after = o + 2;
-        if (after < close_tok[b] && !first[after] && body[b] != UINT32_MAX &&
-            body[b] == indent[o] + (tok[after].begin - tok[o].begin))
-            for (uint32_t at = tok[o].end; at < close.begin; ++at)
+        if (wrapped(b))
+            for (uint32_t at = tok[open_tok[b]].end; at < close.begin; ++at)
                 if (text[at] == '\n' && at + 1 < text.size() && text[at + 1] == ' ')
                     cuts.emplace_back(at + 1, at + 2);
     }

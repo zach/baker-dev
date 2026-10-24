@@ -301,6 +301,17 @@ TEST_CASE("the migration tool keeps comments and directives, and every tree") {
     CHECK(k.continued == 1);
     CHECK(k.shares_line == 1);
     CHECK(first_difference(*brackets(kept), *lines(k.text)).empty());
+    // A row wrapped under the node after a tag stays a row; children at a body indent are
+    // lines, even after groups on their parent's line.
+    const std::string rows =
+        "(objects\n   (fridge (size 1) (color 2)\n           (minutes 15)))\n"
+        "(shapes\n   (fighter (at fighters) (keyed)\n      (health int)))\n";
+    const syntax::Conversion r = syntax::to_lines_text(rows);
+    CHECK(r.text ==
+          "objects\n   fridge (size 1) (color 2)\n          (minutes 15)\nshapes\n"
+          "   fighter (at fighters) (keyed)\n      health int\n");
+    CHECK(r.beside_tag == 1);
+    CHECK(first_difference(*brackets(rows), *lines(r.text)).empty());
 
     size_t files = 0;
     for (const std::string& rel : corpus_files()) {

@@ -53,7 +53,7 @@ struct Conversion {
     size_t untagged = 0;      // no symbol tag on the '(' line (a tuple row), or a macro
     size_t in_brackets = 0;   // its parent keeps brackets
     size_t under_values = 0;  // its parent holds a value: (objective NAME (desc ...))
-    size_t beside_tag = 0;    // its parent's line holds groups after its tag: it is a row
+    size_t beside_tag = 0;    // it is in a row wrapped under the node after its parent's tag
     size_t continued = 0;     // a line inside it begins with a value, or at another indent
     size_t layout = 0;        // its indent is not its parent's body's, or a tab
     size_t shares_line = 0;   // a node of its parent follows its ')' on the line

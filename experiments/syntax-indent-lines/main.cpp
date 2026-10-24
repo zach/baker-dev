@@ -258,7 +258,7 @@ int convert(int argc, char** argv) {
         "\nkept in brackets, of %zu first on their line: %zu untagged or a macro, %zu in a "
         "bracketed parent, %zu under a parent holding a value, %zu with a line inside that "
         "begins with a value, %zu off the layout's indent (or a tab), %zu sharing their last "
-        "line, %zu continuing a row of groups on their parent's line\n",
+        "line, %zu in a row wrapped under the node after their parent's tag\n",
         t.first, t.why[0], t.why[1], t.why[2], t.why[3], t.why[4], t.why[5], t.why[6]);
     return failures ? 1 : 0;
 }
