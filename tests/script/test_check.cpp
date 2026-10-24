@@ -14,6 +14,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "hash_spelling.hpp"
 #include "ok.hpp"
 #include "temp_dir.hpp"
 
@@ -190,7 +191,7 @@ TEST_CASE("check applies the one-way rule to calls across packs (D80)") {
     session.set_reader([&](std::string_view path, TextSink out) {
         auto it = files.find(std::string(path));
         if (it == files.end()) return false;
-        out(it->second);
+        out(test::hash_spelled(it->second));
         return true;
     });
     session.set_pack_levels({"engine", "game", "task"});
@@ -228,10 +229,13 @@ TEST_CASE("check reports a pack with one owner, and repetition across its trees 
     LoadSession session;
     session.set_pack_levels({"game", "task"});
     const auto solo =
-        ok(read_string("(pack boss (level task) (owners \"td-a\"))\n(x 1)", "boss.dta", session));
-    const auto pair = ok(
-        read_string("(pack econ (level game) (owners \"a\" \"b\"))\n(y 1)", "econ.dta", session));
-    const auto none = ok(read_string("(pack ui (level game))\n(z 1)", "ui.dta", session));
+        ok(read_string(test::hash_spelled("(pack boss (level task) (owners \"td-a\"))\n(x 1)"),
+                       "boss.dta", session));
+    const auto pair =
+        ok(read_string(test::hash_spelled("(pack econ (level game) (owners \"a\" \"b\"))\n(y 1)"),
+                       "econ.dta", session));
+    const auto none =
+        ok(read_string(test::hash_spelled("(pack ui (level game))\n(z 1)"), "ui.dta", session));
     CheckReport report;
     check(*solo, ctx, report, {.packs = &session});
     REQUIRE(report.findings.size() == 1);
@@ -278,7 +282,7 @@ TEST_CASE("check's JSON is versioned, sorted, and the same bytes on every run (D
         session.set_reader([&](std::string_view path, TextSink out) {
             auto it = files.find(std::string(path));
             if (it == files.end()) return false;
-            out(it->second);
+            out(test::hash_spelled(it->second));
             return true;
         });
         session.set_pack_levels({"game", "task"});
@@ -319,10 +323,12 @@ TEST_CASE("the reference lists the session's packs and origins: the harness regi
     LoadSession session;
     session.set_pack_levels({"game"});
     (void)test::ok(
-        read_string("(pack econ (level game) (owners \"td-econ\") (for designers) (stage product))",
+        read_string(test::hash_spelled("(pack econ (level game) (owners \"td-econ\") (for "
+                                       "designers) (stage product))"),
                     "econ.dta", session));
-    (void)test::ok(read_string("(origin \"economy.xlsx\" (tool sheets-export))\n(price 5)",
-                               "prices.dta", session));
+    (void)test::ok(
+        read_string(test::hash_spelled("(origin \"economy.xlsx\" (tool sheets-export))\n(price 5)"),
+                    "prices.dta", session));
     Context ctx;
     const std::string with = reference(ctx, &session);
     CHECK(with.find("## Packs\n\n| Pack | Level | Requires | Owners | For | Stage | File |\n"
@@ -346,7 +352,7 @@ TEST_CASE("a Config's read_session has every layer's packs and origins (D110)") 
     cfg.session().set_reader([&](std::string_view path, TextSink out) {
         auto it = files.find(std::string(path));
         if (it == files.end()) return false;
-        out(it->second);
+        out(test::hash_spelled(it->second));
         return true;
     });
     cfg.session().set_pack_levels({"engine", "game", "task"});

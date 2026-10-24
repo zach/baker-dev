@@ -136,6 +136,10 @@ private:
     int32_t line_ = 1;
 };
 
+// Built with BAKER_HASH_DECLARATIONS, the core reads the new form itself (parse.hpp), and
+// the front half below is the identity: translate() returns the text, read_with() is
+// read_string, and check_received() the core's own check.
+#if !BAKER_HASH_DECLARATIONS
 // 1-based column in code points, as the parser gives it.
 int32_t column_of(std::string_view src, size_t at) noexcept {
     size_t start = at == 0 ? std::string_view::npos : src.rfind('\n', at - 1);
@@ -598,12 +602,14 @@ private:
     bool shape_run_ = false;  // a top-level (shapes ...) container awaits its close
     size_t shape_run_close_ = 0;
 };
+#endif
 
 // --- The printer: tree -> the new form, with to_dta's layout (src/data/write.cpp) ---
 
 constexpr int kIndent = 3;
 constexpr int kWidth = 96;
 
+#if !BAKER_HASH_DECLARATIONS
 bool is_shapes_container(const Node& n) {
     static const Symbol shapes("shapes");
     const Array* a = n.try_array();
@@ -614,6 +620,7 @@ bool is_shapes_container(const Node& n) {
     }
     return true;
 }
+#endif
 
 // A `#`-led symbol the new lexer reads bare: `#` alone, or before anything but a letter.
 bool bare_hash_symbol(std::string_view s) noexcept {
@@ -923,10 +930,22 @@ private:
 Expected<std::string> translate(std::string_view text, std::string_view name,
                                 std::vector<std::string>* notes, bool* data_first) {
     if (data_first) *data_first = false;
+#if BAKER_HASH_DECLARATIONS
+    (void)name;
+    (void)notes;
+    return std::string(text);
+#else
     Translator t(text, name, notes, data_first);
     return t.run();
+#endif
 }
 
+#if BAKER_HASH_DECLARATIONS
+Expected<Ref<Array>> read_with(std::string_view text, std::string_view name, LoadSession& session,
+                               std::vector<std::string>*) {
+    return read_string(text, name, session);
+}
+#else
 namespace {
 
 // `a` and every array in it, `delta` lines later.
@@ -980,11 +999,17 @@ Expected<Ref<Array>> read_with(std::string_view text, std::string_view name, Loa
     }
     return Array::make_from(rest, r.file(), r.line());
 }
+#endif
 
 namespace {
 
 // An included file in the new form, for a session's reader.
 bool serve(std::string_view path, std::string_view text, TextSink out) {
+#if BAKER_HASH_DECLARATIONS
+    (void)path;
+    out(text);
+    return true;
+#else
     bool data_first = false;
     auto dta = translate(text, path, nullptr, &data_first);
     if (!dta) {
@@ -1001,16 +1026,21 @@ bool serve(std::string_view path, std::string_view text, TextSink out) {
     }
     out(*dta);
     return true;
+#endif
 }
 
 }  // namespace
 
 Expected<LayerReport> check_received(const Config& cfg, std::string_view name,
                                      std::string_view text, const LayerPolicy& policy) {
+#if BAKER_HASH_DECLARATIONS
+    return cfg.check_layer_text(name, text, policy);  // the core classifies a #shape
+#else
     Translator t(text, name, nullptr, nullptr, policy.data_only || policy.scalars_only);
     auto dta = t.run();
     if (!dta) return Unexpected(dta.error());
     return cfg.check_layer_text(name, *dta, policy);
+#endif
 }
 
 LoadSession corpus_session() {
@@ -1032,6 +1062,7 @@ Expected<Ref<Array>> read(std::string_view text, std::string_view name) {
 std::string print(const Array& root) {
     std::string out;
     for (const Node& n : root) {
+#if !BAKER_HASH_DECLARATIONS  // the core's trees hold no declarations
         if (is_shapes_container(n)) {
             const Array& a = *n.array();
             for (uint32_t i = 1; i < a.size(); ++i) {
@@ -1041,6 +1072,7 @@ std::string print(const Array& root) {
             }
             continue;
         }
+#endif
         put_pretty(out, n, 0);
         out += '\n';
     }

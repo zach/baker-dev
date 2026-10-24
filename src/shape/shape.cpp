@@ -185,90 +185,105 @@ std::optional<uint32_t> rank_of(const LoadSession* packs, baker::Symbol file) no
 }
 }  // namespace
 
+#if BAKER_HASH_DECLARATIONS
+void Set::add(const LoadSession& session, Report& report, const Array* layer) {
+    const LoadSession* packs = &session;
+#else
 void Set::add(const Array& tree, Report& report, const LoadSession* packs) {
+#endif
     Vec<Error> errors(report.errors.begin(), report.errors.end());
     Vec<Error> warnings(report.warnings.begin(), report.warnings.end());
     const Names& n = names();
+    // One declaration, (name (at ...) (keyed) (field type ...) ...); `in` locates a nameless one.
+    auto declare = [&](const Array* a, const Array& in) {
+        const auto name = a && !a->empty() ? (*a)[0].try_sym() : std::nullopt;
+        if (!name) {
+            const Array& at = a ? *a : in;
+            errors.push_back(make_error(ErrorCode::Syntax,
+                                        "a shape is declared as (name field ...)", at.file(),
+                                        at.line()));
+            return;
+        }
+        size_t i = 0;
+        while (i < st_->shapes.size() && st_->shapes[i].name != *name) ++i;
+        if (i == st_->shapes.size()) {
+            st_->shapes.emplace_back();
+            st_->fields.emplace_back();
+            st_->shapes[i].name = *name;
+        }
+        Shape& s = st_->shapes[i];
+        s.file = a->file();
+        s.line = a->line();
+        for (const Node& c : a->values()) {
+            const Array* f = c.try_array();
+            const auto tag = f && !f->empty() ? (*f)[0].try_sym() : std::nullopt;
+            if (!tag) {
+                errors.push_back(
+                    make_error(ErrorCode::Syntax,
+                               "shape " + quoted(*name) + " has something other than a (field ...)",
+                               a->file(), a->line()));
+                continue;
+            }
+            if (*tag == n.keyed) {
+                s.keyed = true;
+                continue;
+            }
+            if (*tag == n.at) {
+                Vec<baker::Symbol> path;
+                for (const Node& p : f->values()) {
+                    const auto seg = p.try_sym();
+                    if (!seg) continue;
+                    // `bosses.*.phases` and `bosses * phases` both name a path.
+                    std::string_view text = seg->str();
+                    for (size_t dot; (dot = text.find('.')) != std::string_view::npos;) {
+                        path.emplace_back(text.substr(0, dot));
+                        text.remove_prefix(dot + 1);
+                    }
+                    path.emplace_back(text);
+                }
+                s.at = List<baker::Symbol>({path.data(), path.size()});
+                continue;
+            }
+            // Declared again, a field takes the new type and whatever metadata the new
+            // declaration gives, as a merge of the two would.
+            Vec<Field>& fs = st_->fields[i];
+            auto old =
+                std::find_if(fs.begin(), fs.end(), [&](const Field& x) { return x.name == *tag; });
+            Field field = old != fs.end() ? *old : Field{};
+            if (!read_field(*f, field, errors)) continue;
+            if (old != fs.end()) {
+                const auto held = rank_of(packs, old->file);
+                const auto next = rank_of(packs, field.file);
+                if (held && next && *next > *held && loosens(*old, field)) {
+                    warnings.push_back(
+                        make_error(ErrorCode::Refused,
+                                   "shape " + quoted(*name) + ": " + quoted(field.name) +
+                                       " is declared by a harder pack; a softer one may narrow it, "
+                                       "not loosen it, so that declaration holds",
+                                   field.file, field.line));
+                    continue;
+                }
+                *old = field;
+            } else {
+                fs.push_back(field);
+            }
+        }
+    };
+#if BAKER_HASH_DECLARATIONS
+    // The #shape declarations the session read; with `layer`, those its read declared.
+    for (const ShapeDecl& d : session.shapes())
+        if (!layer || d.root == layer->file()) {
+            st_->keep.push_back(d.form);
+            declare(d.form.get(), *d.form);
+        }
+#else
     for (const Node& top : tree) {
         const Array* decls = top.try_array();
         if (!decls || decls->empty() || !(*decls)[0].is(n.shapes)) continue;
         st_->keep.emplace_back(const_cast<Array*>(decls));
-        for (const Node& d : decls->values()) {
-            const Array* a = d.try_array();
-            const auto name = a && !a->empty() ? (*a)[0].try_sym() : std::nullopt;
-            if (!name) {
-                const Array& at = a ? *a : *decls;
-                errors.push_back(make_error(ErrorCode::Syntax,
-                                            "a shape is declared as (name field ...)", at.file(),
-                                            at.line()));
-                continue;
-            }
-            size_t i = 0;
-            while (i < st_->shapes.size() && st_->shapes[i].name != *name) ++i;
-            if (i == st_->shapes.size()) {
-                st_->shapes.emplace_back();
-                st_->fields.emplace_back();
-                st_->shapes[i].name = *name;
-            }
-            Shape& s = st_->shapes[i];
-            s.file = a->file();
-            s.line = a->line();
-            for (const Node& c : a->values()) {
-                const Array* f = c.try_array();
-                const auto tag = f && !f->empty() ? (*f)[0].try_sym() : std::nullopt;
-                if (!tag) {
-                    errors.push_back(make_error(
-                        ErrorCode::Syntax,
-                        "shape " + quoted(*name) + " has something other than a (field ...)",
-                        a->file(), a->line()));
-                    continue;
-                }
-                if (*tag == n.keyed) {
-                    s.keyed = true;
-                    continue;
-                }
-                if (*tag == n.at) {
-                    Vec<baker::Symbol> path;
-                    for (const Node& p : f->values()) {
-                        const auto seg = p.try_sym();
-                        if (!seg) continue;
-                        // `bosses.*.phases` and `bosses * phases` both name a path.
-                        std::string_view text = seg->str();
-                        for (size_t dot; (dot = text.find('.')) != std::string_view::npos;) {
-                            path.emplace_back(text.substr(0, dot));
-                            text.remove_prefix(dot + 1);
-                        }
-                        path.emplace_back(text);
-                    }
-                    s.at = List<baker::Symbol>({path.data(), path.size()});
-                    continue;
-                }
-                // Declared again, a field takes the new type and whatever metadata the new
-                // declaration gives, as a merge of the two would.
-                Vec<Field>& fs = st_->fields[i];
-                auto old = std::find_if(fs.begin(), fs.end(),
-                                        [&](const Field& x) { return x.name == *tag; });
-                Field field = old != fs.end() ? *old : Field{};
-                if (!read_field(*f, field, errors)) continue;
-                if (old != fs.end()) {
-                    const auto held = rank_of(packs, old->file);
-                    const auto next = rank_of(packs, field.file);
-                    if (held && next && *next > *held && loosens(*old, field)) {
-                        warnings.push_back(make_error(
-                            ErrorCode::Refused,
-                            "shape " + quoted(*name) + ": " + quoted(field.name) +
-                                " is declared by a harder pack; a softer one may narrow it, "
-                                "not loosen it, so that declaration holds",
-                            field.file, field.line));
-                        continue;
-                    }
-                    *old = field;
-                } else {
-                    fs.push_back(field);
-                }
-            }
-        }
+        for (const Node& d : decls->values()) declare(d.try_array(), *decls);
     }
+#endif
     for (size_t i = 0; i < st_->shapes.size(); ++i) {
         Shape& s = st_->shapes[i];
         s.fields = List<Field>({st_->fields[i].data(), st_->fields[i].size()});
@@ -464,7 +479,8 @@ struct Checker {
             const Array* c = n.array();
             if (!c) continue;
             const auto tag = !c->tag().empty() ? std::optional(c->tag()) : std::nullopt;
-            if (tag && chain.empty() && *tag == names().shapes) continue;  // declarations
+            if (!detail::kHashDeclarations && tag && chain.empty() && *tag == names().shapes)
+                continue;  // declarations, unless they are #shape's
             if (tag) chain.push_back(*tag);
             const size_t mark = nested.size();
             if (tag && std::find(nested.begin(), nested.end(), c) == nested.end()) {
@@ -500,7 +516,11 @@ Config::Validator validator() {
     return [](const ValidatorStack& stack, const Callback<void(const Error&)>& warn) {
         Set set;
         Report report;
+#if BAKER_HASH_DECLARATIONS
+        for (const Ref<Array>& tree : stack.layers) set.add(stack.session, report, tree.get());
+#else
         for (const Ref<Array>& tree : stack.layers) set.add(*tree, report, &stack.session);
+#endif
         check(stack.root, set, report);
         if (!warn) return;
         for (const Error& e : report.errors) warn(e);

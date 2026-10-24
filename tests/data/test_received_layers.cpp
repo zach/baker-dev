@@ -17,14 +17,14 @@ namespace fs = std::filesystem;
 
 namespace {
 
-const char* const kBase =
+const std::string kBase = test::hash_spelled(
     "(pack game_data (level game) (version \"1.2\"))\n"
-    "(event (xp 1) (drops 5))\n";
+    "(event (xp 1) (drops 5))\n");
 
-const char* const kOverlay =
+const std::string kOverlay = test::hash_spelled(
     "(pack double_xp (level live) (requires (game_data \"1.2\")))\n"
     "(origin \"liveops ticket 7\" (tool publisher))\n"
-    "(event (xp 2))\n";
+    "(event (xp 2))\n");
 
 bool has_pack(const Config& cfg, const char* name) {
     for (const Pack& p : cfg.read_session().packs())
@@ -143,8 +143,8 @@ TEST_CASE("a push with a policy sees the warnings its read adds") {
     Config cfg({.tweaks = nullptr});
     cfg.session().set_pack_levels({"game", "live"});
     REQUIRE(cfg.push_layer("default", dir.write("default.dta", kBase)));
-    const char* const newer =
-        "(pack season_two (level live) (requires (game_data \"1.3\")))\n(event (xp 3))\n";
+    const std::string newer = test::hash_spelled(
+        "(pack season_two (level live) (requires (game_data \"1.3\")))\n(event (xp 3))\n");
     const LayerPolicy strict{.data_only = true, .warnings_refuse = true};
     auto pushed = cfg.push_layer_text("season_two", newer, {.policy = &strict});
     REQUIRE_FALSE(pushed);

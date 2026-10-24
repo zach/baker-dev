@@ -11,6 +11,12 @@
 // `(shapes ...)` container, a `#`-led symbol is quoted) and hands it to baker::read_string;
 // `print` writes a tree in the new form; `migrate` rewrites today's DTA text into the new
 // form, keeping comments and layout. It is a tool: public headers and the STL.
+//
+// Built with BAKER_HASH_DECLARATIONS (CMake), the core reads the new form itself, and the
+// front half is the identity: translate() returns the text, read_with() is read_string,
+// print() is the printer without its (shapes ...) split, and check_received() is the core's
+// check_layer_text. The migrator is the same in both builds; the CLI's core-record and
+// core-check compare the two builds' reads of the corpus.
 
 #include <baker/array.hpp>
 #include <baker/config.hpp>

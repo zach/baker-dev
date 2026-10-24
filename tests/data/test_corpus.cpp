@@ -4,6 +4,7 @@
 #include <baker/std_interop.hpp>
 #include <baker/write.hpp>
 
+#include "hash_spelling.hpp"
 #include "parse_harness.hpp"
 
 #include <algorithm>
@@ -41,6 +42,7 @@ TEST_CASE("every corpus file parses and round-trips") {
     for (const fs::path& p : files) {
         CAPTURE(p.string());
         LoadSession session;
+        session.set_reader(test::read_spelled);
         auto root = read_file(p.generic_string(), session);
         REQUIRE_MESSAGE(root.has_value(), (root ? std::string() : to_string(root.error())));
         const std::string printed = to_dta(**root);
@@ -53,6 +55,7 @@ TEST_CASE("every corpus file parses and round-trips") {
 TEST_CASE("corpus spot checks") {
     const std::string dir = BAKER_CORPUS_DIR;
     LoadSession s;
+    s.set_reader(test::read_spelled);
     auto app = read_file(dir + "/config_app.dta", s);
     REQUIRE(app.has_value());
     // config_app sets screen_size and merges the defaults in afterwards.
@@ -63,6 +66,7 @@ TEST_CASE("corpus spot checks") {
           "(audio (channels 32) (master_volume 0.8) (sample_rate 48000))");
 
     LoadSession ui_session;
+    ui_session.set_reader(test::read_spelled);
     auto ui = read_file(dir + "/ui_menu.dta", ui_session);
     REQUIRE(ui.has_value());
     REQUIRE(ui_session.autorun().size() == 1);

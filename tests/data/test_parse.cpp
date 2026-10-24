@@ -4,6 +4,7 @@
 #include <baker/std_interop.hpp>
 #include <baker/write.hpp>
 
+#include "hash_spelling.hpp"
 #include "text.hpp"
 
 #include <string>
@@ -255,6 +256,6 @@ TEST_CASE("an error located by an array's line has no column") {
     CHECK(v.error().column() == 0);
     CHECK(to_string(v.error()) == "baker: 'speed' is symbol, not int  (t.dta:1)");
     // A pack declaration's problem names the declaration's line only.
-    const Error pack = parse_error("(pack p (level 3))");
+    const Error pack = parse_error(test::hash_spelled("(pack p (level 3))"));
     CHECK(pack.column() == 0);
 }

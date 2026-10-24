@@ -116,16 +116,17 @@ TEST_CASE("text is read against the stack's packs, as text only") {
     REQUIRE(cfg.push_layer(
         "default", dir.write("default.dta", "(pack shop_data (level game) (version \"1.2\"))\n" +
                                                 std::string(kBase))));
-    const char* const made_for_newer =
-        "(pack balance_7 (level task) (requires (shop_data \"1.10\")))\n(shop (sword (price 8)))\n";
+    const std::string made_for_newer = test::hash_spelled(
+        "(pack balance_7 (level task) (requires (shop_data \"1.10\")))\n(shop (sword (price "
+        "8)))\n");
     const LayerReport r = ok(cfg.check_layer_text("balance_7", made_for_newer));
     CHECK(r.ok());
     REQUIRE(r.warnings.size() == 1);
     CHECK(std::string(r.warnings[0].message()).find("\"1.10\" or later") != std::string::npos);
     CHECK_FALSE(
         ok(cfg.check_layer_text("balance_7", made_for_newer, {.warnings_refuse = true})).ok());
-    const char* const made_for_this =
-        "(pack balance_7 (level task) (requires (shop_data \"1.2\")))\n(shop (sword (price 8)))\n";
+    const std::string made_for_this = test::hash_spelled(
+        "(pack balance_7 (level task) (requires (shop_data \"1.2\")))\n(shop (sword (price 8)))\n");
     CHECK(ok(cfg.check_layer_text("balance_7", made_for_this, {.warnings_refuse = true})).ok());
     // Read as text: the session's earlier warnings are not the candidate's.
     CHECK(ok(cfg.check_layer_text("plain", "(shop (bow (price 9)))\n")).warnings.empty());

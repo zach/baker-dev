@@ -98,6 +98,7 @@ TEST_CASE("every corpus file loads from a cache as it does from text") {
     for (const fs::path& p : files) {
         CAPTURE(p.string());
         LoadSession session;
+        session.set_reader(test::read_spelled);
         auto root = ok(read_file(p.generic_string(), session));
         (void)round_trip(*root);
     }

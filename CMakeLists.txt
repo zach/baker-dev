@@ -13,6 +13,9 @@ option(BAKER_BUILD_EXAMPLES   "Build the examples" ${PROJECT_IS_TOP_LEVEL})
 option(BAKER_BUILD_HARNESS    "Build examples/harness-imgui (fetches Dear ImGui and GLFW)" OFF)
 option(BAKER_BUILD_FUZZERS    "Build libFuzzer targets (Clang only)" OFF)
 option(BAKER_BUILD_EXPERIMENTS "Build experiments/ (syntax sketches on branches; never shipped)" OFF)
+# The hash-declarations prototype's reader (dev/syntax-hash-declarations-design.md): off in
+# the default build, which reads and prints as main does.
+option(BAKER_HASH_DECLARATIONS "Read #pack, #origin and #shape declarations (a prototype)" OFF)
 option(BAKER_USE_EASTL        "Internal containers from EASTL instead of the STL (D55, D61)" OFF)
 set(BAKER_SANITIZE "" CACHE STRING "Sanitizers to enable, e.g. address,undefined")
 
@@ -140,6 +143,9 @@ baker_configure_library(baker_data)
 # fast_float parses doubles identically on every platform (libc++ only gained double
 # std::from_chars in LLVM 20). Private: it never appears in Baker's headers.
 target_include_directories(baker_data SYSTEM PRIVATE ${PROJECT_SOURCE_DIR}/third_party/fast_float)
+if(BAKER_HASH_DECLARATIONS)
+  target_compile_definitions(baker_data PUBLIC BAKER_HASH_DECLARATIONS=1)
+endif()
 
 # --- baker::script: evaluation, functions, objects, messages, tasks.
 if(BAKER_BUILD_SCRIPT)

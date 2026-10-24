@@ -9,6 +9,7 @@
 #include <baker/write.hpp>
 
 #include "alloc_counter.hpp"
+#include "hash_spelling.hpp"
 #include "ok.hpp"
 
 #include <array>
@@ -460,6 +461,7 @@ TEST_CASE("typed reads with fallbacks, and their errors") {
 
 TEST_CASE("the corpus config reads through lookups") {
     LoadSession s;
+    s.set_reader(test::read_spelled);
     auto app = read_file(std::string(BAKER_CORPUS_DIR) + "/config_app.dta", s);
     REQUIRE(app);
     const Array& cfg = **app;

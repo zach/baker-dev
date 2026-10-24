@@ -38,6 +38,16 @@
 // origin's first value must be a string, so ordinary data such as (origin 0 0 0) is not
 // taken for one.
 //
+// Declarations (the hash-declarations prototype, dev/syntax-hash-declarations-design.md,
+// built with BAKER_HASH_DECLARATIONS). The positional forms above are data, and a file says
+// what it is with a directive that takes one form, anywhere at its top level, once:
+//   #pack (name (level L) ...)          a pack, as above; the whole file's macros are its
+//   #origin ("economy.xlsx" (tool t))   an origin, as above
+//   #shape (name (at ...) (field type ...) ...)   a shape (baker::shape), any number
+// Each form is read as an array and recorded in the session, never in the tree. `#` opens a
+// directive only before an ASCII letter, so `#1` and `#00aa00` are symbols, and
+// `#define N (body)` is an error that names the macro form, [N body].
+//
 // A macro name written as a bare symbol is replaced by the macro's nodes. Expansion
 // shares arrays instead of copying them. Paths may be "quoted" or bare.
 //
@@ -97,6 +107,17 @@ struct Origin {
     Symbol source;  // what it was generated from: "economy.xlsx"
     Symbol tool;    // what generated it: sheets-export; empty if not declared
 };
+
+#if BAKER_HASH_DECLARATIONS
+// A shape a file declared with #shape (above): the form, read in the load's arena and kept
+// alive by this reference, and where it is written.
+struct ShapeDecl {
+    Ref<Array> form;  // (name (at ...) (keyed) (field type ...) ...)
+    Symbol file;
+    int32_t line = 0;
+    Symbol root;  // the file the top-level read began with: the layer that declared it
+};
+#endif
 
 // Where a load defined a name: a macro (`#define NAME`, `#define NAME (body)`, a top-level
 // `[NAME ...]`), or a script function its #autorun commands define (script.hpp,
@@ -158,6 +179,10 @@ public:
     // (is_defined says which stand). Macros a host defines in code are not listed.
     [[nodiscard]] std::span<const Definition> macro_definitions() const noexcept;
     [[nodiscard]] const Origin* origin_of(Symbol file) const noexcept;  // null: none
+#if BAKER_HASH_DECLARATIONS
+    // The shapes the session's reads declared, in the order read.
+    [[nodiscard]] std::span<const ShapeDecl> shapes() const noexcept;
+#endif
     // Warnings from the files read, in order (the one-way rule), until cleared.
     [[nodiscard]] std::span<const Error> warnings() const noexcept;
     void clear_warnings();

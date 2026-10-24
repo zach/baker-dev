@@ -102,7 +102,14 @@ public:
     // again may narrow a range or add metadata, but one that widens or drops a range, changes
     // the type, or makes a required field optional is a warning in `report`, and the harder
     // declaration stays. Files that declare no pack are unconstrained, as in the one-way rule.
+#if BAKER_HASH_DECLARATIONS
+    // The hash-declarations prototype (parse.hpp): reads the #shape declarations the session
+    // read, in order, with its packs; with `layer`, only those the read of that layer's tree
+    // declared. A top-level (shapes ...) is data.
+    void add(const LoadSession& session, Report& report, const Array* layer = nullptr);
+#else
     void add(const Array& tree, Report& report, const LoadSession* packs = nullptr);
+#endif
     [[nodiscard]] std::span<const Shape> shapes() const noexcept;
     [[nodiscard]] const Shape* find(baker::Symbol name) const noexcept;
 

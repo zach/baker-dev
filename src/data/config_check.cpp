@@ -181,6 +181,15 @@ LayerReport run_check(const Basis& b, std::string_view name, const Ref<Array>& c
                 at ? at->file() : Symbol(), at ? at->line() : 0));
         }
     }
+#if BAKER_HASH_DECLARATIONS
+    // A #shape the candidate's read declared changes how the stack is checked, not a value.
+    if (policy.data_only || policy.scalars_only)
+        for (const ShapeDecl& d : session.shapes())
+            if (d.root == tree.file())
+                refusals.push_back(refused("#shape " + detail::quoted(d.form->tag()) +
+                                               " declares a shape; the layer may change data only",
+                                           d.file, d.line));
+#endif
     const Array& stack = b.root;
     Finder finder(alloc);
     // supplier() and source_in(), through the finder: the enabled layer, from the top, whose

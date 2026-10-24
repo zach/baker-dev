@@ -39,6 +39,27 @@ std::string message(const Error& e) {
     return std::string(e.message());
 }
 
+// Built with BAKER_HASH_DECLARATIONS (the core reads the new form; syntax.hpp's front end is
+// the identity), the shapes are the session's, not the tree's: these tests name both.
+#if BAKER_HASH_DECLARATIONS
+constexpr bool kCore = true;
+#else
+constexpr bool kCore = false;
+#endif
+
+#if BAKER_SYNTAX_SHAPE
+void add_shapes(shape::Set& set, const Array& tree, shape::Report& report,
+                const LoadSession* session) {
+#if BAKER_HASH_DECLARATIONS
+    (void)tree;
+    REQUIRE(session);
+    set.add(*session, report);
+#else
+    set.add(tree, report, session);
+#endif
+}
+#endif
+
 }  // namespace
 
 TEST_CASE("every corpus file survives the round trip") {
@@ -51,6 +72,7 @@ TEST_CASE("every corpus file survives the round trip") {
     CHECK(corpus_files().size() > 50);
 }
 
+#if !BAKER_HASH_DECLARATIONS  // with the core switch, the CLI's core-check compares two builds
 TEST_CASE("the migrated corpus reads to the same trees, packs, origins and macros") {
     const std::string root(repository_root());
     int packs = 0, origins = 0, sets = 0, shapes = 0, bodies = 0, read = 0;
@@ -108,6 +130,7 @@ TEST_CASE("the migrated corpus reads to the same trees, packs, origins and macro
     CHECK(shapes >= 20);
     CHECK(bodies == 2);
 }
+#endif
 
 TEST_CASE("a converted sample reads back to the same tree") {
     auto original = syntax::read(
@@ -230,12 +253,16 @@ TEST_CASE("#origin is a directive; (origin 0 0 0) and (pack x) are data") {
     CHECK((*old)[1].array()->tag() == Symbol("origin"));
     CHECK(legacy.packs().empty());
     CHECK(legacy.origins().empty());
-    REQUIRE(notes.size() == 3);
-    CHECK(notes[0].find("old.dta:1: a (pack ...) first form, read as data: write #pack") !=
-          std::string::npos);
-    CHECK(notes[1].find("old.dta:2: an (origin \"...\") first form, read as data") !=
-          std::string::npos);
-    CHECK(notes[2].find("old.dta:3: a (shapes ...) container: write #shape") != std::string::npos);
+    // The notes are the translator's; the core's check warns instead (reference.cpp).
+    CHECK(notes.size() == (kCore ? 0 : 3));
+    if (!kCore && notes.size() == 3) {
+        CHECK(notes[0].find("old.dta:1: a (pack ...) first form, read as data: write #pack") !=
+              std::string::npos);
+        CHECK(notes[1].find("old.dta:2: an (origin \"...\") first form, read as data") !=
+              std::string::npos);
+        CHECK(notes[2].find("old.dta:3: a (shapes ...) container: write #shape") !=
+              std::string::npos);
+    }
     // The node that keeps the first form data never shows, on its line or in the tree.
     notes.clear();
     auto origin_first = ok(syntax::read_with(
@@ -244,11 +271,41 @@ TEST_CASE("#origin is a directive; (origin 0 0 0) and (pack x) are data") {
     CHECK((*origin_first)[0].array()->line() == 2);
     CHECK(legacy.origins().empty());
     REQUIRE(legacy.packs().size() == 1);
+    if (kCore) return;
     REQUIRE(notes.size() == 1);
     CHECK(notes[0].find("first.dta:2: an (origin \"...\") first form, read as data") !=
           std::string::npos);
 }
 
+#if BAKER_HASH_DECLARATIONS
+TEST_CASE("a top-level #shape is a session record, as a (shapes ...) child was") {
+    LoadSession session = syntax::corpus_session();
+    auto root = ok(syntax::read_with(
+        "#shape (fighter (at fighters) (keyed)\n"
+        "   (health int (range 1 100000))\n"
+        "   (moves any))\n"
+        "; a comment between two shapes\n"
+        "#shape (move (at fighters * moves) (keyed) (startup int) (hitbox (list float 4)))\n"
+        "(fighters (kestrel (health 1000)))\n"
+        "#shape (bot (at bots) (keyed) (block float))\n",
+        "shapes.dta", session));
+    CHECK(first_difference(*root, *dta("(fighters (kestrel (health 1000)))\n")).empty());
+    REQUIRE(session.shapes().size() == 3);
+    CHECK(session.shapes()[0].line == 1);
+    CHECK(session.shapes()[1].line == 5);
+    CHECK(session.shapes()[2].line == 7);
+    CHECK(first_difference(*session.shapes()[1].form,
+                           *(*dta("(move (at fighters * moves) (keyed) (startup int)"
+                                  " (hitbox (list float 4)))"))[0]
+                                .array())
+              .empty());
+    // Printed, the tree holds no declaration, as a tree never held a pack.
+    CHECK(syntax::print(*root) == "(fighters (kestrel (health 1000)))\n");
+    auto bare = syntax::read("#shape fighter\n", "bare.dta");
+    REQUIRE(!bare);
+    CHECK(message(bare.error()).find("#shape takes one form") != std::string::npos);
+}
+#else
 TEST_CASE("a #shape run at the top level is one (shapes ...) container") {
     auto root = ok(syntax::read(
         "#shape (fighter (at fighters) (keyed)\n"
@@ -278,7 +335,17 @@ TEST_CASE("a #shape run at the top level is one (shapes ...) container") {
     REQUIRE(!bare);
     CHECK(message(bare.error()).find("#shape takes one form") != std::string::npos);
 }
+#endif
 
+#if BAKER_HASH_DECLARATIONS
+TEST_CASE("a #shape at its table is the translator's only: the core refuses it, located") {
+    auto r = syntax::read("(fighters\n   #shape (fighter (health int)))\n", "table.dta");
+    REQUIRE(!r);
+    CHECK(r.error().line() == 2);
+    CHECK(r.error().column() == 4);
+    CHECK(message(r.error()) == "#shape is written at a file's top level");
+}
+#else
 TEST_CASE("a #shape written at its table governs that table's children") {
     const std::string_view text =
         "(fighters\n"
@@ -337,6 +404,7 @@ TEST_CASE("a #shape written at its table governs that table's children") {
     REQUIRE(!nameless);
     CHECK(message(nameless.error()).find("needs a name") != std::string::npos);
 }
+#endif
 
 TEST_CASE("#define NAME is a flag; a macro is [NAME ...]") {
     auto body = syntax::read("[kMin 1]\n#define kMax (4)\n", "macros.dta");
@@ -365,8 +433,10 @@ TEST_CASE("# before anything but a letter is a symbol, bare in print and in read
     CHECK(a[5].try_sym()->str() == "#remove");
     const std::string printed = syntax::print(*root);
     CHECK(printed == "(hashes # #1 #00aa00 #$%& '#remove' '#if' (key #remove))\n");
-    // Today's printer quotes them all but the marker.
-    CHECK(to_dta(*root) == "(hashes '#' '#1' '#00aa00' '#$%&' '#remove' '#if' (key #remove))\n");
+    // Today's printer quotes them all but the marker; the core's, with the switch, as written.
+    CHECK(to_dta(*root) ==
+          (kCore ? "(hashes # #1 #00aa00 #$%& '#remove' '#if' (key #remove))\n"
+                 : "(hashes '#' '#1' '#00aa00' '#$%&' '#remove' '#if' (key #remove))\n"));
     CHECK(first_difference(*root, *ok(syntax::read(printed, "printed.dta"))).empty());
 
     auto unknown = syntax::read("(x #foo)\n", "unknown.dta");
@@ -374,8 +444,13 @@ TEST_CASE("# before anything but a letter is a symbol, bare in print and in read
     CHECK(message(unknown.error()).find("unknown directive '#foo'") != std::string::npos);
 
     auto quote = syntax::read("(x #1'2)\n", "quote.dta");
-    REQUIRE(!quote);
-    CHECK(message(quote.error()).find("the prototype cannot read") != std::string::npos);
+    if (kCore) {  // the translator's limit: the core reads it, and prints it bare
+        REQUIRE(quote);
+        CHECK(syntax::print(**quote) == "(x #1'2)\n");
+    } else {
+        REQUIRE(!quote);
+        CHECK(message(quote.error()).find("the prototype cannot read") != std::string::npos);
+    }
 }
 
 TEST_CASE("the migrator: prefix-and-split, keeping comments and layout") {
@@ -514,6 +589,8 @@ TEST_CASE("every sample reads in the new form") {
         const std::string name = entry.path().filename().string();
         if (entry.path().extension() != ".dta" || name.find(".before.") != std::string::npos)
             continue;
+        // The at-the-table #shape is the translator's only (design note §9, question 1).
+        if (kCore && entry.path().string().ends_with("duel-at-table/data/default.dta")) continue;
         LoadSession session = syntax::corpus_session();
         auto text = read_text_file(entry.path().string());
         REQUIRE(text);
@@ -521,7 +598,7 @@ TEST_CASE("every sample reads in the new form") {
         ok(syntax::read_with(*text, entry.path().string(), session));
         ++read;
     }
-    CHECK(read == 15);
+    CHECK(read == (kCore ? 14 : 15));
 }
 
 #if BAKER_SYNTAX_SHAPE
@@ -556,7 +633,7 @@ void run_stack(const std::string& stack, bool migrated, StackRun& r) {
     auto tree = read_file(root + "/stacks/" + stack + "/data/default.dta", r.session);
     REQUIRE_MESSAGE(bool(tree), (tree ? std::string() : to_string(tree.error())));
     r.tree = *tree;
-    r.set.add(**tree, r.report, &r.session);
+    add_shapes(r.set, **tree, r.report, &r.session);
     shape::check(**tree, r.set, r.report);
 }
 
@@ -606,14 +683,22 @@ TEST_CASE("each stack's migrated pack, with its arities, holds over the stack's 
          {"contraption", "duel", "hearth", "ledger", "stuntline", "wayfarer"}) {
         INFO(stack);
         StackRun before, after;
-        run_stack(stack, false, before);
         run_stack(stack, true, after);
-        CHECK(before.report.errors.empty());
         CHECK(after.report.errors.empty());
-        CHECK(after.report.warnings.size() == before.report.warnings.size());
-        REQUIRE(after.set.shapes().size() == before.set.shapes().size());
         for (const shape::Shape& sh : after.set.shapes())
             for (const shape::Field& f : sh.fields) arities += f.min_count > 0 ? 1 : 0;
+        if (kCore) {
+            // Today's pack is data to the core: what the stack declares is the migrated pack's
+            // alone (the two-build core-check compares it with today's read).
+            CHECK(after.set.shapes().size() >= 2);
+            REQUIRE(after.session.packs().size() == 1);
+            CHECK(governs_nothing(after.set, *after.tree).empty());
+            continue;
+        }
+        run_stack(stack, false, before);
+        CHECK(before.report.errors.empty());
+        CHECK(after.report.warnings.size() == before.report.warnings.size());
+        REQUIRE(after.set.shapes().size() == before.set.shapes().size());
         // The same packs, from #pack.
         REQUIRE(after.session.packs().size() == before.session.packs().size());
         CHECK(after.session.packs()[0].name == before.session.packs()[0].name);
@@ -626,6 +711,7 @@ TEST_CASE("each stack's migrated pack, with its arities, holds over the stack's 
     CHECK(arities == 11);  // of the six packs' 15 list fields; the other four are open lists
 }
 
+#if !BAKER_HASH_DECLARATIONS  // the at-the-table #shape is the translator's only
 TEST_CASE("Duel's shapes at their tables, and four floats are four") {
     const std::string root(repository_root());
     const std::string dir = root + "/experiments/syntax-hash-declarations/samples/duel-at-table";
@@ -685,23 +771,26 @@ TEST_CASE("Duel's shapes at their tables, and four floats are four") {
           std::string::npos);
     CHECK(torn_report.errors[1].line() == 3);
 }
+#endif
 
 TEST_CASE("a shape at the wrong depth checks nothing, silently; the finding names it") {
     // D108's failure: (at fighters moves) for (at fighters * moves). Every move goes
     // unchecked, a startup of 900 and an undeclared armor included, and nothing says so.
-    auto tree =
-        ok(syntax::read("#shape (move (at fighters moves) (keyed) (startup int (range 1 60)))\n"
-                        "(fighters (kestrel (moves (jab (startup 900) (armor 1)))))\n",
-                        "wrong.dta"));
+    LoadSession session = syntax::corpus_session();
+    auto tree = ok(
+        syntax::read_with("#shape (move (at fighters moves) (keyed) (startup int (range 1 60)))\n"
+                          "(fighters (kestrel (moves (jab (startup 900) (armor 1)))))\n",
+                          "wrong.dta", session));
     shape::Set set;
     shape::Report report;
-    set.add(*tree, report);
+    add_shapes(set, *tree, report, &session);
     shape::check(*tree, set, report);
     CHECK(report.errors.empty());
     CHECK(report.warnings.empty());
     const auto found = governs_nothing(set, *tree);
     REQUIRE(found.size() == 1);
     CHECK(found[0] == "wrong.dta:1: shape 'move' governs no array");
+#if !BAKER_HASH_DECLARATIONS  // the at-the-table #shape is the translator's only
     // Written at its table, it cannot be at the wrong depth: the place is where it stands.
     auto at_table =
         ok(syntax::read("(fighters (kestrel (moves #shape (move (startup int (range 1 60)))"
@@ -714,6 +803,7 @@ TEST_CASE("a shape at the wrong depth checks nothing, silently; the finding name
     CHECK(table_report.errors.size() == 1);
     CHECK(table_report.warnings.size() == 1);
     CHECK(governs_nothing(table_set, *at_table).empty());
+#endif
 }
 
 TEST_CASE("a softer pack may narrow a #shape, not loosen it (D145 unchanged)") {
@@ -789,16 +879,25 @@ TEST_CASE("received text: a (shapes ...) loosens a pack's shape today; #shape is
         "overlay", "(shapes (item (price int (range 0 99999))))\n(shop (sword (price 5000)))\n",
         strict);
     REQUIRE(loosened);
-    CHECK(loosened->ok());
+    CHECK(loosened->ok() == !kCore);  // with the core switch, (shapes ...) is data: refused
     // In the new form a shape is a declaration, which the policy classifies.
     auto declared = syntax::check_received(
         cfg, "overlay", "#shape (item (price int (range 0 99999)))\n(shop (sword (price 5000)))\n",
         strict);
-    REQUIRE(!declared);
-    CHECK(declared.error().code() == ErrorCode::Refused);
-    CHECK(declared.error().line() == 1);
-    CHECK(message(declared.error()).find("a received layer read under data_only") !=
-          std::string::npos);
+    if (kCore) {  // the core's refusal is the report's, as every policy refusal is
+        REQUIRE(declared);
+        REQUIRE(!declared->refusals.empty());
+        CHECK(declared->refusals[0].code() == ErrorCode::Refused);
+        CHECK(declared->refusals[0].line() == 1);
+        CHECK(message(declared->refusals[0]) ==
+              "#shape 'item' declares a shape; the layer may change data only");
+    } else {
+        REQUIRE(!declared);
+        CHECK(declared.error().code() == ErrorCode::Refused);
+        CHECK(declared.error().line() == 1);
+        CHECK(message(declared.error()).find("a received layer read under data_only") !=
+              std::string::npos);
+    }
     // A published overlay declares itself with #pack and #origin, which pass.
     auto overlay = syntax::check_received(
         cfg, "overlay",
@@ -839,7 +938,7 @@ TEST_CASE("a cache of a migrated pack replays its pack and keeps its shapes") {
     CHECK(fresh.packs()[0].name.str() == "duel_core");
     shape::Set set;
     shape::Report report;
-    set.add(*back, report, &fresh);
+    add_shapes(set, *back, report, &fresh);
     REQUIRE(set.find(Symbol("move")));
     CHECK(set.find(Symbol("move"))->field(Symbol("hitbox"))->min_count == 4);
     CHECK(set.find(Symbol("move"))->line == 9);

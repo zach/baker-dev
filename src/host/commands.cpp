@@ -153,7 +153,15 @@ int check(const CommandLine& line, const CommandHooks& hooks) {
     // check; a field no shape declares is reported, as demand for a word, and passes.
     shape::Set shapes;
     shape::Report shaped;
+#if BAKER_HASH_DECLARATIONS
+    // What #shape declared in the enabled layers, with the packs, as reference reads them.
+    for (const Symbol layer : cfg.layers())
+        if (const Ref<Array> root = cfg.layer_root(layer.str());
+            root && cfg.layer_enabled(layer.str()))
+            shapes.add(cfg.read_session(), shaped, root.get());
+#else
     shapes.add(*cfg.root(), shaped);
+#endif
     shape::check(*cfg.root(), shapes, shaped);
     for (const Error& e : shaped.errors) err("shape: " + Str(to_string(e)) + "\n");
     for (const Error& e : shaped.warnings) err("shape warning: " + Str(to_string(e)) + "\n");
@@ -182,7 +190,11 @@ int reference(const CommandLine& line, const CommandHooks& hooks) {
     for (const Symbol layer : cfg.layers())
         if (cfg.layer_enabled(layer.str()))
             if (const Ref<Array> root = cfg.layer_root(layer.str()))
+#if BAKER_HASH_DECLARATIONS
+                set.add(cfg.read_session(), report, root.get());
+#else
                 set.add(*root, report, &cfg.read_session());
+#endif
     shapes.clear();
     shape::write_json(set, detail::str_out(shapes));
 #endif

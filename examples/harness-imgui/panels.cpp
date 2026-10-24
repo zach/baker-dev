@@ -301,7 +301,11 @@ void shapes_panel(baker::Config& cfg, ShapesState& state) {
     if (ImGui::Begin("Shapes")) {
         baker::shape::Set set;
         baker::shape::Report report;
+#if BAKER_HASH_DECLARATIONS
+        set.add(cfg.read_session(), report);
+#else
         set.add(*root, report);
+#endif
         if (set.shapes().empty()) ImGui::TextDisabled("No (shapes ...) in the data.");
         ShapeWalk{cfg, set, state, {}, {}}.walk(*root);
         if (!state.status.empty()) ImGui::TextWrapped("%s", state.status.c_str());

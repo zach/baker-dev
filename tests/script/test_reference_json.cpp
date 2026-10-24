@@ -8,6 +8,7 @@
 
 #include <string>
 #include <vector>
+#include "hash_spelling.hpp"
 #include "ok.hpp"
 
 using namespace baker;
@@ -112,8 +113,8 @@ TEST_CASE("given a session, the reference lists its packs and origins") {
     LoadSession session;
     session.set_pack_levels({"engine", "game", "task"});
     REQUIRE(
-        read_string("(pack boss (level game) (owners \"td\") (stage custom))\n"
-                    "(origin \"economy.xlsx\" (tool sheets-export))\n",
+        read_string(test::hash_spelled("(pack boss (level game) (owners \"td\") (stage custom))\n"
+                                       "(origin \"economy.xlsx\" (tool sheets-export))\n"),
                     "boss.dta", session));
     const std::string json = reference_json(ctx, &session);
     CHECK(has(json, R"j({"name": "boss", "level": "game", "file": "boss.dta", )j"

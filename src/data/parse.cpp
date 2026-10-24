@@ -240,7 +240,7 @@ private:
         const size_t begin = pos_;
         while (pos_ < src_.size() && !is_atom_end(static_cast<unsigned char>(src_[pos_]))) ++pos_;
         const std::string_view atom = src_.substr(begin, pos_ - begin);
-        if (atom[0] == '#' && atom.size() > 1) {  // a lone # is the symbol '#' (D101)
+        if (is_directive(atom)) {  // a lone # is the symbol '#' (D101)
             t.kind = Tok::Directive;
             t.text = atom.substr(1);
             return true;
@@ -324,7 +324,11 @@ struct LoadSession::State {
           warnings(a),
           files(a),
           defines_before(a),
-          include_stack(a) {}
+#if BAKER_HASH_DECLARATIONS
+          shapes(a),
+#endif
+          include_stack(a) {
+    }
     // A copy of `o` from `a`: each table assigned, so it keeps `a` (D129).
     State(const State& o, const Allocator& a) : State(a) {
         defines = o.defines;
@@ -347,6 +351,10 @@ struct LoadSession::State {
         packs_from = o.packs_from;
         origins_from = o.origins_from;
         definitions_from = o.definitions_from;
+#if BAKER_HASH_DECLARATIONS
+        shapes = o.shapes;
+        shapes_from = o.shapes_from;
+#endif
         include_stack = o.include_stack;
         nodes = o.nodes;
         includes = o.includes;
@@ -376,6 +384,10 @@ struct LoadSession::State {
     size_t packs_from = 0;
     size_t origins_from = 0;
     size_t definitions_from = 0;
+#if BAKER_HASH_DECLARATIONS
+    Vec<ShapeDecl> shapes;  // #shape declarations, in the order read
+    size_t shapes_from = 0;
+#endif
     // Per top-level read.
     Vec<Str> include_stack;
     uint64_t nodes = 0;
@@ -396,6 +408,9 @@ public:
           map_(session.source_map),
           size_(static_cast<uint32_t>(text.size())) {
         if (map_) map_->record_text(file, text);
+#if BAKER_HASH_DECLARATIONS
+        defs_from_ = s_.st_->definitions.size();
+#endif
     }
 
     bool run(Ref<Array>& out, Error& err) {
@@ -446,12 +461,22 @@ public:
     }
 
 private:
-    enum class Frame : uint8_t { Root, Array, Command, Property, MacroDef, DefineBody, Autorun };
+    // Declare: #pack (...), #origin (...) or #shape (...), with the switch on (text.hpp).
+    enum class Frame : uint8_t {
+        Root,
+        Array,
+        Command,
+        Property,
+        MacroDef,
+        DefineBody,
+        Autorun,
+        Declare
+    };
     struct FrameInfo {
         Frame kind;
         size_t start;
         int32_t line;
-        Symbol name;  // DefineBody
+        Symbol name;  // DefineBody; Declare: the directive's name
         char open = '(';
         uint32_t begin = 0;    // offset of the opening bracket
         bool removes = false;  // holds #remove, which must be its one value (D143)
@@ -523,6 +548,11 @@ private:
         if (!t.quoted && !naming_macro && !s_.st_->defines.empty()) {
             if (const Array* body = s_.macro(sym)) {
                 if (pack_ >= 0) one_way(sym, t.line);
+#if BAKER_HASH_DECLARATIONS
+                // Checked if the file declares a pack below: a pack is its whole file's.
+                else if (!s_.st_->macro_pack.empty())
+                    unpacked_.emplace_back(sym, t.line);
+#endif
                 const SourceSpan from{file_, t.begin, t.end, sym};
                 for (const Node& n : *body)
                     if (!push(n, from)) return false;
@@ -595,6 +625,10 @@ private:
                 return true;
             case Frame::Command: return push(Node(std::move(arr), Type::Command), span);
             case Frame::Property: return push(Node(std::move(arr), Type::Property), span);
+#if BAKER_HASH_DECLARATIONS
+            case Frame::Declare: return declared(f, std::move(arr));
+            default: return push(Node(std::move(arr)), span);  // (pack ...) is data
+#else
             default:
                 // A file's first form may declare it a pack, which the tree leaves out.
                 if (frames_.size() == 1 && f.start == 0 && pack_ < 0 && !arr->empty() &&
@@ -605,9 +639,29 @@ private:
                     (*arr)[0].is(sym_origin()) && (*arr)[1].type() == Type::String)
                     return declare_origin(*arr);
                 return push(Node(std::move(arr)), span);
+#endif
         }
     }
 
+#if BAKER_HASH_DECLARATIONS
+    // A declaration's form, which the tree leaves out: the name or source first (index 0).
+    static constexpr uint32_t kFirst = 0;
+    bool declared(const FrameInfo& f, Ref<Array> form) {
+        if (f.name == "pack") return declare_pack(*form);
+        if (f.name == "shape") {
+            const Symbol root(s_.st_->include_stack.front());
+            SessionAccess::add_shape(s_, {std::move(form), file_, f.line, root});
+            return true;
+        }
+        if (form->empty() || (*form)[0].type() != Type::String)
+            return fail(ErrorCode::Directive,
+                        "#origin takes a string first: #origin (\"source\" (tool NAME))", f.line,
+                        f.begin);
+        return declare_origin(*form);
+    }
+#else
+    // A first form (pack name ...) or (origin "source" ...): the name or source at index 1.
+    static constexpr uint32_t kFirst = 1;
     static const Symbol& sym_pack() {
         static const Symbol s("pack");
         return s;
@@ -616,6 +670,7 @@ private:
         static const Symbol s("origin");
         return s;
     }
+#endif
 
     // A name written as a symbol or a string: (owners "td-combat" td-encounter).
     static std::optional<Symbol> name_of(const Node& n) {
@@ -684,14 +739,14 @@ private:
                 return fail(ErrorCode::Syntax, "write (origin \"source\" (tool name))", t->line());
             tool = *x;
         }
-        SessionAccess::add_origin(s_, {file_, Symbol(*decl[1].try_str()), tool});
+        SessionAccess::add_origin(s_, {file_, Symbol(*decl[kFirst].try_str()), tool});
         return true;
     }
 
     // (pack name (level L) (requires other ...)): other children are metadata for later.
     bool declare_pack(const Array& decl) {
         LoadSession::State& st = *s_.st_;
-        const auto name = decl.size() > 1 ? decl[1].try_sym() : std::nullopt;
+        const auto name = decl.size() > kFirst ? decl[kFirst].try_sym() : std::nullopt;
         if (!name) return fail(ErrorCode::Syntax, "(pack ...) needs a name", decl.line());
         const Array* level = decl.try_find("level");
         const auto l = level && level->size() == 2 ? (*level)[1].try_sym() : std::nullopt;
@@ -749,6 +804,21 @@ private:
                      List<Symbol>({owners.data(), owners.size()}),
                      List<Symbol>({audience.data(), audience.size()}), stage}));
         pack_line_ = decl.line();
+#if BAKER_HASH_DECLARATIONS
+        // A pack is its whole file's: what the file defined above #pack is the pack's, in the
+        // order defined (another file's definition since keeps its own pack, or none), and
+        // the macros it used above #pack are checked now.
+        for (size_t i = defs_from_; i < st.definitions.size(); ++i) {
+            const Definition& d = st.definitions[i];
+            const Pack* p =
+                d.file == file_ ? &st.packs[static_cast<size_t>(pack_)] : s_.pack_of(d.file);
+            if (p)
+                st.macro_pack[d.name] = static_cast<uint32_t>(p - st.packs.data());
+            else
+                st.macro_pack.erase(d.name);
+        }
+        for (const auto& [macro, line] : unpacked_) one_way(macro, line);
+#endif
         return true;
     }
 
@@ -879,6 +949,12 @@ private:
             Token next;
             if (!lex_.peek(next, *err_)) return false;
             if (next.kind == Tok::Open && next.bracket == '(' && next.line == name.line) {
+#if BAKER_HASH_DECLARATIONS
+                return fail(ErrorCode::Directive,
+                            "#define " + Str(name.text) + " defines a flag; a macro is written [" +
+                                Str(name.text) + " ...]",
+                            next.line, next.begin);
+#endif
                 (void)lex_.next(next, *err_);
                 if (!open('(', next.line, next.begin)) return false;
                 frames_.back().kind = Frame::DefineBody;
@@ -895,6 +971,9 @@ private:
             s_.undefine(Symbol(name.text));
             return true;
         }
+#if BAKER_HASH_DECLARATIONS
+        if (d == "pack" || d == "origin" || d == "shape") return declaration(t);
+#endif
         if (d == "autorun") {
             Token next;
             if (!lex_.next(next, *err_)) return false;
@@ -907,6 +986,33 @@ private:
         }
         return fail(ErrorCode::Directive, "unknown directive '#" + Str(d) + "'", t.line, t.begin);
     }
+
+#if BAKER_HASH_DECLARATIONS
+    // #pack, #origin, #shape: one form at the file's top level, a pack and an origin once.
+    bool declaration(const Token& t) {
+        const Str d(t.text);
+        if (frames_.size() != 1)
+            return fail(ErrorCode::Directive, "#" + d + " is written at a file's top level", t.line,
+                        t.begin);
+        if ((d == "pack" && pack_ >= 0) || (d == "origin" && origin_))
+            return fail(ErrorCode::Directive,
+                        "second #" + d + " in this file: a file declares one " + d, t.line,
+                        t.begin);
+        Token next;
+        if (!lex_.next(next, *err_)) return false;
+        if (next.kind != Tok::Open || next.bracket != '(')
+            return fail(ErrorCode::Directive,
+                        "#" + d + " takes one form: #" + d +
+                            (d == "pack"     ? " (NAME (level L) ...)"
+                             : d == "origin" ? " (\"source\" (tool NAME))"
+                                             : " (NAME (FIELD TYPE ...) ...)"),
+                        next.line, next.begin);
+        if (!open('(', next.line, next.begin)) return false;
+        frames_.back().kind = Frame::Declare;
+        frames_.back().name = Symbol(d);
+        return true;
+    }
+#endif
 
     // Resolves and parses an included or merged file. Leaves `out` null if `optional`
     // and the file does not exist, or if `require` and the session has read it already.
@@ -984,6 +1090,10 @@ private:
     int32_t pack_line_ = 0;  // where it declared it
     bool origin_ = false;    // this file declared its origin
     Vec<Symbol> warned_;     // macros this file has been warned about
+#if BAKER_HASH_DECLARATIONS
+    size_t defs_from_ = 0;                      // the session's definitions before this file
+    Vec<std::pair<Symbol, int32_t>> unpacked_;  // macros used before a #pack, and where
+#endif
 };
 
 }  // namespace detail
@@ -1089,6 +1199,11 @@ const Origin* LoadSession::origin_of(Symbol file) const noexcept {
         if (o.file == file) return &o;
     return nullptr;
 }
+#if BAKER_HASH_DECLARATIONS
+std::span<const ShapeDecl> LoadSession::shapes() const noexcept {
+    return {st_->shapes.data(), st_->shapes.size()};
+}
+#endif
 std::span<const Error> LoadSession::warnings() const noexcept {
     return {st_->warnings.data(), st_->warnings.size()};
 }
@@ -1208,6 +1323,15 @@ void SessionAccess::add_origin(LoadSession& s, const Origin& origin) {
         }
     s.st_->origins.push_back(origin);
 }
+#if BAKER_HASH_DECLARATIONS
+std::span<const ShapeDecl> SessionAccess::new_shapes(const LoadSession& s) noexcept {
+    const auto& d = s.st_->shapes;
+    return {d.data() + std::min(s.st_->shapes_from, d.size()), d.data() + d.size()};
+}
+void SessionAccess::add_shape(LoadSession& s, ShapeDecl shape) {
+    s.st_->shapes.push_back(std::move(shape));
+}
+#endif
 void SessionAccess::set_macro_pack(LoadSession& s, Symbol macro, Symbol file) {
     const auto& packs = s.st_->packs;
     for (size_t i = 0; i < packs.size(); ++i)
@@ -1290,6 +1414,9 @@ Expected<Ref<Array>> read_string(std::string_view text, std::string_view name,
             st.packs_from = st.packs.size();
             st.origins_from = st.origins.size();
             st.definitions_from = st.definitions.size();
+#if BAKER_HASH_DECLARATIONS
+            st.shapes_from = st.shapes.size();
+#endif
         }
     }
     const Str file = detail::normalize_path(name);

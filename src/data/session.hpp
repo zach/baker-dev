@@ -74,6 +74,12 @@ struct SessionAccess {
     [[nodiscard]] static std::span<const Definition> new_definitions(const LoadSession& s) noexcept;
     static void add_definition(LoadSession& s, const Definition& definition);
     static void add_origin(LoadSession& s, const Origin& origin);
+#if BAKER_HASH_DECLARATIONS
+    // #shape declarations (the hash-declarations prototype): those the last recorded read
+    // made, and one the parser or a cache's replay records.
+    [[nodiscard]] static std::span<const ShapeDecl> new_shapes(const LoadSession& s) noexcept;
+    static void add_shape(LoadSession& s, ShapeDecl shape);
+#endif
 };
 
 }  // namespace baker::detail

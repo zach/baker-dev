@@ -40,8 +40,9 @@ static_assert(sizeof(String) == 8 && sizeof(Symbol) == 8);
 constexpr char kMagic[10] = {'M', 'O', 'I', 'R', 'A', '.', 'D', 'A', 'T', 'B'};
 // 2: packs' harness metadata, origins (D91); 3: the header hashed (D119); 4: '' keys no tag
 // in the tag run (D125); 5: packs' versions, and the versions they require (D147); 6: the
-// source-order layout, for delta patches (D148).
-constexpr uint16_t kVersion = 6;
+// source-order layout, for delta patches (D148); 7: #shape declarations, with the switch of
+// the hash-declarations prototype (text.hpp).
+constexpr uint16_t kVersion = kHashDeclarations ? 7 : 6;
 constexpr uint32_t kEndian = 0x01020304;
 
 // The layout is made for delta patches (D148): an edit to the text changes the bytes of the
@@ -685,6 +686,15 @@ Ref<Array> record_of(const LoadSession& s) {
     Vec<Node> meta{list(files),   list(before),      list(define),  list(undefine),
                    list(autorun), list(required),    list(require), list(levels),
                    list(packs),   list(macro_packs), list(origins), list(definitions)};
+#if BAKER_HASH_DECLARATIONS
+    // Each #shape: its form, file, line and root; a cache keeps no tree of them (version 7).
+    Vec<Node> shapes{Node(Symbol("shapes"))};
+    for (const ShapeDecl& d : A::new_shapes(s)) {
+        Vec<Node> entry{Node(d.form), Node(d.file), Node(int64_t{d.line}), Node(d.root)};
+        shapes.push_back(list(entry));
+    }
+    meta.push_back(list(shapes));
+#endif
     return Array::make_from({meta.data(), meta.size()});
 }
 
@@ -812,6 +822,17 @@ void replay(const Array& meta, LoadSession& s) {
     if (const Array* r = meta.try_find("require"))
         for (const Node& n : r->values())
             if (const String* p = n.string()) SessionAccess::add_required(s, p->view());
+#if BAKER_HASH_DECLARATIONS
+    if (const Array* ss = meta.try_find("shapes"))
+        for (const Node& n : ss->values()) {
+            const Array* d = n.array();
+            if (!d || d->size() != 4 || !(*d)[0].array()) continue;
+            SessionAccess::add_shape(s, {Ref<Array>(const_cast<Array*>((*d)[0].array())),
+                                         (*d)[1].try_sym().value_or(Symbol()),
+                                         static_cast<int32_t>((*d)[2].try_int().value_or(0)),
+                                         (*d)[3].try_sym().value_or(Symbol())});
+        }
+#endif
 }
 
 Expected<void> bytes_of(const Array& root, const LoadSession* session, Str& out) {

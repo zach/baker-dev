@@ -2,6 +2,8 @@
 
 // Test helpers for files on disk: a scratch directory and a line diff.
 
+#include "hash_spelling.hpp"
+
 #include <atomic>
 #include <filesystem>
 #include <fstream>
@@ -29,10 +31,11 @@ public:
         std::error_code ec;
         std::filesystem::remove_all(dir_, ec);
     }
+    // `text` in the spelling the core reads (hash_spelling.hpp).
     std::string write(const std::string& name, const std::string& text) const {
         const std::filesystem::path p = dir_ / name;
         std::filesystem::create_directories(p.parent_path());
-        std::ofstream(p, std::ios::binary) << text;
+        std::ofstream(p, std::ios::binary) << hash_spelled(text);
         return p.generic_string();
     }
     [[nodiscard]] std::string read(const std::string& name) const {

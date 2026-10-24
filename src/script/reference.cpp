@@ -289,6 +289,27 @@ CheckReport check(const Array& tree, const Context& ctx, const CheckOptions& opt
     return report;
 }
 
+#if BAKER_HASH_DECLARATIONS
+namespace {
+// Today's forms for what #pack, #origin and #shape say (the hash-declarations prototype), read
+// as data in one layer's tree: a warning each, in the reader's words.
+void legacy_forms(const Array& layer, const Callback<void(const Error&)>& warn) {
+    for (uint32_t i = 0; i < layer.size(); ++i) {
+        const Array* a = layer[i].try_array();
+        const Symbol tag = a ? a->tag() : Symbol();
+        const char* fix = nullptr;
+        if (tag == "shapes")
+            fix = "a top-level (shapes ...), read as data: write #shape (NAME ...) per shape";
+        else if (tag == "pack" && i == 0)
+            fix = "a (pack ...) first form, read as data: write #pack (...)";
+        else if (tag == "origin" && i < 2 && a->size() > 1 && (*a)[1].try_str())
+            fix = "an (origin \"...\") first form, read as data: write #origin (...)";
+        if (fix) warn(make_error(ErrorCode::Syntax, fix, a->file(), a->line()));
+    }
+}
+}  // namespace
+#endif
+
 void check(const Config& cfg, const Context& ctx, CheckReport& report, const CheckOptions& options,
            std::span<const Array* const> extra) {
     // The #autorun commands, as one tree: each keeps its own file and line.
@@ -307,6 +328,14 @@ void check(const Config& cfg, const Context& ctx, CheckReport& report, const Che
         report.tweak_errors = std::move(f.errors);
         report.tweak_warnings = std::move(f.warnings);
     }
+#if BAKER_HASH_DECLARATIONS
+    Vec<Error> warnings(report.warnings.begin(), report.warnings.end());
+    for (const Symbol layer : cfg.layers())
+        if (const Ref<Array> root = cfg.layer_root(layer.str());
+            root && cfg.layer_enabled(layer.str()))
+            legacy_forms(*root, [&warnings](const Error& e) { warnings.push_back(e); });
+    report.warnings = List<Error>({warnings.data(), warnings.size()});
+#endif
 }
 
 Callback<void(const ValidatorStack&, const Callback<void(const Error&)>&)> check_validator(
@@ -321,6 +350,9 @@ Callback<void(const ValidatorStack&, const Callback<void(const Error&)>&)> check
         check(stack.root, ctx, report, with);
         for (const Error& e : report.errors) warn(e);
         for (const Error& w : report.warnings) warn(w);
+#if BAKER_HASH_DECLARATIONS
+        for (const Ref<Array>& layer : stack.layers) legacy_forms(*layer, warn);
+#endif
     };
 }
 

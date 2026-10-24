@@ -5,6 +5,8 @@
 #include <baker/std_interop.hpp>
 #include <baker/write.hpp>
 
+#include "hash_spelling.hpp"
+
 #include <algorithm>
 #include <map>
 #include <string>
@@ -25,7 +27,7 @@ struct Files {
             reads.emplace_back(path);
             auto it = files.find(std::string(path));
             if (it == files.end()) return false;
-            out(it->second);
+            out(test::hash_spelled(it->second));
             return true;
         });
     }
@@ -42,12 +44,12 @@ struct Files {
 };
 
 std::string text(std::string_view src) {
-    auto r = read_string(src, "t.dta");
+    auto r = read_string(test::hash_spelled(src), "t.dta");
     REQUIRE_MESSAGE(r.has_value(), (r ? std::string() : to_string(r.error())));
     return to_string(**r);
 }
 Error error(std::string_view src) {
-    auto r = read_string(src, "t.dta");
+    auto r = read_string(test::hash_spelled(src), "t.dta");
     REQUIRE(!r.has_value());
     return r.error();
 }
@@ -132,7 +134,11 @@ TEST_CASE("a lone # is a symbol") {
     REQUIRE(root);
     CHECK((*(**root)[0].array())[0].try_sym() == Symbol("#"));
     CHECK((**root)[1].try_sym() == Symbol("#"));
+#if BAKER_HASH_DECLARATIONS
+    CHECK(to_dta(**root) == "(# 3)\n#\n");  // printed bare too: no directive starts so
+#else
     CHECK(to_dta(**root) == "('#' 3)\n'#'\n");
+#endif
     auto again = read_string(to_dta(**root), "t.dta");
     REQUIRE(again);
     CHECK(structurally_equal(**root, **again));

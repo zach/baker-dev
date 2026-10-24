@@ -6,6 +6,7 @@
 #include <baker/std_interop.hpp>
 
 #include "alloc_counter.hpp"
+#include "hash_spelling.hpp"
 #include "ok.hpp"
 
 #include <algorithm>
@@ -26,11 +27,24 @@ std::vector<std::string> texts(const List<Error>& list) {
     return out;
 }
 
+#if BAKER_HASH_DECLARATIONS
+// The hash-declarations prototype (parse.hpp): the shapes come from the session, and these
+// tests' (pack ...) and (shapes ...) are spelled #pack and #shape (hash_spelling.hpp).
+void add(shape::Set& set, const Array&, shape::Report& report, const LoadSession& read) {
+    set.add(read, report);
+}
+#else
+void add(shape::Set& set, const Array& tree, shape::Report& report, const LoadSession&) {
+    set.add(tree, report);
+}
+#endif
+
 shape::Report check_text(std::string_view text) {
-    auto tree = ok(read_string(text, "t.dta"));
+    LoadSession read;
+    auto tree = ok(read_string(test::hash_spelled(text), "t.dta", read));
     shape::Set set;
     shape::Report report;
-    set.add(*tree, report);
+    add(set, *tree, report, read);
     shape::check(*tree, set, report);
     return report;
 }
@@ -42,6 +56,7 @@ TEST_CASE("a violation in corpus-style data is reported at load, located") {
     std::vector<std::string> reported;
     cfg.set_warning_handler([&](const Error& e) { reported.emplace_back(to_string(e)); });
     cfg.add_validator(shape::validator(), {.any_thread = true});
+    cfg.session().set_reader(test::read_spelled);
     REQUIRE(cfg.push_layer("bosses", kDir + "/bosses.dta"));
     // Before the patch: the dragon's third phase is out of range, the golem's phase lacks
     // its cadence (errors), and the golem's taunts is not declared (a warning).
@@ -124,10 +139,11 @@ TEST_CASE("checking allocates the same for 10 instances as for 1,000 (gap 20)") 
     auto allocations_for = [](int units) {
         std::string text = "(shapes (vec (x float) (y float)) (unit (hp int) (pos vec)))";
         for (int i = 0; i < units; ++i) text += "(unit (hp 1) (pos (x 1) (y 2)))";
-        auto tree = ok(read_string(text, "t.dta"));
+        LoadSession read;
+        auto tree = ok(read_string(test::hash_spelled(text), "t.dta", read));
         shape::Set set;
         shape::Report report;
-        set.add(*tree, report);
+        add(set, *tree, report, read);
         const test::AllocationScope scope;
         shape::check(*tree, set, report);
         return scope.count();
@@ -140,22 +156,34 @@ TEST_CASE("malformed declarations are located errors; unknown shapes are reporte
     const auto r = check_text(R"((shapes (s (a) (b float (range 2 1)) (c (list)) 5) 7)
                                   (s (c 1) (d 2)) (shapes (t (u nowhere))) (t (u 1)))");
     const auto e = texts(r.errors);
-    CHECK(e.size() == 6);
+    // With #shape, the 7 is no declaration but a top-level value.
+#if BAKER_HASH_DECLARATIONS
+    const long declared_7 = 0;
+#else
+    const long declared_7 = 1;
+#endif
+    CHECK(e.size() == 5 + declared_7);
     CHECK(std::count_if(e.begin(), e.end(), [](const std::string& s) {
               return s.find("t.dta:1)") != std::string::npos;
-          }) == 5);
+          }) == 4 + declared_7);
     CHECK(std::any_of(e.begin(), e.end(), [](const std::string& s) {
         return s.find("'u' is of the unknown shape 'nowhere'") != std::string::npos;
     }));
 }
 
 TEST_CASE("shapes are enumerable, with their metadata, for tuning panels") {
-    auto tree = ok(read_file(kDir + "/bosses.dta"));
-    auto patch = ok(read_file(kDir + "/bosses_patch.dta"));
+    LoadSession read;
+    read.set_reader(test::read_spelled);
+    auto tree = ok(read_file(kDir + "/bosses.dta", read));
+    auto patch = ok(read_file(kDir + "/bosses_patch.dta", read));
     shape::Set set;
     shape::Report report;
+#if BAKER_HASH_DECLARATIONS
+    set.add(read, report);  // both files' declarations, in the order read
+#else
     set.add(*tree, report);
     set.add(*patch, report);
+#endif
     CHECK(report.ok());
     REQUIRE(set.shapes().size() == 2);
     const shape::Shape* phase = set.find("boss_phase");
@@ -235,7 +263,7 @@ TEST_CASE("a softer pack may narrow a harder pack's shape, not loosen it (D145)"
             cfg.session().set_reader([](std::string_view p, TextSink out) {
                 const auto it = files.find(std::string(p));
                 if (it == files.end()) return false;
-                out(it->second);
+                out(test::hash_spelled(it->second));
                 return true;
             });
             cfg.session().set_pack_levels({"game", "mod"});
@@ -289,10 +317,16 @@ TEST_CASE("a symbol field lists the symbols it allows, (one_of ...) (D203)") {
     // Declared again, a field adds what the new list names, in the order written.
     shape::Set set;
     shape::Report report;
-    set.add(*ok(read_string("(shapes (move (button symbol (one_of light heavy))))", "a.dta")),
-            report);
-    set.add(*ok(read_string("(shapes (move (button symbol (one_of special light))))", "b.dta")),
-            report);
+    LoadSession a, b;
+    add(set,
+        *ok(read_string(test::hash_spelled("(shapes (move (button symbol (one_of light heavy))))"),
+                        "a.dta", a)),
+        report, a);
+    add(set,
+        *ok(read_string(
+            test::hash_spelled("(shapes (move (button symbol (one_of special light))))"), "b.dta",
+            b)),
+        report, b);
     CHECK(report.ok());
     const shape::Field* button = set.find(Symbol("move"))->field(Symbol("button"));
     REQUIRE(button);
@@ -316,13 +350,16 @@ TEST_CASE("a symbol field lists the symbols it allows, (one_of ...) (D203)") {
 TEST_CASE("the shapes as JSON: each shape and its fields") {
     shape::Set shapes;
     shape::Report report;
-    shapes.add(
-        *ok(read_string("(shapes\n"
-                        "   (boss_phase (at bosses * phases) (keyed)\n"
-                        "      (enter_at float (range 0 1) (step 0.05) (desc \"HP fraction\"))\n"
-                        "      (adds (list symbol) (optional))))\n",
-                        "shapes.dta")),
-        report);
+    LoadSession read;
+    add(shapes,
+        *ok(read_string(
+            test::hash_spelled("(shapes\n"
+                               "   (boss_phase (at bosses * phases) (keyed)\n"
+                               "      (enter_at float (range 0 1) (step 0.05) (desc \"HP "
+                               "fraction\"))\n"
+                               "      (adds (list symbol) (optional))))\n"),
+            "shapes.dta", read)),
+        report, read);
     REQUIRE(report.errors.empty());
     std::string json;
     shape::write_json(shapes, string_out(json));
@@ -338,3 +375,41 @@ TEST_CASE("the shapes as JSON: each shape and its fields") {
     CHECK(json.find(R"j({"name": "adds", "type": "list", "element": "symbol", )j"
                     R"j("shape": "", "optional": true, "range": null,)j") != std::string::npos);
 }
+
+#if BAKER_HASH_DECLARATIONS
+TEST_CASE("#shape declares as a (shapes ...) child did; a disabled layer's do not hold") {
+    static const std::map<std::string, std::string> files = {
+        {"base.dta", "#shape (unit (hp int (range 1 10)))\n(unit (hp 5))\n"},
+        {"mod.dta", "(unit (hp 50))\n#shape (unit (speed float (optional)))\n"}};
+    Config cfg({.tweaks = nullptr});
+    std::vector<std::string> reported;
+    cfg.session().set_reader([](std::string_view p, TextSink out) {
+        const auto it = files.find(std::string(p));
+        if (it == files.end()) return false;
+        out(it->second);
+        return true;
+    });
+    cfg.set_warning_handler([&](const Error& e) { reported.emplace_back(to_string(e)); });
+    cfg.add_validator(shape::validator(), {.any_thread = true});
+    REQUIRE(cfg.push_layer("base", "base.dta"));
+    CHECK(reported.empty());
+    REQUIRE(cfg.push_layer("mod", "mod.dta"));
+    REQUIRE(reported.size() == 1);
+    CHECK(reported[0].find("'hp' is 50, outside 1.0 to 10.0  (mod.dta:1") != std::string::npos);
+    // With the base layer off, its shape is gone from the check, as its (shapes ...) was.
+    reported.clear();
+    REQUIRE(cfg.set_layer_enabled("base", false));
+    REQUIRE(reported.size() == 1);
+    CHECK(reported[0].find("'hp' is not a field of shape 'unit'") != std::string::npos);
+    // A top-level (shapes ...) is data, checked as any data is.
+    LoadSession read;
+    auto tree =
+        ok(read_string("(shapes (unit (hp int)))\n#shape (unit (hp float))\n", "t.dta", read));
+    shape::Set set;
+    shape::Report r;
+    set.add(read, r);
+    shape::check(*tree, set, r);
+    REQUIRE(r.errors.size() == 1);
+    CHECK(texts(r.errors)[0].find("'hp' is symbol, not float") != std::string::npos);
+}
+#endif

@@ -48,6 +48,19 @@ inline constexpr std::array<bool, 256> kAtomEnd = [] {
     return kAtomEnd[c];
 }
 
+// The hash-declarations prototype (dev/syntax-hash-declarations-design.md), behind its switch
+// (BAKER_HASH_DECLARATIONS, CMake): `#` opens a directive only before an ASCII letter, so `#1`
+// is a symbol, and #pack, #origin and #shape declare. Off, the reader and printer are main's.
+#ifndef BAKER_HASH_DECLARATIONS
+#define BAKER_HASH_DECLARATIONS 0
+#endif
+inline constexpr bool kHashDeclarations = BAKER_HASH_DECLARATIONS != 0;
+// Whether an atom (not empty) is a directive: `#` and a byte more, a letter with the switch.
+[[nodiscard]] constexpr bool is_directive(std::string_view atom) noexcept {
+    return atom[0] == '#' && atom.size() > 1 &&
+           (!kHashDeclarations || ((atom[1] | 0x20) >= 'a' && (atom[1] | 0x20) <= 'z'));
+}
+
 enum class NumberKind : uint8_t { NotNumber, Int, Float, IntOutOfRange, FloatOutOfRange };
 
 struct Number {
