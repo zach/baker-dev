@@ -82,6 +82,19 @@ TEST_CASE("every corpus file survives the round trip") {
     CHECK(corpus_files().size() > 50);
 }
 
+TEST_CASE("every corpus file survives the round trip under the strict rule too") {
+    // The printer writes no children after a row's cells, so its text reads either way.
+    const auto failures =
+        round_trip_corpus([](const Array& r) { return syntax::print(r); },
+                          [](std::string_view text, std::string_view name) {
+                              return syntax::read(text, name, {.trailing_children = false});
+                          });
+    for (const RoundTrip& f : failures) {
+        INFO(f.file << ": " << f.problem);
+        CHECK(f.stage == RoundTrip::Stage::Baker);
+    }
+}
+
 TEST_CASE("a converted sample reads back to the same tree") {
     auto original = syntax::read(
         "(menu ('bacon and eggs' (price 12.75) (calories 120)))\n"

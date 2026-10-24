@@ -7,10 +7,13 @@
 //   stats                          the heuristic over the corpus: tables, rows, cells, holes
 //   bench [<file.dta>]             the reader against baker::read_string, same content
 //   bench-table [<bytes>]          the same over generated keyed tables (default 4 MB)
+//   bench-stacks [<bytes>]         the same over the stacks' data files, nested against headed,
+//                                  repeated to 4 MB
 //   count <what> <input> <n>       read `input` n times, for cachegrind: what is baker,
 //                                  new, lex (read_structure) or rewrite (desugar only);
-//                                  input is a file, `gen` (the parse benchmark's text) or
-//                                  `gen-table` (generated keyed tables, converted for new)
+//                                  input is a file, `gen` (the parse benchmark's text),
+//                                  `gen-table` (generated keyed tables) or `stacks` (the
+//                                  stacks' data files), converted by the printer for new
 #include "experiments.hpp"
 #include "syntax.hpp"
 
@@ -24,6 +27,8 @@
 #include <functional>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -40,7 +45,8 @@ int usage() {
         stderr,
         "usage: baker_syntax_%.*s to-new [--nested] <file.dta> | to-dta [--strict] <file> | "
         "desugar <file> | check | stats | bench [<file.dta>] | bench-table [<bytes>] | "
-        "count <baker|new|lex|rewrite> <file|gen|gen-table> <n>\n",
+        "bench-stacks [<bytes>] | "
+        "count <baker|new|lex|rewrite> <file|gen|gen-table|stacks> <n>\n",
         static_cast<int>(syntax::kName.size()), syntax::kName.data());
     return 2;
 }
@@ -65,6 +71,32 @@ std::string generated_table_text(size_t bytes) {
         text += "\n";
     }
     return text;
+}
+
+// The stacks' data files (stacks/*/data/), each read as Baker reads it, its own top-level
+// forms printed twice: nested (the printer with no headers) and headed (the printer's
+// tables). Repeated until the nested text is at least `bytes` long.
+std::pair<std::string, std::string> stacks_texts(size_t bytes) {
+    std::string nested_once, headed_once;
+    for (const std::string& rel : corpus_files()) {
+        if (!rel.starts_with("stacks/") || rel.find("/data/") == std::string::npos) continue;
+        const std::string path = std::string(repository_root()) + "/" + rel;
+        auto root = read_dta_file(path);
+        if (!root) continue;
+        // Only the file's own forms: what it #requires (a pack's shapes) is left out.
+        std::vector<Node> own;
+        for (const Node& n : **root)
+            if (const Array* a = n.try_array(); a && a->file().str() == path) own.push_back(n);
+        auto mine = Array::make_from(own);
+        nested_once += syntax::print(*mine, {.tables = false});
+        headed_once += syntax::print(*mine);
+    }
+    std::string nested, headed;
+    while (nested.size() < bytes) {
+        nested += nested_once;
+        headed += headed_once;
+    }
+    return {nested, headed};
 }
 
 double best_ms(const std::function<void()>& fn, int runs = 7) {
@@ -95,6 +127,7 @@ std::string input_text(std::string_view input, bool& ok) {
     ok = true;
     if (input == "gen") return generated_config_text(4 * 1024 * 1024);
     if (input == "gen-table") return generated_table_text(4 * 1024 * 1024);
+    if (input == "stacks") return stacks_texts(4 * 1024 * 1024).first;
     auto t = read_text_file(input);
     if (!t) {
         fail(t.error());
@@ -196,6 +229,18 @@ int main(int argc, char** argv) {
         }
         print_stats("total", total);
         print_stats("the stacks' data files (stacks/*/data/)", stacks_data);
+        return 0;
+    }
+    if (cmd == "bench-stacks") {
+        const auto [nested, headed] =
+            stacks_texts(argc > 2 ? std::strtoull(argv[2], nullptr, 10) : 4 * 1024 * 1024);
+        auto root = read_string(nested, "bench.dta");
+        if (!root) return fail(root.error());
+        const syntax::TableStats s = syntax::table_stats(**root);
+        std::printf("tables %zu, rows %zu, cells %zu, holes %zu\n", s.tables, s.rows, s.cells,
+                    s.holes);
+        compare_parsers(syntax::reader(), nested, headed);
+        lex_only(nested, headed);
         return 0;
     }
     if (cmd == "bench" || cmd == "bench-table") {
