@@ -641,3 +641,39 @@ parser and the cache stay as they are. Measure it with the same `baker_count` ca
 lines, about +15 once the migration warning goes), then decide between it and the full
 change as built here. If neither payoff is worth a migration of 479 sites and a look that
 departs from the talk's slide syntax, decline: the corpus works today.
+
+## 11. Verification, the raw gate, and review
+
+*Added after the prototype, from the session's review round; `dev/syntax-ideas.md` on
+`claude/fervent-cray-l1kyf0` compares all eight branches.* An agent independent of the
+prototype rebuilt this branch, reran its tests and reproduced its numbers; a reviewer
+judged it under the data-oriented lens (`.claude/skills/acton-review/`) and the tool
+author's; and D101's raw gate (464 raw Harmonix files, `baker_parse_corpus --roundtrip
+--milo-paths` over a local clone of mariteaux/milo-script-library, nothing from it in the
+repository, D3) was run on the branch's build. Where a finding below disagrees with an
+earlier section, this section is the later word.
+
+- **Reviewed at** `1c73321`, the branch's final head.
+- **Verifier.** Builds; 23 of 23 by default. Every instruction count on every case and
+  build, the core line counts, the samples, the migration counts and the 21-of-21 proof on
+  a migrated copy reproduce exactly. Corrections: the `find_float` cost is not noise.
+  Pinned to one core and interleaved, base and switch-off agree and the switch runs +55%
+  on the average row and +65% on the last child, D77's warm row; `bench_parse` is about 4%
+  slower with the switch at best and median. The prototype is 865 code lines, not 861.
+  The migration is not on the branch, so building with the switch on fails 8 of 23 tests.
+- **Raw gate.** Switch on: **456/464**. All 8 failures are one line of real data,
+  `rb1/ps2/config/cheats.dta:81`, `('@' "Game: Win w/ 3 stars, Meta: Win Event w/ 2 Star
+  Avg" {fake_win 2})`, a keyboard cheat bound to the `@` key, included by 8 files. The
+  error is located, not silent. A quoted symbol must never be metadata.
+- **Technical director, 2 of 5, explore further.** No misread exists in the corpus to fix;
+  the boundary costs +1% on the parse and the reproduced `find_float` row; the recommended
+  variant is not built. The argument the note does not make: one token marking metadata
+  lets a bake strip cold metadata, about 13.5% of the stacks' bytes.
+- **Tool author, 3 of 5, adopt in part.** `split_metadata` now returns fields that follow
+  metadata as metadata, a layout `write_back_to` itself produces; `(@desc)` on a scenario
+  is ignored and a misspelt `(@rnage)` in data is silent; the migration warning misses an
+  old word that is not last; files grow 0.3% to 2.5% from renames alone.
+- **Recommendation after review.** Build the spelling-only pass of section 10 with
+  `metadata()` returning only `@` children and every bare old word and unknown `@word`
+  reported, measure it to zero on parse, `find_float` and `set`, and decide it together
+  with hash-declarations' `#shape`.
