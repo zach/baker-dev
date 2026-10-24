@@ -16,8 +16,9 @@
 // name (D108).
 //
 //   (shapes (move (at fighters * moves) (keyed) (startup int (range 1 60)))) A field has a type
-// (int, float, bool, symbol, string, any, (list T), or another shape's name) and the tweak
-// metadata (spec §4); a symbol field may list the symbols it allows,
+// (int, float, bool, symbol, string, any, (list T), (list T N) for exactly N values,
+// (list T N M) for N to M, or another shape's name) and the tweak metadata (spec §4); a
+// symbol field may list the symbols it allows,
 // (button symbol (one_of light heavy kick special)). check() reports a field of the wrong
 // type, out of range or outside its list, or a
 // required field that is missing, as an error; a field the shape does not declare is a
@@ -49,6 +50,9 @@ struct Field {
     Type type = Type::Any;
     Type element = Type::Any;  // a List's elements
     baker::Symbol shape;       // a Shape's, or a List of shapes', name
+    // How many values a List holds: (list T N) exactly N, (list T N M) N to M. Any number
+    // when not declared.
+    uint32_t min_count = 0, max_count = UINT32_MAX;
     bool optional = false;
     bool ranged = false;
     double min = 0, max = 0;

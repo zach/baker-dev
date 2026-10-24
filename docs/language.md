@@ -260,7 +260,8 @@ Shapes are declared in data, in one `(shapes ...)` container, each tagged by its
 ```
 
 - **Types:** `int`, `float`, `bool`, `symbol`, `string`, `any`, `(list T)`, or another
-  shape's name.
+  shape's name. A list may say how many values it holds: `(list float 4)` for exactly four,
+  `(list float 1 2)` for one or two.
 - **Metadata:** `range`, `step`, `kind`, `desc`, `note` (as a tweak's), and `optional`.
   A field without `optional` is required. A `symbol` or `(list symbol)` field may list the
   symbols it allows, `(button symbol (one_of light heavy kick special))`, in the order a tool

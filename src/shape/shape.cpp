@@ -107,11 +107,18 @@ bool read_field(const Array& a, Field& f, Vec<Error>& errors) {
     if (const auto t = a[1].try_sym()) {
         f.type = type_named(*t);
         if (f.type == Type::Shape) f.shape = *t;
-    } else if (const Array* l = a[1].try_array();
-               l && l->size() == 2 && (*l)[0].is(names().list) && (*l)[1].try_sym()) {
+    } else if (const Array* l = a[1].try_array(); l && l->size() >= 2 && l->size() <= 4 &&
+                                                  (*l)[0].is(names().list) && (*l)[1].try_sym()) {
         f.type = Type::List;
         f.element = type_named(*(*l)[1].try_sym());
         if (f.element == Type::Shape) f.shape = *(*l)[1].try_sym();
+        // (list T N): exactly N values; (list T N M): N to M.
+        const auto lo = l->size() > 2 ? (*l)[2].try_int() : std::optional<int64_t>(0);
+        const auto hi = l->size() > 3 ? (*l)[3].try_int() : lo;
+        if (!lo || !hi || *lo < 0 || *hi < *lo || *hi > UINT32_MAX)
+            return bad("field " + quoted(f.name) + " takes (list T), (list T N) or (list T N M)");
+        f.min_count = l->size() > 2 ? static_cast<uint32_t>(*lo) : 0;
+        f.max_count = l->size() > 2 ? static_cast<uint32_t>(*hi) : UINT32_MAX;
     } else {
         return bad("field " + quoted(f.name) + " has a type that is not a symbol or (list T)");
     }
@@ -167,6 +174,7 @@ bool loosens(const Field& held, const Field& next) noexcept {
     if (next.type != held.type || next.element != held.element || next.shape != held.shape)
         return true;
     if (next.optional && !held.optional) return true;
+    if (next.min_count < held.min_count || next.max_count > held.max_count) return true;
     if (!held.one_of.empty() && next.one_of.size() > held.one_of.size()) return true;
     return held.ranged && (!next.ranged || next.min < held.min || next.max > held.max);
 }
@@ -358,6 +366,18 @@ struct Checker {
             report(errors, ErrorCode::Type,
                    quoted(field.name) + " takes one " + Str(type_text(field.type)) + ", given " +
                        detail::decimal(static_cast<int64_t>(v.size())) + " values",
+                   f);
+            return;
+        }
+        if (field.type == Type::List &&
+            (v.size() < field.min_count || v.size() > field.max_count)) {
+            const Str want =
+                field.min_count == field.max_count
+                    ? detail::decimal(field.min_count)
+                    : detail::decimal(field.min_count) + " to " + detail::decimal(field.max_count);
+            report(errors, ErrorCode::Range,
+                   quoted(field.name) + " holds " +
+                       detail::decimal(static_cast<int64_t>(v.size())) + " values, not " + want,
                    f);
             return;
         }

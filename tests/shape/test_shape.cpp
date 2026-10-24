@@ -90,6 +90,27 @@ TEST_CASE("types, lists, nested shapes, and what is not checked") {
     CHECK(w.size() == 2);
 }
 
+TEST_CASE("a list declares how many values it holds: (list T N), (list T N M)") {
+    const auto r = check_text(R"(
+        (shapes (move (hitbox (list float 4) (desc "x y w h")) (hours (list float 1 2))
+                      (tags (list symbol)) (bad (list float x)) (worse (list float 3 1))))
+        (move (hitbox 0.3 1.3 0.55 0.2) (hours 8) (tags))
+        (move (hitbox 0.3 1.3 0.55) (hours 8 17 23) (tags a b c))
+        (move (hitbox 1 2 3 4 5) (hours 8 17) (tags x))
+    )");
+    const auto e = texts(r.errors);
+    auto has = [&](const std::string& part) {
+        return std::any_of(e.begin(), e.end(),
+                           [&](const std::string& s) { return s.find(part) != std::string::npos; });
+    };
+    CHECK(has("field 'bad' takes (list T), (list T N) or (list T N M)"));
+    CHECK(has("field 'worse' takes (list T), (list T N) or (list T N M)"));
+    CHECK(has("'hitbox' holds 3 values, not 4  (t.dta:5"));
+    CHECK(has("'hours' holds 3 values, not 1 to 2  (t.dta:5"));
+    CHECK(has("'hitbox' holds 5 values, not 4  (t.dta:6"));
+    CHECK(e.size() == 5);  // four values, one hour, two hours and an empty list pass
+}
+
 TEST_CASE("a nested shape tagged with its own name is checked once") {
     const auto r = check_text(R"(
         (shapes (attack (dmg int (range 0 10))) (boss (attacks (list attack)) (main attack)))
