@@ -437,6 +437,7 @@ struct StackRun {
     shape::Set set;
     shape::Report report;
     LoadSession session;
+    Ref<Array> tree;
 };
 
 void run_stack(const std::string& stack, bool migrated, StackRun& r) {
@@ -457,8 +458,47 @@ void run_stack(const std::string& stack, bool migrated, StackRun& r) {
         });
     auto tree = read_file(root + "/stacks/" + stack + "/data/default.dta", r.session);
     REQUIRE_MESSAGE(bool(tree), (tree ? std::string() : to_string(tree.error())));
+    r.tree = *tree;
     r.set.add(**tree, r.report, &r.session);
     shape::check(**tree, r.set, r.report);
+}
+
+// The check finding the first design question weighs against the at-the-table #shape: a
+// shape that governs no array of the tree, as D108's silent wrong depth does. Each tagged
+// array's chain of tags from the root, its own last, against each shape's place.
+std::vector<std::string> governs_nothing(const shape::Set& set, const Array& root) {
+    std::vector<std::vector<Symbol>> chains;
+    std::vector<Symbol> chain;
+    auto walk = [&](auto& self, const Array& a) -> void {
+        for (const Node& n : a) {
+            const Array* c = n.array();
+            if (!c) continue;
+            const Symbol tag = c->tag();
+            if (!tag.empty() && chain.empty() && tag == Symbol("shapes")) continue;
+            if (!tag.empty()) {
+                chain.push_back(tag);
+                chains.push_back(chain);
+            }
+            self(self, *c);
+            if (!tag.empty()) chain.pop_back();
+        }
+    };
+    walk(walk, root);
+    std::vector<std::string> found;
+    for (const shape::Shape& sh : set.shapes()) {
+        const bool any = std::any_of(chains.begin(), chains.end(), [&](const auto& c) {
+            if (!sh.keyed && c.back() != sh.name) return false;
+            if (sh.at.empty()) return true;
+            if (sh.at.size() != c.size() - 1) return false;
+            for (size_t i = 0; i < sh.at.size(); ++i)
+                if (sh.at[i] != Symbol("*") && sh.at[i] != c[i]) return false;
+            return true;
+        });
+        if (!any)
+            found.push_back(std::string(sh.file.str()) + ":" + std::to_string(sh.line) +
+                            ": shape '" + std::string(sh.name.str()) + "' governs no array");
+    }
+    return found;
 }
 
 }  // namespace
@@ -482,6 +522,9 @@ TEST_CASE("each stack's migrated pack, with its arities, holds over the stack's 
         CHECK(after.session.packs()[0].name == before.session.packs()[0].name);
         CHECK(after.session.packs()[0].owners.size() == before.session.packs()[0].owners.size());
         CHECK(after.session.origins().size() == before.session.origins().size());
+        // The check finding has nothing to say about the stacks as they are.
+        for (const std::string& f : governs_nothing(before.set, *before.tree)) INFO(f);
+        CHECK(governs_nothing(before.set, *before.tree).empty());
     }
     CHECK(arities == 11);  // of the six packs' 15 list fields; the other four are open lists
 }
@@ -539,6 +582,36 @@ TEST_CASE("Duel's shapes at their tables, and four floats are four") {
     CHECK(message(torn_report.errors[1]).find("'hitbox' holds 3 values, not 4") !=
           std::string::npos);
     CHECK(torn_report.errors[1].line() == 3);
+}
+
+TEST_CASE("a shape at the wrong depth checks nothing, silently; the finding names it") {
+    // D108's failure: (at fighters moves) for (at fighters * moves). Every move goes
+    // unchecked, a startup of 900 and an undeclared armor included, and nothing says so.
+    auto tree =
+        ok(syntax::read("#shape (move (at fighters moves) (keyed) (startup int (range 1 60)))\n"
+                        "(fighters (kestrel (moves (jab (startup 900) (armor 1)))))\n",
+                        "wrong.dta"));
+    shape::Set set;
+    shape::Report report;
+    set.add(*tree, report);
+    shape::check(*tree, set, report);
+    CHECK(report.errors.empty());
+    CHECK(report.warnings.empty());
+    const auto found = governs_nothing(set, *tree);
+    REQUIRE(found.size() == 1);
+    CHECK(found[0] == "wrong.dta:1: shape 'move' governs no array");
+    // Written at its table, it cannot be at the wrong depth: the place is where it stands.
+    auto at_table =
+        ok(syntax::read("(fighters (kestrel (moves #shape (move (startup int (range 1 60)))"
+                        " (jab (startup 900) (armor 1)))))\n",
+                        "table.dta"));
+    shape::Set table_set;
+    shape::Report table_report;
+    table_set.add(*at_table, table_report);
+    shape::check(*at_table, table_set, table_report);
+    CHECK(table_report.errors.size() == 1);
+    CHECK(table_report.warnings.size() == 1);
+    CHECK(governs_nothing(table_set, *at_table).empty());
 }
 
 TEST_CASE("a softer pack may narrow a #shape, not loosen it (D145 unchanged)") {
