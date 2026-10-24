@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <map>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -412,6 +413,70 @@ TEST_CASE("nothing in the text crashes the reader: the fuzz regressions and torn
     for (size_t n = 0; n <= sample.size(); ++n) {
         (void)syntax::read(sample.substr(0, n), "torn.dta");
         (void)syntax::migrate(sample.substr(0, n));
+    }
+}
+
+TEST_CASE("nothing in the text crashes the reader: random token soup") {
+    // A fixed seed: the same 3,000 texts every run, of the tokens the new forms are made of.
+    static const char* const tokens[] = {"#pack",
+                                         "#origin",
+                                         "#shape",
+                                         "#define",
+                                         "#ifdef X",
+                                         "#ifndef X",
+                                         "#else",
+                                         "#endif",
+                                         "#include x.dta",
+                                         "#require \"y.dta\"",
+                                         "#autorun",
+                                         "#remove",
+                                         "#1",
+                                         "#",
+                                         "#$%&",
+                                         "#foo",
+                                         "(",
+                                         ")",
+                                         "[",
+                                         "]",
+                                         "{",
+                                         "}",
+                                         "\"s\"",
+                                         "'q'",
+                                         "'",
+                                         "\"",
+                                         "pack",
+                                         "origin",
+                                         "shapes",
+                                         "(at",
+                                         "(keyed)",
+                                         "(list float 4)",
+                                         "x",
+                                         "1",
+                                         "-2.5",
+                                         "$v",
+                                         "; c\n",
+                                         "/* b */",
+                                         "\n",
+                                         " ",
+                                         "\xEF\xBB\xBF",
+                                         "(level game)"};
+    std::mt19937 rng(20261024);
+    std::uniform_int_distribution<size_t> pick(0, std::size(tokens) - 1), length(1, 40);
+    for (int i = 0; i < 3000; ++i) {
+        std::string text;
+        for (size_t n = length(rng); n > 0; --n) {
+            text += tokens[pick(rng)];
+            text += ' ';
+        }
+        auto r = syntax::read(text, "soup.dta");
+        if (r) {
+            // Whatever reads prints, and reads back to the same tree.
+            auto back = syntax::read(syntax::print(**r), "soup.new");
+            INFO(text);
+            REQUIRE(back);
+            CHECK(first_difference(**r, **back).empty());
+        }
+        (void)syntax::migrate(text);
     }
 }
 
