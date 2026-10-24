@@ -593,7 +593,6 @@ std::optional<bool> reads_one(std::string_view type, const Values& v, size_t i) 
     if (type == "symbol") return as(std::type_identity<Symbol>());
     if (type == "string") return as(std::type_identity<std::string_view>());
     if (type == "value") return as(std::type_identity<Node>());
-    if (type == "number") return i < v.size() && v[i].is_number();  // int or float
     return std::nullopt;
 }
 

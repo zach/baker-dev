@@ -289,8 +289,7 @@ template <class T>
 }
 
 // Whether `type` is one of Baker's single-value types: "int8" to "uint64", "int", "float32",
-// "float", "number" (an int or a float), "bool", "symbol", "string", or "value" (any one
-// value).
+// "float", "bool", "symbol", "string", or "value" (any one value).
 [[nodiscard]] bool value_type_known(std::string_view type) noexcept;
 // Whether `values` hold a value of each of `types` in order, as a Convert that reads them
 // with Values::read would take them; false if a type is not one of Baker's.
