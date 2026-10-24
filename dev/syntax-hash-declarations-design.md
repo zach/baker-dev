@@ -622,6 +622,9 @@ earlier section, this section is the later word.
   `layer_effect` and `explain`, so an agent layer could loosen a shape invisibly; and
   `read_structure`'s bracket tree would show `#shape (fighter ...)` inside a table as a
   row named `fighter`.
+- **Fuzzing.** Not run with libFuzzer: the branch changes no parser code (the shape
+  library's arity aside). The translator has a seeded random-text crash test in its suite
+  (section 8), clean under ASan and UBSan.
 - **Recommendation after review.** The parts that need no new syntax now (the arity with
   `count` in `baker.shapes`, the governs-nothing finding, a received-shape policy rule) and
   the `#`-before-a-letter rule; the directives held until `diff`, `layer_effect` and the
