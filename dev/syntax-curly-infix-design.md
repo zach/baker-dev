@@ -3,10 +3,12 @@
 *A prototype on `claude/fervent-cray-l1kyf0-syntax-curly-infix`, merged from the proposals
 curly-infix and expr-precedence (dev/syntax-survey.md on the session branch, "EXPRESSIONS").
 The reader rule and its printer sit behind a compile-time switch, `BAKER_CURLY_INFIX`, which
-is on where the experiments build and off in the default build; the vocabulary (variadic and
-chained operators, `+=` and its family) is unconditional. Every number below was measured on
-this branch on the shared 4-core machine the brief names, against the session branch
-(`8f15684`, whose code is the fork point `3817213`).*
+was on where the experiments build and off in the default build until the in-tree rewrite
+(section 11), and is on by default since; the vocabulary (variadic and chained operators, `+=`
+and its family) is unconditional. Every number in sections 1 to 10 was measured on this
+branch on the shared 4-core machine the brief names, against the session branch (`8f15684`,
+whose code is the fork point `3817213`); section 11's against `15ce5b6`, the commit before the
+rewrite.*
 
 ## 1. Thesis
 
@@ -46,7 +48,7 @@ never be read bare). So `+ - * / % < <= > >= == != && || ! += -= *= /=` qualify;
 `:` are reserved for the ternary and are not chain operators; `.`, `@`, `#`, `$` and `'` are
 not operator bytes (src/data/text.hpp:73-92).
 
-**The rule** (src/data/parse.cpp:595-683), applied when a `{` frame, a command or an
+**The rule** (src/data/parse.cpp:595-699), applied when a `{` frame, a command or an
 `#autorun` brace, closes over nodes k0 .. kn:
 
 1. *Eligible*: n+1 is odd and at least 3; no odd slot was written as a quoted symbol or a
@@ -64,9 +66,14 @@ not operator bytes (src/data/text.hpp:73-92).
 4. *Ternary*: k1 is `?` and either n+1 is 3 (`[if k0 k2]`) or n+1 is 5 with k3 the symbol
    `:` (`[if k0 k2 k4]`). The `if` is written nowhere, so its span is empty and write-back
    refuses to replace it. Marked written infix.
-5. *Mixed*: k1 is an OPERATOR or `?` and neither shape holds. ErrorCode::Syntax, "mixed
-   operators in {...}: nest braces to say which applies first", at the brace's line and
-   column.
+5. *Malformed*: k1 is an OPERATOR or `?` and neither shape holds; or (section 11) n+1 is
+   even, k0 is a number, variable, property or command, and k1 is an OPERATOR or `?`, a
+   brace no head-first call writes (quoted, `{$obj '<=' 1 2}` is a call). ErrorCode::Syntax at
+   the brace's line and column: "mixed operators in {...}: nest braces to say which applies
+   first" when another operator holds an odd slot, "infix {...} needs '<=' between every two
+   operands" when an operand does, "infix {...} ends with '<=': write an operand after it"
+   for an even count, and "'?' in {...} takes {c ? a} or {c ? a : b}" for a ternary of any
+   other shape.
 
 **Mapping.** The result is a Command whose slot 0 is the operator Symbol or `if`, and whose
 operands are the nodes they already are: Int, Float, Symbol, String, Var, Property, Command,
@@ -78,11 +85,12 @@ equality, the digest and evaluation ignore and the cache carries as it carries D
 marked written infix whose shape still fits prints `{k0 op k2 op k4}` or `{c ? a : b}`; when it does
 not fit the width, it breaks one operand a line with the operator ending each line, as the
 pretty printer breaks any array. A command printed prefix that the reader would take infix
-(an odd count, an operator or `?` at slot 1, an operand among the even slots) quotes its
-odd-slot operators: `{+ '-' 1}`, `{1 '?' 2 ':' 3}`. Every other tree prints byte for byte as
-on main, so `parse(write_dta(tree))` stays structurally equal for every tree, C++-built ones
-included (constraint 1), and the bytes of check's repeat forms, results.dta and every
-existing reply do not move.
+(an odd count, an operator or `?` at slot 1, an operand among the even slots), or refuse as
+malformed (an even count, an operator or `?` at slot 1, an operand at slot 0), quotes its
+odd-slot operators: `{+ '-' 1}`, `{1 '?' 2 ':' 3}`, `{$obj '<=' 1 2}`. Every other tree
+prints byte for byte as on main, so `parse(write_dta(tree))` stays structurally equal for
+every tree, C++-built ones included (constraint 1), and the bytes of check's repeat forms,
+results.dta and every existing reply do not move.
 
 **The vocabulary** (src/script/builtins.cpp:123-263, 333-415). `+ *` take two numbers or more
 (`{+ 1}` stays an error, as it is today) and `-` one or more (one is negation); ints stay
@@ -173,7 +181,8 @@ be a brace of bare symbols, which the guard keeps a command.
   one overload each with a typed rest, `{+ number number number...}`, and reference.cpp's
   checker holds every literal of a typed rest to its type (reference.cpp:104-110, +5 lines), so
   `{+ 1 "x"}` and `{1 + 2 + "x"}` are still check errors. `{$x = 1}` is demand for `=`.
-  Messages change (section 6).
+  Messages change (section 6). Since section 11 a command whose head no call can have (a
+  number, string or property) is a check error, as it is at evaluation.
 - **Shapes and the reference JSON.** Shapes: unchanged. The reference (baker.reference/1.2
   and docs/script-reference.md) changes content, not schema: seven entries (`+ - * < <= >
   >=`) read `{+ number number number...} -> value` or `{< number number number...} -> bool`
@@ -188,7 +197,7 @@ be a brace of bare symbols, which the guard keeps a command.
   the switch, prints prefix.
 - **Docs and corpus.** docs/script-reference.md is regenerated for the vocabulary;
   docs/language.md would need a section on the rule; tests/script/check_expected.json moves
-  one message (section 6). The corpus is not rewritten in the tree on this branch (section 7).
+  one message (section 6). The corpus is rewritten in the tree (sections 7 and 11).
 
 ## 4. Cost, measured
 
@@ -272,7 +281,8 @@ in one call 54.75 ns against 132.58 ns as three calls, `{+ 1 2}` 34.86 ns, and 0
 1,000 calls on every row; `baker_alloc_tests` passes.
 
 **Lines.** `tools/count_lines.py`: the core goes from 15,190 to 15,477 of the 15,500 soft budget
-(+287 of the 310 left; 23 remain). Data +152: parse.cpp +56, text.cpp +36, text.hpp +24
+(+287 of the 310 left; 23 remain), and to 15,494 with section 11's fix (6 remain). Data
++152: parse.cpp +56, text.cpp +36, text.hpp +24
 (the switch and BAKER_COLD, moved there from script/internal.hpp's -5), write.cpp +31,
 array.hpp +5. Script +135: builtins.cpp +124, script.hpp +8 and object.cpp +3 (`Raw<Var>::is_set`
 and the property fix), reference.cpp +5, internal.hpp -5. The brief projected about +150; the
@@ -450,11 +460,15 @@ live-ops tooling would have to say which spelling a target reads. The same holds
 sent to older builds. This is the strongest reason to adopt the rule early or not at all.
 
 **The in-tree corpus.** The brief asked for the 16 bands and the calculator to be rewritten in
-the tree. With the rule behind a switch that is off in the default build, an infix file in
-`stacks/` or `examples/` would break the default build and the stacks' own CI, so they stay
-prefix here; the eleven samples beside their originals stand in, and `tests.cpp` proves each
-reads to the converter's tree of its original. On adoption the rewrite is one `to-new` per
-file and reverses by `git revert`.
+the tree. At first the switch was off in the default build, so the eleven samples beside their
+originals stood in. Section 11 did it for real: the switch is on by default on this branch,
+and `to-new` rewrote in place every file it changes, fourteen: the seven stacks' metrics,
+Ledger's milestones and its unlocks (with the four cells of `economy.xlsx` they are exported
+from), the calculator, the scripting example's rules and three test fixtures. Each is proved
+against git's copy of its original (section 8), and the stacks' results do not move. With the
+switch off those files still parse but no longer mean what they say: each infix brace is a
+command of its first operand, an error when evaluated. That is the cost of adopting the
+spelling; nothing builds around it. The rewrite reverses by `git revert`.
 
 ## 8. What the prototype proved, and did not
 
@@ -476,15 +490,17 @@ file and reverses by `git revert`.
   `+=` on variables, `=` undefined, the ternary's laziness, the clamp), test_object (`+=` and
   `-=` through `[hp]` in a handler), test_check (literal types through a variadic `+`, `=` as
   demand, both spellings giving one report), and the experiment's 13 cases.
-- With the switch off (the default options): all 21 suites pass, including a case that reads
-  `{0.3 <= $value <= 0.7} {+ - 1} {$c ? 1 : 2}` and prints it back byte for byte as main does.
+- With the switch off (the default options until section 11): all 21 suites passed, including
+  a case that reads `{0.3 <= $value <= 0.7} {+ - 1} {$c ? 1 : 2}` and prints it back byte for
+  byte as main does. Since the in-tree rewrite, see below.
 - `baker_syntax_curly-infix check`: the corpus round trip with every command that can be
   infix printed infix, 68 files, 0 failures; the converter over all 68, each file's text read
   back to the expected tree with the same marks, 0 faults; no brace in today's corpus reads as
   infix; 19 of the 20 rewrites that rest on the vocabulary evaluated against what they
   replaced over values around each bound and agree (the twentieth, Hearth's sum, calls host
   functions).
-- The eleven samples read to the converter's tree of their originals, marks included.
+- The eleven samples read to the converter's tree of their originals, marks included; they
+  are the tree's own files now (below).
 - clang-format and clang-tidy clean on every changed file.
 - libFuzzer (ASan and UBSan, switch on, CI's seeds plus the eleven infix samples, the
   dictionary with `?`, `:`, `<=`, `+=`, `&&` added; the harness now also checks that the
@@ -502,18 +518,56 @@ file and reverses by `git revert`.
   - The brief asked for 10M executions; 2.2M were run. At this machine's rate the rest is
     about three hours of one core.
 
+**The in-tree rewrite** (section 11, `b530d85`).
+- *Files.* `to-new` in place: 14 files, 76 of their 385 lines changed, 17,449 bytes to
+  17,176 (-1.6%), every line count kept. Lines changed: the stacks' metrics, puzzle.dta 5,
+  cube.dta 1, duel.dta 11, hearth.dta 10, ledger.dta 8, track.dta 7, world.dta 12; Ledger's
+  default.dta 5 (the milestones) and economy.dta 4 (the unlocks, with the four cells of
+  `economy.xlsx` it is exported from, so `export_economy.py --check` holds); the
+  calculator's functions.dta 3; the scripting example's rules.dta 2; tests/corpus/ui_menu.dta
+  4, tests/corpus/scripts.dta 2, tests/host/stack/metrics/objectives.dta 2. The one hand
+  edit is Hearth's continuation line, aligned as its sample was. The converter now changes
+  no corpus file, and the corpus reads 85 braces as infix.
+- *The same tree.* `baker_syntax_curly-infix same <file> <original>` proves a file against
+  its original's text; `prove_rewrite.sh` runs it for every `.dta` changed since `15ce5b6`,
+  from git's copy, and the experiment's tests do the same from samples/, which now holds
+  those fourteen copies. For each: the original reads with no brace the rule rewrites, so
+  as it read with the switch off; the rewritten file reads to the converter's tree of the
+  original, written-infix marks included; and each comment keeps its text and line. Five
+  files (the calculator, the rules, Ledger's two data files, the host fixture) read to the
+  original's tree exactly. The other nine differ from it only by the 20 rewrites that rest
+  on the vocabulary, 15 bands made chains, 1 comparison turned, 3 assignments and 1 merged
+  nest: each undone, the tree is the original's exactly, and 19 evaluate as what they
+  replaced over values around each bound; the twentieth, Hearth's sum of event counts, calls
+  the game's functions, and Hearth's runs below give the same values. So the tree is the
+  same for every respelling, and the same up to those 20 equivalences.
+- *The stacks*, built and tested as CI's `stacks` job (gcc-13, Debug, Ninja, `ctest
+  --test-dir build-stacks --output-on-failure`): 30 of 30 tests pass before (`15ce5b6`, the
+  switch off by default) and after (the rewrite with the switch on, and again after section
+  11's fix). Each stack's `sim --seeds 1-5 --json --results DIR` and `check`, before and
+  after: 130 runs, 385 objective verdicts, all passed, 7 of 7 medians passed, check passed in
+  all seven; sim.json, results.dta and check.json are the same byte for byte, values
+  included, and each stack's `compare` reports nothing broke.
+- *Baker's builds.* The default build (CI's gcc-13 Debug job, warnings as errors, switch on):
+  21 of 21 suites. The experiments build (Release): 23 of 23, the experiment's 14 cases
+  among them. With the switch off, 17 of 21 pass: the four that read rewritten files fail
+  (baker_example_calculator, baker_example_scripting, baker_host_commands, and
+  baker_script_tests's check over tests/corpus/scripts.dta, whose `{[height] += $n}` section
+  11's check reports as a property head; the suite's other 131 cases pass). The stacks with
+  the switch off were not run; their objectives would fail at evaluation the same way.
+
 **Not done, or not proved.**
-- The D101 gate over the 464 raw Harmonix files: not run (not in the repository; the brief
-  forbids consulting Harmonix material). The counter is in `baker_parse_corpus`. Until it
-  reads 0 fired, the rule is not proved safe for raw DTA.
+- The D101 gate over the 464 raw Harmonix files: run after the prototype, 0 fired (section
+  11). Section 11's refusal of malformed even braces came later; `baker_parse_corpus` now
+  counts the files the rule refuses, and the gate has not been rerun with it.
 - The local matrix (`tools/local_matrix.sh`: debug, C++23, shipping, sanitizers, Clang,
   data-only, plain refcounts, EASTL, the ImGui harness) and CI's MSVC, libc++ and TSan jobs:
-  not run. Release GCC with the switch on and off, and Clang with ASan and UBSan for the
-  fuzzer, were built.
-- The in-tree rewrite of the stacks' bands and the calculator: not done, by the switch
-  (section 7).
+  not run, in the prototype or in section 11's work (the machine was shared with five
+  libFuzzer processes). Release GCC with the switch on and off, Debug GCC 13 as CI's default
+  job, the stacks as CI's job, and Clang with ASan and UBSan for the fuzzer were built.
 - `read_structure`'s `tag` for infix braces, the tree-sitter grammar, the LSP, and a section
-  of docs/language.md: not written.
+  of docs/language.md: not written. stacks/agent.md and the stacks-agent skill now say how a
+  brace reads infix and what is an error.
 - Wall-clock evidence: this machine could not resolve differences under about 10%; every
   claim of cost rests on instruction counts.
 - A comment-keeping reverse converter (infix to prefix by spans): not built.
@@ -559,15 +613,24 @@ Adopt in part. Take the vocabulary now: it is faster than main on every operator
 and equal on the rest (`{+ 1 2}` 633 to 450 instructions, a band in one prefix call 775 where
 `and` of two comparisons is 1,755), it makes `{<= 0.3 $value 0.7}` a band in today's syntax,
 it brings `+=` and its family, and it carries the property-argument fix main needs anyway; drop
-`&& || !`. Keep the reader rule behind its switch until the owner's D101 run reads 0 fired
-braces, then adopt it without the ternary: it costs +0.56% of a parse (about five instructions
-an array close, below D143's accepted +1.1%) and about 190 instructions for each brace written
-infix, it changes nothing a tool reads from the tree, and it gives 76 of the corpus's 210
-top-level commands, all 15 bands among them, the spelling their designers use, which is the
-one pain it was meant to relieve; it saves no lines and 1.7% of the bytes, so that reading is
-the whole of the case. The next step is the gate run with the counter; then a D-entry
-recording it, the switch deleted, `read_structure` taught the rule, docs/language.md's
-section, and one `to-new` over stacks/ and examples/ in the same change.
+`&& || !`. Take with it section 11's check of a head no call can have (a number, string or
+property), which fails at every evaluation and is independent of the spelling.
+
+The reader rule's measurable conditions are met on this branch: D101's raw gate read 0 fired
+braces, malformed infix is an error at the brace that names the fix, and the tree's own files
+are rewritten, proved against their originals, with every stack's results byte for byte as
+they were (section 11). What remains is the review's reading trial: whether the people who
+write objectives read `{0.3 <= $value <= 0.7}` better than the prefix chain `{<= 0.3 $value
+0.7}`, which is the same tree with fewer atoms; this branch's metrics files are its material.
+If it does, adopt the rule without the ternary (the calculator's and the rules' three
+ternaries go back to `if`): it costs +0.56% of a parse (about five instructions an array
+close, below D143's accepted +1.1%) and about 190 instructions for each brace written infix,
+and it changes nothing a tool reads from the tree. The adopting change owes a D-entry, the
+switch deleted, `read_structure` and the text tools taught the rule with section 11's clause
+for even braces, docs/language.md's section, the gate rerun with its refusal counter, and the
+cost section 7 names: a file written infix means something else to a build without the rule,
+so overlays and packs for older builds stay prefix. If it does not, the vocabulary alone gives
+the bands as prefix chains, and the rewrite reverses by `git revert`.
 
 ## 11. Verification, the raw gate, and review
 
@@ -604,3 +667,65 @@ earlier section, this section is the later word.
 - **Recommendation after review.** The vocabulary now, as its own step with the property
   fix; the infix reader held until `check` rejects malformed infix and a trial shows it
   reads better than prefix chains.
+
+### The in-tree rewrite and malformed infix
+
+*After the review, on this branch: `b530d85` (the switch on by default, the tree's files
+rewritten), `4115c52` (malformed infix), and the commit of this subsection. Measured against
+`15ce5b6`, the commit before them.*
+
+- **The rewrite.** Section 8 gives the files, the proof and the results: 14 files, 76 of
+  385 lines; every respelled command reads to its original's tree, and the 20 rewrites
+  that rest on the vocabulary are undone exactly and agree by evaluation; the stacks' 30
+  tests and 130 runs give the same results byte for byte before and after.
+- **Malformed infix, as it was.** `{0.3 <= $value 0.7}`, `{$value <= 0.7 0.3}` and
+  `{$value <=}` have an even number of nodes, and the rule took only odd braces (rule 1), so
+  each closed as written: a command whose head is `0.3` or `$value`. Evaluation fails ("a
+  command starts with a function or an object, not a float"; `$value` holds a float, not an
+  object), but `check` returned at once from a command whose head is not a symbol, taking it
+  for an object computed at run time, so nothing reported them before a run. `{$value <= 0.7
+  0.3 1}`, odd, was caught, but as "mixed operators", which it is not.
+- **The fix.** Rule 5 now also takes an even brace whose head is a number, variable,
+  property or command and whose slot 1 is an operator or `?`: no head-first call is written
+  so, and a quoted operator keeps one (`{$obj '<=' 1 2}`). Each is ErrorCode::Syntax at the
+  brace's line and column, with a message that names the fix: the first two "infix {...}
+  needs '<=' between every two operands", the third "infix {...} ends with '<=': write an
+  operand after it". Siblings: the same for `{0.3 <= $value <=}`, `{[hp] -= 5 1}`,
+  `{{econ.count mill} >=}` and `#autorun {$i +=}`; "'?' in {...} takes {c ? a} or {c ? a :
+  b}" for `{$c ? 1 2}` and `{$c ?}`; and `{$value <= 0.7 0.3 1}` now says the operator is
+  missing. A call's head before an operator (`{f + 1 2}`, `{f <=}`), prefix calls (`{<= 0.3
+  $v 0.7}`, `{- 5 2 1}`) and object calls with a method word read as before. The printer
+  quotes slot 1 of such a command built in C++, `{$obj '<=' 1 2}`, so every tree still
+  round-trips. `check` now reports a command whose head no call can have (a number, string or
+  property), as evaluation does, and with the switch on and an operator in the brace adds
+  "infix needs an operator between every two operands": that covers `{0.3 $value <= 0.7}`,
+  whose slot 1 is not an operator. In a stack the malformed band fails the load: `stacks_duel
+  check` exits 2 with the problem at metrics/duel.dta:31:10, the brace, and `sim` exits 2.
+  `baker_parse_corpus` counts the files the rule refuses, for the gate. Tests: test_parse
+  (each form, its message, line and column, and what stays a command), test_write (the
+  quoted print), test_check (the head check, with the switch on and off).
+- **Its cost.** `tools/count_instructions.py --case parse lookup set`, cachegrind, per 16 KB
+  of the parse benchmark's text: with the switch on, both sides, against `b530d85`
+  (15ce5b6's code), parse 1,855,835 and 1,855,835 (0.00%), lookup 203 and 203; with it off,
+  against `15ce5b6`, 1,843,323 and 1,843,323, the change compiled away. `set` reads 623
+  against 631 with the switch on, all of it in glibc's `memcmp` with Baker's functions the
+  same instruction for instruction: the placement section 4 describes. Per brace, on texts of
+  1,000 records of one shape: +9 instructions for an even brace of two nodes or more (its
+  head's type is tested), +5 for a prefix band `{<= 0.3 $v 0.7}`, 0 for an odd call, -7 for
+  an infix band, -2 for a parenthesized array; on the benchmark's text these net to zero. The
+  messages are built only on the error path. Lines: the core 15,477 to 15,494 of 15,500,
+  data +8 and script +9.
+- **What text tools learn.** One clause more: an even brace whose head is an operand and
+  whose second element an operator is an error, not a call.
+- **Fuzzing.** CI's fuzz build with the switch on (`build-cifuzz`: Clang 18, RelWithDebInfo,
+  ASan and UBSan), seeded with tests/corpus, tests/fuzz_regressions, the fourteen originals
+  and the fourteen rewritten files (41 inputs), CI's dictionary and flags, 600 seconds niced
+  beside five other fuzzers: 595,779 executions (991 a second), coverage from 1,453 edges at
+  the seeds to 2,104, 1,625 corpus entries, no failure, no sanitizer report, no artifact. The
+  harness's round trip covers the new quoting: a parsed `{$a '+' 1 2}` must print and re-read
+  as itself.
+- **The review's condition.** "The infix reader held until `check` rejects malformed infix
+  and a trial shows it reads better than prefix chains." The first half is met: the three
+  forms and their siblings fail the load at the brace, which `check` and `sim` report, and a
+  head no call can have is a check error. The second is not: no reading trial was run, and
+  the rewritten metrics are its material. Section 10 now says so.
