@@ -1,6 +1,6 @@
 // Parses every .dta file under the given paths and reports which ones fail.
 //
-//   baker_parse_corpus [--roundtrip] [--milo-paths] [-D NAME]... [-I DIR]... PATH...
+//   baker_parse_corpus [--roundtrip] [--milo-paths] [--gate] [-D NAME]... [-I DIR]... PATH...
 //
 // Use it to check the parser against a local checkout of a real DTA corpus (for example
 // mariteaux/milo-script-library). Nothing from such a corpus is part of this repository
@@ -13,6 +13,11 @@
 // include that climbs out of the archive is looked up there. Some files the scripts include
 // are not in the dump at all: each is read as empty and counted, so the run measures the
 // parser, not the dump.
+//
+// --gate counts, in each file's text, what a row keyed by a path would reinterpret
+// (dev/syntax-path-rows-design.md): parenthesized arrays whose bare tag begins with '/' (a
+// row's sigil; a lone '/' aside), and those whose bare tag holds '.' or '/' (a sigil-free
+// dotted tag), each listed with its file and line.
 
 #include <baker/parse.hpp>
 #include <baker/std_interop.hpp>
@@ -67,7 +72,8 @@ bool fits(const baker::Node& n, uint64_t& budget) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    bool roundtrip = false, milo = false;
+    bool roundtrip = false, milo = false, gate = false;
+    size_t slash_top = 0, slash_in = 0, dotted_top = 0, dotted_in = 0;
     std::vector<std::string> defines, include_dirs, roots;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
@@ -75,23 +81,27 @@ int main(int argc, char** argv) {
             roundtrip = true;
         } else if (arg == "--milo-paths") {
             milo = true;
+        } else if (arg == "--gate") {
+            gate = true;
         } else if (arg == "-D" && i + 1 < argc) {
             defines.emplace_back(argv[++i]);
         } else if (arg == "-I" && i + 1 < argc) {
             include_dirs.emplace_back(argv[++i]);
         } else if (arg == "-h" || arg == "--help" || arg[0] == '-') {
-            std::fprintf(
-                stderr, "usage: %s [--roundtrip] [--milo-paths] [-D NAME]... [-I DIR]... PATH...\n",
-                argv[0]);
+            std::fprintf(stderr,
+                         "usage: %s [--roundtrip] [--milo-paths] [--gate] [-D NAME]... [-I DIR]... "
+                         "PATH...\n",
+                         argv[0]);
             return 2;
         } else {
             roots.push_back(arg);
         }
     }
     if (roots.empty()) {
-        std::fprintf(stderr,
-                     "usage: %s [--roundtrip] [--milo-paths] [-D NAME]... [-I DIR]... PATH...\n",
-                     argv[0]);
+        std::fprintf(
+            stderr,
+            "usage: %s [--roundtrip] [--milo-paths] [--gate] [-D NAME]... [-I DIR]... PATH...\n",
+            argv[0]);
         return 2;
     }
 
@@ -118,6 +128,28 @@ int main(int argc, char** argv) {
     size_t ok = 0, failed = 0, roundtrip_failed = 0, stubbed_files = 0;
     std::vector<std::string> absent_all;
     for (const Item& item : items) {
+        if (gate) {
+            std::FILE* f = std::fopen(item.file.generic_string().c_str(), "rb");
+            std::string text;
+            char buf[65536];
+            size_t got = 0;
+            while (f && (got = std::fread(buf, 1, sizeof buf, f)) > 0) text.append(buf, got);
+            if (f) std::fclose(f);
+            const baker::TextStructure st = baker::read_structure(text);
+            for (const baker::TextBracket& b : st.brackets) {
+                if (b.open != '(' || b.tag < 0) continue;
+                const baker::TextToken& t = st.tokens[static_cast<size_t>(b.tag)];
+                if (t.kind == baker::TextTokenKind::QuotedSymbol || t.end - t.begin < 2) continue;
+                const std::string_view tag(text.data() + t.begin, t.end - t.begin);
+                const bool slash = tag[0] == '/';
+                if (!slash && tag.find_first_of("./") == std::string_view::npos) continue;
+                if (t.kind != baker::TextTokenKind::Symbol && !slash) continue;  // a number
+                ++(slash ? (b.parent < 0 ? slash_top : slash_in)
+                         : (b.parent < 0 ? dotted_top : dotted_in));
+                std::printf("GATE %s:%d %.*s%s\n", item.file.generic_string().c_str(), t.line,
+                            static_cast<int>(tag.size()), tag.data(), slash ? "" : "  (dotted)");
+            }
+        }
         // With --milo-paths, includes the dump lacks, read as empty.
         std::vector<std::string> absent;
         const fs::path archive = milo ? archive_root(item.file) : fs::path();
@@ -191,5 +223,10 @@ int main(int argc, char** argv) {
                     absent_all.size());
     }
     std::printf("\n");
+    if (gate)
+        std::printf(
+            "gate: %zu paren tags from '/' (%zu at the top level); %zu paren tags holding "
+            "'.' or '/' (%zu at the top level)\n",
+            slash_top + slash_in, slash_top, dotted_top + dotted_in, dotted_top);
     return failed == 0 && roundtrip_failed == 0 ? 0 : 1;
 }

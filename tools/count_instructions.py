@@ -4,6 +4,7 @@
     tools/count_instructions.py                    # the working tree against main
     tools/count_instructions.py --base HEAD~1      # against the previous commit
     tools/count_instructions.py --case parse set --n 2000
+    tools/count_instructions.py --new-cmake=-DBAKER_PATH_ROWS=ON   # a switch on the new side
 
 Instruction counts are deterministic: the same binary and input give the same count on any
 run, on a busy machine too, so a change of a fraction of a percent is real where a wall-clock
@@ -32,9 +33,9 @@ def run(cmd, **kw):
     return subprocess.run(cmd, check=True, text=True, capture_output=True, **kw)
 
 
-def build(baker_root, out, driver_src, jobs):
+def build(baker_root, out, driver_src, jobs, flags=()):
     run(["cmake", "-S", driver_src, "-B", out, "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release",
-         f"-DBAKER_ROOT={baker_root}"])
+         f"-DBAKER_ROOT={baker_root}", *flags])
     cmd = ["cmake", "--build", out, "--target", "baker_count"]
     if jobs:
         cmd += ["--", f"-j{jobs}"]
@@ -64,6 +65,8 @@ def main():
     ap.add_argument("--jobs", type=int, help="build jobs")
     ap.add_argument("--dir", default="build-count", help="where the worktree and builds go")
     ap.add_argument("--keep", action="store_true", help="keep the base worktree afterwards")
+    ap.add_argument("--new-cmake", action="append", default=[],
+                    help="a CMake flag for the working tree's build only, as --new-cmake=-DX=ON")
     args = ap.parse_args()
 
     repo = run(["git", "rev-parse", "--show-toplevel"]).stdout.strip()
@@ -80,7 +83,7 @@ def main():
     try:
         print(f"building {args.base} ({base_sha}) and the working tree ...", file=sys.stderr)
         build(base_src, base_out, driver, args.jobs)
-        build(repo, new_out, driver, args.jobs)
+        build(repo, new_out, driver, args.jobs, args.new_cmake)
         print(f"| case | {args.base} ({base_sha}) | working tree | change |")
         print("|---|---:|---:|---:|")
         for case in args.case:

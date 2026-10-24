@@ -4,6 +4,7 @@
     tools/bench_compare.py                     # the working tree against main
     tools/bench_compare.py --base HEAD~1       # against the previous commit
     tools/bench_compare.py --bench lookup call --runs 5 --pin 2
+    tools/bench_compare.py --new-cmake=-DBAKER_PATH_ROWS=ON  # a switch on the new side
 
 The base commit is checked out into a git worktree and built beside a build of the working
 tree, both Release with BAKER_BUILD_BENCH=ON. Each chosen benchmark then runs N times,
@@ -41,8 +42,8 @@ def run(cmd, **kw):
     return subprocess.run(cmd, check=True, text=True, capture_output=True, **kw).stdout
 
 
-def build(src, out, benches, jobs):
-    run(["cmake", "-S", src, "-B", out, *CMAKE_FLAGS])
+def build(src, out, benches, jobs, flags=()):
+    run(["cmake", "-S", src, "-B", out, *CMAKE_FLAGS, *flags])
     targets = [f"baker_bench_{b}" for b in benches]
     cmd = ["cmake", "--build", out, "--target", *targets]
     if jobs:
@@ -78,6 +79,8 @@ def main():
     ap.add_argument("--jobs", type=int, help="build jobs")
     ap.add_argument("--dir", default="build-compare", help="where the worktree and builds go")
     ap.add_argument("--keep", action="store_true", help="keep the base worktree afterwards")
+    ap.add_argument("--new-cmake", action="append", default=[],
+                    help="a CMake flag for the working tree's build only, as --new-cmake=-DX=ON")
     args = ap.parse_args()
 
     repo = run(["git", "rev-parse", "--show-toplevel"]).strip()
@@ -94,7 +97,7 @@ def main():
     try:
         print(f"building {args.base} ({base_sha}) and the working tree ...", file=sys.stderr)
         build(base_src, base_out, args.bench, args.jobs)
-        build(repo, new_out, args.bench, args.jobs)
+        build(repo, new_out, args.bench, args.jobs, args.new_cmake)
 
         samples = {}  # (bench, name, unit) -> ([base...], [new...])
         for bench in args.bench:
