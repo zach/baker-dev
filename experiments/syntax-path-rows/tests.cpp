@@ -210,6 +210,27 @@ TEST_CASE("a row inside any bracket is an error; a quoted or lone '/' is a symbo
     CHECK(syntax::print(*dta("(a ('/x' 1))\n(a 2)\n")) == "(a ('/x' 1))\n(a 2)\n");
 }
 
+#ifdef BAKER_PATH_ROWS
+TEST_CASE("a first form that would declare is printed as a row, which never declares") {
+    // (/pack ...) is a row, never a declaration, so the tree's first form is data; nested,
+    // it would read back as a pack (D80). The fuzzer found it.
+    const Ref<Array> a = rows("(/pack p (level x))\n(b 1)\n");
+    const std::string printed = to_dta(*a);
+    CHECK(printed == "(/pack p)\n(/pack.level x)\n(b 1)\n");
+    const Ref<Array> again = rows(printed);
+    CHECK(first_difference(*a, *again).empty());
+    // A second (origin "...") is data after the first declares (D91): main cannot print
+    // it, and a row can.
+    const Ref<Array> b = dta("(origin \"a\" (tool t))\n(origin \"b\" (tool u))\n(x 1)\n");
+    CHECK(to_dta(*b) == "(/origin \"b\")\n(/origin.tool u)\n(x 1)\n");
+    CHECK(first_difference(*b, *dta(to_dta(*b))).empty());
+    // With a repeated top-level tag the file cannot hold rows (D31), so it stays as it was:
+    // a tree read from rows never has one.
+    const Ref<Array> c = dta("(origin \"a\")\n(origin \"b\")\n(x 1)\n(x 2)\n");
+    CHECK(to_dta(*c) == "(origin \"b\")\n(x 1)\n(x 2)\n");
+}
+#endif
+
 TEST_CASE("the printer writes one row per leaf and keeps metadata and bare tags in the body") {
     CHECK(syntax::print(*dta("(fighters (kestrel (health 1100) (walk_back 1.7)))"
                              "(cpu (easy (reaction 26)))")) ==

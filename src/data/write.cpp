@@ -213,15 +213,25 @@ void put_rows(Str& out, const Array& a, Str& key, size_t depth) {
 Str dta_text(const Array& root, const WriteOptions& options) {
     Str out;
 #ifdef BAKER_PATH_ROWS
-    bool rows = options.rows;  // a repeated top-level tag is a list (D31): rows would fold it
-    for (size_t i = 0; i < root.size() && rows; ++i)
-        for (size_t j = 0; j < i && rows; ++j)
-            rows = detail::tag_of(root[i]).empty() ||
-                   detail::tag_of(root[i]) != detail::tag_of(root[j]);
+    bool distinct = true;  // a repeated top-level tag is a list (D31): rows would fold it
+    for (size_t i = 0; i < root.size() && distinct; ++i)
+        for (size_t j = 0; j < i && distinct; ++j)
+            distinct = detail::tag_of(root[i]).empty() ||
+                       detail::tag_of(root[i]) != detail::tag_of(root[j]);
+    const bool rows = options.rows && distinct;
+    // A first form a reader takes as a declaration (D80, D91) is data in a tree; a row
+    // spells it, since a row never declares. A tree read from rows has distinct tags.
+    static const Symbol pack("pack");
+    static const Symbol origin("origin");
+    const Array* lead = root.size() > 0 ? root[0].try_array() : nullptr;
+    bool first = distinct && lead &&
+                 (lead->tag() == pack ||
+                  (lead->tag() == origin && lead->size() > 1 && (*lead)[1].type() == Type::String));
 #endif
     for (const Node& n : root) {
 #ifdef BAKER_PATH_ROWS
-        const Array* a = rows ? n.try_array() : nullptr;
+        const Array* a = rows || first ? n.try_array() : nullptr;
+        first = false;
         if (Str key = a && !a->tag().empty() ? segment(a->tag(), true) : Str(); !key.empty()) {
             key.insert(0, "/");
             put_rows(out, *a, key, 1);
