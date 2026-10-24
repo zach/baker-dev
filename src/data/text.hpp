@@ -48,7 +48,7 @@ inline constexpr std::array<bool, 256> kAtomEnd = [] {
     return kAtomEnd[c];
 }
 
-// The hash-declarations prototype (dev/syntax-hash-declarations-design.md), behind its switch
+// The hash-declarations prototype, a syntax sketch behind its switch
 // (BAKER_HASH_DECLARATIONS, CMake): `#` opens a directive only before an ASCII letter, so `#1`
 // is a symbol, and #pack, #origin and #shape declare. Off, the reader and printer are main's.
 #ifndef BAKER_HASH_DECLARATIONS

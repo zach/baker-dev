@@ -38,9 +38,9 @@
 // origin's first value must be a string, so ordinary data such as (origin 0 0 0) is not
 // taken for one.
 //
-// Declarations (the hash-declarations prototype, dev/syntax-hash-declarations-design.md,
-// built with BAKER_HASH_DECLARATIONS). The positional forms above are data, and a file says
-// what it is with a directive that takes one form, anywhere at its top level, once:
+// Declarations (the hash-declarations prototype, a syntax sketch built with
+// BAKER_HASH_DECLARATIONS). The positional forms above are data, and a file says what it is
+// with a directive that takes one form, anywhere at its top level, once:
 //   #pack (name (level L) ...)          a pack, as above; the whole file's macros are its
 //   #origin ("economy.xlsx" (tool t))   an origin, as above
 //   #shape (name (at ...) (field type ...) ...)   a shape (baker::shape), any number

@@ -1,12 +1,11 @@
 #pragma once
 
-// Today's declarations in the spelling of the hash-declarations prototype
-// (dev/syntax-hash-declarations-design.md), line for line, so the tests' texts run on the
-// core built with BAKER_HASH_DECLARATIONS: a first-form (pack name ...) is #pack (name ...),
-// an (origin "source" ...) first or after it is #origin ("source" ...), a top-level
-// (shapes (a ...) (b ...)) is #shape (a ...) #shape (b ...), and #define N (body), its body
-// on the name's line, is [N body]. What today reads as data stays as it is. Without the
-// switch, the text as it is.
+// Today's declarations in the spelling of the hash-declarations prototype (parse.hpp), line
+// for line, so the tests' texts run on the core built with BAKER_HASH_DECLARATIONS: a
+// first-form (pack name ...) is #pack (name ...), an (origin "source" ...) first or after it
+// is #origin ("source" ...), a top-level (shapes (a ...) (b ...)) is #shape (a ...)
+// #shape (b ...), and #define N (body), its body on the name's line, is [N body]. What today
+// reads as data stays as it is. Without the switch, the text as it is.
 
 #include <baker/text.hpp>
 
