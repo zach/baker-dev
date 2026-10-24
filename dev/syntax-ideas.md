@@ -30,7 +30,7 @@ D220). "Gate" is D101's raw corpus, 464 files, run on each branch's switch-on bu
 | 5 | an `@` tag is metadata | `at-metadata` | +1.01% with the switch; `find_float` +55% | ~104; ~35 for the spelling alone | **456/464** | 2 | 3 | explore the spelling-only pass |
 | 6 | `#columns` headers over keyed tables | `column-tables` | not built in the core | ~120 (estimated) | not run (no core change) | 2 | 2 | decline; an aligning printer instead |
 | 7 | indentation as structure | `indent-lines` | +1.67% always; +1.53% opt-in | ~250 | **76 files read differently** (always) | 2 | 2 | decline; take the printer's house style |
-| 8 | `(#layer ...)` blocks as sub-layers | `inline-layers` | −0.05% | 221 | 464/464 | 2 | 2 | decline; `(when COND)` on project layers |
+| 8 | `(#layer ...)` blocks as sub-layers | `inline-layers` | −0.05% | ~229 | 464/464 | 2 | 2 | decline; `(when COND)` on project layers |
 
 All eight branches build, pass their tests in their default configuration (23 of 23
 suites with experiments on), round-trip the 68 corpus files with no fault, and are pushed; each verifier
@@ -41,22 +41,23 @@ listed under each idea.
 
 Each branch forks from this one at `3817213` (main at `565bb63` plus the harness); main has
 since moved on (the 0.6.0 release and later D-entries), and none of the branches has been
-merged anywhere. "Reviewed at" is the head the verifier and the reviewer read; each
-branch's last commit adds its design note's section 11, which records that review, the
-verifier's corrections and the raw gate (curly-infix's commits between the two add only
-its fuzz-harness fix and fuzz record). "Core files" counts files changed under `src/` and
+merged anywhere. "Reviewed at" is the head the verifier and the reviewer read. The commits
+after it add each design note's section 11 (that review, the verifier's corrections, the
+raw gate and the fuzz run) and the fixes the fuzz runs called for: main's harness fix for
+`(key #remove)` ported to path-rows, at-metadata and indent-lines, indent-lines' skip of
+the unprintable origin tree, inline-layers' block fix, and curly-infix's harness fix. "Core files" counts files changed under `src/` and
 `include/`.
 
 | Branch | Final head | Commits | Reviewed at | Core files |
 |---|---|---:|---|---:|
-| `claude/fervent-cray-l1kyf0-syntax-curly-infix` | `ffbe386` | 13 | `ed037c5` | 10 |
-| `claude/fervent-cray-l1kyf0-syntax-path-rows` | `a0df58c` | 9 | `d89146f` | 6 |
-| `claude/fervent-cray-l1kyf0-syntax-layer-markers` | `b1674cb` | 9 | `39f5248` | 16 |
-| `claude/fervent-cray-l1kyf0-syntax-hash-declarations` | `3c65782` | 13 | `104fcec` | 2 |
-| `claude/fervent-cray-l1kyf0-syntax-at-metadata` | `c9cd552` | 11 | `1c73321` | 11 |
-| `claude/fervent-cray-l1kyf0-syntax-column-tables` | `cd49650` | 5 | `2f53a8a` | 0 |
-| `claude/fervent-cray-l1kyf0-syntax-indent-lines` | `19c6e88` | 8 | `b1a88ae` | 8 |
-| `claude/fervent-cray-l1kyf0-syntax-inline-layers` | `baa3828` | 11 | `85d53e7` | 7 |
+| `claude/fervent-cray-l1kyf0-syntax-curly-infix` | `15ce5b6` | 14 | `ed037c5` | 10 |
+| `claude/fervent-cray-l1kyf0-syntax-path-rows` | `c808616` | 11 | `d89146f` | 6 |
+| `claude/fervent-cray-l1kyf0-syntax-layer-markers` | `d5a365c` | 10 | `39f5248` | 16 |
+| `claude/fervent-cray-l1kyf0-syntax-hash-declarations` | `3c460d9` | 14 | `104fcec` | 2 |
+| `claude/fervent-cray-l1kyf0-syntax-at-metadata` | `0057bf8` | 13 | `1c73321` | 11 |
+| `claude/fervent-cray-l1kyf0-syntax-column-tables` | `806cbfb` | 6 | `2f53a8a` | 0 |
+| `claude/fervent-cray-l1kyf0-syntax-indent-lines` | `67fc810` | 11 | `b1a88ae` | 8 |
+| `claude/fervent-cray-l1kyf0-syntax-inline-layers` | `747bd35` | 13 | `85d53e7` | 7 |
 
 ## How it was done
 
@@ -402,7 +403,9 @@ lines. `promote --patch` on an indented file still gives a one-line diff. The pr
 counted 6 test-suite texts that silently changed meaning and pinned three readers of
 value text (tweak defaults, `eval`, console requests) to today's reading. The gate settles
 it: always on, 76 of the raw corpus's 426 readable files read to a different tree with no
-error, because Harmonix scripts write a bare macro alone on a line.
+error, because Harmonix scripts write a bare macro alone on a line. libFuzzer ran 1,880,759
+executions with the layout always on; its one stop was main's unprintable `(origin ...)`
+first form, below, not the layout.
 
 Both reviewers scored it 2. The technical director ran the raw gate as well, found the
 same 76 files and calls it fatal; the per-token test costs every parse whether or not the
@@ -429,9 +432,14 @@ replacement for a token-level `#ifdef`.
 Built in the core behind `BAKER_INLINE_LAYERS`, with one rule ("a file and its blocks are
 one unit") enforced in four places; merge, snapshots, provenance, `explain`, write-back
 and the policies needed nothing else. Parse cost on block-free text −0.05%. Core +221 as
-adopted (bar 150), about 319 for the full form. On the raw corpus, 162 of 1,024 conditional
+adopted at review (bar 150), about +229 with the fuzz fix below, and about 319 for the full
+form. On the raw corpus, 162 of 1,024 conditional
 regions (16%) become blocks; the rest are inside commands, nested, hold directives or bare
-values. In the repository one file has a conditional and no stack has one.
+values. In the repository one file has a conditional and no stack has one. libFuzzer
+found a bug in the prototype after 140,554 executions: a `[property]` among a top-level
+block's forms became a property at the block tree's top level, which prints as a macro
+definition. It is now a located error (`283d74e`, +8 core lines, about +229 adopted), and
+1,119,340 executions in all ran clean after it.
 
 Both reviewers scored it 2 of 5 and would decline. The technical director refuted the
 note's "build time, not run time": a platform condition the bake could settle becomes a
@@ -446,9 +454,63 @@ disabled block, and the printer cannot write one.
 `(when COND)` flag on the project file's layer entries, beside `optional`, `disabled` and
 `dev_only` (D172, D204), estimated at 10 to 15 lines.
 
+## What "done" means for these branches
+
+The goal of the round was a sketch in code and a design for each idea, not an adoption.
+On that bar every branch is complete: each has a reader of its form into Baker's tree (or
+the change itself in the core), a printer back, tests that pass, the 68-file round trip
+with no fault, samples of real files in the new form, measured costs, a ten-section design
+note with an eleventh recording the review, a run of D101's raw gate, and a
+coverage-guided fuzz run. Each brief also listed work that only an adoption needs; the
+prototypes left it deliberately, and it is listed here so that nothing reads as finished
+that is not.
+
+**Fuzzing.** Every branch that changes the core ran libFuzzer under ASan and UBSan with
+its switch on, as CI's fuzz job is built, seeded with the corpus, the fuzz regressions and
+the branch's samples. None reached spec §8's 10 million executions, which is the bar for a
+parser that ships and part of any adoption step below.
+
+| Branch | Build fuzzed | Executions | Where it stopped, and what that was |
+|---|---|---:|---|
+| curly-infix | reader on | 2,220,593 | once: main's harness defect for `(key #remove)` (below), fixed on the branch |
+| path-rows | rows on | 1,025,153 | never |
+| layer-markers | markers (always on) | 1,083,088, and 1,000,000 from a random driver | never under libFuzzer; the random driver found a printer bug in the branch, fixed |
+| at-metadata | switch on | 1,075,950 | never |
+| indent-lines | always on | 1,880,759 | once: main's unprintable `(origin "...")` first form (below); the harness skips that tree, as D13's |
+| inline-layers | switch on | 1,119,340 | once: a bug in the prototype, a `[property]` at a top-level block's top level, which printed as a macro definition; fixed (`283d74e`, +8 core lines) |
+| hash-declarations, column-tables | no parser change | | their translators' own random-text and prefix-and-mutation tests, clean under ASan and UBSan |
+
+**Left for adoption, by branch.** None of these is needed to judge the idea, and where a
+verdict rests on one the recommendation above says "explore" or "compare" first.
+
+- **curly-infix.** The in-tree rewrite of the stacks' bands is not in place in `stacks/`
+  because the default build has the reader off and an infix file would break it; the
+  samples hold every file with a band (the six metrics files and the calculator), each
+  beside its original and read to the same tree by the tests. Not built: the tolerant
+  read's `tag` for infix braces, tree-sitter and LSP support, a `docs/language.md`
+  section, a comment-keeping reverse converter; `==`, `!=` and `/` stay two-argument on a
+  measured cost.
+- **path-rows.** Not built: `diff --rows`, `promote --patch --rows`, the journal export,
+  a D-entry; the comparison with a host `set` command the review asks for comes first.
+- **layer-markers.** Not run: the local matrix (shipping, sanitizers, EASTL, MSVC). Not
+  built: the refusal of verbs inside `(shapes ...)`, `leaf_values` for D145's per-layer
+  shape read, `explain` of element paths into a composed list, the docs; the review's
+  flag-where-made rework and the already-present warning.
+- **hash-declarations.** The core change itself: the prototype is a translator and
+  migrator, and the core's ~100 lines are an estimate; `count` in `baker.shapes`; a
+  `tools/migrate_dta.py`.
+- **at-metadata.** The spelling-only pass section 10 recommends; `align_meta` in the core
+  printer; a shape's own `(@desc)`; reporting an unknown `@word` in data.
+- **column-tables.** A core implementation; a text-preserving converter; promote into a
+  headed file; the Ledger exporter.
+- **indent-lines.** The zero-cost opt-in as a second parse loop; `write_back_to` adding
+  values to a key with child lines.
+- **inline-layers.** Groups, validity windows, `dev_only`, the cache entry and a
+  `write_stack` printer, which the brief scoped out; promote into a block.
+
 ## Found on main along the way
 
-Three defects in today's Baker, each found by a prototype and independent of any syntax:
+Four defects in today's Baker, each found by a prototype or its fuzz run and independent of any syntax:
 
 - **The fuzz property fails on every `(key #remove)`.** The edit-mode span check re-reads
   each literal token alone, and `#remove` alone is refused (D143). Found independently by
@@ -470,9 +532,17 @@ Three defects in today's Baker, each found by a prototype and independent of any
   D145's narrowing binds only files that declare a pack. Found by hash-declarations
   (`experiments/syntax-hash-declarations/tests.cpp`, "received text: a (shapes ...) loosens
   a pack's shape today", run against main's unchanged core), whose `#shape` form closes it.
+- **A tree whose first form is `(origin "...")` held as data cannot be printed.** A file
+  holding a second `(origin "...")` after its own reads the second as data; printed, it is
+  the root's first form, which the reader consumes as a declaration (D91), so the print
+  round trip loses it. Three lines reproduce it on main:
+  `(origin "a" (tool t))`, `(origin "b" (tool u))`, `(x 1)`. libFuzzer found it on the
+  indent-lines branch after 853,555 executions; it belongs in D13's list of trees the text
+  cannot spell, and hash-declarations' `#origin` is the syntax that removes it.
 
 Each wants a D-entry and a small fix on main whatever happens to the syntax; the fixes for
-the first two exist on the branches named.
+the first two exist on the branches named, and the fourth's harness skip and regression
+input are on indent-lines (`tests/fuzz_regressions/origin_first_form.bin`).
 
 ## Combinations
 
@@ -528,13 +598,14 @@ the first two exist on the branches named.
 
 Each is one decision, with the recommended answer first.
 
-1. **Fix the three defects found on main, whatever happens to the syntax?** Recommended:
+1. **Fix the four defects found on main, whatever happens to the syntax?** Recommended:
    yes, each as its own step with a D-entry: the fuzz property's `#remove` case (the fix
-   and regression file are on inline-layers), the `[property]` argument (one comparison,
-   on curly-infix), and the received-layer shape widening (a policy rule: a received
-   layer that declares no pack may not hold `(shapes ...)`, or shapes stop being data, as
-   hash-declarations proposes). Alternative: leave them for the syntax work that touches
-   each.
+   and regression files are on inline-layers and curly-infix), the `[property]` argument
+   (one comparison, on curly-infix), the received-layer shape widening (a policy rule: a
+   received layer that declares no pack may not hold `(shapes ...)`, or shapes stop being
+   data, as hash-declarations proposes), and the unprintable `(origin "...")` first form
+   (D13's list and the harness skip now, `#origin` with item 5). Alternative: leave them
+   for the syntax work that touches each.
 2. **The line budget.** The parts recommended above cost about 600 core lines against 310
    left: the curly-infix vocabulary about 125, path-rows about 200, the narrowed layer
    verbs about 150, at-metadata's spelling pass about 35, and hash-declarations' directives
