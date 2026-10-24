@@ -110,6 +110,10 @@ TEST_CASE("lines: a value's text reads as today, and #lines turns the layout on"
     CHECK((*ok(read_string("42", "v", value)))[0].try_int() == 42);
     CHECK(to_string(Node(ok(read_string("#lines\nb 3\n", "v", value)))) == "((b 3))");
     CHECK(to_string(Node(ok(read_string("#lines 5 (a 1)\n", "v", value)))) == "(5 (a 1))");
+    const auto inside = read_string("(a\n#lines\n)", "v", value);
+    REQUIRE_FALSE(inside);
+    CHECK(inside.error().message() == "#lines is written outside brackets");
+    CHECK(inside.error().line() == 2);
     if (BAKER_INDENT_LINES == 1) {
         CHECK(to_string(Node(ok(read_string("b 3\n", "t.dta")))) == "((b 3))");
     } else {  // DIRECTIVE: a file reads as today until its #lines
