@@ -28,6 +28,16 @@ LoadSession make_session() {
     return s;
 }
 
+// Walks the tree as if fully expanded, stopping when `budget` runs out.
+bool fits(const Node& n, uint64_t& budget) {
+    if (budget == 0) return false;
+    --budget;
+    if (const Array* a = n.array())
+        for (const Node& c : *a)
+            if (!fits(c, budget)) return false;
+    return true;
+}
+
 bool holds(std::string_view data, const syntax::ReadOptions& options) {
     LoadSession s = make_session();
     auto first = syntax::read(data, "fuzz.dta", s, options);
@@ -37,6 +47,11 @@ bool holds(std::string_view data, const syntax::ReadOptions& options) {
         return !e.message().empty() && e.file() == Symbol("fuzz.dta") && e.line() >= 1 &&
                e.line() <= lines;
     }
+    // A tree that macro sharing made larger than the reader's node limit is skipped: its
+    // print cannot be read back under the limits the text was read with.
+    uint64_t budget = s.limits.max_nodes;
+    for (const Node& n : **first)
+        if (!fits(n, budget)) return true;
     // A first form (origin "...") kept as data, a second origin, prints as the declaration
     // the reader consumes (D91): main's printer cannot spell it either, so it is not this
     // form's to fix.
