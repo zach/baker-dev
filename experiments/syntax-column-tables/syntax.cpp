@@ -1194,6 +1194,9 @@ std::string print(const Array& root, const PrintOptions& options) {
         put_node(out, n, 0, options);
         out += '\n';
     }
+    // As the core printer: a reader skips a byte order mark at the very start of a file, so
+    // a symbol that begins with those bytes must not land there. The fuzzer found it.
+    if (out.starts_with("\xEF\xBB\xBF")) out.insert(0, " ");
     return out;
 }
 

@@ -459,6 +459,17 @@ TEST_CASE("the printer heads a keyed table whose rows agree on an order, and rou
     CHECK(s.parens_removed == 2 * 27);  // four list cells (jab's cancels, each hitbox) keep theirs
 }
 
+TEST_CASE("the printer never begins a file with a byte order mark, which a reader skips") {
+    // tests/fuzz_regressions/bom_inside_symbol.bin, as libFuzzer found it on this printer.
+    auto root = read_string(" \xEF\xBB\xBFze 2", "t.dta");
+    REQUIRE(root);
+    const std::string printed = syntax::print(**root);
+    CHECK(printed == " \xEF\xBB\xBFze\n2\n");
+    auto back = syntax::read(printed, "t.new");
+    REQUIRE(back);
+    CHECK(first_difference(**root, **back).empty());
+}
+
 TEST_CASE("the printer keeps nested text where a header would not read back the same tree") {
     auto nested = [](std::string_view text) {
         auto root = read_string(text, "t.dta");

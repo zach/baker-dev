@@ -8,3 +8,11 @@ if(TARGET baker_doctest_main)
   target_link_libraries(baker_syntax_column-tables_tests PRIVATE baker_experiments baker_doctest_main)
   add_test(NAME baker_syntax_column-tables_tests COMMAND baker_syntax_column-tables_tests)
 endif()
+
+if(BAKER_BUILD_FUZZERS)
+  # fuzz.cpp: the core fuzzer's property over this form's reader and printer.
+  add_executable(baker_syntax_column-tables_fuzzer syntax.cpp fuzz.cpp)
+  target_link_libraries(baker_syntax_column-tables_fuzzer PRIVATE baker_experiments)
+  target_compile_options(baker_syntax_column-tables_fuzzer PRIVATE -fsanitize=fuzzer)
+  target_link_options(baker_syntax_column-tables_fuzzer PRIVATE -fsanitize=fuzzer)
+endif()
