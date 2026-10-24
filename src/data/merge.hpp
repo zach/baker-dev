@@ -44,6 +44,14 @@ private:
 [[nodiscard]] inline bool is_removal(const Array& a) noexcept {
     return a.size() == 2 && a[1].is(remove_marker());
 }
+#ifdef BAKER_PATH_ROWS
+// In edit mode, the macro of the span of an array a row made (the parser's wrapper's child):
+// written in the file, as a row's key, not literally there. A '#'-led name is no macro.
+[[nodiscard]] inline const Symbol& row_marker() {
+    static const Symbol s("#row");
+    return s;
+}
+#endif
 
 // Merges the nodes of `src` from `src_first` into `dst` from `dst_first` under `policy`
 // (see baker::merge). Arrays along the way are rebuilt, never mutated, because they may be

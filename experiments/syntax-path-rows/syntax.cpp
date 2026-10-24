@@ -98,27 +98,47 @@ Unexpected fail(Text& t, const Array& at, std::string_view key, const std::strin
     return Unexpected(std::move(e));
 }
 
-// Why a key Path refuses is refused: its segments counted as Path counts them (D27).
-std::string key_problem(std::string_view key) {
-    size_t segments = 0;
-    for (size_t i = 0; i < key.size();) {
-        ++segments;
+// Whether `name` reads back as this symbol written bare: not a number, a directive or a
+// variable (text.hpp's is_bare_symbol, which the core's key scan uses).
+bool bare(std::string_view name) {
+    auto r = read_string(" " + std::string(name), "segment.dta");
+    return r && (*r)->size() == 1 && (**r)[0].is(Symbol(name));
+}
+
+// The key's segment names, as the parser's row_key reads them: '.' or '/' between, a
+// 'quoted' one for a name holding either (D27); each a key, never an element. Empty with
+// `why` set when the key names no path.
+std::vector<Symbol> segments(std::string_view key, std::string& why) {
+    std::vector<Symbol> out;
+    auto bad = [&](std::string w) {
+        why = std::move(w);
+        return std::vector<Symbol>();
+    };
+    for (size_t i = 0, from = 0; i < key.size(); from = i) {
+        if (out.size() == Path::kMaxSegments) return bad("the key has more than 16 segments");
+        std::string_view name;
         if (key[i] == '\'') {
-            const size_t close = key.find('\'', i + 1);
-            if (close == std::string_view::npos) return "the key has an unclosed quote";
-            i = close + 1;
+            i = key.find('\'', i + 1);
+            if (i == std::string_view::npos) return bad("the key has an unclosed quote");
+            name = key.substr(from + 1, i++ - from - 1);
         } else {
-            const size_t j = key.find_first_of("./", i);
-            if (j == i) return "the key has an empty segment";
-            i = std::min(j, key.size());
+            i = std::min(key.find_first_of("./", i), key.size());
+            name = key.substr(from, i - from);
+            if (all_digits(name))
+                return bad("a row names keys, and '" + std::string(name) +
+                           "' is an element; an element is set with config.set or by writing "
+                           "the whole list");
+            if (!name.empty() && !bare(name))
+                return bad("the key's segment " + std::string(name) + " must be quoted: '" +
+                           std::string(name) + "'");
         }
+        if (name.empty()) return bad("the key has an empty segment");
+        out.emplace_back(name);
         if (i < key.size() && key[i] != '.' && key[i] != '/')
-            return "a quoted segment is followed by '.' or '/'";
-        if (i < key.size() && ++i == key.size()) return "the key ends with a separator";
+            return bad("a quoted segment is followed by '.' or '/'");
+        if (i < key.size() && ++i == key.size()) return bad("the key ends with a separator");
     }
-    if (segments > Path::kMaxSegments)
-        return "the key has more than " + std::to_string(Path::kMaxSegments) + " segments";
-    return "the key has an empty segment";
+    return out;
 }
 
 // --- The rewrite: desugar, then fold ---
@@ -128,23 +148,16 @@ std::string key_problem(std::string_view key) {
 // line, so provenance names the row.
 Expected<Ref<Array>> desugar(Text& t, const Array& row) {
     const std::string_view key = row[0].try_sym()->str();
-    const Path path(key.substr(1));
-    if (!path.valid()) return fail(t, row, key, key_problem(key.substr(1)));
-    for (size_t i = 0; i < path.size(); ++i) {
-        if (path[i].is_index)
-            return fail(t, row, key,
-                        "a row names keys, and '" + std::to_string(path[i].index) +
-                            "' is an element; an element is set with config.set or by writing "
-                            "the whole list");
-        if (path[i].name.empty()) return fail(t, row, key, "the key has an empty segment");
-    }
+    std::string why;
+    const std::vector<Symbol> path = segments(key.substr(1), why);
+    if (path.empty()) return fail(t, row, key, why);
     std::vector<Node> inner;
     inner.reserve(row.size());
-    inner.emplace_back(path[path.size() - 1].name);
+    inner.emplace_back(path.back());
     inner.insert(inner.end(), row.begin() + 1, row.end());
     Ref<Array> cur = Array::make_from(inner, row.file(), row.line());
     for (size_t i = path.size() - 1; i-- > 0;) {
-        Node pair[2] = {Node(path[i].name), Node(std::move(cur))};
+        Node pair[2] = {Node(path[i]), Node(std::move(cur))};
         cur = Array::make_from(std::span<Node>(pair, 2), row.file(), row.line());
     }
     return cur;
@@ -239,8 +252,12 @@ Expected<Ref<Array>> read(std::string_view text, std::string_view name) {
     LoadSession session;
     session.set_pack_levels({"engine", "game", "task", "live"});
     auto root = read_string(text, name, session);
+#ifdef BAKER_PATH_ROWS
+    return root;  // the parser reads rows itself (parse.cpp's row_key, wrap_row and fold)
+#else
     if (!root) return root;
     return rows_to_tree(std::move(*root), text, name);
+#endif
 }
 
 // --- The printer ---
@@ -263,7 +280,7 @@ constexpr size_t kWidth = 96;
 
 // A tagged array a tweak reads as metadata (D88): kept in its owner's row.
 bool is_metadata(Symbol tag) noexcept {
-    static const Symbol kinds[] = {"range", "step", "desc", "note", "kind", "group"};
+    static const Symbol kinds[] = {"range", "step", "desc", "note", "kind", "group", "one_of"};
     return std::find(std::begin(kinds), std::end(kinds), tag) != std::end(kinds);
 }
 

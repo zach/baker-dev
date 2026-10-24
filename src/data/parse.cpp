@@ -7,6 +7,10 @@
 #include "session.hpp"
 #include "text.hpp"
 
+#ifdef BAKER_PATH_ROWS
+#include <baker/path.hpp>
+#endif
+
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -434,6 +438,10 @@ public:
             return fail(ErrorCode::Syntax, Str(bracket_name(f.open)) + " is never closed", f.line,
                         f.begin);
         }
+#ifdef BAKER_PATH_ROWS
+        Str path;
+        if (!rows_.empty() && !fold(scratch_, map_ ? &spans_ : nullptr, 0, path)) return false;
+#endif
         Ref<Array> root = arena_.make_array(scratch_, file_, 1);
         if (root->height() > s_.limits.max_depth + 1) return too_deep(1);
         if (map_) map_->record(root, {file_, 0, size_, {}}, spans_);
@@ -455,6 +463,9 @@ private:
         char open = '(';
         uint32_t begin = 0;    // offset of the opening bracket
         bool removes = false;  // holds #remove, which must be its one value (D143)
+#ifdef BAKER_PATH_ROWS
+        bool row = false;  // headed by a row's key: close() wraps it in the key's segments
+#endif
     };
     struct Cond {
         bool active;         // tokens in the current branch are read
@@ -517,6 +528,12 @@ private:
     }
 
     bool symbol(const Token& t) {
+#ifdef BAKER_PATH_ROWS
+        // A row's key heads a parenthesized array; a byte compare for every other symbol.
+        if (const size_t sigil = row_sigil(t); sigil < 2 && frames_.back().kind == Frame::Array &&
+                                               scratch_.size() == frames_.back().start)
+            return row_key(t, sigil);
+#endif
         const Symbol sym(t.text);
         const FrameInfo& f = frames_.back();
         const bool naming_macro = f.kind == Frame::MacroDef && scratch_.size() == f.start;
@@ -584,6 +601,9 @@ private:
         record(arr, f.start, f.begin, t.end);
         truncate(f.start);
         if (arr->height() > s_.limits.max_depth) return too_deep(f.line, f.begin);
+#ifdef BAKER_PATH_ROWS
+        if (f.row) return wrap_row(std::move(arr), f, t.end);
+#endif
         const SourceSpan span{file_, f.begin, t.end, {}};
         switch (f.kind) {
             case Frame::DefineBody:
@@ -607,6 +627,158 @@ private:
                 return push(Node(std::move(arr)), span);
         }
     }
+
+#ifdef BAKER_PATH_ROWS
+    // 1 when a bare symbol of two or more bytes is a row's key if it heads a parenthesized
+    // array: '/' and the key; with the dotted switch, 0 for a tag holding '.' or '/' (F).
+    size_t row_sigil(const Token& t) const noexcept {
+        if (t.text.size() < 2 || t.quoted) return 2;
+        if (t.text[0] == '/') return 1;
+#ifdef BAKER_PATH_ROWS_DOTTED
+        if (frames_.size() == 2 && t.text.find_first_of("./") != std::string_view::npos) return 0;
+#endif
+        return 2;
+    }
+
+    // The key after the sigil: segments separated by '.' or '/', a 'quoted' one for a name
+    // holding either, as a Path is written (D27); each a key, never an element. The last is
+    // the array's tag; close() wraps the array in the others.
+    bool row_key(const Token& t, size_t sigil) {
+        auto bad = [&](const Str& why) { return fail(ErrorCode::Syntax, why, t.line, t.begin); };
+        if (frames_.size() != 2)
+            return bad("a row is a top-level form; write the key nested, or quote '" + Str(t.text) +
+                       "' for a symbol");
+        const std::string_view key = t.text.substr(sigil);
+        row_size_ = 0;
+        for (size_t i = 0, from = 0; i < key.size(); from = i) {
+            if (row_size_ == Path::kMaxSegments) return bad("the key has more than 16 segments");
+            std::string_view name;
+            if (key[i] == '\'') {
+                i = key.find('\'', i + 1);
+                if (i == std::string_view::npos) return bad("the key has an unclosed quote");
+                name = key.substr(from + 1, i++ - from - 1);
+            } else {
+                i = std::min(key.find_first_of("./", i), key.size());
+                name = key.substr(from, i - from);
+                if (!name.empty() && name.find_first_not_of("0123456789") == Str::npos)
+                    return bad("a row names keys, and '" + Str(name) +
+                               "' is an element; an element is set with config.set or by "
+                               "writing the whole list");
+                if (!name.empty() && !is_bare_symbol(name))
+                    return bad("the key's segment " + Str(name) + " must be quoted: '" + Str(name) +
+                               "'");
+            }
+            if (name.empty()) return bad("the key has an empty segment");
+            const auto at = static_cast<uint32_t>(t.begin + sigil);
+            row_[row_size_++] = {Symbol(name), at + static_cast<uint32_t>(from),
+                                 at + static_cast<uint32_t>(i)};
+            if (i < key.size() && key[i] != '.' && key[i] != '/')
+                return bad("a quoted segment is followed by '.' or '/'");
+            if (i < key.size() && ++i == key.size()) return bad("the key ends with a separator");
+        }
+        frames_.back().row = true;
+        rows_.push_back({t.line, t.begin});
+        return push(Node(row_[row_size_ - 1].name),
+                    {file_, row_[row_size_ - 1].begin, row_[row_size_ - 1].end, {}});
+    }
+
+    // `arr` in one array for each segment before its tag, each made in the load's arena with
+    // the row's line (D64). In edit mode each wrapper's extent is the row's, and its child's
+    // span is marked #row: written here, as the key, not literally.
+    bool wrap_row(Ref<Array> arr, const FrameInfo& f, uint32_t end) {
+        const SourceSpan extent{file_, f.begin, end, {}};
+        for (size_t i = row_size_ - 1; i-- > 0;) {
+            Node pair[2] = {Node(row_[i].name), Node(std::move(arr))};
+            arr = arena_.make_array(pair, file_, f.line);
+            const SourceSpan spans[2] = {{file_, row_[i].begin, row_[i].end, {}},
+                                         {file_, f.begin, end, row_marker()}};
+            if (map_) map_->record(arr, extent, spans);
+        }
+        s_.st_->nodes += 2 * (row_size_ - 1);  // push() counts them against the limit
+        if (arr->height() > s_.limits.max_depth) return too_deep(f.line, f.begin);
+        return push(Node(std::move(arr)), extent);
+    }
+
+    // In a file with rows, each tag heads one array at each level: the arrays sharing a tag
+    // in nodes[from..] are joined, in the order written, at the first one's place, and the
+    // joined children folded in turn. A key written twice, by two rows or by a row and a
+    // literal, is an error at the second: D31's first-wins holds only in files without rows.
+    bool fold(Vec<Node>& nodes, Vec<SourceSpan>* spans, size_t from, Str& path) {
+        const size_t n = nodes.size();
+        Vec<uint32_t> next(n, UINT32_MAX), tail(n, UINT32_MAX);  // each head's members
+        HashMap<Symbol, uint32_t> heads;
+        bool joins = false;
+        for (size_t i = from; i < n; ++i) {
+            if (tag_of(nodes[i]).empty()) continue;
+            const auto [it, fresh] = heads.emplace(tag_of(nodes[i]), static_cast<uint32_t>(i));
+            if (!fresh) next[tail[it->second]] = static_cast<uint32_t>(i);
+            tail[it->second] = static_cast<uint32_t>(i);
+            joins = joins || !fresh;
+        }
+        size_t out = from;
+        for (size_t i = from; i < n && joins; ++i) {
+            if (tail[i] == UINT32_MAX && !tag_of(nodes[i]).empty()) continue;  // joined
+            if (next[i] != UINT32_MAX && !join(nodes, spans, i, next, path)) return false;
+            nodes[out] = std::move(nodes[i]);
+            if (spans) (*spans)[out] = (*spans)[i];
+            ++out;
+        }
+        nodes.resize(joins ? out : n);
+        if (spans) spans->resize(nodes.size());
+        return true;
+    }
+
+    // nodes[h] and the arrays after it with its tag, as one array.
+    bool join(Vec<Node>& nodes, Vec<SourceSpan>* spans, size_t h, const Vec<uint32_t>& next,
+              Str& path) {
+        const Array& a = *nodes[h].try_array();
+        Vec<Node> kids(a.begin(), a.end());
+        Vec<SourceSpan> kid_spans;
+        auto add_spans = [&](const Array& x, size_t skip) {
+            const auto known = map_->spans(x);
+            for (size_t k = skip; k < x.size(); ++k)
+                kid_spans.push_back(known ? (*known)[k] : SourceSpan{});
+        };
+        if (spans) add_spans(a, 0);
+        const size_t mark = path.size();
+        if (mark) path += '/';
+        append_path_name(path, a.tag().str());
+        bool values = has_values(a), removed = is_removal(a);
+        for (uint32_t m = next[h]; m != UINT32_MAX; m = next[m]) {
+            const Array& b = *nodes[m].try_array();
+            if ((values && has_values(b)) || removed || is_removal(b))
+                return written_twice(b, path, values && has_values(b));
+            values = values || has_values(b);
+            kids.insert(kids.end(), b.begin() + 1, b.end());
+            if (spans) add_spans(b, 1);
+        }
+        if (!fold(kids, spans ? &kid_spans : nullptr, 1, path)) return false;
+        path.resize(mark);
+        Ref<Array> joined = arena_.make_array(kids, a.file(), a.line());
+        const SourceSpan* ext = map_ ? map_->extent(a) : nullptr;
+        if (map_) map_->record(joined, ext ? *ext : SourceSpan{}, kid_spans);
+        nodes[h] = Node(std::move(joined));
+        return true;
+    }
+
+    static bool has_values(const Array& a) noexcept {
+        for (size_t i = 1; i < a.size(); ++i)
+            if (tag_of(a[i]).empty()) return true;
+        return false;
+    }
+
+    // At the later writing, `b`, and at its row's key when a row wrote it.
+    bool written_twice(const Array& b, const Str& path, bool twice) {
+        *err_ = make_error(
+            ErrorCode::Syntax,
+            "'" + path + (twice ? "' is written twice" : "' is removed and also written"), b.file(),
+            b.line());
+        const auto r = std::find_if(rows_.begin(), rows_.end(),
+                                    [&](const RowAt& x) { return x.line == b.line(); });
+        if (b.file() == file_ && r != rows_.end()) err_->set_column(lex_.column_at(r->key));
+        return false;
+    }
+#endif
 
     static const Symbol& sym_pack() {
         static const Symbol s("pack");
@@ -984,6 +1156,19 @@ private:
     int32_t pack_line_ = 0;  // where it declared it
     bool origin_ = false;    // this file declared its origin
     Vec<Symbol> warned_;     // macros this file has been warned about
+#ifdef BAKER_PATH_ROWS
+    struct RowSegment {
+        Symbol name;
+        uint32_t begin, end;  // its bytes in the text, quotes included
+    };
+    struct RowAt {
+        int32_t line;
+        uint32_t key;  // the offset of the key
+    };
+    RowSegment row_[Path::kMaxSegments];  // the open row's key: rows do not nest
+    size_t row_size_ = 0;
+    Vec<RowAt> rows_;  // the rows read, for the fold and its errors
+#endif
 };
 
 }  // namespace detail

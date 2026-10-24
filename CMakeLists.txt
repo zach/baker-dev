@@ -14,6 +14,11 @@ option(BAKER_BUILD_HARNESS    "Build examples/harness-imgui (fetches Dear ImGui 
 option(BAKER_BUILD_FUZZERS    "Build libFuzzer targets (Clang only)" OFF)
 option(BAKER_BUILD_EXPERIMENTS "Build experiments/ (syntax sketches on branches; never shipped)" OFF)
 option(BAKER_USE_EASTL        "Internal containers from EASTL instead of the STL (D55, D61)" OFF)
+# A prototype on its branch (dev/syntax-path-rows-design.md): rows keyed by a path at a
+# file's top level, (/a.b.c 1); and, for the owner's decision only, the same read from a bare
+# dotted tag, (a.b.c 1).
+option(BAKER_PATH_ROWS        "Rows keyed by a path, (/a.b.c 1) (prototype)" OFF)
+option(BAKER_PATH_ROWS_DOTTED "With BAKER_PATH_ROWS: a bare dotted tag heads a row too (prototype)" OFF)
 set(BAKER_SANITIZE "" CACHE STRING "Sanitizers to enable, e.g. address,undefined")
 
 if(NOT DEFINED CMAKE_CXX_STANDARD)
@@ -103,7 +108,7 @@ function(baker_configure_library target)
     target_compile_definitions(${target} PUBLIC BAKER_ATOMIC_REFCOUNT=0)
   endif()
   target_compile_definitions(${target} PUBLIC BAKER_STD_EXPECTED=${BAKER_STD_EXPECTED_VALUE})
-  foreach(flag BAKER_SHIPPING)
+  foreach(flag BAKER_SHIPPING BAKER_PATH_ROWS BAKER_PATH_ROWS_DOTTED)
     if(${flag})
       target_compile_definitions(${target} PUBLIC ${flag}=1)
     endif()
