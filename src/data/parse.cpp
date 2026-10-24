@@ -637,7 +637,7 @@ private:
 #ifdef BAKER_PATH_ROWS
     // 1 when a bare symbol of two or more bytes is a row's key if it heads a parenthesized
     // array: '/' and the key; with the dotted switch, 0 for a tag holding '.' or '/' (F).
-    size_t row_sigil(const Token& t) const noexcept {
+    [[nodiscard]] size_t row_sigil(const Token& t) const noexcept {
         if (t.text.size() < 2 || t.quoted) return 2;
         if (t.text[0] == '/') return 1;
 #ifdef BAKER_PATH_ROWS_DOTTED
@@ -681,9 +681,10 @@ private:
             const auto at = static_cast<uint32_t>(t.begin + sigil);
             row_[row_size_++] = {Symbol(name), at + static_cast<uint32_t>(from),
                                  at + static_cast<uint32_t>(i)};
-            if (i < key.size() && key[i] != '.' && key[i] != '/')
+            if (i == key.size()) break;
+            if (key[i] != '.' && key[i] != '/')
                 return bad("a quoted segment is followed by '.' or '/'");
-            if (i < key.size() && ++i == key.size()) return bad("the key ends with a separator");
+            if (++i == key.size()) return bad("the key ends with a separator");
         }
         frames_.back().row = true;
         rows_.push_back({t.line, t.begin});
@@ -1182,7 +1183,7 @@ private:
 #ifdef BAKER_PATH_ROWS
     struct RowSegment {
         Symbol name;
-        uint32_t begin, end;  // its bytes in the text, quotes included
+        uint32_t begin = 0, end = 0;  // its bytes in the text, quotes included
     };
     struct RowAt {
         int32_t line;
