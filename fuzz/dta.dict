@@ -30,3 +30,8 @@
 "\x0a"
 "\x0d\x0a"
 "\xef\xbb\xbf"
+# indent-lines (BAKER_INDENT_LINES): a line's indentation, and the per-file switch.
+"\x0a   "
+"\x0a      "
+"\x0a\x09"
+"#lines"
