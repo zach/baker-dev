@@ -102,7 +102,9 @@ instructions; a band 1,755 as `and` of two calls, 775 as one chained call, 54.75
 operator, so it sits behind `BAKER_CURLY_INFIX`; written infix, a brace costs about 190
 instructions at load. The converter rewrote 76 of 210 top-level commands in 14 files; the
 11 samples lose 1.7% of their bytes and no lines. Core 15,190 to 15,477 (+287: the
-vocabulary alone +124). It also found the `[property]` defect on main below. The gate,
+vocabulary alone +124). libFuzzer ran 2,220,593 executions with the switch on, short of
+the 10 M bar, and its one stop was the harness defect on main below, as was the
+`[property]` defect it also found. The gate,
 which the note made the condition for adopting the reader, fired on 0 of the raw corpus's
 braces.
 
@@ -429,11 +431,13 @@ Three defects in today's Baker, each found by a prototype and independent of any
 
 - **The fuzz property fails on every `(key #remove)`.** The edit-mode span check re-reads
   each literal token alone, and `#remove` alone is refused (D143). Found independently by
-  path-rows, layer-markers and inline-layers; the last two fixed it on their branches, and
-  inline-layers added `tests/fuzz_regressions/remove_marker_span.bin`. CI's two-minute
-  fuzz job has not reached such an input because `fuzz/dta.dict` lacks `#remove` (the
-  survey's critic found the dictionary lacks both of Baker's own directives); one that did
-  would fail the job.
+  four branches. curly-infix's libFuzzer run (ASan and UBSan, the only coverage-guided run
+  of the round) stopped on it after 1,331,783 executions, about 40 minutes on this
+  machine, and its agent confirmed main's own harness and library refuse `(a #remove)` the
+  same way; layer-markers, inline-layers and curly-infix each fixed it on their branch,
+  with regression inputs (`remove_marker_span.bin`, `bare_remove_marker.bin`). CI's
+  two-minute fuzz job is too short to reach it, and `fuzz/dta.dict` holds neither of
+  Baker's own directives, `#require` and `#remove`.
 - **A `[property]` argument to a function with one overload is never evaluated.**
   `{% [hp] 3}` in a handler fails. The fix is one comparison in `Args`
   (`include/baker/script.hpp`), on the curly-infix branch.
