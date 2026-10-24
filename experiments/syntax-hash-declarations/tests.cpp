@@ -3,6 +3,8 @@
 #include "experiments.hpp"
 #include "syntax.hpp"
 
+#include <baker/cache.hpp>
+#include <baker/config.hpp>
 #include <baker/parse.hpp>
 #include <baker/std_interop.hpp>
 #if BAKER_SYNTAX_SHAPE
@@ -11,7 +13,9 @@
 
 #include <doctest.h>
 
+#include <algorithm>
 #include <filesystem>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -185,15 +189,37 @@ TEST_CASE("#origin is a directive; (origin 0 0 0) and (pack x) are data") {
     REQUIRE(!twice);
     CHECK(message(twice.error()).find("second #origin") != std::string::npos);
 
-    // Today's forms are read as Baker reads them, each with a note `check` would print.
+    // Today's first forms are data, each with the note `check` would print once per layer.
     std::vector<std::string> notes;
     LoadSession legacy = syntax::corpus_session();
-    ok(syntax::read_with("(pack old (level game))\n(shapes (a (x int)))\n", "old.dta", legacy,
-                         &notes));
-    REQUIRE(notes.size() == 2);
-    CHECK(notes[0].find("old.dta:1: a (pack ...) first form: write #pack") != std::string::npos);
-    CHECK(notes[1].find("old.dta:2: a (shapes ...) container: write #shape") != std::string::npos);
-    CHECK(legacy.packs().size() == 1);
+    auto old =
+        ok(syntax::read_with("(pack old (level game))\n(origin \"x.xlsx\")\n"
+                             "(shapes (a (x int)))\n",
+                             "old.dta", legacy, &notes));
+    // The tree is the text's three forms, as data.
+    REQUIRE(old->size() == 3);
+    CHECK((*old)[0].array()->line() == 1);
+    CHECK((*old)[0].array()->tag() == Symbol("pack"));
+    CHECK((*old)[1].array()->tag() == Symbol("origin"));
+    CHECK(legacy.packs().empty());
+    CHECK(legacy.origins().empty());
+    REQUIRE(notes.size() == 3);
+    CHECK(notes[0].find("old.dta:1: a (pack ...) first form, read as data: write #pack") !=
+          std::string::npos);
+    CHECK(notes[1].find("old.dta:2: an (origin \"...\") first form, read as data") !=
+          std::string::npos);
+    CHECK(notes[2].find("old.dta:3: a (shapes ...) container: write #shape") != std::string::npos);
+    // The node that keeps the first form data never shows, on its line or in the tree.
+    notes.clear();
+    auto origin_first = ok(syntax::read_with(
+        "#pack (p (level game))\n(origin \"y.xlsx\" (tool t))\n", "first.dta", legacy, &notes));
+    REQUIRE(origin_first->size() == 1);
+    CHECK((*origin_first)[0].array()->line() == 2);
+    CHECK(legacy.origins().empty());
+    REQUIRE(legacy.packs().size() == 1);
+    REQUIRE(notes.size() == 1);
+    CHECK(notes[0].find("first.dta:2: an (origin \"...\") first form, read as data") !=
+          std::string::npos);
 }
 
 TEST_CASE("a #shape run at the top level is one (shapes ...) container") {
@@ -380,3 +406,214 @@ TEST_CASE("nothing in the text crashes the reader: the fuzz regressions and torn
         (void)syntax::migrate(sample.substr(0, n));
     }
 }
+
+TEST_CASE("every sample reads in the new form") {
+    namespace fs = std::filesystem;
+    const fs::path samples = fs::path(std::string(repository_root())) / "experiments" /
+                             "syntax-hash-declarations" / "samples";
+    int read = 0;
+    for (const auto& entry : fs::recursive_directory_iterator(samples)) {
+        const std::string name = entry.path().filename().string();
+        if (entry.path().extension() != ".dta" || name.find(".before.") != std::string::npos)
+            continue;
+        LoadSession session = syntax::corpus_session();
+        auto text = read_text_file(entry.path().string());
+        REQUIRE(text);
+        INFO(entry.path().string());
+        ok(syntax::read_with(*text, entry.path().string(), session));
+        ++read;
+    }
+    CHECK(read == 15);
+}
+
+#if BAKER_SYNTAX_SHAPE
+namespace {
+
+// A stack's data/default.dta read as the stack reads it, its pack (and Ledger's economy.dta)
+// served from the samples, in the new form, when `migrated`: the shapes it declares, checked
+// over its data.
+struct StackRun {
+    shape::Set set;
+    shape::Report report;
+    LoadSession session;
+};
+
+void run_stack(const std::string& stack, bool migrated, StackRun& r) {
+    const std::string root(repository_root());
+    r.session.set_pack_levels({"engine", "game", "task"});
+    if (migrated)
+        r.session.set_reader([stack, root](std::string_view path, TextSink out) {
+            std::string p(path);
+            for (const std::string& served : {stack + "_core.dta", std::string("economy.dta")})
+                if (p.size() > served.size() && p.ends_with("/" + served))
+                    p = root + "/experiments/syntax-hash-declarations/samples/" + served;
+            auto text = read_text_file(p);
+            if (!text) return false;
+            auto dta = syntax::translate(*text, path);
+            if (!dta) return false;
+            out(*dta);
+            return true;
+        });
+    auto tree = read_file(root + "/stacks/" + stack + "/data/default.dta", r.session);
+    REQUIRE_MESSAGE(bool(tree), (tree ? std::string() : to_string(tree.error())));
+    r.set.add(**tree, r.report, &r.session);
+    shape::check(**tree, r.set, r.report);
+}
+
+}  // namespace
+
+TEST_CASE("each stack's migrated pack, with its arities, holds over the stack's real data") {
+    int arities = 0;
+    for (const std::string stack :
+         {"contraption", "duel", "hearth", "ledger", "stuntline", "wayfarer"}) {
+        INFO(stack);
+        StackRun before, after;
+        run_stack(stack, false, before);
+        run_stack(stack, true, after);
+        CHECK(before.report.errors.empty());
+        CHECK(after.report.errors.empty());
+        CHECK(after.report.warnings.size() == before.report.warnings.size());
+        REQUIRE(after.set.shapes().size() == before.set.shapes().size());
+        for (const shape::Shape& sh : after.set.shapes())
+            for (const shape::Field& f : sh.fields) arities += f.min_count > 0 ? 1 : 0;
+        // The same packs, from #pack.
+        REQUIRE(after.session.packs().size() == before.session.packs().size());
+        CHECK(after.session.packs()[0].name == before.session.packs()[0].name);
+        CHECK(after.session.packs()[0].owners.size() == before.session.packs()[0].owners.size());
+        CHECK(after.session.origins().size() == before.session.origins().size());
+    }
+    CHECK(arities == 11);  // of the six packs' 15 list fields; the other four are open lists
+}
+
+TEST_CASE("Duel's shapes at their tables, and four floats are four") {
+    const std::string root(repository_root());
+    const std::string dir = root + "/experiments/syntax-hash-declarations/samples/duel-at-table";
+    LoadSession session = syntax::corpus_session();
+    auto text = read_text_file(dir + "/data/default.dta");
+    REQUIRE(text);
+    auto duel = ok(syntax::read_with(*text, dir + "/data/default.dta", session));
+    shape::Set set;
+    shape::Report report;
+    set.add(*duel, report, &session);
+    REQUIRE(set.shapes().size() == 4);
+    for (const auto& [name, at] : {std::pair<const char*, const char*>{"fighter", "fighters"},
+                                   {"cpu_level", "cpu"},
+                                   {"bot", "bots"}}) {
+        const shape::Shape* sh = set.find(Symbol(name));
+        REQUIRE(sh);
+        CHECK(sh->keyed);
+        REQUIRE(sh->at.size() == 1);
+        CHECK(sh->at[0].str() == at);
+        // Located where it is written, at its table.
+        CHECK(sh->file.str().ends_with("duel-at-table/data/default.dta"));
+    }
+    const shape::Shape* move = set.find(Symbol("move"));
+    REQUIRE(move);
+    CHECK(move->file.str().ends_with("packs/game/duel_core.dta"));
+    CHECK(move->field(Symbol("hitbox"))->min_count == 4);
+    CHECK(move->field(Symbol("hitbox"))->max_count == 4);
+    shape::check(*duel, set, report);
+    CHECK(report.errors.empty());
+    CHECK(report.warnings.empty());
+    REQUIRE(session.packs().size() == 1);
+    CHECK(session.packs()[0].name.str() == "duel_core");
+
+    // The fighter shape, at its table, catches what the pack's did: a health of the wrong
+    // type. A hitbox with three values, in an otherwise whole fighter, is one error.
+    auto torn = ok(syntax::read(
+        "(fighters #shape (fighter (health int (range 1 100000)) (moves any))\n"
+        "   (kestrel (health \"lots\")\n"
+        "      (moves (jab (button light) (startup 4) (active 2) (recovery 7) (damage 30)"
+        " (hitstun 12) (blockstun 9) (hitbox 0.3 1.3 0.55)))))\n"
+        "#shape (move (at fighters * moves) (keyed) (button symbol) (startup int) (active int)"
+        " (recovery int) (damage int) (hitstun int) (blockstun int) (hitbox (list float 4)))\n",
+        "torn.dta"));
+    shape::Set torn_set;
+    shape::Report torn_report;
+    torn_set.add(*torn, torn_report);
+    shape::check(*torn, torn_set, torn_report);
+    REQUIRE(torn_report.errors.size() == 2);
+    CHECK(message(torn_report.errors[0]).find("'health' is string, not int") != std::string::npos);
+    CHECK(torn_report.errors[0].line() == 2);
+    CHECK(message(torn_report.errors[1]).find("'hitbox' holds 3 values, not 4") !=
+          std::string::npos);
+    CHECK(torn_report.errors[1].line() == 3);
+}
+
+TEST_CASE("a softer pack may narrow a #shape, not loosen it (D145 unchanged)") {
+    static const std::map<std::string, std::string> files = {
+        {"base.dta",
+         "#pack (game_rules (level game))\n"
+         "#shape (player (speed int (range 1 10)) (pos (list float 2 3)) (name symbol))\n"
+         "(player (speed 5) (pos 1 2) (name p))\n"},
+        {"loose.dta",
+         "(player (speed 900) (pos 1 2 3 4))\n"
+         "#pack (fast_mod (level mod))\n"  // after data: a directive, anywhere at the top
+         "#shape (player (speed int (range 1 1000)) (pos (list float 1 4))"
+         " (name symbol (optional)))\n"},
+        {"tight.dta",
+         "#pack (tight_mod (level mod))\n"
+         "#shape (player (speed int (range 2 8)) (pos (list float 2)))\n"
+         "(player (speed 9) (pos 1 2))\n"}};
+    struct Run {
+        Config cfg{{.tweaks = nullptr}};
+        std::vector<std::string> reported;
+        explicit Run(std::initializer_list<const char*> layers) {
+            cfg.session().set_pack_levels({"engine", "game", "mod"});
+            cfg.session().set_reader([](std::string_view p, TextSink out) {
+                const auto it = files.find(std::string(p));
+                if (it == files.end()) return false;
+                auto dta = syntax::translate(it->second, p);
+                if (!dta) return false;
+                out(*dta);
+                return true;
+            });
+            cfg.set_warning_handler(
+                [this](const Error& e) { reported.emplace_back(to_string(e)); });
+            cfg.add_validator(shape::validator(), {.any_thread = true});
+            for (const char* l : layers) REQUIRE(cfg.push_layer(l, l));
+        }
+        [[nodiscard]] int count(const std::string& part) const {
+            return static_cast<int>(std::count_if(
+                reported.begin(), reported.end(),
+                [&](const std::string& r) { return r.find(part) != std::string::npos; }));
+        }
+    };
+    // The mod widens the range and the count and makes name optional: three warnings, and
+    // the base's declarations hold, so its 900 and its four values are still errors.
+    Run loose({"base.dta", "loose.dta"});
+    CHECK(loose.count("loose.dta:3") >= 3);
+    CHECK(loose.count("'speed' is 900, outside 1.0 to 10.0") >= 1);
+    CHECK(loose.count("'pos' holds 4 values, not 2 to 3") >= 1);
+    // Narrowing takes effect.
+    Run tight({"base.dta", "tight.dta"});
+    CHECK(tight.count("'speed' is 9, outside 2.0 to 8.0") >= 1);
+    CHECK(tight.count("tight.dta:2") == 0);
+}
+
+TEST_CASE("a cache of a migrated pack replays its pack and keeps its shapes") {
+    const std::string root(repository_root());
+    const std::string pack =
+        root +
+        "/experiments/syntax-hash-declarations/samples/duel-at-table/packs/game/"
+        "duel_core.dta";
+    LoadSession recorded = syntax::corpus_session();
+    recorded.record_for_cache = true;
+    auto text = read_text_file(pack);
+    REQUIRE(text);
+    auto tree = ok(syntax::read_with(*text, pack, recorded));
+    std::string bytes;
+    REQUIRE(write_cache(*tree, string_out(bytes), &recorded));
+    LoadSession fresh = syntax::corpus_session();
+    auto back = ok(read_cache_bytes(bytes, "duel_core.datb", fresh));
+    CHECK(first_difference(*tree, *back).empty());
+    REQUIRE(fresh.packs().size() == 1);
+    CHECK(fresh.packs()[0].name.str() == "duel_core");
+    shape::Set set;
+    shape::Report report;
+    set.add(*back, report, &fresh);
+    REQUIRE(set.find(Symbol("move")));
+    CHECK(set.find(Symbol("move"))->field(Symbol("hitbox"))->min_count == 4);
+    CHECK(set.find(Symbol("move"))->line == 9);
+}
+#endif

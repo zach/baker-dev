@@ -1,0 +1,24 @@
+(pack hearth_core (level game) (owners "gameplay-ai" "td-behaviour") (stage custom))
+; Hearth's vocabulary (game-stacks.md §4.3): what a need, a smart object, and a household
+; are. Each shape is (keyed), so one need, object, or household can be retuned alone in a
+; layer above.
+
+(shapes
+   (need (at needs) (keyed)
+      (decay_per_hour float (range 0 100) (desc "Points lost each game hour"))
+      (critical       float (range 0 100) (desc "Below this, the need may override the routine"))
+      (curve          symbol (desc "linear, quadratic, or logistic: how urgency grows")))
+   (object (at objects) (keyed)
+      (size      (list float) (desc "width height depth, metres"))
+      (color     (list float) (optional))
+      (advertise any (desc "(need points) for each need one use satisfies"))
+      (action    symbol (optional) (desc "The villager handler a use starts; use_object if absent"))
+      (minutes   float (range 1 1440) (desc "Game minutes one use takes"))
+      (users     int (range 1 16) (optional) (desc "How many may use it at once"))
+      (hours     (list float) (optional) (desc "from to, game hours: when it is for")))
+   (household (at households) (keyed)
+      (desc      string)
+      (size      (list float) (desc "x z, metres: the floor"))
+      (walls     any (desc "(x z width depth) each, 2.5 m tall"))
+      (things    any (desc "(object x z yaw) each"))
+      (residents any (desc "(name (weights (need w) ...) (color r g b)) each"))))

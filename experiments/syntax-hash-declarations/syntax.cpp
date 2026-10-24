@@ -157,10 +157,28 @@ std::string decimal(int64_t v) {
 
 // --- The reader's front half: new text -> the DTA Baker reads today ---
 
+// The node the translation puts before a first form Baker would otherwise take for a
+// declaration; read_with drops it.
+constexpr std::string_view kDataFirst = "hash_declarations_data_first";
+
+// `form`'s tokens on one line, comments dropped (a string keeps any newline it holds).
+std::string one_line(std::string_view form) {
+    Scanner sc(form);
+    std::string out;
+    for (Tok t = sc.next(); t.kind != Tok::End; t = sc.next()) {
+        if (!out.empty() && t.kind != Tok::Close && out.back() != '(' && out.back() != '[' &&
+            out.back() != '{')
+            out += ' ';
+        out += t.text(form);
+    }
+    return out;
+}
+
 class Translator {
 public:
-    Translator(std::string_view src, std::string_view name, std::vector<std::string>* notes)
-        : src_(src), name_(name), notes_(notes), sc_(src) {
+    Translator(std::string_view src, std::string_view name, std::vector<std::string>* notes,
+               bool* data_first)
+        : src_(src), name_(name), notes_(notes), data_first_(data_first), sc_(src) {
         out_.reserve(src.size() + 64);
     }
 
@@ -190,6 +208,13 @@ public:
             out_ += "\n(shapes";
             for (const std::string& h : hoisted_) out_ += "\n" + h;
             out_ += ")\n";
+        }
+        // A first form tagged pack, or origin with a string, is data in the new form; Baker
+        // would take it for a declaration unless a node comes before it, so one does, and
+        // read_with drops it (a declaration the file writes with # comes first either way).
+        if ((first_pack_ && !pack_seen_) || (first_origin_ && !origin_seen_)) {
+            out_.insert(first_out_, std::string(kDataFirst) + " ");
+            if (data_first_) *data_first_ = true;
         }
         if (!prefix_.empty()) out_.insert(src_.starts_with("\xEF\xBB\xBF") ? 3 : 0, prefix_);
         return std::move(out_);
@@ -258,7 +283,15 @@ private:
     }
 
     bool open(const Tok& t) {
-        top_level(t.bracket != '[');  // a top-level `[` defines a macro, pushing nothing
+        // A top-level `[` defines a macro and #autorun's `{` is collected: neither pushes.
+        const bool pushes = t.bracket != '[' && !autorun_;
+        const bool first = frames_.empty() && pushes && top_forms_ == 0 && t.bracket == '(';
+        autorun_ = false;
+        top_level(pushes);
+        if (first) {
+            flush(t.begin);
+            first_out_ = out_.size();
+        }
         if (!frames_.empty()) {
             Frame& e = frames_.back();
             if (e.kind == Frame::TableShape && e.tag_pending)
@@ -283,10 +316,11 @@ private:
             case Frame::Origin: {
                 flush(t.end);
                 if (!f.moved) break;
+                // Moved to the front on one line, so every line after keeps its number.
                 std::string form = out_.substr(f.out_begin);
                 out_.resize(f.out_begin);
                 keep_newlines(out_, form);
-                prefix_ += form;
+                prefix_ += one_line(form) + " ";
                 break;
             }
             case Frame::Shape:
@@ -367,14 +401,29 @@ private:
         return true;
     }
 
-    // The forms today's files use for what the `#` namespace now says.
+    // The forms today's files use for what the `#` namespace now says: `check` would warn
+    // once per layer. A first-form (pack ...) or (origin "...") is data here.
     void legacy(const Frame& f) {
         if (f.tag == "shapes")
             note(f.at, "a (shapes ...) container: write #shape (NAME ...) per shape");
-        if (top_forms_ == 1 && f.tag == "pack" && !pack_seen_)
-            note(f.at, "a (pack ...) first form: write #pack (NAME ...)");
-        if (top_forms_ == 1 && f.tag == "origin" && !origin_seen_ && sc_.peek().kind == Tok::String)
-            note(f.at, "an (origin \"...\") first form: write #origin (\"...\" ...)");
+        if (top_forms_ == 1 && f.tag == "pack") {
+            first_pack_ = true;
+            if (!pack_seen_) note(f.at, "a (pack ...) first form, read as data: write #pack (...)");
+        }
+        // Today an origin is declared first, or first after the pack declaration (D91).
+        if ((top_forms_ == 1 || (top_forms_ == 2 && first_pack_ && !pack_seen_)) &&
+            f.tag == "origin" && sc_.peek().kind == Tok::String) {
+            first_origin_ = top_forms_ == 1;
+            if (!origin_seen_)
+                note(f.at, "an (origin \"...\") first form, read as data: write #origin (...)");
+        }
+    }
+
+    // A directive's name or path argument, consumed so it is not taken for data.
+    void argument(bool path) {
+        const Tok a = sc_.peek();
+        if (a.kind == Tok::Atom || (path && (a.kind == Tok::String || a.kind == Tok::Quoted)))
+            (void)sc_.next();
     }
 
     bool directive(const Tok& t, std::string_view d) {
@@ -392,7 +441,28 @@ private:
                                       std::string(name.text(src_)) + " ...]");
             return true;
         }
-        // #remove, #ifdef, #include, #require, ... and unknown names: Baker's, as they are.
+        // The rest are Baker's, as they are; their arguments are not data. A conditional is
+        // tracked so nothing is moved out of one; an included file may push nodes, so a
+        // declaration after it is moved to the front.
+        if (d == "ifdef" || d == "ifndef") {
+            argument(false);
+            ++conds_;
+        } else if (d == "endif") {
+            conds_ = std::max(0, conds_ - 1);
+        } else if (d == "undef") {
+            argument(false);
+        } else if (d == "include" || d == "include_opt" || d == "merge" || d == "require") {
+            argument(true);
+            if (frames_.empty()) {
+                close_shape_run();
+                ++includes_;
+            } else {
+                frames_.back().tag_pending = false;
+            }
+            return true;
+        } else if (d == "autorun") {
+            autorun_ = true;
+        }
         top_level(d == "remove");
         if (!frames_.empty()) frames_.back().tag_pending = false;
         return true;
@@ -415,7 +485,13 @@ private:
         Frame f;
         f.kind = pack ? Frame::Pack : Frame::Origin;
         f.at = t;
-        f.moved = top_forms_ > 0;  // Baker takes the declaration only before any data
+        // Baker takes the declaration only before any node, and an included file may have
+        // pushed some.
+        f.moved = top_forms_ + includes_ > 0;
+        if (f.moved && conds_ > 0)
+            return fail(t, "the prototype cannot move a #" + std::string(d) +
+                               " after data out of its #ifdef (adopted, the reader records "
+                               "it where it stands)");
         f.out_begin = out_.size();
         out_ += pack ? "(pack " : "(origin ";
         drop(paren.end);
@@ -440,6 +516,10 @@ private:
             frames_.push_back(std::move(f));
             return true;
         }
+        if (conds_ > 0)
+            return fail(t,
+                        "the prototype cannot hoist a #shape at its table out of its #ifdef "
+                        "(adopted, the reader records it where it stands)");
         for (const Frame& e : frames_) {
             if (e.kind != Frame::Data || e.open != '(')
                 return fail(t, "#shape is written at the top level or inside a (...) array");
@@ -463,6 +543,7 @@ private:
     std::string_view src_;
     std::string_view name_;
     std::vector<std::string>* notes_;
+    bool* data_first_;
     Scanner sc_;
     std::string out_;
     size_t copied_ = 0;
@@ -471,7 +552,12 @@ private:
     std::string prefix_;
     Error err_;
     int top_forms_ = 0;  // top-level nodes written so far: a declaration after one moves
+    int includes_ = 0;   // top-level #include, #merge, #require: they may push nodes
+    int conds_ = 0;      // open #ifdef/#ifndef
     bool pack_seen_ = false, origin_seen_ = false;
+    bool autorun_ = false;                            // the next `{` is #autorun's
+    bool first_pack_ = false, first_origin_ = false;  // the first form is (pack / (origin "
+    size_t first_out_ = 0;                            // where in out_ the first form starts
     bool shape_run_ = false;  // a top-level (shapes ...) container awaits its close
     size_t shape_run_close_ = 0;
 };
@@ -614,7 +700,9 @@ private:
 
     void open(const Tok& t) {
         if (!frames_.empty()) frames_.back().tag_pending = false;
-        if (frames_.empty() && t.bracket != '[') ++top_forms_;
+        // A top-level `[` defines a macro and #autorun's `{` is collected: neither pushes.
+        if (frames_.empty() && t.bracket != '[' && !autorun_) ++top_forms_;
+        autorun_ = false;
         Frame f;
         f.open = t.bracket;
         f.at = t;
@@ -656,8 +744,24 @@ private:
             }
             return;
         }
+        if (a.size() >= 2 && a[0] == '#') {
+            // Today's directives. Their arguments are not data; an included file may push
+            // nodes, so a (pack ...) after one is left as it is (Baker reads it as data then).
+            const std::string_view d = a.substr(1);
+            const Tok arg = sc_.peek();
+            if ((d == "ifdef" || d == "ifndef" || d == "undef") && arg.kind == Tok::Atom) {
+                (void)sc_.next();
+            } else if (d == "include" || d == "include_opt" || d == "merge" || d == "require") {
+                if (arg.kind == Tok::Atom || arg.kind == Tok::String || arg.kind == Tok::Quoted)
+                    (void)sc_.next();
+                if (frames_.empty()) ++top_forms_;
+            } else if (d == "autorun") {
+                autorun_ = true;
+            }
+            if (!frames_.empty()) frames_.back().tag_pending = false;
+            return;
+        }
         if (frames_.empty()) {
-            if (a.size() >= 2 && a[0] == '#') return;  // a directive pushes no node
             ++top_forms_;
             return;
         }
@@ -667,14 +771,14 @@ private:
             return;
         }
         f.tag_pending = false;
-        if (f.open != '(' || number_like(a) || a[0] == '$' || a[0] == '#') return;
+        if (f.open != '(' || number_like(a) || a[0] == '$') return;
         f.tag = std::string(a);
         f.tag_end = t.end;
         if (frames_.size() != 1) return;
         // The file's first form (nothing pushed before it) may be a declaration.
         if (a == "pack" && !pack_done_ && top_forms_ == 1) {
             const Tok name = sc_.peek();
-            if (name.kind == Tok::Atom) {
+            if (name.kind == Tok::Atom || name.kind == Tok::Quoted) {
                 edits_.push_back({f.at.begin, name.begin, "#pack ("});
                 pack_done_ = true;
                 --top_forms_;
@@ -773,23 +877,64 @@ private:
     std::vector<Edit> edits_;
     Migration m_;
     int top_forms_ = 0;
+    bool autorun_ = false;  // the next `{` is #autorun's
     bool pack_done_ = false, origin_done_ = false;
 };
 
 }  // namespace
 
 Expected<std::string> translate(std::string_view text, std::string_view name,
-                                std::vector<std::string>* notes) {
-    Translator t(text, name, notes);
+                                std::vector<std::string>* notes, bool* data_first) {
+    if (data_first) *data_first = false;
+    Translator t(text, name, notes, data_first);
     return t.run();
 }
 
 Expected<Ref<Array>> read_with(std::string_view text, std::string_view name, LoadSession& session,
                                std::vector<std::string>* notes) {
-    auto dta = translate(text, name, notes);
+    bool data_first = false;
+    auto dta = translate(text, name, notes, &data_first);
     if (!dta) return Unexpected(dta.error());
-    return read_string(*dta, name, session);
+    auto root = read_string(*dta, name, session);
+    if (!root || !data_first) return root;
+    // The node put before a first form that is data goes (after any an #include spliced).
+    const Array& r = **root;
+    std::vector<Node> rest;
+    rest.reserve(r.size());
+    bool dropped = false;
+    for (const Node& n : r) {
+        if (!dropped && n.try_sym() && n.try_sym()->str() == kDataFirst) {
+            dropped = true;
+            continue;
+        }
+        rest.push_back(n);
+    }
+    return Array::make_from(rest, r.file(), r.line());
 }
+
+namespace {
+
+// An included file in the new form, for a session's reader.
+bool serve(std::string_view path, std::string_view text, TextSink out) {
+    bool data_first = false;
+    auto dta = translate(text, path, nullptr, &data_first);
+    if (!dta) {
+        std::fprintf(stderr, "%s\n", to_string(dta.error()).data());
+        return false;
+    }
+    if (data_first) {
+        // The node that keeps it data would be spliced into the including file.
+        std::fprintf(stderr,
+                     "%.*s: the prototype cannot include a file whose first form is a (pack "
+                     "...) or (origin \"...\") read as data\n",
+                     static_cast<int>(path.size()), path.data());
+        return false;
+    }
+    out(*dta);
+    return true;
+}
+
+}  // namespace
 
 LoadSession corpus_session() {
     LoadSession session;
@@ -797,14 +942,7 @@ LoadSession corpus_session() {
     // Files the text includes may be in the new form too.
     session.set_reader([](std::string_view path, TextSink out) {
         auto text = read_text_file(path);
-        if (!text) return false;
-        auto dta = translate(*text, path);
-        if (!dta) {
-            std::fprintf(stderr, "%s\n", to_string(dta.error()).data());
-            return false;
-        }
-        out(*dta);
-        return true;
+        return text && serve(path, *text, out);
     });
     return session;
 }
@@ -845,13 +983,7 @@ void serve_migrated(LoadSession& session, std::vector<Migration>* reports) {
         Migration m;
         const std::string migrated = migrate(*text, &m);
         if (reports) reports->push_back(m);
-        auto dta = translate(migrated, path);
-        if (!dta) {
-            std::fprintf(stderr, "%s\n", to_string(dta.error()).data());
-            return false;
-        }
-        out(*dta);
-        return true;
+        return serve(path, migrated, out);
     });
 }
 

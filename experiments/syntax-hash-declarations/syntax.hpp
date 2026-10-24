@@ -40,8 +40,11 @@ constexpr std::string_view kExtension = ".dta";  // the same files, migrated in 
 // The DTA text Baker reads for `text` in the new form, or a located error. `notes` gets one
 // line per legacy form the text still uses (a top-level (shapes ...), a first-form
 // (pack ...) or (origin "..." ...)), which `check` would warn about once adopted.
+// `data_first` is set when the text's first form is a (pack ...) or (origin "...") that is
+// data: the translation then puts a node before it, which read_with drops.
 [[nodiscard]] Expected<std::string> translate(std::string_view text, std::string_view name,
-                                              std::vector<std::string>* notes = nullptr);
+                                              std::vector<std::string>* notes = nullptr,
+                                              bool* data_first = nullptr);
 
 // `read`, through `session` (its pack levels, reader, include dirs), so a caller can see
 // the packs and origins the text declared.

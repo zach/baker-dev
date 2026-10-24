@@ -1,0 +1,21 @@
+#pack (duel_core (level game) (owners "gameplay-fight" "td-combat") (stage custom))
+; Duel's vocabulary (game-stacks.md §4.6), with the fighter, CPU level and bot shapes
+; written at their tables in data/default.dta. The move shape stays here: it is (keyed), so
+; it governs every child of (at fighters * moves), and a move is (jab ...), which the agent's
+; layer can retune alone. A field the fight does not know is a warning at load, so a
+; designer can write a move property the fight does not have yet (armor, say) and an
+; engineer sees it as demand.
+
+#shape (move (at fighters * moves) (keyed)
+   (button    symbol (one_of light heavy kick special))
+   (crouching bool (optional) (desc "With down held"))
+   (startup   int (range 1 60) (kind frames) (desc "Frames before the first active frame"))
+   (active    int (range 1 30) (kind frames))
+   (recovery  int (range 1 90) (kind frames))
+   (damage    int (range 0 400))
+   (hitstun   int (range 0 90) (kind frames))
+   (blockstun int (range 0 60) (kind frames))
+   (push      float (range 0 3) (optional) (kind meters) (desc "Pushback on hit or block"))
+   (guard     symbol (optional) (one_of mid low overhead) (desc "mid by default"))
+   (cancels   (list symbol) (optional))
+   (hitbox    (list float 4) (desc "x y w h, meters, relative to the fighter")))
