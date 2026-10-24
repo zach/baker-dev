@@ -3,6 +3,7 @@
 #include "experiments.hpp"
 #include "syntax.hpp"
 
+#include <baker/config.hpp>
 #include <baker/std_interop.hpp>
 
 #include <doctest.h>
@@ -175,4 +176,68 @@ TEST_CASE("a block's error is located") {
     CHECK(r.error().file().str() == "broken.dta");
     CHECK(r.error().line() == 2);
     CHECK(r.error().column() == 1);
+}
+
+TEST_CASE("the samples merge as their originals did") {
+    const std::string root(repository_root());
+    const std::string samples = root + "/experiments/syntax-inline-layers/samples/";
+    auto text = [](const std::string& p) {
+        auto t = read_text_file(p);
+        REQUIRE(t);
+        return *t;
+    };
+    // examples/config: default.dta and handheld.dta, pushed by the host on a handheld, are
+    // one file whose block is on when HANDHELD is defined.
+    {
+        Config files({.edit_mode = false, .tweaks = nullptr});
+        REQUIRE(files.push_layer("default", samples + "config/default.dta"));
+        REQUIRE(files.push_layer("handheld", samples + "config/handheld.dta"));
+        auto one = syntax::merged(samples + "config/default.dta",
+                                  text(samples + "config/default.blocks.dta"), {"HANDHELD"});
+        REQUIRE(one);
+        CHECK(syntax::compare_merged(*files.root(), **one).empty());
+        auto off = syntax::merged(samples + "config/default.dta",
+                                  text(samples + "config/default.blocks.dta"), {});
+        auto base = syntax::merged(samples + "config/default.dta",
+                                   text(samples + "config/default.dta"), {});
+        REQUIRE((off && base));
+        CHECK(syntax::compare_merged(**base, **off).empty());
+    }
+    // ui_menu: under every define set.
+    CHECK(syntax::check_conversion(root + "/tests/corpus/ui_menu.dta",
+                                   text(samples + "ui_menu/ui_menu.dta"),
+                                   text(samples + "ui_menu/ui_menu.blocks.dta"))
+              .empty());
+    // Duel's A/B: the arm files above default.dta, against the blocks; read where Duel's
+    // file is, so its #require is found. Then the other arm, toggled both ways.
+    const std::string duel = root + "/stacks/duel/data/default.dta";
+    for (int arm = 0; arm < 2; ++arm) {
+        Config files({.edit_mode = false, .tweaks = nullptr});
+        files.session().set_pack_levels({"engine", "game", "task", "live"});
+        REQUIRE(files.push_layer("default", duel));
+        REQUIRE(files.push_layer("heavy", samples + "duel-ab/hit-pause-heavy.dta"));
+        REQUIRE(
+            files.push_layer("light", samples + "duel-ab/hit-pause-light.dta", {.enabled = false}));
+        Config one({.edit_mode = false, .tweaks = nullptr});
+        one.session().set_pack_levels({"engine", "game", "task", "live"});
+        const std::string blocks = text(samples + "duel-ab/default.blocks.dta");
+        one.session().set_reader([&](std::string_view p, TextSink out) {
+            auto t = read_text_file(p);
+            if (!t) return false;
+            out(std::string_view(p).ends_with("data/default.dta") ? blocks : *t);
+            return true;
+        });
+        REQUIRE(one.push_layer("default", duel));
+        CHECK(strings(one.layers()) ==
+              std::vector<std::string>{"default", "default:hit_pause_heavy",
+                                       "default:hit_pause_light", "scratch"});
+        if (arm == 1) {
+            REQUIRE(files.toggle_layer("heavy"));
+            REQUIRE(files.toggle_layer("light"));
+            REQUIRE(one.toggle_layer("default:hit_pause_heavy"));
+            REQUIRE(one.toggle_layer("default:hit_pause_light"));
+        }
+        CHECK(one.get<int>("duel.hit_pause") == (arm ? 4 : 9));
+        CHECK(syntax::compare_merged(*files.root(), *one.root()).empty());
+    }
 }

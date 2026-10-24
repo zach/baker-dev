@@ -1,0 +1,2 @@
+; A/B arm: snappier hits. Pushed disabled; toggled against hit-pause-heavy.dta.
+(duel (hit_pause 4))

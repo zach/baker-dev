@@ -5,6 +5,8 @@
 //   check [<file.dta>...]   the corpus round trip, then each corpus file with conditionals
 //                           (and each file named) converted and merged under every define
 //                           set against its original; exit 1 on an experiment fault
+//   compare <orig> <new>    a hand-made conversion against its original, read at the
+//                           original's path, under every define set
 //   survey <dir>            every .dta file under <dir>: its conditional regions, by what
 //                           the converter makes of them
 //   bench [<file.dta>]      Baker's reader on the original against the converted text
@@ -38,7 +40,8 @@ int fail(const Error& e) {
 int usage() {
     std::fprintf(stderr,
                  "usage: baker_syntax_inline-layers to-new <file.dta> | to-dta <file.dta> | "
-                 "check [<file.dta>...] | survey <dir> | bench [<file.dta>] | bench-layers [k]\n");
+                 "check [<file.dta>...] | compare <orig.dta> <new.dta> | survey <dir> | "
+                 "bench [<file.dta>] | bench-layers [k]\n");
     return 2;
 }
 
@@ -109,6 +112,17 @@ int main(int argc, char** argv) {
         for (int i = 2; i < argc; ++i) files.emplace_back(argv[i], argv[i]);
         for (const auto& [path, label] : files) ok = check_file(path, label) && ok;
         return ok ? 0 : 1;
+    }
+    if (cmd == "compare" && argc > 3) {
+        auto a = read_text_file(argv[2]);
+        auto b = read_text_file(argv[3]);
+        if (!a || !b) return fail(a ? b.error() : a.error());
+        int sets = 0, order = 0;
+        const auto diffs = syntax::check_conversion(argv[2], *a, *b, &sets, &order);
+        std::printf("%s: %d define sets, %d equal, %d equal up to key order, %zu differ\n", argv[3],
+                    sets, sets - order - static_cast<int>(diffs.size()), order, diffs.size());
+        for (const std::string& d : diffs) std::printf("  %s\n", d.c_str());
+        return diffs.empty() ? 0 : 1;
     }
     if (cmd == "survey" && argc > 2) {
         std::map<std::string, int> kinds;

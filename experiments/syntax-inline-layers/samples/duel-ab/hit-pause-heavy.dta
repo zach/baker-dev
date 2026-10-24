@@ -1,0 +1,2 @@
+; A/B arm: heavier hits. Pushed above default.dta and toggled against hit-pause-light.dta.
+(duel (hit_pause 9))
