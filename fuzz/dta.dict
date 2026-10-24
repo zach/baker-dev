@@ -27,6 +27,7 @@
 "#define"
 "#undef"
 "#autorun"
+"#remove"
 "#layer"
 "(#layer"
 "(when"

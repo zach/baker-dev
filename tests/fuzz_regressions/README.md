@@ -9,3 +9,4 @@ bytes). The data-layer tests run the fuzz property over every file here.
 | `bom_symbol_with_quotes.bin` | The first fix (quoting such symbols) broke bare atoms that also contain `'`. Final fix: `to_dta` never begins with BOM bytes; it adds a leading space. |
 | `quoted_remove_symbol.bin` | A quoted `'#remove'` outside a key's only value was printed bare, where the reparse refused it (D143). Fix: `#remove` is bare only in the slot where the parser takes it. |
 | `symbols_hash_alike.bin` | The symbols `''` and `'\x01'` had one name hash, and the cache write refused them (D148). Fix: the checksum folds the length in after the bytes. |
+| `remove_marker_span.bin` | Any `(key #remove)` failed the property: the edit-mode check re-read each literal token alone, and `#remove` alone is refused (D143). Found by fuzzing layer blocks. Fix: the check skips the marker. |
