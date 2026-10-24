@@ -164,6 +164,50 @@ TEST_CASE("the printer puts one-line siblings' metadata in one column, whitespac
     CHECK(first_difference(**back, **plain).empty());
 }
 
+TEST_CASE("each sample reads under the rule and strips back to its original") {
+    const std::string dir =
+        std::string(repository_root()) + "/experiments/syntax-at-metadata/samples/";
+    // The text without its #require line: a sample's pack is not beside it here.
+    const auto text_of = [&](const std::string& file) {
+        auto t = read_text_file(dir + file);
+        REQUIRE(t);
+        std::string s = *t;
+        if (const size_t at = s.find("#require"); at != std::string::npos)
+            s.erase(at, s.find('\n', at) - at);
+        return s;
+    };
+    for (const char* name : {"cube", "duel", "duel-duel_core", "contraption", "hearth-hearth_core",
+                             "harness-imgui", "scripts"}) {
+        INFO(std::string(name));
+        auto before = syntax::read(text_of(std::string(name) + ".before.dta"), "before.dta");
+        REQUIRE(before);
+        auto after = syntax::read_as_dta(text_of(std::string(name) + ".after.dta"), "after.dta");
+        REQUIRE(after);
+        const std::string diff = first_difference(**before, **after);
+        if (std::string_view(name) == "hearth-hearth_core")  // the one addition: a shape's own
+            CHECK(diff.find("(desc \"A floor plan and who lives on it\")") != std::string::npos);
+        else
+            CHECK(diff.empty());
+    }
+#if BAKER_AT_SHAPE
+    if constexpr (kAtMetadata) {  // the packs' shapes load, a shape's own (@desc) included
+        for (const char* name : {"duel-duel_core", "hearth-hearth_core", "harness-imgui"}) {
+            INFO(std::string(name));
+            auto tree = syntax::read(text_of(std::string(name) + ".after.dta"), "after.dta");
+            REQUIRE(tree);
+            shape::Set set;
+            shape::Report report;
+            set.add(**tree, report);
+            CHECK(report.errors.empty());
+        }
+        auto harness = syntax::read(text_of("harness-imgui.after.dta"), "after.dta");
+        REQUIRE(harness);
+        CHECK((*harness)->get<std::array<float, 3>>("scene.ball.color"));
+        CHECK(*(*harness)->get<std::string_view>("scene.ball.bounce.@note") == "1.0 never settles");
+    }
+#endif
+}
+
 // --- With the switch on: what the core reads differently ---
 
 TEST_CASE("the converted cube file reads its color as three floats; the original does not") {

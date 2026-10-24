@@ -3,10 +3,10 @@
 #require "../packs/game/contraption_core.dta"
 
 (contraption
-   (run_seconds 12 (@range 1 120) (@desc "An attempt's time limit"))
-   (hold_seconds 0.5 (@range 0 10) (@desc "How long the goal must hold to count"))
-   (grid 0.05 (@range 0 1) (@desc "Metres a placement snaps to"))
-   (angle_step 5 (@range 0 45) (@desc "Degrees a placement snaps to")))
+   (run_seconds 12   (@range 1 120) (@desc "An attempt's time limit"))
+   (hold_seconds 0.5 (@range 0 10)  (@desc "How long the goal must hold to count"))
+   (grid 0.05        (@range 0 1)   (@desc "Metres a placement snaps to"))
+   (angle_step 5     (@range 0 45)  (@desc "Degrees a placement snaps to")))
 
 (kinds
    (ball   (shape sphere) (size 0.4) (mass 0.5) (friction 0.4) (bounce 0.2))
