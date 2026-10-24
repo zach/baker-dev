@@ -6,4 +6,7 @@ opens a directive only before a letter, so `#1` is a symbol. The prototype is a 
 over Baker's reader (`syntax.cpp`: a translator into today's DTA, a printer, and the
 migrator `to-new` uses); the design note is `dev/syntax-hash-declarations-design.md`.
 `check` round-trips the corpus, `migrate-check` reads the migrated corpus back and compares
-trees, packs, origins and macros, and `samples/` holds real files in the new form.
+trees, packs, origins and macros, `bench` and `count` compare the readers (wall clock and
+cachegrind), `bench-stack` and `count-stack` measure a stack's reload, toggle and push with
+a pack's shapes in the tree and out of it, and `samples/` holds real files in the new form
+(`duel-at-table/` is Duel with its shapes written at their tables).

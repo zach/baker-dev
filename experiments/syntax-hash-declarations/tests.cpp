@@ -591,6 +591,58 @@ TEST_CASE("a softer pack may narrow a #shape, not loosen it (D145 unchanged)") {
     CHECK(tight.count("tight.dta:2") == 0);
 }
 
+TEST_CASE("received text: a (shapes ...) loosens a pack's shape today; #shape is refused") {
+    Config cfg({.tweaks = nullptr});
+    cfg.session().set_pack_levels({"engine", "game", "live"});
+    cfg.add_validator(shape::validator(), {.any_thread = true});
+    REQUIRE(cfg.push_layer_text(
+        "default", *syntax::translate("#pack (game_data (level game) (version \"1.0\"))\n"
+                                      "#shape (item (at shop) (keyed) (price int (range 0 1000)))\n"
+                                      "(shop (sword (price 10)) (shield (price 20)))\n",
+                                      "default")));
+    // Every rule but allow: a received layer may change existing values, to plain values.
+    const LayerPolicy strict{
+        .data_only = true, .scalars_only = true, .existing_only = true, .warnings_refuse = true};
+    auto plain = cfg.check_layer_text("overlay", "(shop (sword (price 5000)))\n", strict);
+    REQUIRE(plain);
+    CHECK_FALSE(plain->ok());  // out of the pack's range
+    // Today, an overlay that declares no pack retunes the shape's range as data (two numbers
+    // the stack already has), and the 5000 passes. The adopted reader reads it as data that
+    // declares nothing, and existing_only refuses its new paths.
+    auto loosened = cfg.check_layer_text(
+        "overlay", "(shapes (item (price int (range 0 99999))))\n(shop (sword (price 5000)))\n",
+        strict);
+    REQUIRE(loosened);
+    CHECK(loosened->ok());
+    // In the new form a shape is a declaration, which the policy classifies.
+    auto declared = syntax::check_received(
+        cfg, "overlay", "#shape (item (price int (range 0 99999)))\n(shop (sword (price 5000)))\n",
+        strict);
+    REQUIRE(!declared);
+    CHECK(declared.error().code() == ErrorCode::Refused);
+    CHECK(declared.error().line() == 1);
+    CHECK(message(declared.error()).find("a received layer read under data_only") !=
+          std::string::npos);
+    // A published overlay declares itself with #pack and #origin, which pass.
+    auto overlay = syntax::check_received(
+        cfg, "overlay",
+        "#pack (double_xp (level live) (version 1) (requires (game_data \"1.0\")))\n"
+        "#origin (\"liveops console, ticket 4412\" (tool baker-publish))\n"
+        "(shop (sword (price 15)))\n",
+        strict);
+    REQUIRE(overlay);
+    CHECK(overlay->ok());
+    // Without data_only and scalars_only, a received #shape is admitted, and D145 holds it.
+    const LayerPolicy open{.warnings_refuse = true};
+    auto admitted =
+        syntax::check_received(cfg, "overlay",
+                               "#pack (o (level live))\n#shape (item (price int (range 0 99999)))\n"
+                               "(shop (sword (price 5000)))\n",
+                               open);
+    REQUIRE(admitted);
+    CHECK_FALSE(admitted->ok());
+}
+
 TEST_CASE("a cache of a migrated pack replays its pack and keeps its shapes") {
     const std::string root(repository_root());
     const std::string pack =

@@ -2,6 +2,7 @@
 
 #include "experiments.hpp"
 
+#include <baker/config.hpp>
 #include <baker/parse.hpp>
 #include <baker/std_interop.hpp>
 #include <baker/write.hpp>
@@ -145,8 +146,9 @@ int32_t column_of(std::string_view src, size_t at) noexcept {
     return col;
 }
 
-Error located(std::string_view src, std::string_view file, const Tok& t, std::string_view msg) {
-    Error e = make_error(ErrorCode::Directive, msg, Symbol(file), t.line);
+Error located(std::string_view src, std::string_view file, const Tok& t, std::string_view msg,
+              ErrorCode code = ErrorCode::Directive) {
+    Error e = make_error(code, msg, Symbol(file), t.line);
     e.set_column(column_of(src, t.begin));
     return e;
 }
@@ -177,8 +179,13 @@ std::string one_line(std::string_view form) {
 class Translator {
 public:
     Translator(std::string_view src, std::string_view name, std::vector<std::string>* notes,
-               bool* data_first)
-        : src_(src), name_(name), notes_(notes), data_first_(data_first), sc_(src) {
+               bool* data_first, bool refuse_shapes = false)
+        : src_(src),
+          name_(name),
+          notes_(notes),
+          data_first_(data_first),
+          refuse_shapes_(refuse_shapes),
+          sc_(src) {
         out_.reserve(src.size() + 64);
     }
 
@@ -500,6 +507,13 @@ private:
     }
 
     bool shape(const Tok& t) {
+        if (refuse_shapes_) {
+            err_ = located(src_, name_, t,
+                           "#shape declares a shape: a received layer read under data_only or "
+                           "scalars_only may not",
+                           ErrorCode::Refused);
+            return false;
+        }
         const Tok paren = sc_.next();
         if (paren.kind != Tok::Open || paren.bracket != '(')
             return fail(paren, "#shape takes one form: #shape (NAME (FIELD TYPE ...) ...)");
@@ -544,6 +558,7 @@ private:
     std::string_view name_;
     std::vector<std::string>* notes_;
     bool* data_first_;
+    bool refuse_shapes_;  // received text under a policy that refuses declarations
     Scanner sc_;
     std::string out_;
     size_t copied_ = 0;
@@ -935,6 +950,14 @@ bool serve(std::string_view path, std::string_view text, TextSink out) {
 }
 
 }  // namespace
+
+Expected<LayerReport> check_received(const Config& cfg, std::string_view name,
+                                     std::string_view text, const LayerPolicy& policy) {
+    Translator t(text, name, nullptr, nullptr, policy.data_only || policy.scalars_only);
+    auto dta = t.run();
+    if (!dta) return Unexpected(dta.error());
+    return cfg.check_layer_text(name, *dta, policy);
+}
 
 LoadSession corpus_session() {
     LoadSession session;

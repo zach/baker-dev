@@ -13,6 +13,7 @@
 // form, keeping comments and layout. It is a tool: public headers and the STL.
 
 #include <baker/array.hpp>
+#include <baker/config.hpp>
 #include <baker/error.hpp>
 #include <baker/expected.hpp>
 #include <baker/parse.hpp>
@@ -51,6 +52,14 @@ constexpr std::string_view kExtension = ".dta";  // the same files, migrated in 
 [[nodiscard]] Expected<Ref<Array>> read_with(std::string_view text, std::string_view name,
                                              LoadSession& session,
                                              std::vector<std::string>* notes = nullptr);
+
+// Config::check_layer_text for received text in the new form, with the LayerPolicy
+// classification the adopted reader would make: a #shape is a declaration, refused (located,
+// ErrorCode::Refused) under data_only or scalars_only and admitted otherwise; #pack and
+// #origin are admitted, as a published overlay declares itself with them (D162).
+[[nodiscard]] Expected<LayerReport> check_received(const Config& cfg, std::string_view name,
+                                                   std::string_view text,
+                                                   const LayerPolicy& policy);
 
 // A session as the corpus is read: the stacks' and examples' pack levels.
 [[nodiscard]] LoadSession corpus_session();

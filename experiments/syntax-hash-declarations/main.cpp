@@ -10,14 +10,25 @@
 //                         the parse benchmark's 4 MB text, or a file (its #requires resolved,
 //                         the stacks' pack levels), with the translate pass timed alone
 //   count baker|new|translate <n>   read the 1 MB text n times, for cachegrind
+//   bench-stack <stack> [rounds]    a stack's Config (default.dta and two text layers):
+//                         reload, toggle and push, with its pack's (shapes ...) in the tree
+//                         as today, and parsed but never merged, as the adopted #shape is
+//   count-stack <stack> tree|records reload|toggle|push <n>   one of those n times, for
+//                         cachegrind
 #include "experiments.hpp"
 #include "syntax.hpp"
 
 #include <baker/parse.hpp>
 #include <baker/std_interop.hpp>
 
+#include <baker/config.hpp>
+
+#include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <map>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -94,7 +105,13 @@ int migrate_check() {
                         session_record(plain).c_str(), session_record(migrated).c_str());
             ++mismatches;
         }
-        // The main file's own rewrites (the first report is its text).
+        // The main file's own rewrites (the first report is its text), one line per file.
+        if (!reports.empty() && reports[0].total() > 0)
+            std::printf(
+                "migrated %-52s %d pack, %d origin, %d (shapes ...) -> %d #shape, %d "
+                "#define bodies\n",
+                rel.c_str(), reports[0].packs, reports[0].origins, reports[0].shape_sets,
+                reports[0].shapes, reports[0].define_bodies);
         if (!reports.empty()) {
             total.packs += reports[0].packs;
             total.origins += reports[0].origins;
@@ -110,6 +127,132 @@ int migrate_check() {
         corpus_files().size(), mismatches, total.packs, total.origins, total.shape_sets,
         total.shapes, total.define_bodies);
     return mismatches == 0 ? 0 : 1;
+}
+
+// The span of the top-level form opened at `at` (a '('), skipping strings, quoted symbols
+// and comments; npos if it never closes.
+size_t form_end(const std::string& text, size_t at) {
+    int depth = 0;
+    for (size_t i = at; i < text.size(); ++i) {
+        const char c = text[i];
+        if (c == '"' || c == '\'') {
+            i = text.find(c, i + 1);
+            if (i == std::string::npos) return i;
+        } else if (c == ';') {
+            i = text.find('\n', i);
+            if (i == std::string::npos) return i;
+        } else if (c == '(' || c == '{' || c == '[') {
+            ++depth;
+        } else if ((c == ')' || c == '}' || c == ']') && --depth == 0) {
+            return i + 1;
+        }
+    }
+    return std::string::npos;
+}
+
+// The pack's text with its top-level (shapes ...) parsed into a macro body that nothing
+// expands: read as the adopted #shape is (an ordinary array, parsed), never in the tree.
+std::string shapes_unmerged(const std::string& pack) {
+    const size_t at = pack.find("\n(shapes");
+    if (at == std::string::npos) return pack;
+    const size_t end = form_end(pack, at + 1);
+    if (end == std::string::npos) return pack;
+    return pack.substr(0, at + 1) + "[hd_shape_records " + pack.substr(at + 1, end - at - 1) + "]" +
+           pack.substr(end);
+}
+
+double us_since(std::chrono::steady_clock::time_point t0) {
+    return std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count();
+}
+
+// With `variant` (tree or records) and `op` (reload, toggle or push): that one, `rounds`
+// times, untimed, for cachegrind.
+int bench_stack(const std::string& stack, int rounds, std::string_view variant = {},
+                std::string_view op = {}) {
+    const std::string root(repository_root());
+    const std::string dir = root + "/stacks/" + stack;
+    const std::string pack_path = dir + "/packs/game/" + stack + "_core.dta";
+    auto pack = read_text_file(pack_path);
+    if (!pack) return fail(pack.error());
+    struct Variant {
+        const char* name;
+        std::string pack;
+        std::unique_ptr<Config> cfg;
+        int edits = 0;
+        size_t root_nodes = 0;
+        double reload = 1e30, toggle = 1e30, push = 1e30;
+    };
+    Variant vs[2] = {{"(shapes ...) in the tree", *pack, nullptr},
+                     {"parsed, never merged", shapes_unmerged(*pack), nullptr}};
+    const std::string overlay = "(hd_bench_local (a 1) (b 2.5) (c \"three\"))\n";
+    const std::string agent = "(hd_bench_agent (a 2))\n";
+    const bool counting = !variant.empty();
+    for (Variant& v : vs) {
+        if (counting && (&v == &vs[0]) != (variant == "tree")) continue;
+        v.cfg = std::make_unique<Config>(ConfigOptions{.edit_mode = true, .tweaks = nullptr});
+        LoadSession& session = v.cfg->session();
+        session.set_pack_levels({"engine", "game", "task"});
+        session.add_include_dir(dir + "/data");
+        Variant* self = &v;
+        session.set_reader([self, pack_path](std::string_view path, TextSink out) {
+            if (path == pack_path) {
+                out(self->pack);
+                return true;
+            }
+            auto text = read_text_file(path);
+            if (!text) return false;
+            // An edit a reload sees: default.dta gains a comment line per edit.
+            if (path.ends_with("/data/default.dta"))
+                for (int i = 0; i < self->edits % 2; ++i) *text += "; edited\n";
+            out(*text);
+            return true;
+        });
+        if (auto r = v.cfg->push_layer("default", dir + "/data/default.dta"); !r)
+            return fail(r.error());
+        if (auto r = v.cfg->push_layer_text("local", overlay); !r) return fail(r.error());
+        v.root_nodes = v.cfg->root()->size();
+    }
+    if (counting) {
+        Variant& v = vs[variant == "tree" ? 0 : 1];
+        for (int i = 0; i < rounds; ++i) {
+            ++v.edits;
+            if (op == "reload") {
+                if (auto r = v.cfg->reload(); !r || !*r) return 1;
+            } else if (op == "toggle") {
+                if (!v.cfg->toggle_layer("local")) return 1;
+            } else {
+                if (!v.cfg->push_layer_text("agent", agent)) return 1;
+                if (!v.cfg->remove_layer("agent")) return 1;
+            }
+        }
+        std::printf("%d %.*s\n", rounds, static_cast<int>(op.size()), op.data());
+        return 0;
+    }
+    for (int round = 0; round < rounds; ++round)
+        for (Variant& v : vs) {
+            ++v.edits;
+            auto t0 = std::chrono::steady_clock::now();
+            if (auto r = v.cfg->reload(); !r || !*r) return 1;
+            v.reload = std::min(v.reload, us_since(t0));
+            t0 = std::chrono::steady_clock::now();
+            if (!v.cfg->toggle_layer("local")) return 1;
+            v.toggle = std::min(v.toggle, us_since(t0));
+            if (!v.cfg->toggle_layer("local")) return 1;
+            t0 = std::chrono::steady_clock::now();
+            if (!v.cfg->push_layer_text("agent", agent)) return 1;
+            v.push = std::min(v.push, us_since(t0));
+            if (!v.cfg->remove_layer("agent")) return 1;
+        }
+    std::printf("%s: %s, %zu bytes (%zu as records)\n", stack.c_str(),
+                pack_path.c_str() + root.size() + 1, vs[0].pack.size(), vs[1].pack.size());
+    std::printf("%-28s %6s %12s %12s %12s\n", "the pack's shapes", "nodes", "reload us",
+                "toggle us", "push us");
+    for (const Variant& v : vs)
+        std::printf("%-28s %6zu %12.1f %12.1f %12.1f\n", v.name, v.root_nodes, v.reload, v.toggle,
+                    v.push);
+    std::printf("ratio (records / tree) %20.3f %12.3f %12.3f\n", vs[1].reload / vs[0].reload,
+                vs[1].toggle / vs[0].toggle, vs[1].push / vs[0].push);
+    return 0;
 }
 
 }  // namespace
@@ -168,10 +311,41 @@ int main(int argc, char** argv) {
             if (!root) return fail(root.error());
             converted = syntax::print(**root);
         }
+        // Included files from memory on both sides, as they are and migrated (the
+        // experiment's reader translates each as it reads it).
+        static std::map<std::string, std::string, std::less<>> originals, migrated;
+        static const auto held = [](bool migrate, std::string_view path) -> const std::string* {
+            auto& files = migrate ? migrated : originals;
+            auto it = files.find(path);
+            if (it == files.end()) {
+                auto file = read_text_file(path);
+                if (!file) return nullptr;
+                it = files.emplace(std::string(path), migrate ? syntax::migrate(*file) : *file)
+                         .first;
+            }
+            return &it->second;
+        };
         const Reader baker_read = [](std::string_view t, std::string_view n) {
             LoadSession session;
             session.set_pack_levels({"engine", "game", "task", "live"});
+            session.set_reader([](std::string_view path, TextSink out) {
+                const std::string* file = held(false, path);
+                if (file) out(*file);
+                return file != nullptr;
+            });
             return read_string(t, n, session);
+        };
+        const Reader new_read = [](std::string_view t, std::string_view n) {
+            LoadSession session;
+            session.set_pack_levels({"engine", "game", "task", "live"});
+            session.set_reader([](std::string_view path, TextSink out) {
+                const std::string* file = held(true, path);
+                if (!file) return false;
+                auto dta = syntax::translate(*file, path);
+                if (dta) out(*dta);
+                return bool(dta);
+            });
+            return syntax::read_with(t, n, session);
         };
         const Reader translate_only = [](std::string_view t,
                                          std::string_view n) -> Expected<Ref<Array>> {
@@ -184,7 +358,7 @@ int main(int argc, char** argv) {
             tr{"translate only", converted.size(), 1e9, 0};
         for (int round = 0; round < 5; ++round) {
             const BenchRow rb = bench_reader(b.name, baker_read, text, name, 3);
-            const BenchRow rn = bench_reader(n.name, syntax::read, converted, name, 3);
+            const BenchRow rn = bench_reader(n.name, new_read, converted, name, 3);
             const BenchRow rt = bench_reader(tr.name, translate_only, converted, name, 3);
             if (rb.mb_per_s == 0 || rn.mb_per_s == 0 || rt.mb_per_s == 0) return 1;
             if (rb.best_ms < b.best_ms) b = rb;
@@ -218,5 +392,9 @@ int main(int argc, char** argv) {
                     which == "baker" ? text.size() : converted.size());
         return 0;
     }
+    if (cmd == "bench-stack" && argc > 2)
+        return bench_stack(argv[2], argc > 3 ? std::atoi(argv[3]) : 200);
+    if (cmd == "count-stack" && argc > 5)
+        return bench_stack(argv[2], std::atoi(argv[5]), argv[3], argv[4]);
     return usage();
 }
