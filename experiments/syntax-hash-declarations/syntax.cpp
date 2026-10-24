@@ -236,6 +236,7 @@ private:
         bool tag_pending = true;        // the next value names the array
         std::string tag;                // its first token when that is a symbol
         bool moved = false;             // a declaration written after data: moved to the front
+        bool shaped = false;            // Data: a #shape is written at this table
         size_t out_begin = 0;           // where in out_ the form starts
         size_t name_end = 0;            // TableShape: where in out_ the name ends
         std::vector<std::string> path;  // TableShape: the enclosing tags
@@ -544,6 +545,9 @@ private:
                                 decimal(e.at.line) + " has no tag");
             f.path.push_back(e.tag);
         }
+        if (frames_.back().shaped)
+            return fail(t, "a second #shape at one table: the table's children have one shape");
+        frames_.back().shaped = true;
         flush(t.begin);
         f.kind = Frame::TableShape;
         f.out_begin = out_.size();

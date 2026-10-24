@@ -300,6 +300,13 @@ TEST_CASE("a #shape written at its table governs that table's children") {
     REQUIRE(!command);
     CHECK(message(command.error()).find("inside a (...) array") != std::string::npos);
 
+    auto second = syntax::read(
+        "(fighters #shape (fighter (health int))\n   #shape (other (width float)))\n", "two.dta");
+    REQUIRE(!second);
+    CHECK(second.error().line() == 2);
+    CHECK(second.error().column() == 4);
+    CHECK(message(second.error()).find("a second #shape at one table") != std::string::npos);
+
     auto nameless = syntax::read("(fighters #shape ((health int)))\n", "nameless.dta");
     REQUIRE(!nameless);
     CHECK(message(nameless.error()).find("needs a name") != std::string::npos);
