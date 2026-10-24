@@ -592,3 +592,37 @@ runtime gain or loss. Hold `[NAME ...]`-only until the raw gate is re-run, and d
 at-the-table form. The next step is a design note in `dev/` for that one step, with the
 D-entry's measurements re-taken on a quiet machine (`bench_compare.py` on `bench_parse`,
 `count_instructions.py`'s parse case, `bench_cache`) and the migration as its own commit.
+
+## 11. Verification, the raw gate, and review
+
+*Added after the prototype, from the session's review round; `dev/syntax-ideas.md` on
+`claude/fervent-cray-l1kyf0` compares all eight branches.* An agent independent of the
+prototype rebuilt this branch, reran its tests and reproduced its numbers; a reviewer
+judged it under the data-oriented lens (`.claude/skills/acton-review/`) and the tool
+author's; and D101's raw gate (464 raw Harmonix files, `baker_parse_corpus --roundtrip
+--milo-paths` over a local clone of mariteaux/milo-script-library, nothing from it in the
+repository, D3) was run on the branch's build. Where a finding below disagrees with an
+earlier section, this section is the later word.
+
+- **Reviewed at** `104fcec`, the branch's final head.
+- **Verifier.** Builds; 23 of 23; 21 experiment cases and 11 shape cases, also under
+  ASan and UBSan. The corpus check, `migrate-check`, line budgets, the prototype's size,
+  every sample cell and the migration diff reproduce exactly. Corrections: the translator's
+  instruction figures are stale. At this head a read is 149.7 M instructions, the
+  translator 51.9 M (about 52 a byte), a ratio of 1.527, not 144.7 M, 46.9 M and 1.476;
+  a count that moves is work, not code layout, as section 4 says. The stack-file
+  wall-clock ratios are about 1.59 to 1.68 at this head. `write_json` does not emit the
+  new `count`, so the reference JSON drops the arity.
+- **Raw gate.** 464/464, 0 failures (no core change).
+- **Technical director, 3 of 5, adopt in part.** Most of the payoff needs no new syntax:
+  the arity is built on today's `(shapes ...)`, the governs-nothing finding closes D108's
+  wrong-depth failure, and a policy rule closes the received-layer gap. The namespace move
+  answers failures the 68 files do not have, for an estimated 100 lines not yet written.
+- **Tool author, 3 of 5, adopt in part.** Shapes leaving the tree leave `diff`,
+  `layer_effect` and `explain`, so an agent layer could loosen a shape invisibly; and
+  `read_structure`'s bracket tree would show `#shape (fighter ...)` inside a table as a
+  row named `fighter`.
+- **Recommendation after review.** The parts that need no new syntax now (the arity with
+  `count` in `baker.shapes`, the governs-nothing finding, a received-shape policy rule) and
+  the `#`-before-a-letter rule; the directives held until `diff`, `layer_effect` and the
+  tolerant read can show a declaration.
