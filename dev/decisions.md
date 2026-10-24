@@ -7287,3 +7287,43 @@ the owner's choice.*
 - **Cost.** Up to 17 `snprintf` and parse rounds a number, as before, plus one `%.0f` for
   a large whole number. It is used only where `to_chars` is missing, and only for writing,
   never on a read path.
+
+## D227. Layers inside a file, prototyped: `(#layer HEAD form*)` blocks as sub-layers
+
+*The `inline-layers` syntax idea, on its branch only, behind `BAKER_INLINE_LAYERS` (off by
+default; on with `BAKER_BUILD_EXPERIMENTS`). The design note is
+`dev/syntax-inline-layers-design.md`; nothing here is adopted.*
+
+- **The form.** `(#layer NAME form...)` or `(#layer (NAME (when COND) (disabled)) form...)`,
+  COND a define name, `(not C)`, `(and C...)` or `(or C...)` read as `#ifdef` reads its
+  name, unexpanded. At the top level or inside tagged arrays, whose tags wrap the forms. A
+  block holds data: no directive but `#remove`. The parser lifts it into
+  `LoadSession::blocks()`, and only a session with `layer_blocks` (a Config's) takes one;
+  any other reader gets a located error rather than losing it.
+- **The Config.** Each block is a layer `FILE:NAME` directly above its file, enabled by its
+  head; a file and its blocks are one unit in `reread`, `placement` (D144), `remove_layer`
+  and `pop_layer`, and nowhere else needed a clause. A received text's blocks are each
+  checked under the push's policy. A load with blocks is never cached (`bytes_of` refuses
+  it; `kVersion` stays 6). Promote into a block is refused.
+- **Lines** (`tools/count_lines.py`): +265 with the switch's guards (15,455 of 15,500), +221
+  as adopted (15,411): parser 141, Config 80. The bar was 150. The full form (groups,
+  windows, `dev_only`, a cache entry) is estimated at about 319.
+- **Speed.** On block-free text the parse case is 1,844,556 instructions a document against
+  1,845,499 (−0.05%, `count_instructions.py`), lookup unchanged; `bench_compare.py` on
+  parse and layers moves no row past its range. The first cut cost +3.45%, all of it in
+  inlining (the block's close made `close()` too big to inline into the loop); the block's
+  close is now out of line and cold. A file with k blocks is k+1 merges: 64 blocks over
+  4 MB double a push (35 to 70 ms), 8 cost 12 to 17%, 1 is noise.
+- **The raw gate's conditionals** (D101's 464 files, counted outside the repository): 112
+  files, 1,024 regions. 162 enclose whole tagged forms where a block can stand and convert
+  (96 at the top level); 2 span a bracket, the form no block can express; the rest are
+  inside commands (317), nested (356), hold a directive (73), hold bare values (76), or sit
+  in untagged arrays (38). Of the 29 converted files the check could read, 25 merge as the
+  original under every define set (15 of them up to key order) and 4 differ only with two
+  or more defines set together.
+- **Found on the way:** the parse fuzz property failed every input with `(key #remove)`,
+  on main too (its edit-mode check re-read `#remove` alone); fixed in the harness, with a
+  regression file.
+- **Recommendation:** decline for now; if conditional platform layers are wanted sooner, a
+  `(when COND)` flag on the project file's layer entries (D172, D204) gives them in about
+  15 lines with no parser change.
