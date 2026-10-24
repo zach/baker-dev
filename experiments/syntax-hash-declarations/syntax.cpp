@@ -305,6 +305,7 @@ private:
         // A top-level `[` defines a macro and #autorun's `{` is collected: neither pushes.
         const bool pushes = t.bracket != '[' && !autorun_;
         const bool first = frames_.empty() && pushes && top_forms_ == 0 && t.bracket == '(';
+        if (frames_.empty() && t.bracket == '[') ++defines_;
         autorun_ = false;
         top_level(pushes);
         if (first) {
@@ -451,6 +452,7 @@ private:
         if (d == "shape") return shape(t);
         if (d == "define") {
             top_level(false);
+            if (frames_.empty()) ++defines_;
             const Tok name = sc_.peek();
             if (name.kind != Tok::Atom) return true;  // Baker reports it
             (void)sc_.next();
@@ -506,8 +508,9 @@ private:
         f.kind = pack ? Frame::Pack : Frame::Origin;
         f.at = t;
         // Baker takes the declaration only before any node, and an included file may have
-        // pushed some.
-        f.moved = top_forms_ + includes_ > 0;
+        // pushed some. A pack is its whole file's, so a macro defined before #pack is the
+        // pack's too: the declaration moves in front of it.
+        f.moved = top_forms_ + includes_ + defines_ > 0;
         if (f.moved && conds_ > 0)
             return fail(t, "the prototype cannot move a #" + std::string(d) +
                                " after data out of its #ifdef (adopted, the reader records "
@@ -586,6 +589,7 @@ private:
     Error err_;
     int top_forms_ = 0;  // top-level nodes written so far: a declaration after one moves
     int includes_ = 0;   // top-level #include, #merge, #require: they may push nodes
+    int defines_ = 0;    // top-level macro and flag definitions
     int conds_ = 0;      // open #ifdef/#ifndef
     bool pack_seen_ = false, origin_seen_ = false;
     bool autorun_ = false;                            // the next `{` is #autorun's

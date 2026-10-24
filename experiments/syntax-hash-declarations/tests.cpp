@@ -170,6 +170,31 @@ TEST_CASE("#pack is a directive: anywhere at the top level, once per file") {
     CHECK(message(open.error()).find("never closed") != std::string::npos);
 }
 
+TEST_CASE("a pack is its whole file's: a macro defined before #pack is the pack's") {
+    // The one-way rule (D82): a game pack using a task pack's macro is warned about. Today a
+    // macro defined before (pack ...) belongs to no pack; #pack declares the whole file.
+    static const std::map<std::string, std::string> files = {
+        {"task.dta", "[kTaskThing 5]\n#define TASK_FLAG\n#pack (task_pack (level task))\n"},
+        {"game.dta", "#pack (game_pack (level game))\n(x kTaskThing)\n"},
+        {"main.dta", "#require \"task.dta\"\n#require \"game.dta\"\n"}};
+    LoadSession session;
+    session.set_pack_levels({"engine", "game", "task"});
+    session.set_reader([](std::string_view p, TextSink out) {
+        const auto it = files.find(std::string(p));
+        if (it == files.end()) return false;
+        auto dta = syntax::translate(it->second, p);
+        if (!dta) return false;
+        out(*dta);
+        return true;
+    });
+    auto root = ok(read_file("main.dta", session));
+    REQUIRE(session.packs().size() == 2);
+    REQUIRE(session.warnings().size() == 1);
+    CHECK(message(session.warnings()[0])
+              .find("uses macro 'kTaskThing' from the softer pack "
+                    "'task_pack'") != std::string::npos);
+}
+
 TEST_CASE("#origin is a directive; (origin 0 0 0) and (pack x) are data") {
     LoadSession session = syntax::corpus_session();
     auto root =
