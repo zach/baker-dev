@@ -38,6 +38,8 @@ bool spans_hold(const Node& n, const SourceMap& map, std::string_view text, uint
             if (!sp.literal() || (*a)[i].array()) continue;
             // A leading space, so a token starting with BOM bytes is not read as a BOM.
             const std::string token = " " + std::string(text.substr(sp.begin, sp.end - sp.begin));
+            // The marker reads only as a key's one value (D143), never alone.
+            if (token == " #remove") continue;
             LoadSession value;
 #if defined(BAKER_INDENT_LINES) && BAKER_INDENT_LINES
             value.lines = false;  // a value's text: alone on its line it would open a line
