@@ -220,6 +220,17 @@ LayerReport run_check(const Basis& b, std::string_view name, const Ref<Array>& c
             e.stale = true;
             warnings.push_back(std::move(*w));
         }
+        if (detail::verb_of(*leaf.holder) == detail::Marker::Drop) {
+            detail::Resolved r;  // an operand the stack does not have drops nothing: say so
+            const Array* row = finder.resolve(stack, path, r) ? r.array : nullptr;
+            for (const Node& v : leaf.values)
+                if (!row || std::none_of(row->begin() + 1, row->end(),
+                                         [&](const Node& n) { return structurally_equal(n, v); }))
+                    warnings.push_back(
+                        make_error(ErrorCode::NotFound,
+                                   "'" + leaf.path + "' has no " + detail::preview(v) + " to drop",
+                                   leaf.holder->file(), leaf.holder->line()));
+        }
         effect.push_back(std::move(e));
 
         auto refuse = [&](const Str& why) {

@@ -75,12 +75,9 @@ bool value_nodes(const Array& root, const Path& path, Vec<Node>& out) {
     }
     detail::Resolved r;
     if (detail::resolve(root, path, r) != detail::ResolveStatus::Ok || !r.array) return false;
-    if (!path.empty()) {
-        out = leaf_values(*r.array);
-        return true;
-    }
-    for (const Node& n : *r.array)
-        if (!is_tagged(n)) out.push_back(n);
+    if (!path.empty()) out = leaf_values(*r.array);  // a row; the root has no tag
+    for (size_t i = 0; path.empty() && i < r.array->size(); ++i)
+        if (!is_tagged((*r.array)[i])) out.push_back((*r.array)[i]);
     return true;
 }
 

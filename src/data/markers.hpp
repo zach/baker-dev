@@ -101,27 +101,20 @@ enum class Marker : uint8_t { None, Remove, Append, Drop, Was };
         }
         if (!tagged) return marker_hint(m);
         if (m == Marker::Was) {
-            if (was || verb == Marker::Append || verb == Marker::Drop) return marker_hint(m);
-            if (verb == Marker::None && values == 0) return marker_hint(m);
+            if (was || verb == Marker::Append || verb == Marker::Drop ||
+                (verb == Marker::None && values == 0))
+                return marker_hint(m);
             was = true;
             continue;
         }
         if (i != 1) return marker_hint(m);
         verb = m;
     }
-    switch (verb) {
-        case Marker::Remove:
-            if (values != 0 || (!was && nodes.size() != 2) || (was && pins == 0))
-                return marker_hint(verb);
-            break;
-        case Marker::Append:
-        case Marker::Drop:
-            if (nodes.size() < 3) return marker_hint(verb);
-            break;
-        default:
-            if (was && pins == 0) return marker_hint(Marker::Was);
-            break;
-    }
+    if (verb == Marker::Remove && (values != 0 || (was ? pins == 0 : nodes.size() != 2)))
+        return marker_hint(verb);
+    if ((verb == Marker::Append || verb == Marker::Drop) && nodes.size() < 3)
+        return marker_hint(verb);
+    if (was && pins == 0) return marker_hint(Marker::Was);
     return nullptr;
 }
 

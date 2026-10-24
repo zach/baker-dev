@@ -392,6 +392,39 @@ TEST_CASE("promote deletes a removed key's text and writes composed lists resolv
 }
 #endif
 
+TEST_CASE("two rows of one key apply in order; a #drop that drops nothing warns") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer("default", dir.write("default.dta",
+                                                "(things (fridge -6.3 -4.2 0) (phone -2 4.6 180))\n"
+                                                "(items a b c)\n")));
+    const char* pack =
+        "(things #drop (phone -2 4.6 180))\n(things #append (lamp -2 4 0))\n(items #drop z b)\n";
+    const LayerReport r = ok(cfg.check_layer_text("pack", pack));
+    // Both rows of `things` are in the effect, and neither one's operands is a key.
+    REQUIRE(r.effect.size() == 3);
+    CHECK(r.effect[0].op == Symbol("#drop"));
+    CHECK(r.effect[1].op == Symbol("#append"));
+    CHECK(r.effect[1].path == Symbol("things"));
+    CHECK(to_string(r.effect[1].value) == "(lamp -2 4 0)");
+    // z is not in the list: a located warning, not a silent no-op.
+    REQUIRE(r.warnings.size() == 1);
+    CHECK(std::string(r.warnings[0].message()) == "'items' has no z to drop");
+    CHECK(r.warnings[0].line() == 3);
+    // A tuple retuned below the patch is not the one it names, so it warns too.
+    CHECK(ok(cfg.check_layer_text("p", "(things #drop (phone -2 4.6 90))")).warnings.size() == 1);
+    REQUIRE(cfg.push_layer_text("pack", pack));
+    CHECK(to_string(*cfg.root()) == "((things (fridge -6.3 -4.2 0) (lamp -2 4 0)) (items a c))");
+    if constexpr (!kShipping) {
+        // promote writes a value list's verb as its resolved values; a verb that moves keyed
+        // tuples is refused, located, and nothing is written.
+        const WriteReport w = ok(cfg.promote("pack", "default"));
+        REQUIRE(w.refused.size() == 1);
+        CHECK(has(w.refused[0].message(), "its verb moves keyed tuples"));
+        CHECK(w.refused[0].line() == 1);
+    }
+}
+
 TEST_CASE("the policy reads a verb's operands; existing_only refuses #append of a new key") {
     TempDir dir;
     Config cfg({.tweaks = nullptr});
@@ -433,5 +466,5 @@ TEST_CASE("no reader of a layer's own tree takes its values raw: leaf_values is 
     // and the effect, diff and check all reach a layer row through it.
     CHECK(has(read("config_write.cpp"), "out.push_back({path, &child, leaf_values(child)})"));
     CHECK(has(read("config_write.cpp"), "leaf.values = leaf_values(*leaf.holder)"));
-    CHECK(has(read("config.cpp"), "out = leaf_values(*r.array)"));
+    CHECK(has(read("config.cpp"), "out = leaf_values(*r.array)"));  // value_nodes
 }

@@ -48,7 +48,7 @@ void collect_paths(const Array& a, size_t first, const Str& prefix, HashMap<Str,
         if (!path.empty()) path += '.';
         detail::append_path_name(path, child[0].try_sym()->str());
         if (has_values(child) && seen.emplace(path, 0).second) out.push_back({path, &child, {}});
-        collect_paths(child, 1, path, seen, out);
+        if (!detail::composes(child)) collect_paths(child, 1, path, seen, out);  // operands
     }
 }
 
@@ -123,12 +123,14 @@ static void collect_leaves(const Array& a, size_t first, const Str& prefix, Vec<
         if (!is_tagged(a[i])) continue;
         const Array& child = *a[i].try_array();
         const Symbol tag = *child[0].try_sym();
-        if (indexed ? !seen.emplace(tag, 0).second : a.try_find(tag) != &child) continue;
+        // A key's later rows are leaves too when they compose: each applies, in order.
+        const bool first_row = indexed ? seen.emplace(tag, 0).second : a.try_find(tag) == &child;
+        if (!first_row && !detail::composes(child)) continue;
         Str path = prefix;
         if (!path.empty()) path += '.';
         detail::append_path_name(path, tag.str());
         if (has_values(child)) out.push_back({path, &child, leaf_values(child)});
-        collect_leaves(child, 1, path, out);
+        if (!detail::composes(child)) collect_leaves(child, 1, path, out);  // not its operands
     }
 }
 
@@ -541,6 +543,14 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
             continue;
         }
         if (detail::composes(*leaf.holder) && !row_at(*upto, path)) continue;  // #drop of none
+        if (detail::composes(*leaf.holder) &&
+            std::any_of(leaf.holder->begin() + 2, leaf.holder->end(), is_tagged)) {
+            refusals.push_back(
+                refused("promote cannot write " + quoted(path) +
+                            ": its verb moves keyed tuples; restate the list by hand",
+                        leaf.holder->file(), leaf.holder->line()));
+            continue;
+        }
         auto p = detail::is_removal(*leaf.holder)
                      ? impl_->plan_removal(target, path, vread)
                      : impl_->plan(target, path, leaf.values, true, vread);
