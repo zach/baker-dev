@@ -599,6 +599,8 @@ earlier section, this section is the later word.
 - **Tool author, 3 of 5, adopt in part.** `check` passes malformed infix:
   `{0.3 <= $value 0.7}`, `{$value <= 0.7 0.3}` and `{$value <=}` give no error, where the
   prefix typo is one.
+- **Fuzzing.** Section 8 records it: 2,220,593 libFuzzer executions with the switch on,
+  whose one stop was main's harness defect for `(key #remove)`, fixed on this branch.
 - **Recommendation after review.** The vocabulary now, as its own step with the property
   fix; the infix reader held until `check` rejects malformed infix and a trial shows it
   reads better than prefix chains.
