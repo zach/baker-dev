@@ -11,6 +11,7 @@
 #include <doctest.h>
 
 #include <string>
+#include <utility>
 
 using namespace baker;
 using namespace baker::experiments;
@@ -111,6 +112,41 @@ TEST_CASE("an assignment of an operation on its own place becomes += and friends
     // A multi-line `if` is a statement: it stays prefix, its condition infix.
     CHECK(has_line(c.text, "{if {$platform == pc}\n"));
     CHECK(c.counts.assignments == 2);
+}
+
+TEST_CASE("each sample, polished by hand, reads to the tree the converter makes of its original") {
+    static constexpr std::pair<std::string_view, std::string_view> kSamples[] = {
+        {"contraption-puzzle", "stacks/contraption/metrics/puzzle.dta"},
+        {"cube", "stacks/cube/metrics/cube.dta"},
+        {"duel", "stacks/duel/metrics/duel.dta"},
+        {"hearth", "stacks/hearth/metrics/hearth.dta"},
+        {"ledger", "stacks/ledger/metrics/ledger.dta"},
+        {"ledger-milestones", "stacks/ledger/data/default.dta"},
+        {"stuntline-track", "stacks/stuntline/metrics/track.dta"},
+        {"wayfarer-world", "stacks/wayfarer/metrics/world.dta"},
+        {"calculator-functions", "examples/calculator/functions.dta"},
+        {"scripting-rules", "examples/scripting/rules.dta"},
+        {"ui_menu", "tests/corpus/ui_menu.dta"},
+    };
+    for (const auto& [name, original] : kSamples) {
+        INFO(name);
+        const std::string dir = root_path("experiments/syntax-curly-infix/samples/");
+        auto sample = read_text_file(dir + std::string(name) + ".dta");
+        auto copy = read_text_file(dir + std::string(name) + ".original.dta");
+        auto source = read_text_file(root_path(original));
+        REQUIRE(sample);
+        REQUIRE(copy);
+        REQUIRE(source);
+        CHECK(*copy == *source);  // the original beside it is the file as it is
+        auto c = syntax::to_new(root_path(original));
+        REQUIRE(c);
+        LoadSession session;
+        session.set_pack_levels({"engine", "game", "task", "live"});
+        auto back = read_string(*sample, root_path(original), session);
+        REQUIRE(back);
+        CHECK(first_difference(*c->tree, **back).empty());
+        CHECK(syntax::first_mark_difference(*c->tree, **back).empty());
+    }
 }
 
 TEST_CASE("the reader: infix and prefix are one tree, and the printers give each back") {

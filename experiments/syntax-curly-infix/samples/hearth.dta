@@ -1,0 +1,36 @@
+; What "reads as people" means for a Hearth household (game-stacks.md §4.3). Objectives are
+; reviewed by a person (§9): an agent proposes changes to this file by pull request, never
+; with the data it judges.
+(objective hearth.not_stuck
+   (desc "Nobody goes an hour without progress (per character-day)")
+   (measure {hearth.soak_rate stuck})
+   (pass {$value == 0}))
+(objective hearth.not_oscillating
+   (desc "Nobody is cut off back and forth between two things, finishing neither")
+   (measure {hearth.soak_rate oscillating})
+   (pass {$value == 0}))
+(objective hearth.not_starving
+   (desc "No need stays at zero for two hours")
+   (measure {hearth.soak_rate starving})
+   (pass {$value == 0}))
+(objective hearth.scripts_run
+   (desc "Every action's script runs without an error")
+   (measure {hearth.soak_events script_errors})
+   (pass {$value == 0}))
+(objective hearth.things_used
+   (desc "At least 95% of the things in the households get used")
+   (measure {hearth.soak_used})
+   (pass {$value >= 0.95}))
+(objective hearth.routines_readable
+   (desc "90% of villagers have routines between robotic and random: 0.6 to 2.2 bits an hour")
+   (measure {hearth.soak_in_band 0.6 2.2})
+   (pass {$value >= 0.9}))
+(objective hearth.played_clean
+   (desc "On the game's own steps: nobody stuck, oscillating, or starving, and no script errors")
+   (measure {{hearth.events stuck} + {hearth.events oscillating} +
+             {hearth.events starving} + {hearth.events script_errors}})
+   (pass {$value == 0}))
+(objective hearth.played_decides
+   (desc "On the game's own steps, the villagers decide (a day of the cottage: 20 or more)")
+   (measure {hearth.events decisions})
+   (pass {$value >= 20}))

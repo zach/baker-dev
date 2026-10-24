@@ -1,0 +1,6 @@
+; What "good" means for the cube. Objectives are reviewed by a person (game-stacks.md §9):
+; an agent proposes changes to this file by pull request, never with the data it judges.
+(objective cube.turns
+   (desc "Twenty seconds of spinning make 2 to 10 full turns: visible, not a blur")
+   (measure {cube.turns})
+   (pass {2 <= $value <= 10}))
