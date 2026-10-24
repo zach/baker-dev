@@ -121,6 +121,79 @@ void put_pretty(Str& out, const Node& n, size_t indent, const WriteOptions& o,
     out += close_of(n.type());
 }
 
+#if BAKER_INDENT_LINES
+bool tagged(const Node& n) noexcept {
+    return n.type() == Type::Array && !n.array()->tag().empty();
+}
+
+// Whether a top-level array is a section of the document: no scalar values, and a tagged
+// array child. Its children are written as lines even when the whole would fit on one.
+bool is_section(const Array& a) noexcept {
+    bool tagged_child = false;
+    for (uint32_t i = 1; i < a.size(); ++i) {
+        if (!a[i].is_array_like()) return false;
+        tagged_child = tagged_child || tagged(a[i]);
+    }
+    return tagged_child;
+}
+
+// The lines form (dev/syntax-indent-lines-design.md): `n`, a tagged Array, as `tag values`
+// at `indent`, its array children on deeper lines: tagged ones as lines, the rest as rows
+// of bracket groups packed to the width. A head holding a value may be followed only by
+// groups (a deeper atom-first line under it would read as a continued value list, which
+// the parser refuses), and a head that does not fit falls back to the bracketed form.
+void put_line(Str& out, const Node& n, size_t indent, const WriteOptions& o, bool section) {
+    const Array& a = *n.array();
+    const size_t width = o.width > 0 ? static_cast<size_t>(o.width) : 0;
+    const size_t budget = width > indent ? width - indent : 0;
+    const size_t mark = out.size();
+    auto head = [&](uint32_t count) {  // nodes [0, count) flat, within the budget
+        bool fits = true;
+        for (uint32_t i = 0; i < count && fits; ++i) {
+            if (i > 0) out += ' ';
+            fits = put_flat(out, a[i], mark + budget, marker_slot(n, a, i));
+        }
+        if (!fits) out.resize(mark);
+        return fits;
+    };
+    if (!section && head(a.size())) return;
+    uint32_t k = 1;  // the head: the tag and every node up to the last scalar value
+    for (uint32_t i = 1; i < a.size(); ++i)
+        if (!a[i].is_array_like()) k = i + 1;
+    if (k == a.size() || !head(k)) {
+        put_pretty(out, n, indent, o);
+        return;
+    }
+    const size_t step = o.indent > 0 ? static_cast<size_t>(o.indent) : 0;
+    const size_t deeper = indent + step;
+    const size_t room = width > deeper ? width - deeper : 0;
+    size_t row = SIZE_MAX;  // where the open row of groups begins in `out`; none open
+    for (uint32_t i = k; i < a.size(); ++i) {
+        const Node& c = a[i];
+        if (k == 1 && tagged(c)) {
+            row = SIZE_MAX;
+            out += '\n';
+            out.append(deeper, ' ');
+            put_line(out, c, deeper, o, false);
+            continue;
+        }
+        if (row != SIZE_MAX) {  // on the open row, if it fits there
+            const size_t at = out.size();
+            out += ' ';
+            if (put_flat(out, c, row + room)) continue;
+            out.resize(at);
+        }
+        out += '\n';
+        out.append(deeper, ' ');
+        row = out.size();
+        if (put_flat(out, c, row + room)) continue;
+        out.resize(row);  // wider than a row: bracketed, over lines
+        put_pretty(out, c, deeper, o);
+        row = SIZE_MAX;
+    }
+}
+#endif
+
 }  // namespace
 
 void write(const Node& node, TextSink text) {
@@ -144,7 +217,27 @@ void write(const Array& array, TextSink text) {
 namespace {
 Str dta_text(const Array& root, const WriteOptions& options) {
     Str out;
-    for (const Node& n : root) {
+#if BAKER_INDENT_LINES
+    // Where the layout reads the text, a value at the top level goes after the node before
+    // it: first on a line it would open one. One that begins the root follows a #lines.
+    const bool laid_out = BAKER_INDENT_LINES == 1 || options.lines;
+    if ((BAKER_INDENT_LINES == 2 && options.lines) ||
+        (laid_out && !root.empty() && !root[0].is_array_like()))
+        out += "#lines\n";
+#endif
+    for (uint32_t i = 0; i < root.size(); ++i) {
+        const Node& n = root[i];
+#if BAKER_INDENT_LINES
+        if (laid_out && !n.is_array_like() && !out.empty() && out.back() == '\n') {
+            out.pop_back();
+            out += ' ';
+        } else if (options.lines && tagged(n) &&
+                   (i + 1 == root.size() || root[i + 1].is_array_like())) {
+            put_line(out, n, 0, options, is_section(*n.array()));
+            out += '\n';
+            continue;
+        }
+#endif
         put_pretty(out, n, 0, options);
         out += '\n';
     }

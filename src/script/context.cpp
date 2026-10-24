@@ -471,6 +471,9 @@ List<Error> Context::run_autorun(std::span<const Node> commands) {
 Expected<Node> Context::eval(std::string_view text, std::string_view name) {
     LoadSession session;
     session.allocator = &impl_->alloc;  // the tree is the Context's (D64)
+#if BAKER_INDENT_LINES
+    session.lines = false;  // a value's text, not a file
+#endif
     auto tree = read_string(text, name, session);
     if (!tree) return Unexpected(std::move(tree).error());
     return run((*tree)->nodes());

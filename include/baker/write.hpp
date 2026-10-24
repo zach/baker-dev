@@ -24,8 +24,16 @@
 namespace baker {
 
 struct WriteOptions {
+#if defined(BAKER_INDENT_LINES) && BAKER_INDENT_LINES
+    int indent = 3;   // spaces per nesting level (the house style)
+    int width = 100;  // arrays that fit within this many columns stay on one line
+    // Each tagged array as a line, `tag values`, with its array children on deeper lines
+    // and bracket groups for the untagged; the bracketed form where a line cannot say it.
+    bool lines = false;
+#else
     int indent = 2;  // spaces per nesting level
     int width = 80;  // arrays that fit within this many columns stay on one line
+#endif
 };
 
 // Writes the compact single-line form of a node: (price 12.75).

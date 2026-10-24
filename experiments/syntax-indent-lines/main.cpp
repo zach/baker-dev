@@ -10,6 +10,12 @@
 //                           line, which the layout would make arrays of (the corpus by default)
 //   count <file.dta>...     lines, bytes and parentheses of each file (alone) as written,
 //                           reprinted bracketed in the house style, and as lines (Markdown)
+//   trees [<file>...]       each file's tree as this build reads it (the corpus by default):
+//                           a hash of its text, or its error; two builds' outputs, diffed,
+//                           are the gate's exact answer (what a build that reads lines changes)
+//
+// In a build that reads lines (-DBAKER_INDENT_LINES=ALWAYS or DIRECTIVE) the reader and
+// printer are the core's; else the translator's (syntax.hpp).
 #include "experiments.hpp"
 #include "syntax.hpp"
 
@@ -37,7 +43,8 @@ int fail(const Error& e) {
 int usage() {
     std::fprintf(stderr,
                  "usage: baker_syntax_%.*s to-new <file.dta> | to-dta <file> | check | bench "
-                 "[<file.dta>...] | gate [<file.dta>...] | count <file.dta>...\n",
+                 "[<file.dta>...] | gate [<file.dta>...] | count <file.dta>... | trees "
+                 "[<file>...]\n",
                  static_cast<int>(syntax::kName.size()), syntax::kName.data());
     return 2;
 }
@@ -110,8 +117,21 @@ int bench(int argc, char** argv) {
     const std::string lines_text = syntax::print(**root);
     std::printf("\nbaker::read_string on brackets, the experiment on the same tree as lines:\n");
     compare_parsers(syntax::read, dta, lines_text);
+#if BAKER_INDENT_LINES
+    std::printf(
+        "\nthe same bracketed text, read_string as built (layout %s) against the layout off:\n",
+        BAKER_INDENT_LINES == 1 ? "on" : "off without #lines");
+    compare_parsers(
+        [](std::string_view text, std::string_view name) {
+            LoadSession session;
+            session.lines = false;
+            return read_string(text, name, session);
+        },
+        dta, dta);
+#else
     std::printf("\nboth readers on the same bracketed text (the translator's overhead):\n");
     compare_parsers(syntax::read, dta, dta);
+#endif
     return 0;
 }
 
@@ -137,6 +157,26 @@ int gate(int argc, char** argv) {
         "%zu files: %zu bare atoms at the top level, %zu of them first on their line "
         "(each would become an array)\n",
         files, scalars, first);
+    return 0;
+}
+
+// FNV-1a over the tree's compact text: equal trees, equal hashes.
+uint64_t hash_of(std::string_view text) {
+    uint64_t h = 14695981039346656037ull;
+    for (const char c : text) h = (h ^ static_cast<unsigned char>(c)) * 1099511628211ull;
+    return h;
+}
+
+int trees(int argc, char** argv) {
+    for (const std::string& path : files_or_corpus(argc, argv, 2)) {
+        auto root = read_dta_file(path);
+        if (root)
+            std::printf("%s\tok %016llx\n", shown(path).c_str(),
+                        static_cast<unsigned long long>(hash_of(to_string(Node(*root)))));
+        else
+            std::printf("%s\terror %s\n", shown(path).c_str(),
+                        std::string(describe(root.error())).c_str());
+    }
     return 0;
 }
 
@@ -205,5 +245,6 @@ int main(int argc, char** argv) {
     if (cmd == "bench") return bench(argc, argv);
     if (cmd == "gate") return gate(argc, argv);
     if (cmd == "count") return count(argc, argv);
+    if (cmd == "trees") return trees(argc, argv);
     return usage();
 }

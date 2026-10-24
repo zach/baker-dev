@@ -61,14 +61,23 @@ Str join(const Vec<Node>& values) {
     return out;
 }
 
-// path[from..] holding `values`, in the pretty-printer's form: (a (b value)). Lines after
-// the first are indented by `indent`.
-Str render_entry(const Path& path, size_t from, const Vec<Node>& values, const Str& indent) {
+// path[from..] holding `values`, in the pretty-printer's form: (a (b value)), or with
+// `lines` as lines (a / b value). Lines after the first are indented by `indent`.
+Str render_entry(const Path& path, size_t from, const Vec<Node>& values, const Str& indent,
+                 [[maybe_unused]] bool lines = false) {
     Vec<Node> inner{Node(path[path.size() - 1].name)};
     inner.insert(inner.end(), values.begin(), values.end());
     Ref<Array> nest = Array::make_from(inner);
     for (size_t i = path.size() - 1; i-- > from;) nest = array(path[i].name, Node(nest));
+#if BAKER_INDENT_LINES
+    Str text;
+    WriteOptions o;
+    o.lines = lines;
+    write_dta(*array(Node(nest)), detail::str_out(text), o);
+    if (text.starts_with("#lines\n")) text.erase(0, 7);
+#else
     Str text = detail::dta_of(*array(Node(nest)));
+#endif
     while (!text.empty() && text.back() == '\n') text.pop_back();
     for (size_t at = text.find('\n'); at != Str::npos; at = text.find('\n', at + 1))
         text.insert(at + 1, indent);
@@ -79,6 +88,10 @@ struct Edit {
     uint32_t begin, end;
     Str text;
 };
+
+[[maybe_unused]] bool is_bracket(char c) noexcept {
+    return c == '(' || c == '{' || c == '[';
+}
 
 }  // namespace
 
@@ -247,12 +260,18 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
         const auto text = map.text(main);
         if (!text) return Unexpected(refused("no source text for '" + layer.file + "'", main));
         if (cur == layer.root.get()) {
-            // A new top-level form at the end of the file.
+            // A new top-level form at the end of the file: a line after a line.
             const bool newline = !text->empty() && text->back() != '\n';
             const auto end = static_cast<uint32_t>(text->size());
-            edits.push_back(
-                {end, end,
-                 (newline ? "\n" : "") + render_entry(path, missing_from, values, "") + "\n"});
+            bool lines = false;
+#if BAKER_INDENT_LINES
+            const SourceSpan* prev = cur->empty() ? nullptr : map.span(*cur, cur->size() - 1);
+            lines = prev && prev->file == main && prev->begin < text->size() &&
+                    !is_bracket((*text)[prev->begin]);
+#endif
+            edits.push_back({end, end,
+                             (newline ? "\n" : "") +
+                                 render_entry(path, missing_from, values, "", lines) + "\n"});
         } else {
             // The last child of the deepest ancestor written in this file itself.
             const SourceSpan* ext = map.extent(*cur);
@@ -276,12 +295,25 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
                 const size_t line_start = text->rfind('\n', last->begin) + 1;
                 size_t ws = line_start;
                 while (ws < last->begin && ((*text)[ws] == ' ' || (*text)[ws] == '\t')) ++ws;
-                const Str indent(text->substr(line_start, ws - line_start));
+                Str indent(text->substr(line_start, ws - line_start));
                 const size_t line_end = text->find('\n', last->end);
-                const auto at = static_cast<uint32_t>(
+                auto at = static_cast<uint32_t>(
                     line_end != Str::npos && line_end < ext->end - 1 ? line_end : last->end);
+                bool lines = false;
+#if BAKER_INDENT_LINES
+                // In a line (its extent begins with an atom), a deeper line after the last
+                // child's trailing comment; a bracket group where the line holds values.
+                if (!is_bracket((*text)[ext->begin])) {
+                    lines = std::none_of(cur->begin() + 1, cur->end(),
+                                         [](const Node& n) { return !n.is_array_like(); });
+                    at = static_cast<uint32_t>(line_end == Str::npos ? text->size() : line_end);
+                    const size_t own = text->rfind('\n', ext->begin) + 1;  // npos + 1 is 0
+                    if (own == line_start) indent = Str(ext->begin - own + 3, ' ');
+                }
+#endif
                 edits.push_back(
-                    {at, at, "\n" + indent + render_entry(path, missing_from, values, indent)});
+                    {at, at,
+                     "\n" + indent + render_entry(path, missing_from, values, indent, lines)});
             }
         }
     } else {

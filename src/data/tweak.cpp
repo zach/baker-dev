@@ -731,8 +731,12 @@ Expected<void> DescribedTweaks::add(const TweakDescription& d) {
         if (!detail::value_type_known(t))
             return refuse("value type '" + Str(t) + "' is not one of Baker's");
     // The default, as Baker text: one value bare, several in parentheses.
-    auto tree =
-        read_string(d.default_text.empty() ? std::string_view("0") : d.default_text, "default");
+    LoadSession session;
+#if BAKER_INDENT_LINES
+    session.lines = false;  // a value's text, not a file
+#endif
+    auto tree = read_string(d.default_text.empty() ? std::string_view("0") : d.default_text,
+                            "default", session);
     if (!tree) return refuse("its default does not read: " + Str(tree.error().message()));
     std::span<const Node> nodes = (*tree)->nodes();
     if (nodes.size() == 1 && types.size() > 1)

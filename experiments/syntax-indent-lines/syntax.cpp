@@ -154,9 +154,15 @@ struct Shift {
 
 struct OpenLine {
     uint32_t indent;
-    bool values;  // holds a scalar value beyond its tag: a deeper atom-first line is an error
+    size_t cond;       // the conditionals open when it opened: it closes in their branch
+    bool scanned;      // its values were looked for, at its first child line
+    bool values;       // it holds a scalar value beyond its tag
+    size_t first_out;  // where its own nodes begin in the output, for the scan
 };
 
+// The layout as a pass over the text, writing the brackets it implies (the core's
+// Parser::layout, BAKER_INDENT_LINES, without evaluating conditionals: a line opened in a
+// conditional's branch closes at that branch's end).
 class Layout {
 public:
     Layout(std::string_view src, std::string_view name) : src_(src), name_(name) {}
@@ -173,8 +179,9 @@ public:
             out_.append(src_, 0, 3);
             pos_ = line_start_ = 3;
         }
+        mark_.push_back(out_.size());
         for (;;) {
-            if (!skip_blank()) return error_;
+            skip_blank();
             if (pos_ >= src_.size()) break;
             if (!token(shifts)) return error_;
         }
@@ -184,7 +191,7 @@ public:
 
 private:
     // Whitespace and comments, copied as they are. A newline outside a token starts a line.
-    bool skip_blank() {
+    void skip_blank() {
         const size_t n = src_.size();
         while (pos_ < n) {
             const auto c = static_cast<unsigned char>(src_[pos_]);
@@ -213,7 +220,6 @@ private:
                 break;
             }
         }
-        return true;
     }
 
     int32_t column_of(size_t at) const {
@@ -230,10 +236,57 @@ private:
         return false;
     }
 
+    // A line closes after the last token of its conditional branch.
     void close_line() {
-        out_.insert(last_token_out_, 1, ')');
-        ++last_token_out_;
+        size_t& at = mark_[open_.back().cond];
+        out_.insert(at, 1, ')');
+        for (size_t& m : mark_)
+            if (m >= at) ++m;
         open_.pop_back();
+    }
+
+    // Whether the open line holds a value beyond its tag: an atom in its own output before
+    // its first child line (a group's contents aside).
+    bool holds_values(const OpenLine& l) const {
+        std::string_view text = std::string_view(out_).substr(l.first_out);
+        int depth = 0;
+        bool tag = true;
+        for (size_t i = 0; i < text.size();) {
+            const char c = text[i];
+            if (c == ';') {
+                i = std::min(text.find('\n', i), text.size());
+            } else if (c == '/' && i + 1 < text.size() && text[i + 1] == '*') {
+                const size_t e = text.find("*/", i + 2);
+                i = e == std::string_view::npos ? text.size() : e + 2;
+            } else if (static_cast<unsigned char>(c) <= 0x20) {
+                ++i;
+            } else if (c == '(' || c == '{' || c == '[') {
+                ++depth;
+                ++i;
+                tag = false;
+            } else if (c == ')' || c == '}' || c == ']') {
+                --depth;
+                ++i;
+            } else {
+                size_t e = i + 1;
+                if (c == '"' || c == '\'') {
+                    e = text.find(c, i + 1);
+                    e = e == std::string_view::npos ? text.size() : e + 1;
+                } else {
+                    while (e < text.size() && !kAtomEnd[static_cast<unsigned char>(text[e])]) ++e;
+                }
+                const std::string_view atom = text.substr(i, e - i);
+                const bool directive = c == '#' && atom.size() > 1;
+                if (depth == 0 && !directive) {
+                    const bool symbol = c != '"' && c != '$' && !number_like(atom);
+                    // A macro's nodes are taken for arrays: the translator reads no bodies.
+                    if (!(tag && symbol) && !(symbol && c != '\'' && is_macro(atom))) return true;
+                }
+                tag = false;
+                i = e;
+            }
+        }
+        return false;
     }
 
     // One token at pos_: the layout decision if it is first on its line outside brackets,
@@ -251,44 +304,48 @@ private:
         else if (c == '#' && begin + 1 < src_.size() &&
                  !kAtomEnd[static_cast<unsigned char>(src_[begin + 1])])
             kind = Directive;
+        const std::string_view word = kind == Atom || kind == Directive ? atom_text(begin) : "";
+        const bool conditional = kind == Directive && (word == "#ifdef" || word == "#ifndef" ||
+                                                       word == "#else" || word == "#endif");
 
-        bool opened_line = false;
-        bool tag = false;
-        if (first && depth_ == 0) {
-            if (src_.substr(line_start_, indent).find('\t') != std::string_view::npos)
-                return fail("a tab in a line's indentation: indent with spaces", begin);
-            // (1) The indent closes every open line at or past it; a dedent lands on an open
-            // line's indent or the margin.
-            uint32_t popped = UINT32_MAX;
-            while (!open_.empty() && open_.back().indent >= indent) {
-                popped = open_.back().indent;
-                close_line();
+        if (first && depth_ == 0 && !conditional) {
+            const bool symbol = kind == Atom && c != '"' && c != '$' && !number_like(word);
+            const bool opens = kind == Atom && !(c != '\'' && symbol && is_macro(word));
+            if (opens || !open_.empty()) {
+                if (src_.substr(line_start_, indent).find('\t') != std::string_view::npos)
+                    return fail("a tab in a line's indentation: indent with spaces", begin);
+                // (1) The indent closes every open line at or past it; a dedent lands on an
+                // open line's indent, and a top-level line begins at the margin.
+                uint32_t popped = UINT32_MAX;
+                while (!open_.empty() && open_.back().indent >= indent) {
+                    popped = open_.back().indent;
+                    close_line();
+                }
+                if (popped != UINT32_MAX ? indent != popped : opens && open_.empty() && indent)
+                    return fail("indent " + std::to_string(indent) + " matches no open line",
+                                begin);
             }
-            if (popped != UINT32_MAX && indent != popped && indent != 0)
-                return fail("indent " + std::to_string(indent) + " matches no open line", begin);
-            // (2) An atom opens a line; (3) a bracket opens none; (4) a directive opens none.
-            if (kind == Atom) {
-                const std::string_view text = atom_text(begin);
-                const bool symbol = c != '"' && c != '$' && !number_like(text);
-                if (c != '\'' && symbol && is_macro(text)) {
-                    // A macro name stands for its nodes, which splice in as today.
-                } else {
-                    if (!open_.empty() && open_.back().values)
+            if (opens) {  // (2) an atom opens a line; a bracket, a directive or a macro none
+                if (!open_.empty()) {
+                    OpenLine& parent = open_.back();
+                    if (!parent.scanned) {
+                        parent.values = holds_values(parent);
+                        parent.scanned = true;
+                    }
+                    if (parent.values)
                         return fail(
                             "a value list continues on the same line or in brackets; a deeper "
                             "line is a child",
                             begin);
-                    if (indent > 0 && src_[begin - 1] == ' ') {
-                        out_.back() = '(';
-                    } else {
-                        out_ += '(';
-                        shifts.push_back({line_, column_of(begin)});
-                    }
-                    if (open_.empty()) ++top_level_lines_;
-                    open_.push_back({indent, false});
-                    opened_line = true;
-                    tag = symbol;
                 }
+                if (indent > 0 && src_[begin - 1] == ' ') {
+                    out_.back() = '(';
+                } else {
+                    out_ += '(';
+                    shifts.push_back({line_, column_of(begin)});
+                }
+                if (open_.empty()) ++top_level_lines_;
+                open_.push_back({indent, mark_.size() - 1, false, false, out_.size()});
             } else if (kind == Open && c == '[' && open_.empty()) {
                 naming_ = true;  // [NAME ...] at the top level defines a macro
             }
@@ -302,32 +359,33 @@ private:
             for (size_t i = begin; i < end; ++i)
                 if (src_[i] == '\n') ++line_;
         } else if (kind == Atom || kind == Directive) {
-            end = begin + atom_text(begin).size();
+            end = begin + word.size();
         }
         if (kind == Open) ++depth_;
         if (kind == Close && depth_ > 0) --depth_;
         const std::string_view text = src_.substr(begin, end - begin);
-        if (kind == Directive && text == "#lines") {
+        bool branch = conditional && text != "#endif";  // a branch begins after it
+        if (conditional && (text == "#else" || text == "#endif")) {
+            branch = branch && mark_.size() > 1;
+            if (mark_.size() > 1) {  // lines opened in the branch that ends close in it
+                while (!open_.empty() && open_.back().cond == mark_.size() - 1) close_line();
+                mark_.pop_back();
+            }
+        }
+        if (kind == Directive && text == "#lines")
             out_.append(text.size(), ' ');  // the translator's layout is always on
-        } else {
+        else
             out_.append(text);
-        }
-        if (kind == Directive) {
-            naming_ = text == "#define";
-            directive_line_ = line_;  // the rest of the line is the directive's arguments
-        }
-        if (kind == Atom && directive_line_ != line_) {
+        if (branch) mark_.push_back(out_.size());
+        if (kind == Directive) naming_ = text == "#define";
+        if (kind == Atom) {
             if (naming_ && c != '"' && c != '\'' && c != '$') macros_.emplace_back(text);
             naming_ = false;
-            // A value of the innermost line: any atom that is not the line's own tag.
-            if (depth_ == 0 && !open_.empty() && (!opened_line || !tag) &&
-                (opened_line || !(first && is_macro(text) && c != '\'')))
-                open_.back().values = true;
         }
         if (kind != Atom && kind != Directive) naming_ = kind == Open && naming_;
         pos_ = end;
         prev_end_ = end;
-        last_token_out_ = out_.size();
+        mark_.back() = out_.size();
         return true;
     }
 
@@ -348,10 +406,11 @@ private:
     size_t pos_ = 0;
     size_t line_start_ = 0;
     size_t prev_end_ = 0;  // where the previous token ended: first on a line if before its start
-    size_t last_token_out_ = 0;  // where the last token ended in out_: where a line closes
+    // Per conditional depth (0 outside any), where the last token of the current branch
+    // ended in out_: where a line opened at that depth closes.
+    std::vector<size_t> mark_;
     int32_t line_ = 1;
-    int32_t directive_line_ = 0;  // the line of the last directive: its arguments are not values
-    int depth_ = 0;               // explicit brackets open: inside them indentation means nothing
+    int depth_ = 0;  // explicit brackets open: inside them indentation means nothing
     std::vector<OpenLine> open_;
     std::vector<std::string> macros_;  // names this text defines, which splice as today
     bool naming_ = false;              // the next symbol names a macro
@@ -361,11 +420,15 @@ private:
 
 }  // namespace
 
-Expected<Ref<Array>> read(std::string_view text, std::string_view name) {
+Expected<Ref<Array>> translate(std::string_view text, std::string_view name) {
     std::vector<Shift> shifts;
     auto bracketed = Layout(text, name).run(shifts);
     if (!bracketed) return Unexpected(std::move(bracketed).error());
-    auto root = read_string(*bracketed, name);
+    LoadSession session;
+#if BAKER_INDENT_LINES
+    session.lines = false;  // the text is bracketed now: read as today
+#endif
+    auto root = read_string(*bracketed, name, session);
     if (root || shifts.empty()) return root;
     // An error on a line whose first token moved by an inserted bracket: back by one.
     const Error& e = root.error();
@@ -385,16 +448,45 @@ size_t top_level_lines(std::string_view text) {
     return layout.top_level_lines();
 }
 
-std::string print(const Array& root) {
+std::string translator_print(const Array& root) {
     std::string out;
-    for (const Node& n : root) {
-        if (tagged(n))
+    // A value at the top level goes after the node before it (first on a line it would
+    // open one); one that begins the root follows #lines, as the core's printer writes it.
+    if (!root.empty() && !root[0].is_array_like()) out += "#lines\n";
+    for (size_t i = 0; i < root.size(); ++i) {
+        const Node& n = root[i];
+        if (!n.is_array_like() && !out.empty() && out.back() == '\n') {
+            out.back() = ' ';
+            out += to_string(n);
+        } else if (tagged(n) && (i + 1 == root.size() || root[i + 1].is_array_like())) {
             put_line(out, n, 0, is_section(*n.array()));
-        else
+        } else {
             put_pretty(out, n, 0);
+        }
         out += '\n';
     }
     return out;
 }
+
+#if BAKER_INDENT_LINES
+// The build reads lines (BAKER_INDENT_LINES): the core's reader and printer.
+Expected<Ref<Array>> read(std::string_view text, std::string_view name) {
+    LoadSession session;
+    session.lines = true;  // from the start, in a DIRECTIVE build too
+    return read_string(text, name, session);
+}
+std::string print(const Array& root) {
+    WriteOptions options;
+    options.lines = true;
+    return to_dta(root, options);
+}
+#else
+Expected<Ref<Array>> read(std::string_view text, std::string_view name) {
+    return translate(text, name);
+}
+std::string print(const Array& root) {
+    return translator_print(root);
+}
+#endif
 
 }  // namespace baker::experiments::syntax

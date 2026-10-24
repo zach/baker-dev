@@ -184,6 +184,13 @@ public:
     // Where the trees read through this session come from: each read is one arena from
     // it (dev/decisions.md D64), which must outlive the tree. Null: the default allocator.
     const Allocator* allocator = nullptr;
+#if defined(BAKER_INDENT_LINES) && BAKER_INDENT_LINES
+    // Reads a line that begins with an atom as an array, its deeper lines as its children
+    // (the indent-lines experiment): from the start where set, else from a file's #lines.
+    // Set by default when the build reads lines always. A value's text (a tweak's default,
+    // eval(text), a console request) is not a file: its readers clear it.
+    bool lines = BAKER_INDENT_LINES == 1;
+#endif
 
     struct State;  // defined in parse.cpp
 
@@ -228,13 +235,18 @@ struct TextToken {
     uint32_t begin = 0, end = 0;  // bytes
 };
 struct TextBracket {
-    char open = 0;
+    char open = 0;  // '(', '{' or '['; 0 for a line (below)
     int32_t line = 0;
     uint32_t begin = 0;
     uint32_t end = 0;     // past its close; the text's end when it is not closed
     int32_t parent = -1;  // the bracket it is in, as an index; -1 at the top level
     int32_t tag = -1;     // its first token, as an index, when that is a symbol; else -1
     bool closed = false;
+#if defined(BAKER_INDENT_LINES) && BAKER_INDENT_LINES
+    // Its kind: a line, the array a line that begins with an atom makes (the indent-lines
+    // experiment), which begins at its first token and ends after its last.
+    bool line_kind = false;
+#endif
 };
 struct TextComment {
     int32_t line = 0;

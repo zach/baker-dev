@@ -14,6 +14,11 @@ option(BAKER_BUILD_HARNESS    "Build examples/harness-imgui (fetches Dear ImGui 
 option(BAKER_BUILD_FUZZERS    "Build libFuzzer targets (Clang only)" OFF)
 option(BAKER_BUILD_EXPERIMENTS "Build experiments/ (syntax sketches on branches; never shipped)" OFF)
 option(BAKER_USE_EASTL        "Internal containers from EASTL instead of the STL (D55, D61)" OFF)
+# The indent-lines experiment (dev/syntax-indent-lines-design.md): a line that begins with an
+# atom is an array. OFF (today's reader), ALWAYS (every file), or DIRECTIVE (a file from its
+# #lines on). Public: WriteOptions changes with it.
+set(BAKER_INDENT_LINES "OFF" CACHE STRING "Read indented lines as arrays: OFF, ALWAYS or DIRECTIVE")
+set_property(CACHE BAKER_INDENT_LINES PROPERTY STRINGS OFF ALWAYS DIRECTIVE)
 set(BAKER_SANITIZE "" CACHE STRING "Sanitizers to enable, e.g. address,undefined")
 
 if(NOT DEFINED CMAKE_CXX_STANDARD)
@@ -108,6 +113,11 @@ function(baker_configure_library target)
       target_compile_definitions(${target} PUBLIC ${flag}=1)
     endif()
   endforeach()
+  if(BAKER_INDENT_LINES STREQUAL "ALWAYS")
+    target_compile_definitions(${target} PUBLIC BAKER_INDENT_LINES=1)
+  elseif(BAKER_INDENT_LINES STREQUAL "DIRECTIVE")
+    target_compile_definitions(${target} PUBLIC BAKER_INDENT_LINES=2)
+  endif()
 endfunction()
 
 # --- baker::data: nodes, arrays, parsing, lookup, config, tweaks, binary cache.

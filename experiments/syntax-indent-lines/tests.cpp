@@ -1,5 +1,6 @@
 // indent-lines: the corpus round trip, a case for every form, and every error the reader
-// reports (dev/syntax-indent-lines-design.md).
+// reports (dev/syntax-indent-lines-design.md). syntax::read is the core's reader in a build
+// that reads lines (BAKER_INDENT_LINES) and the translator otherwise; the cases hold for both.
 #include "experiments.hpp"
 #include "syntax.hpp"
 
@@ -22,7 +23,11 @@ Ref<Array> lines(std::string_view text) {
     return r ? *r : Array::make(0);
 }
 Ref<Array> brackets(std::string_view text) {
-    auto r = read_string(text, "t.dta");
+    LoadSession session;
+#if BAKER_INDENT_LINES
+    session.lines = false;  // today's reading, in a build that reads lines too
+#endif
+    auto r = read_string(text, "t.dta", session);
     CHECK_MESSAGE(r, (r ? "" : to_string(r.error())));
     return r ? *r : Array::make(0);
 }
@@ -32,6 +37,12 @@ void same(std::string_view lines_text, std::string_view bracketed) {
     const std::string diff = first_difference(*lines(lines_text), *brackets(bracketed));
     CHECK(diff.empty());
     if (!diff.empty()) MESSAGE(diff);
+}
+// The printer's text, without the directive an opt-in build writes first.
+std::string printed(const Array& root) {
+    std::string s = syntax::print(root);
+    if (BAKER_INDENT_LINES == 2 && s.rfind("#lines\n", 0) == 0) s.erase(0, 7);
+    return s;
 }
 Error error_of(std::string_view text) {
     auto r = syntax::read(text, "t.dta");
@@ -120,11 +131,16 @@ TEST_CASE("the gate: a bare atom first on its line at the top level becomes an a
     CHECK(syntax::top_level_lines("(a 1)\nb 3\n") == 1);
     CHECK(syntax::top_level_lines("(a 1) b 3\n") == 0);
     CHECK(syntax::top_level_lines("(a\n   b 3)\n") == 0);
-    // The printer cannot spell a root's bare scalar: this tree does not survive its round trip.
+    // A root's value is printed after the node before it, which is then bracketed; one
+    // that begins the root follows #lines, a directive that opens no line.
     const auto root = brackets("(a 1) b 3");
-    const std::string printed = syntax::print(*root);
-    CHECK(printed == "a 1\nb\n3\n");
-    CHECK(!first_difference(*root, *lines(printed)).empty());
+    CHECK(printed(*root) == "(a 1) b 3\n");
+    CHECK(first_difference(*root, *lines(syntax::print(*root))).empty());
+    const auto first = brackets("5 (a 1)");
+    CHECK(syntax::print(*first) == "#lines 5\na 1\n");
+    CHECK(first_difference(*first, *lines(syntax::print(*first))).empty());
+    // A top-level line begins at the margin: indented, it is an error, not a silent array.
+    CHECK(error_of("(a 1)\n   b 3\n").message() == "indent 3 matches no open line");
 }
 
 TEST_CASE("directives: a conditional at the margin, a define and a macro in a line block") {
@@ -133,14 +149,18 @@ TEST_CASE("directives: a conditional at the margin, a define and a macro in a li
         "#ifdef NOT_DEFINED_HERE\nvocals_panel\n   lanes 3\n#else\nvocals_panel\n   lanes "
         "0\n#endif\n",
         "(vocals_panel (lanes 0))");
-    // A directive's indent closes lines like a token's, and it opens none.
-    same("player\n   speed 3\n   #ifndef NOT_DEFINED_HERE\n   lives 1\n   #endif\n",
-         "(player (speed 3) (lives 1))");
+    // A conditional takes no part in the layout: at the margin inside a block, too.
+    same("player\n   speed 3\n#ifndef NOT_DEFINED_HERE\n   lives 1\n#endif\n   jump 2\n",
+         "(player (speed 3) (lives 1) (jump 2))");
+    // Any other directive's indent closes lines like a token's, and it opens none: after
+    // one at the margin, an indented line has no line to belong to.
+    CHECK(error_of("player\n   speed 3\n#define FAST\n   lives 3\n").message() ==
+          "indent 3 matches no open line");
     // #define with a body inside a block, then the macro used as a value and first on a line:
     // a macro name stands for its nodes, which splice in as today.
     same("player\n   #define kSpeed (3)\n   speed kSpeed\n", "(player (speed 3))");
     same("[kDefaults (a 1) (b 2)]\nplayer\n   kDefaults\n   c 3\n", "(player (a 1) (b 2) (c 3))");
-    // #lines is accepted (the translator's layout is always on).
+    // #lines is accepted (the layout is on from the start here).
     same("#lines\nplayer\n   speed 3\n", "(player (speed 3))");
     // A pack declaration as a line reaches the pack machinery: no levels are set here.
     const Error e = error_of("pack hearth_core (level game)\n");
@@ -194,32 +214,30 @@ TEST_CASE("errors from the parser keep their column on a shifted line") {
 
 TEST_CASE("the printer: sections, lines, rows and the bracket fallback") {
     // A top-level form with tagged children is a section even when it would fit on a line.
-    CHECK(syntax::print(
-              *brackets("(player (speed 4.5 (range 0 10) (desc \"Run speed, in m/s\")))")) ==
+    CHECK(printed(*brackets("(player (speed 4.5 (range 0 10) (desc \"Run speed, in m/s\")))")) ==
           "player\n   speed 4.5 (range 0 10) (desc \"Run speed, in m/s\")\n");
     // A form with values, or without a tagged child, stays on one line.
-    CHECK(syntax::print(*brackets("(items a b c) (waves {spawn grunt 3})")) ==
+    CHECK(printed(*brackets("(items a b c) (waves {spawn grunt 3})")) ==
           "items a b c\nwaves {spawn grunt 3}\n");
     // Nested arrays stay on one line while they fit; untagged children are rows.
-    CHECK(
-        syntax::print(*brackets("(h (cottage (size 14 10) (walls (0 -5 14 0.2) (0 5 14 0.2))))")) ==
-        "h\n   cottage (size 14 10) (walls (0 -5 14 0.2) (0 5 14 0.2))\n");
+    CHECK(printed(*brackets("(h (cottage (size 14 10) (walls (0 -5 14 0.2) (0 5 14 0.2))))")) ==
+          "h\n   cottage (size 14 10) (walls (0 -5 14 0.2) (0 5 14 0.2))\n");
     // Past the width: a key with values keeps its groups in brackets on deeper rows; a key
     // without values gets its tagged children as lines.
     std::string wide = "(walls";
     for (int i = 0; i < 12; ++i) wide += " (" + std::to_string(i) + " -5 14 0.2)";
     wide += ")";
-    const std::string rows = syntax::print(*brackets(wide));
+    const std::string rows = printed(*brackets(wide));
     CHECK(rows.rfind("walls\n   (0 -5 14 0.2) (1 -5 14 0.2)", 0) == 0);
     CHECK(first_difference(*brackets(wide), *lines(rows)).empty());
     // A head wider than the width falls back to the bracketed pretty form.
     const std::string text = "(desc \"" + std::string(120, 'x') + "\")";
-    const std::string fallback = syntax::print(*brackets(text));
+    const std::string fallback = printed(*brackets(text));
     CHECK(fallback.rfind("(desc\n   \"xxx", 0) == 0);
     CHECK(first_difference(*brackets(text), *lines(fallback)).empty());
-    // An untagged or non-array top-level node is bracketed as today.
-    CHECK(syntax::print(*brackets("(1 2) {cmd} \"s\"")) == "(1 2)\n{cmd}\n\"s\"\n");
-    CHECK(syntax::print(*brackets("")).empty());
+    // An untagged top-level array or command is bracketed as today; a value follows it.
+    CHECK(printed(*brackets("(1 2) {cmd} \"s\"")) == "(1 2)\n{cmd} \"s\"\n");
+    CHECK(printed(*brackets("")).empty());
 }
 
 TEST_CASE("a converted sample reads back to the same tree") {
@@ -232,4 +250,32 @@ TEST_CASE("a converted sample reads back to the same tree") {
     auto back = syntax::read(converted, "sample.new");
     REQUIRE(back);
     CHECK(first_difference(**original, **back).empty());
+}
+
+TEST_CASE("the translator and the printer agree with the core's, where the build has it") {
+    if (BAKER_INDENT_LINES == 0) return;  // the translator is the reader: nothing to compare
+    size_t files = 0;
+    for (const std::string& rel : corpus_files()) {
+        auto root = read_dta_file(std::string(repository_root()) + "/" + rel);
+        if (!root) continue;
+        ++files;
+        INFO(rel);
+        const std::string core = printed(**root);
+        CHECK(syntax::translator_print(**root) == core);
+        auto by_core = syntax::read(core, "t.dta");
+        auto by_translator = syntax::translate(core, "t.dta");
+        REQUIRE(by_core);
+        REQUIRE(by_translator);
+        CHECK(first_difference(**by_core, **by_translator).empty());
+    }
+    CHECK(files > 50);
+}
+
+TEST_CASE("a conditional's branch: a line opened in it closes in it (the translator)") {
+    // The translator does not evaluate conditionals, so it closes a line in the branch it
+    // opened in; the core keeps it open past the branch. They agree where a line does not
+    // outlive its branch, as here.
+    same("a\n   b 1\n#ifdef X\n   c 2\n#endif\nd 3\n", "(a (b 1)) (d 3)");
+    same("#ifndef X\nlist\n   (1 2)\n#else\nlist\n   (3 4)\n#endif\nnext 1\n",
+         "(list (1 2)) (next 1)");
 }

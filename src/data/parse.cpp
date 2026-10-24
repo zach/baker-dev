@@ -22,6 +22,9 @@ struct Token {
     Tok kind = Tok::End;
     char bracket = 0;     // Open, Close
     bool quoted = false;  // Symbol written as 'text'
+#if BAKER_INDENT_LINES
+    bool first = false;  // the first token on its line (a comment before it aside)
+#endif
     int32_t line = 0;
     uint32_t begin = 0, end = 0;  // byte span in the source
     int64_t i = 0;
@@ -45,7 +48,15 @@ class Lexer {
 public:
     Lexer(std::string_view src, Symbol file) : src_(src), file_(file) {
         if (src_.size() >= 3 && std::memcmp(src_.data(), "\xEF\xBB\xBF", 3) == 0) pos_ = 3;
+#if BAKER_INDENT_LINES
+        line_start_ = pos_;
+#endif
     }
+#if BAKER_INDENT_LINES
+    [[nodiscard]] std::string_view text() const noexcept { return src_; }
+    // Where the line of the token just produced begins: its indent is begin minus this.
+    [[nodiscard]] size_t line_start() const noexcept { return line_start_; }
+#endif
 
     // Produces the next token. On failure fills `err` and returns false.
     bool next(Token& t, Error& err) {
@@ -121,6 +132,9 @@ private:
     bool lex_token(Token& t, Error& err) {
         t = Token{};
         const size_t n = src_.size();
+#if BAKER_INDENT_LINES
+        const size_t from = pos_;  // the previous token's end
+#endif
         for (;;) {
             if (pos_ >= n) {
                 t.kind = Tok::End;
@@ -130,7 +144,12 @@ private:
             }
             const auto c = static_cast<unsigned char>(src_[pos_]);
             if (c <= 0x20) {
-                if (c == '\n') ++line_;
+                if (c == '\n') {
+                    ++line_;
+#if BAKER_INDENT_LINES
+                    line_start_ = pos_ + 1;
+#endif
+                }
                 ++pos_;
             } else if (c == ';') {
                 const size_t opened = pos_;
@@ -153,7 +172,12 @@ private:
                         comment(start, opened, true);
                         break;
                     }
-                    if (src_[pos_] == '\n') ++line_;
+                    if (src_[pos_] == '\n') {
+                        ++line_;
+#if BAKER_INDENT_LINES
+                        line_start_ = pos_ + 1;
+#endif
+                    }
                     ++pos_;
                 }
             } else {
@@ -163,6 +187,9 @@ private:
 
         t.line = line_;
         t.begin = static_cast<uint32_t>(pos_);
+#if BAKER_INDENT_LINES
+        t.first = from <= line_start_;
+#endif
         const char c = src_[pos_];
         switch (c) {
             case '(':
@@ -282,6 +309,9 @@ private:
     Symbol file_;
     size_t pos_ = 0;
     int32_t line_ = 1;
+#if BAKER_INDENT_LINES
+    size_t line_start_ = 0;  // where the current line began (a newline inside a token aside)
+#endif
     Str buf_;  // decoded string with escapes; valid until the next string token
     bool has_peek_ = false;
     Token peeked_;
@@ -410,6 +440,10 @@ public:
                 if (t.kind == Tok::Directive && !skipped_directive(t)) return false;
                 continue;
             }
+#if BAKER_INDENT_LINES
+            if (t.first && frames_.back().kind <= Frame::Line && layout_ && !layout(t))
+                return false;
+#endif
             bool ok = true;
             switch (t.kind) {
                 case Tok::Open: ok = open(t.bracket, t.line, t.begin); break;
@@ -429,6 +463,10 @@ public:
                 ErrorCode::Directive,
                 "#" + Str(conds_.back().negated ? "ifndef" : "ifdef") + " has no matching #endif",
                 conds_.back().line);
+#if BAKER_INDENT_LINES
+        while (frames_.back().kind == Frame::Line)  // the end of the file closes every line
+            if (!close_line()) return false;
+#endif
         if (frames_.size() > 1) {
             const FrameInfo& f = frames_.back();
             return fail(ErrorCode::Syntax, Str(bracket_name(f.open)) + " is never closed", f.line,
@@ -446,15 +484,31 @@ public:
     }
 
 private:
-    enum class Frame : uint8_t { Root, Array, Command, Property, MacroDef, DefineBody, Autorun };
+    // Root and Line are the frames no bracket opened: at them, a token first on its line is
+    // laid out (BAKER_INDENT_LINES); inside a bracket, indentation means nothing.
+    enum class Frame : uint8_t {
+        Root,
+        Line,
+        Array,
+        Command,
+        Property,
+        MacroDef,
+        DefineBody,
+        Autorun
+    };
     struct FrameInfo {
         Frame kind;
         size_t start;
         int32_t line;
         Symbol name;  // DefineBody
         char open = '(';
-        uint32_t begin = 0;    // offset of the opening bracket
+        uint32_t begin = 0;    // offset of the opening bracket, or of a line's first token
         bool removes = false;  // holds #remove, which must be its one value (D143)
+#if BAKER_INDENT_LINES
+        bool scanned = false;  // Line: its own values were looked for, at its first child line
+        bool values = false;   // Line: it holds a value beyond its tag (holds_values)
+        uint32_t indent = 0;   // Line: bytes from its line's start
+#endif
     };
     struct Cond {
         bool active;         // tokens in the current branch are read
@@ -554,7 +608,7 @@ private:
 
     bool close(const Token& t) {
         const FrameInfo f = frames_.back();
-        if (f.kind == Frame::Root)
+        if (f.kind == Frame::Root || f.kind == Frame::Line)
             return fail(ErrorCode::Syntax, "unexpected " + Str(bracket_name(t.bracket)), t.line,
                         t.begin);
         if (t.bracket != closer(f.kind))
@@ -563,8 +617,8 @@ private:
                             " is closed by " + Str(bracket_name(t.bracket)),
                         t.line, t.begin);
         frames_.pop_back();
+        if (f.kind == Frame::Array) return finish_array(f, t.end);
         std::span<Node> kids(scratch_.data() + f.start, scratch_.size() - f.start);
-        if (f.removes && kids.size() != 2) return bad_remove(f.line, f.begin);
 
         if (f.kind == Frame::MacroDef) {
             const auto name = kids.empty() ? std::nullopt : kids[0].try_sym();
@@ -585,28 +639,111 @@ private:
         truncate(f.start);
         if (arr->height() > s_.limits.max_depth) return too_deep(f.line, f.begin);
         const SourceSpan span{file_, f.begin, t.end, {}};
-        switch (f.kind) {
-            case Frame::DefineBody:
-                s_.define(f.name, std::move(arr));
-                defined(f.name, f.line, false);
-                return true;
-            case Frame::Autorun:
-                s_.st_->autorun.emplace_back(std::move(arr), Type::Command);
-                return true;
-            case Frame::Command: return push(Node(std::move(arr), Type::Command), span);
-            case Frame::Property: return push(Node(std::move(arr), Type::Property), span);
-            default:
-                // A file's first form may declare it a pack, which the tree leaves out.
-                if (frames_.size() == 1 && f.start == 0 && pack_ < 0 && !arr->empty() &&
-                    (*arr)[0].is(sym_pack()))
-                    return declare_pack(*arr);
-                // So may (origin "source" ...), first or after the pack declaration (D91).
-                if (frames_.size() == 1 && f.start == 0 && !origin_ && arr->size() >= 2 &&
-                    (*arr)[0].is(sym_origin()) && (*arr)[1].type() == Type::String)
-                    return declare_origin(*arr);
-                return push(Node(std::move(arr)), span);
+        if (f.kind == Frame::DefineBody) {
+            s_.define(f.name, std::move(arr));
+            defined(f.name, f.line, false);
+            return true;
         }
+        if (f.kind == Frame::Autorun) {
+            s_.st_->autorun.emplace_back(std::move(arr), Type::Command);
+            return true;
+        }
+        return push(Node(std::move(arr), f.kind == Frame::Command ? Type::Command : Type::Property),
+                    span);
     }
+
+    // The array a '(' frame, or a line, holds, closed at byte `end`: made in the arena,
+    // recorded, and pushed, unless it is the file's pack or origin declaration.
+    bool finish_array(const FrameInfo& f, uint32_t end) {
+        std::span<Node> kids(scratch_.data() + f.start, scratch_.size() - f.start);
+        if (f.removes && kids.size() != 2) return bad_remove(f.line, f.begin);
+        Ref<Array> arr = arena_.make_array(kids, file_, f.line);
+        record(arr, f.start, f.begin, end);
+        truncate(f.start);
+        if (arr->height() > s_.limits.max_depth) return too_deep(f.line, f.begin);
+        // A file's first form may declare it a pack, which the tree leaves out.
+        if (frames_.size() == 1 && f.start == 0 && pack_ < 0 && !arr->empty() &&
+            (*arr)[0].is(sym_pack()))
+            return declare_pack(*arr);
+        // So may (origin "source" ...), first or after the pack declaration (D91).
+        if (frames_.size() == 1 && f.start == 0 && !origin_ && arr->size() >= 2 &&
+            (*arr)[0].is(sym_origin()) && (*arr)[1].type() == Type::String)
+            return declare_origin(*arr);
+        return push(Node(std::move(arr)), {file_, f.begin, end, {}});
+    }
+
+#if BAKER_INDENT_LINES
+    // The layout (dev/syntax-indent-lines-design.md), for a token first on its line while
+    // no bracket is open. A conditional takes no part, so it may sit at the margin. Any
+    // other token's indent closes every open line at or past it, and must land on an open
+    // line's indent; an atom (not a macro, which splices as today) then opens a line: an
+    // array of the rest of its line and every deeper line. A top-level line begins at the
+    // margin, and a line holding values takes no deeper atom-first line.
+    bool layout(const Token& t) {
+        if (t.kind == Tok::Directive &&
+            (t.text == "ifdef" || t.text == "ifndef" || t.text == "else" || t.text == "endif"))
+            return true;
+        const bool opens = t.kind != Tok::Open && t.kind != Tok::Close &&
+                           t.kind != Tok::Directive &&
+                           !(t.kind == Tok::Symbol && !t.quoted && !s_.st_->defines.empty() &&
+                             s_.macro(Symbol(t.text)));
+        if (!opens && frames_.back().kind == Frame::Root) return true;  // as today
+        const size_t from = lex_.line_start();
+        const auto indent = static_cast<uint32_t>(t.begin - from);
+        if (lex_.text().substr(from, indent).find('\t') != std::string_view::npos)
+            return fail(ErrorCode::Syntax, "a tab in a line's indentation: indent with spaces",
+                        t.line, t.begin);
+        uint32_t popped = UINT32_MAX;
+        while (frames_.back().kind == Frame::Line && frames_.back().indent >= indent) {
+            popped = frames_.back().indent;
+            if (!close_line()) return false;
+        }
+        if (popped != UINT32_MAX ? indent != popped
+                                 : opens && frames_.back().kind == Frame::Root && indent != 0)
+            return fail(ErrorCode::Syntax,
+                        "indent " + detail::decimal(indent) + " matches no open line", t.line,
+                        t.begin);
+        if (!opens) return true;
+        FrameInfo& f = frames_.back();
+        if (f.kind == Frame::Line && !f.scanned) {
+            f.values = holds_values(f);
+            f.scanned = true;
+        }
+        if (f.kind == Frame::Line && f.values)
+            return fail(ErrorCode::Syntax,
+                        "a value list continues on the same line or in brackets; a deeper line "
+                        "is a child",
+                        t.line, t.begin);
+        if (frames_.size() > s_.limits.max_depth) return too_deep(t.line, t.begin);
+        frames_.push_back({Frame::Line, scratch_.size(), t.line, {}, 0, t.begin});
+        frames_.back().indent = indent;
+        return true;
+    }
+
+    // Whether a line holds a scalar value beyond its tag, before its first child line.
+    [[nodiscard]] bool holds_values(const FrameInfo& f) const noexcept {
+        size_t i = f.start;
+        if (i < scratch_.size() && scratch_[i].try_sym()) ++i;
+        for (; i < scratch_.size(); ++i)
+            if (!scratch_[i].is_array_like()) return true;
+        return false;
+    }
+
+    // A line closes before the token that dedents, or at the end; its extent (edit mode)
+    // ends after its last token in this file.
+    bool close_line() {
+        const FrameInfo f = frames_.back();
+        frames_.pop_back();
+        uint32_t end = f.begin;
+        if (map_)
+            for (size_t i = spans_.size(); i-- > f.start;)
+                if (spans_[i].file == file_) {
+                    end = spans_[i].end;
+                    break;
+                }
+        return finish_array(f, end);
+    }
+#endif
 
     static const Symbol& sym_pack() {
         static const Symbol s("pack");
@@ -841,7 +978,7 @@ private:
     }
     bool removal(const Token& t) {
         FrameInfo& f = frames_.back();
-        if (f.kind != Frame::Array || scratch_.size() != f.start + 1 ||
+        if ((f.kind != Frame::Array && f.kind != Frame::Line) || scratch_.size() != f.start + 1 ||
             !scratch_[f.start].try_sym())
             return bad_remove(t.line, t.begin);
         f.removes = true;
@@ -905,6 +1042,12 @@ private:
             frames_.back().kind = Frame::Autorun;
             return true;
         }
+#if BAKER_INDENT_LINES
+        if (d == "lines") {
+            layout_ = true;  // the layout from here on in this file
+            return true;
+        }
+#endif
         return fail(ErrorCode::Directive, "unknown directive '#" + Str(d) + "'", t.line, t.begin);
     }
 
@@ -984,6 +1127,9 @@ private:
     int32_t pack_line_ = 0;  // where it declared it
     bool origin_ = false;    // this file declared its origin
     Vec<Symbol> warned_;     // macros this file has been warned about
+#if BAKER_INDENT_LINES
+    bool layout_ = s_.lines;  // the layout: from the start, or from a #lines directive on
+#endif
 };
 
 }  // namespace detail
@@ -1000,6 +1146,9 @@ void LoadSession::copy_options(const LoadSession& o) noexcept {
     text_only = o.text_only;
     refuse_includes = o.refuse_includes;
     allocator = o.allocator;
+#if BAKER_INDENT_LINES
+    lines = o.lines;
+#endif
 }
 LoadSession::LoadSession(const LoadSession& o)
     : st_(detail::create<State>(*o.st_->alloc, *o.st_, *o.st_->alloc)) {
@@ -1228,8 +1377,19 @@ namespace {
 size_t tree_estimate(std::string_view t) noexcept {
     size_t arrays = 0, tokens = 0, strings = 0, chars = 0;
     bool in_atom = false;
+#if BAKER_INDENT_LINES
+    bool first = true;  // no token yet on this line: an atom here opens an array (a line)
+#endif
     for (size_t i = 0; i < t.size();) {
         const char c = t[i];
+#if BAKER_INDENT_LINES
+        if (c == '\n') {
+            first = true;
+        } else if (first && static_cast<unsigned char>(c) > ' ' && c != ';') {
+            first = false;
+            if (c != '(' && c != '{' && c != '[' && c != ')' && c != '}' && c != ']') ++arrays;
+        }
+#endif
         if (c == ';') {  // to the end of the line
             i = std::min(t.find('\n', i), t.size());
             in_atom = false;
@@ -1356,10 +1516,60 @@ TextStructure read_structure(std::string_view text, Symbol file) {
         e.set_column(lexer.column_at(at));
         errors.push_back(std::move(e));
     };
+#if BAKER_INDENT_LINES
+    bool layout = BAKER_INDENT_LINES == 1;  // else from #lines on
+    uint32_t prev_end = 0;                  // where the previous token ended: where a line closes
+    auto indent_of = [&](uint32_t begin) {  // bytes from the start of the line `begin` is on
+        const size_t nl = begin == 0 ? std::string_view::npos : text.rfind('\n', begin - 1);
+        return begin - static_cast<uint32_t>(nl == std::string_view::npos ? 0 : nl + 1);
+    };
+#endif
     for (;;) {
         detail::Token t;
         Error ignored;
         (void)lexer.next(t, ignored);  // tolerant: it goes on past every problem
+#if BAKER_INDENT_LINES
+        // The layout, as Parser::layout's, tolerant: a line is a bracket of the `line` kind
+        // that begins at its first token and closes after its last.
+        layout = layout || (t.kind == Tok::Directive && t.text == "lines");
+        if (layout && (t.first || t.kind == Tok::End) &&
+            (open.empty() || brackets[open.back()].line_kind) &&
+            !(t.kind == Tok::Directive &&
+              (t.text == "ifdef" || t.text == "ifndef" || t.text == "else" || t.text == "endif"))) {
+            const bool opens =
+                t.kind != Tok::Open && t.kind != Tok::Close && t.kind != Tok::Directive &&
+                t.kind != Tok::End &&
+                !(t.kind == Tok::Symbol && !t.quoted &&
+                  std::find(macros.begin(), macros.end(), Symbol(t.text)) != macros.end());
+            const uint32_t indent = t.kind == Tok::End ? 0 : indent_of(t.begin);
+            if ((opens || !open.empty()) && t.kind != Tok::End &&
+                text.substr(t.begin - indent, indent).find('\t') != std::string_view::npos)
+                problem("a tab in a line's indentation: indent with spaces", t.line, t.begin);
+            uint32_t popped = UINT32_MAX;
+            while (!open.empty() && brackets[open.back()].line_kind &&
+                   indent_of(brackets[open.back()].begin) >= indent) {
+                TextBracket& b = brackets[open.back()];
+                b.end = prev_end;
+                b.closed = true;
+                popped = indent_of(b.begin);
+                open.pop_back();
+            }
+            if (t.kind != Tok::End &&
+                (popped != UINT32_MAX ? indent != popped : opens && open.empty() && indent != 0))
+                problem("indent " + detail::decimal(indent) + " matches no open line", t.line,
+                        t.begin);
+            if (opens) {
+                fresh = static_cast<int32_t>(brackets.size());
+                brackets.push_back({.line = t.line,
+                                    .begin = t.begin,
+                                    .end = static_cast<uint32_t>(text.size()),
+                                    .parent = open.empty() ? -1 : open.back(),
+                                    .line_kind = true});
+                open.push_back(fresh);
+            }
+        }
+        if (t.kind != Tok::Directive) prev_end = t.end;
+#endif
         if (t.kind == Tok::End) break;
         TextToken out{.bracket = t.bracket, .line = t.line, .begin = t.begin, .end = t.end};
         const auto index = static_cast<int32_t>(tokens.size());
@@ -1386,6 +1596,12 @@ TextStructure read_structure(std::string_view text, Symbol file) {
                     continue;  // a stray close is left out
                 }
                 TextBracket& b = brackets[open.back()];
+#if BAKER_INDENT_LINES
+                if (b.line_kind) {
+                    problem("unexpected " + Str(detail::bracket_name(t.bracket)), t.line, t.begin);
+                    continue;
+                }
+#endif
                 const char want = b.open == '(' ? ')' : b.open == '{' ? '}' : ']';
                 if (t.bracket != want)
                     problem(Str(detail::bracket_name(t.bracket)) + " closes " +

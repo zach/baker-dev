@@ -131,6 +131,9 @@ void eval_request(Context& ctx, std::string_view line, TextSink reply) {
     Str out = R"({"schema":"baker.reply/1.1","id":)";
     LoadSession session;
     session.allocator = &ctx.allocator();  // the tree is the Context's, as eval(text) builds it
+#if BAKER_INDENT_LINES
+    session.lines = false;  // a request, not a file: '(' first, as today (console.cpp)
+#endif
     auto tree = read_string(line, "<console>", session);
     Expected<Node> result = Node();
     if (!tree) {

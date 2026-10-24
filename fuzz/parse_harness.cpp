@@ -38,7 +38,11 @@ bool spans_hold(const Node& n, const SourceMap& map, std::string_view text, uint
             if (!sp.literal() || (*a)[i].array()) continue;
             // A leading space, so a token starting with BOM bytes is not read as a BOM.
             const std::string token = " " + std::string(text.substr(sp.begin, sp.end - sp.begin));
-            auto alone = read_string(token, "token.dta");
+            LoadSession value;
+#if defined(BAKER_INDENT_LINES) && BAKER_INDENT_LINES
+            value.lines = false;  // a value's text: alone on its line it would open a line
+#endif
+            auto alone = read_string(token, "token.dta", value);
             if (!alone || (*alone)->size() != 1 || !structurally_equal((**alone)[0], (*a)[i]))
                 return false;
         }
