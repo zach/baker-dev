@@ -1,0 +1,5 @@
+; Wayfarer DLC A with the verbs: rope goes after whatever the items are when it is
+; installed, and a package above that appends too keeps it (content-updates.md scenario 2).
+(items #append rope)
+(abilities
+   (tie (item rope)))

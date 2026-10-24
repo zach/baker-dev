@@ -27,10 +27,25 @@ std::string base_text() {
     return s;
 }
 
-std::string overlay_text() {
+// `pinned`: each row names the base's value it was made against, (price 25 #was 15)
+// (dev/syntax-layer-markers-design.md).
+std::string overlay_text(bool pinned = false) {
     std::string s = "(shop\n";
     for (int i = 0; i < 2000; i += 5)
-        s += "   (item" + std::to_string(i) + " (price " + std::to_string(20 + i % 90) + "))\n";
+        s += "   (item" + std::to_string(i) + " (price " + std::to_string(20 + i % 90) +
+             (pinned ? " #was " + std::to_string(10 + i % 90) : std::string()) + "))\n";
+    return s + ")\n";
+}
+
+// A list of `n` symbols, and a layer that appends or drops `k` of them.
+std::string list_text(int n) {
+    std::string s = "(list";
+    for (int i = 0; i < n; ++i) s += " v" + std::to_string(i);
+    return s + ")\n";
+}
+std::string verb_text(const char* verb, int k, int first) {
+    std::string s = std::string("(list ") + verb;
+    for (int i = 0; i < k; ++i) s += " v" + std::to_string(first + i);
     return s + ")\n";
 }
 
@@ -135,6 +150,29 @@ int main() {
             return cfg.push_layer_text("overlay", overlay, {.policy = &policy, .checked = &report})
                 .has_value();
         });
+
+    // The layer verbs: a pinned overlay checked and pushed, and a wide list composed.
+    const std::string pinned = overlay_text(true);
+    std::printf("pinned overlay %zu bytes\n", pinned.size());
+    row("check_layer_text, every row pinned", best_us(kRuns, [&] {
+            ok = ok && cfg.check_layer_text("overlay", pinned, policy).has_value();
+        }));
+    pushes("push_layer_text, no policy, pinned",
+           [&] { return cfg.push_layer_text("overlay", pinned).has_value(); });
+    const baker::Ref<baker::Array> list = *baker::read_string(list_text(2000), "list");
+    const baker::Ref<baker::Array> append =
+        *baker::read_string(verb_text("#append", 100, 2000), "a");
+    const baker::Ref<baker::Array> drop = *baker::read_string(verb_text("#drop", 100, 1900), "d");
+    const baker::Ref<baker::Array> restate = *baker::read_string(list_text(2100), "r");
+    row("merge: 2,000-value list restated with 2,100", best_us(kRuns, [&] {
+            ok = ok && baker::merge(*list, *restate, baker::MergePolicy::Overwrite);
+        }));
+    row("merge: #append 100 to a 2,000-value list", best_us(kRuns, [&] {
+            ok = ok && baker::merge(*list, *append, baker::MergePolicy::Overwrite);
+        }));
+    row("merge: #drop the last 100 of a 2,000-value list", best_us(kRuns, [&] {
+            ok = ok && baker::merge(*list, *drop, baker::MergePolicy::Overwrite);
+        }));
     if (!ok) std::printf("FAILED\n");
     return ok ? 0 : 1;
 }

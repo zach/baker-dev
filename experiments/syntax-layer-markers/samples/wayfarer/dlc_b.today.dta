@@ -1,0 +1,6 @@
+; Wayfarer DLC B, as a package writes it today: the base's items restated, torch added.
+; Over DLC A it reads climbing_gloves glider lamp_oil spyglass torch: rope is gone
+; (content-updates.md scenario 2).
+(items climbing_gloves glider lamp_oil spyglass torch)
+(abilities
+   (light (item torch)))

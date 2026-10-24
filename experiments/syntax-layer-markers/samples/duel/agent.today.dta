@@ -1,0 +1,8 @@
+; The Duel agent's layer as it writes one today (agent.md): the jab's cancels restated with
+; palm added, and easy's reaction lowered. The reasons are ; comments, which promote drops.
+(fighters
+   (kestrel
+      (moves
+         (jab (cancels jab low_kick palm)))))   ; let jab cancel into palm, for the combo test
+(cpu
+   (easy (reaction 26)))   ; easy blocked the first low kick too often

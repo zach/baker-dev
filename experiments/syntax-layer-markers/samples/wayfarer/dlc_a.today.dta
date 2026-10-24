@@ -1,0 +1,5 @@
+; Wayfarer DLC A, as a package writes it today: the base's items restated, rope added.
+; A package installed above it that restates the list too drops rope.
+(items climbing_gloves glider lamp_oil spyglass rope)
+(abilities
+   (tie (item rope)))

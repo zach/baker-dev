@@ -1,0 +1,11 @@
+; A Hearth furniture pack, as a package writes it today. The cottage's things restated with
+; a lamp added and the phone taken out, and a third bed for the farmhouse.
+(households
+   (cottage
+      (things (fridge -6.3 -4.2 0) (stove -5.3 -4.2 0) (table -4 -1 0) (shower -6.2 4.2 180)
+              (sofa 3.5 -4.2 0) (tv 3.5 -1 180) (bed 4.5 3.6 180) (books 6.5 1 -90)
+              (lamp -2 4 0)))
+   (farmhouse
+      (things (fridge -8.3 -5.2 0) (stove -7.3 -5.2 0) (table -6 -1.5 0) (shower -8.2 5.2 180)
+              (phone -4 5.6 180) (sofa 0 -5.2 0) (tv 0 -2 180) (books 2.5 4 -90)
+              (bed 6 -4.6 0) (bed 6 4.6 180) (books 8.5 0 -90) (bed 7.5 0 90))))

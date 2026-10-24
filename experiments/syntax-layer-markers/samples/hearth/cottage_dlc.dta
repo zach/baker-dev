@@ -1,0 +1,10 @@
+; The Hearth furniture pack with the verbs. A thing is written as the base writes it, and
+; #drop takes out the first one equal to it, so the phone is restated byte for byte. The
+; farmhouse already has two beds: a keyed (bed ...) would retune the first, #append adds a
+; third.
+(households
+   (cottage
+      (things #drop (phone -2 4.6 180))
+      (things #append (lamp -2 4 0)))
+   (farmhouse
+      (things #append (bed 7.5 0 90))))

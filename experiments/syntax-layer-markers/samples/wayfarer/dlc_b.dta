@@ -1,0 +1,5 @@
+; Wayfarer DLC B with the verbs. Over DLC A the items read
+; climbing_gloves glider lamp_oil spyglass rope torch.
+(items #append torch)
+(abilities
+   (light (item torch)))

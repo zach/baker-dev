@@ -1,0 +1,11 @@
+; The Duel agent's layer with the verbs and a pin. palm goes after the jab's cancels as the
+; base has them; easy's reaction names the 30 it was tuned from, so once default.dta moves
+; it, check says so at this row. The reasons are notes, which promote --patch carries; a
+; verb takes everything after it as operands, so the jab's note sits on the jab.
+(fighters
+   (kestrel
+      (moves
+         (jab (cancels #append palm)
+              (note "let jab cancel into palm, for the combo test")))))
+(cpu
+   (easy (reaction 26 #was 30 (note "easy blocked the first low kick too often"))))
