@@ -568,7 +568,7 @@ public:
 
     [[nodiscard]] Expected<WriteReport> write_back(const Path& path);
     // `pin`: the row also names the stack's value below `layer`, `(key v... #was w...)`, so
-    // that a check finds it stale once that value moves (dev/syntax-layer-markers-design.md).
+    // that a check finds it stale once that value moves.
     [[nodiscard]] Expected<WriteReport> write_back_to(const Path& path, std::string_view layer,
                                                       bool pin = false);
     // Writes every entry of layer_effect(from) into `to`'s file, or nothing: on any refusal

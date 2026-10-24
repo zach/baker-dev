@@ -107,7 +107,7 @@ def diff_and_promote(s):
 
 def layer_verbs(s):
     """A pinned row, a removal and a note: diff names them, promote --patch carries the note
-    above the diff and deletes the removed line (dev/syntax-layer-markers-design.md)."""
+    above the diff and deletes the removed line."""
     agent = "(player (speed 4.5 #was 3.0 (note \"the walk felt slow\")) (lives #remove))\n"
     code, out, _ = s.run("diff", agent=agent)
     expect(code == 0 and "player.speed  3.5 -> 4.5" in out and "stale" in out and

@@ -535,7 +535,7 @@ public:
     }
     // Whether this array, or one below it, holds a layer verb or pin (`#remove`, `#append`,
     // `#drop`, `#was`): what a Config's merge consumes, and strips from what it adds to the
-    // stack (dev/decisions.md D143, dev/syntax-layer-markers-design.md).
+    // stack (dev/decisions.md D143).
     [[nodiscard]] bool has_marker() const noexcept { return (flags_ & kHasMarker) != 0; }
 
     [[nodiscard]] Symbol file() const noexcept { return file_; }

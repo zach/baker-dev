@@ -1,7 +1,7 @@
 #pragma once
 
-// The layer verbs: `#remove` (D143), `#append`, `#drop`, and the `#was` pin
-// (dev/syntax-layer-markers-design.md). Each is a reserved symbol the parser writes only
+// The layer verbs: `#remove` (D143), `#append`, `#drop`, and the `#was` pin.
+// Each is a reserved symbol the parser writes only
 // where the slot rule allows it, in a tagged array's value run, and a Config's merge
 // consumes them, so no merged tree holds one. This is the one place that knows their
 // spellings and their forms: the parser, the printer, the merge and the layer tools all

@@ -167,7 +167,7 @@ bool merge_into(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const 
     MergeScratch::Level& level = scratch.level(scratch.depth_);
     // A verb in the incoming key's first slot replaces the Overwrite rule for this level:
     // the array is the verb's application, its other nodes the operands, so nothing below
-    // is merged key by key (dev/syntax-layer-markers-design.md).
+    // is merged key by key.
     if (policy == MergePolicy::Overwrite && src_first == 1)
         if (const Marker verb = verb_of(src); verb == Marker::Append || verb == Marker::Drop)
             return apply_verb(dst, spans, dst_first, src, verb, map);

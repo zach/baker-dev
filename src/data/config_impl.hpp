@@ -135,7 +135,7 @@ struct Leaf {
 
 // A layer row's values, as every reader of a layer's own tree takes them: its children that
 // are not tagged arrays, up to #was; a verb's operands, whatever their kind; a removal's
-// #remove (dev/syntax-layer-markers-design.md). A merged tree holds no marker, so there it
+// #remove. A merged tree holds no marker, so there it
 // is the row's values.
 Vec<Node> leaf_values(const Array& a);
 // The array holding `path`'s value in `root` (its parent's, for an element), or null.
@@ -463,7 +463,7 @@ struct Config::Impl {
     }
     // A write of `path` into layer `from` (or a promotion into it) would be appended or
     // dropped again by a composing row in an enabled layer at or above it, except `skip`:
-    // the refusal that names that row (dev/syntax-layer-markers-design.md).
+    // the refusal that names that row.
     [[nodiscard]] std::optional<Error> composed(const Path& path, size_t from,
                                                 size_t skip = SIZE_MAX) const {
         for (size_t i = layers.size(); i-- > from;)

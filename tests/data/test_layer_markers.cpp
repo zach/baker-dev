@@ -1,5 +1,4 @@
-// Layer verbs beside #remove: #append, #drop, and the #was pin
-// (dev/syntax-layer-markers-design.md).
+// Layer verbs beside #remove: #append, #drop, and the #was pin.
 #include <doctest.h>
 #include <baker/cache.hpp>
 #include <baker/config.hpp>

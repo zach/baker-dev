@@ -27,8 +27,7 @@ std::string base_text() {
     return s;
 }
 
-// `pinned`: each row names the base's value it was made against, (price 25 #was 15)
-// (dev/syntax-layer-markers-design.md).
+// `pinned`: each row names the base's value it was made against, (price 25 #was 15).
 std::string overlay_text(bool pinned = false) {
     std::string s = "(shop\n";
     for (int i = 0; i < 2000; i += 5)
