@@ -150,6 +150,7 @@ TEST_CASE("blocks back to #ifdef: every condition spelled, the merge unchanged")
         "(#layer z (c 2))\n"
         "(renderer (#layer (w (when (not (or A (and B C))))) (d 2)))\n";
     LoadSession session;
+    session.layer_blocks = true;
     auto root = read_string(text, "t.dta", session);
     REQUIRE(root);
     const std::string dta = syntax::to_ifdefs(**root, session.blocks());
@@ -158,6 +159,7 @@ TEST_CASE("blocks back to #ifdef: every condition spelled, the merge unchanged")
     CHECK(syntax::check_conversion("mem/t.dta", dta, text).empty());
     // A disabled block: under a define no host sets, so off, as the block is.
     LoadSession s2;
+    s2.layer_blocks = true;
     auto r2 = read_string("(a 1)\n(#layer (slow (disabled)) (a 0))\n", "t.dta", s2);
     REQUIRE(r2);
     CHECK(syntax::to_ifdefs(**r2, s2.blocks()).find("#ifdef LAYER_SLOW\n(a 0)\n#endif\n") !=

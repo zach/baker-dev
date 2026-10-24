@@ -273,6 +273,7 @@ Expected<LayerReport> check_text_with(std::string_view name, std::string_view te
     session.clear_autorun();
 #if BAKER_INLINE_LAYERS
     session.clear_blocks();
+    session.layer_blocks = true;
 #endif
     const size_t known = session.warnings().size();
     auto tree = read_string(text, name, session);

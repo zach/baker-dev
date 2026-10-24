@@ -17,7 +17,9 @@ namespace fs = std::filesystem;
 namespace baker::experiments::syntax {
 
 Expected<Ref<Array>> read(std::string_view text, std::string_view name) {
-    return read_string(text, name);
+    LoadSession session;
+    session.layer_blocks = true;  // the blocks are the session's; the tree is the file's
+    return read_string(text, name, session);
 }
 
 std::string print(const Array& root) {

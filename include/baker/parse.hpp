@@ -209,6 +209,11 @@ public:
     // reach no other file. With text_only, for text from outside the game, such as a layer
     // a live game receives (Config::push_layer_text).
     bool refuse_includes = false;
+#if BAKER_INLINE_LAYERS
+    // Reads (#layer ...) blocks into blocks(), for a reader that takes them, as a Config's
+    // layers do. Off (the default), a block is a located error, never data silently dropped.
+    bool layer_blocks = false;
+#endif
     // Where the trees read through this session come from: each read is one arena from
     // it (dev/decisions.md D64), which must outlive the tree. Null: the default allocator.
     const Allocator* allocator = nullptr;

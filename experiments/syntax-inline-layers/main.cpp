@@ -93,6 +93,7 @@ int main(int argc, char** argv) {
         auto text = read_text_file(argv[2]);
         if (!text) return fail(text.error());
         LoadSession session;
+        session.layer_blocks = true;
         session.set_pack_levels({"engine", "game", "task", "live"});
         auto root = read_string(*text, argv[2], session);
         if (!root) return fail(root.error());

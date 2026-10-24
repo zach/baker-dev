@@ -935,6 +935,9 @@ private:
     // tagged arrays. HEAD is a name, read here unexpanded as #ifdef's is, or an array that
     // close_block reads.
     bool open_block(const Token& t) {
+        if (!s_.layer_blocks)
+            return fail(ErrorCode::Directive, "a layer block is read only as a Config's layer",
+                        t.line, t.begin);
         FrameInfo& f = frames_.back();
         if (f.kind != Frame::Array || scratch_.size() != f.start)
             return fail(ErrorCode::Directive,
@@ -1135,6 +1138,9 @@ void LoadSession::copy_options(const LoadSession& o) noexcept {
     cipher = o.cipher;
     text_only = o.text_only;
     refuse_includes = o.refuse_includes;
+#if BAKER_INLINE_LAYERS
+    layer_blocks = o.layer_blocks;
+#endif
     allocator = o.allocator;
 }
 LoadSession::LoadSession(const LoadSession& o)

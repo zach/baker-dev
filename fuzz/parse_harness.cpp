@@ -53,6 +53,9 @@ LoadSession make_session() {
     s.set_reader([](std::string_view, TextSink) { return false; });
     s.limits.max_depth = 64;
     s.limits.max_nodes = 1u << 16;
+#if BAKER_INLINE_LAYERS
+    s.layer_blocks = true;
+#endif
     return s;
 }
 

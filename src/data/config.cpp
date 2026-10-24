@@ -176,6 +176,7 @@ Expected<void> Config::Impl::read(LayerState& layer, const LoadSession& before, 
     session->clear_autorun();
 #if BAKER_INLINE_LAYERS
     session->clear_blocks();
+    session->layer_blocks = true;
 #endif
     auto map = options.edit_mode ? Rc<SourceMap>::make(alloc, alloc) : nullptr;
     session->source_map = map.get();

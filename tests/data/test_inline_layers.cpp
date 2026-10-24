@@ -32,6 +32,7 @@ struct Read {
 
 Read read(std::string_view text, std::vector<const char*> defines = {}) {
     Read r;
+    r.session.layer_blocks = true;  // as a Config's layers read
     for (const char* d : defines) r.session.define(d);
     auto root = read_string(text, "t.dta", r.session);
     REQUIRE_MESSAGE(root.has_value(), (root ? std::string() : to_string(root.error())));
@@ -46,6 +47,7 @@ Read read(std::string_view text, std::vector<const char*> defines = {}) {
 
 Error error(std::string_view text) {
     LoadSession session;
+    session.layer_blocks = true;
     auto r = read_string(text, "t.dta", session);
     REQUIRE(!r.has_value());
     return r.error();
@@ -83,6 +85,20 @@ TEST_CASE("a block's head: a name, (when COND), (disabled)") {
         std::vector<std::string>{"hh on 4: ((a 1))"});
     CHECK(read("[hh (zzz)]\n#define ON\n(#layer hh (a hh))").blocks ==
           std::vector<std::string>{"hh on 3: ((a (zzz)))"});
+}
+
+TEST_CASE("a reader that does not take blocks refuses them, located") {
+    // read_file, read_string, a scenario's or a console's read: a block would be lost there.
+    LoadSession session;
+    auto r = read_string("(a 1)\n  (#layer x (a 2))", "t.dta", session);
+    REQUIRE(!r);
+    CHECK(r.error().message() == "a layer block is read only as a Config's layer");
+    CHECK(r.error().line() == 2);
+    CHECK(r.error().column() == 4);
+    // Copies carry the setting.
+    session.layer_blocks = true;
+    LoadSession copy = session;
+    CHECK(read_string("(#layer x (a 2))", "t.dta", copy));
 }
 
 TEST_CASE("a block inside tagged arrays is wrapped in their tags") {
@@ -558,7 +574,7 @@ TEST_CASE("promote into a block is refused, and no cache is baked from a load wi
     CHECK(dir.read("d.dta") == "(a 1)\n(#layer x (a 3))\n");
     // The cache format has no place for a load's blocks: baking one is refused.
     LoadSession session;
-    session.record_for_cache = true;
+    session.record_for_cache = session.layer_blocks = true;
     auto root = read_file(dir.path("d.dta"), session);
     REQUIRE(root);
     const auto baked = write_cache(**root, dir.path("d.datb"), &session);
