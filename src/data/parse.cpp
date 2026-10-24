@@ -1023,6 +1023,16 @@ private:
                             "': its options are (when COND) and (disabled), where COND is a "
                             "define name, (not C), (and C...) or (or C...)",
                         head->line(), f.begin);
+        // At a file's top level the block's forms are its tree's top level, where a printed
+        // '[' would define a macro; inside tagged arrays they are wrapped, so it may stay.
+        if (frames_.size() == 1)
+            for (size_t i = 1; i < kids.size(); ++i)
+                if (kids[i].type() == Type::Property)
+                    return fail(ErrorCode::Syntax,
+                                "block '" + Str(name.str()) +
+                                    "': a [property] cannot appear at a block's top level, "
+                                    "where '[' defines a macro",
+                                f.line, f.begin);
         for (const Block& b : s_.st_->blocks)  // one name per load: it names a sub-layer
             if (b.name == name)
                 return fail(ErrorCode::Refused,

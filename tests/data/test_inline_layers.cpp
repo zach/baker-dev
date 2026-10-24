@@ -175,6 +175,15 @@ TEST_CASE("a block's errors are located") {
     CHECK(twice.line() == 3);
     // Ledger's (when {...}) milestone field is data, not a block head.
     CHECK(read("(milestones (first (when {>= 1 1}) (target 60)))").blocks.empty());
+    // A property at a block's top level would print as a macro definition (the fuzzer's
+    // find); inside tagged arrays it is wrapped and stays a property.
+    Error prop = error("(a 1)\n(#layer x (b 2) [c 1])");
+    CHECK(prop.message() ==
+          "block 'x': a [property] cannot appear at a block's top level, where '[' defines a "
+          "macro");
+    CHECK(prop.line() == 2);
+    CHECK(read("(a (#layer x (b [c 1])))").joined == "x on 1: ((a (b [c 1])))");
+    CHECK(read("(a (#layer x [c 1]))").joined == "x on 1: ((a [c 1]))");
     // The closing bracket.
     CHECK(error("(#layer x (a 1)]").message() == "'(' from line 1 is closed by ']'");
     CHECK(error("(#layer x (a 1)").message() == "'(' is never closed");
