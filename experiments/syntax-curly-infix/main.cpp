@@ -8,7 +8,9 @@
 //                         exit 1 on a fault
 //   stats                 the converter's counts per file, and every changed command
 //   bench [<file.dta>]    baker::read_string on the DTA against itself on the infix text
-//   bench --operators     the same on the generated text with two operator calls a record
+//   read <file> <n>       read a file n times (to count instructions under cachegrind)
+//   bench --operators     the generated text with two operator calls a record, printed
+//                         prefix against printed infix: the same tree, only the spelling differs
 #include "experiments.hpp"
 #include "syntax.hpp"
 
@@ -18,6 +20,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -229,11 +232,19 @@ int main(int argc, char** argv) {
         std::fputs(syntax::print_prefix(**root).c_str(), stdout);
         return 0;
     }
+    if (cmd == "read" && argc > 3) {  // read a file N times: for counting instructions
+        auto text = read_text_file(argv[2]);
+        if (!text) return fail(text.error());
+        const long n = std::strtol(argv[3], nullptr, 10);
+        for (long i = 0; i < n; ++i)
+            if (!syntax::read(*text, argv[2])) return 1;
+        return 0;
+    }
     if (cmd == "check") return check();
     if (cmd == "stats") return stats();
     if (cmd == "bench") {
         std::string text, converted;
-        if (argc > 2 && std::string_view(argv[2]) == "--operators") {
+        if (argc > 2 && std::string_view(argv[2]).starts_with("--operators")) {
             // Each record of the parse benchmark's text gains a band and a sum of a product,
             // the corpus's two commonest shapes; the converted text is the same tree, infix.
             const std::string plain = generated_config_text(4 * 1024 * 1024);
@@ -249,7 +260,14 @@ int main(int argc, char** argv) {
             text.append(plain, i, std::string::npos);
             auto root = read_string(text, "bench.dta");
             if (!root) return fail(root.error());
+            // Both printed, so the two texts differ only in how the operator calls are spelled.
+            text = syntax::print_prefix(**root);
             converted = syntax::print(**root);
+            // --operators=prefix or =infix prints that text instead, for `read` to count.
+            if (std::string_view(argv[2]) == "--operators=prefix")
+                return std::fputs(text.c_str(), stdout) < 0;
+            if (std::string_view(argv[2]) == "--operators=infix")
+                return std::fputs(converted.c_str(), stdout) < 0;
         } else if (argc > 2) {
             auto t = read_text_file(argv[2]);
             if (!t) return fail(t.error());
