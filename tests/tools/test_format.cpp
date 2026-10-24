@@ -159,9 +159,12 @@ TEST_CASE("the edits turn the old text into the new; CRLF and a byte order mark 
 TEST_CASE("over the corpus: formatting twice changes nothing, and nothing but whitespace") {
     namespace fs = std::filesystem;
     size_t files = 0;
-    for (const char* root : {"tests", "examples", "stacks"})
-        for (const auto& e :
-             fs::recursive_directory_iterator(std::string(BAKER_SOURCE_DIR) + "/" + root)) {
+    // The game stacks are in the development tree only: a released tree has the rest.
+    for (const char* root : {"tests", "examples", "stacks"}) {
+        const fs::path dir = fs::path(BAKER_SOURCE_DIR) / root;
+        std::error_code ec;
+        if (!fs::is_directory(dir, ec)) continue;
+        for (const auto& e : fs::recursive_directory_iterator(dir)) {
             if (e.path().extension() != ".dta" ||
                 e.path().string().find("/build") != std::string::npos)
                 continue;
@@ -179,7 +182,8 @@ TEST_CASE("over the corpus: formatting twice changes nothing, and nothing but wh
             }
             ++files;
         }
-    CHECK(files > 40);
+    }
+    CHECK(files > 20);
 }
 
 TEST_CASE("formatting is linear in the text") {
