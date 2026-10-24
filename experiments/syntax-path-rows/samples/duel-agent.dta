@@ -1,0 +1,2 @@
+(fighters (kestrel (health 1100) (walk_back 1.7)))
+(cpu (easy (reaction 26)))

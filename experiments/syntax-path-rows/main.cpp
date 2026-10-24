@@ -4,16 +4,25 @@
 //   check                  round-trip every corpus file; exit 1 on an experiment fault
 //   bench [<file.dta>]     the rows reader against baker::read_string, same content
 //   bench --stacks [MB]    the same over the stacks' data, replicated to MB megabytes (1)
-//   stats <file.dta>...    leaves, depths, parentheses, lines and bytes, nested and as rows
+//   stats <file.dta>...    leaves, depths, parentheses, lines and bytes, nested and as rows,
+//                          of each file's own forms (its includes read as empty)
 //   gate                   the sigil counters over the corpus files and the sources' literals
+//   count nested|rows N [MB]  N reads of the stacks' data (MB megabytes, 1), nested or as
+//                          rows, for cachegrind; and a read's allocations
 #include "experiments.hpp"
 #include "syntax.hpp"
 
 #include <baker/parse.hpp>
 #include <baker/std_interop.hpp>
 
+#if BAKER_SYNTAX_ALLOCS
+#include "alloc_counter.hpp"
+#endif
+
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -31,10 +40,11 @@ int fail(const Error& e) {
 }
 
 int usage() {
-    std::fprintf(stderr,
-                 "usage: baker_syntax_%.*s to-new <file.dta> | to-dta <file> | check | bench "
-                 "[<file.dta> | --stacks [MB]] | stats <file.dta>... | gate\n",
-                 static_cast<int>(syntax::kName.size()), syntax::kName.data());
+    std::fprintf(
+        stderr,
+        "usage: baker_syntax_%.*s to-new <file.dta> | to-dta <file> | check | bench "
+        "[<file.dta> | --stacks [MB]] | stats <file.dta>... | gate | count nested|rows N [MB]\n",
+        static_cast<int>(syntax::kName.size()), syntax::kName.data());
     return 2;
 }
 
@@ -66,8 +76,8 @@ void leaves(const Array& a, size_t depth, size_t& count, size_t& depth_sum) {
     }
 }
 
-// The stacks' data, every file's tree, as one root with each copy's top-level tags
-// suffixed, until the nested text is `bytes` long.
+// The stacks' data, every file's tree, as one root with each top-level tag suffixed by its
+// file, form and copy, until the nested text is `bytes` long; and the same as rows.
 std::string stacks_text(size_t bytes, std::string& rows_text) {
     std::vector<Ref<Array>> trees;
     for (const std::string& rel : corpus_files()) {
@@ -77,18 +87,24 @@ std::string stacks_text(size_t bytes, std::string& rows_text) {
     }
     std::vector<Node> all;
     std::string nested;
+    Ref<Array> root;
     for (int copy = 0; nested.size() < bytes; ++copy) {
-        for (const Ref<Array>& t : trees)
-            for (const Node& n : *t) {
-                const Array* a = n.try_array();
+        for (size_t k = 0; k < trees.size(); ++k)
+            for (size_t i = 0; i < trees[k]->size(); ++i) {
+                const Array* a = (*trees[k])[i].try_array();
                 if (!a || a->tag().empty()) continue;
                 std::vector<Node> nodes(a->begin(), a->end());
-                nodes[0] = Node(Symbol(std::string(a->tag().str()) + "_c" + std::to_string(copy)));
+                // Unique a file, a form and a copy: a repeated top-level tag is a list (D31),
+                // which the printer writes nested (Wayfarer's three (missions ...) forms).
+                nodes[0] = Node(Symbol(std::string(a->tag().str()) + "_" + std::to_string(k) + "_" +
+                                       std::to_string(i) + "_c" + std::to_string(copy)));
                 all.emplace_back(Array::make_from(nodes, a->file(), a->line()));
             }
-        nested = to_dta(*Array::make_from(all), {.indent = 3, .width = 96});
+        std::vector<Node> snapshot(all);  // make_from moves the nodes it is given
+        root = Array::make_from(snapshot);
+        nested = to_dta(*root, {.indent = 3, .width = 96});
     }
-    rows_text = syntax::print(*Array::make_from(all));
+    rows_text = syntax::print(*root);
     return nested;
 }
 
@@ -104,6 +120,14 @@ struct Gate {
     size_t tokens = 0;
 };
 
+// A bare symbol, as read_structure marks it: with the parser's hook, a row's key is one too.
+bool bare_symbol(TextTokenKind k) {
+#ifdef BAKER_PATH_ROWS
+    if (k == TextTokenKind::PathKey) return true;
+#endif
+    return k == TextTokenKind::Symbol;
+}
+
 void count(Gate& g, std::string_view text, std::vector<std::string>& examples,
            std::string_view where) {
     const TextStructure s = read_structure(text);
@@ -112,7 +136,7 @@ void count(Gate& g, std::string_view text, std::vector<std::string>& examples,
         ++g.brackets;
         if (b.open != '(' || b.tag < 0) continue;
         const TextToken& t = s.tokens[static_cast<size_t>(b.tag)];
-        if (t.kind != TextTokenKind::Symbol) continue;  // quoted tags are never rows
+        if (!bare_symbol(t.kind)) continue;  // quoted tags are never rows
         const std::string_view tag = text.substr(t.begin, t.end - t.begin);
         if (tag == "/") ++g.lone_slash_tags;
         if (tag.size() > 1 && tag[0] == '/') {
@@ -127,31 +151,64 @@ void count(Gate& g, std::string_view text, std::vector<std::string>& examples,
         }
     }
     for (const TextToken& t : s.tokens)
-        if (t.kind == TextTokenKind::Symbol && t.end - t.begin > 1 && text[t.begin] == '/')
-            ++g.slash_values;
+        if (bare_symbol(t.kind) && t.end - t.begin > 1 && text[t.begin] == '/') ++g.slash_values;
     // Values were counted with the tags above.
     g.slash_values -= std::min(g.slash_values, g.slash_tags_top + g.slash_tags_nested);
 }
 
-// The "..." literals of a source file, unescaped as C++ and Python read \n, \t, \" and \\.
-std::vector<std::string> literals_of(std::string_view src) {
-    std::vector<std::string> out;
+// The DTA texts written as literals in a C++ or Python source: each string literal (a raw
+// one too, R"d(...)d"), adjacent ones joined as the compilers join them, unescaped as both
+// read \n, \t, \" and \\; kept when it reads as DTA text, its first non-space byte one of
+// ( ; # [. With each one's line in the source.
+std::vector<std::pair<std::string, int>> literals_of(std::string_view src) {
+    std::vector<std::pair<std::string, int>> out;
+    std::string lit;
+    int line = 1, lit_line = 0;
+    bool open = false;  // a literal is being joined
+    auto flush = [&] {
+        const size_t at = lit.find_first_not_of(" \t\n\r");
+        if (open && at != std::string::npos && std::strchr("(;#[", lit[at]))
+            out.emplace_back(lit, lit_line);
+        lit.clear();
+        open = false;
+    };
     for (size_t i = 0; i < src.size(); ++i) {
-        if (src[i] != '"') continue;
-        std::string lit;
-        size_t j = i + 1;
-        for (; j < src.size() && src[j] != '"' && src[j] != '\n'; ++j) {
-            if (src[j] == '\\' && j + 1 < src.size()) {
-                const char e = src[++j];
-                lit += e == 'n' ? '\n' : e == 't' ? '\t' : e;
-            } else {
-                lit += src[j];
-            }
+        const char c = src[i];
+        if (c == '\n') ++line;
+        if (c == '/' && i + 1 < src.size() && src[i + 1] == '/') {  // a C++ comment
+            i = std::min(src.find('\n', i), src.size()) - 1;
+            continue;
         }
-        if (j < src.size() && src[j] == '"' && lit.find('(') != std::string::npos)
-            out.push_back(lit);
-        i = j;
+        if (c == 'R' && i + 1 < src.size() && src[i + 1] == '"') {  // R"delim( ... )delim"
+            const size_t paren = src.find('(', i + 2);
+            if (paren == std::string_view::npos) break;
+            const std::string close = ")" + std::string(src.substr(i + 2, paren - i - 2)) + "\"";
+            const size_t e = std::min(src.find(close, paren), src.size());
+            if (!open) lit_line = line;
+            open = true;
+            lit.append(src.substr(paren + 1, e - paren - 1));
+            line += static_cast<int>(std::count(src.begin() + i, src.begin() + e, '\n'));
+            i = e + close.size() - 1;
+            continue;
+        }
+        if (c == '"') {
+            if (!open) lit_line = line;
+            open = true;
+            size_t j = i + 1;
+            for (; j < src.size() && src[j] != '"' && src[j] != '\n'; ++j) {
+                if (src[j] == '\\' && j + 1 < src.size()) {
+                    const char e = src[++j];
+                    lit += e == 'n' ? '\n' : e == 't' ? '\t' : e;
+                } else {
+                    lit += src[j];
+                }
+            }
+            i = j;
+            continue;
+        }
+        if (c != ' ' && c != '\t' && c != '\n' && c != '\r') flush();
     }
+    flush();
     return out;
 }
 
@@ -165,8 +222,7 @@ int gate() {
         ++n_files;
         count(files, *text, examples, rel);
     }
-    // The read_string literals of the tests, examples and stacks: every "..." holding a '('
-    // in their C++ and Python sources, approximately (a literal split over lines is missed).
+    // The DTA literals of the tests', examples' and stacks' C++ and Python sources.
     namespace fs = std::filesystem;
     for (std::string_view dir : {"tests", "examples", "stacks"}) {
         std::error_code ec;
@@ -179,9 +235,9 @@ int gate() {
             auto src = read_text_file(it->path().string());
             if (!src) continue;
             const std::string rel = fs::relative(it->path(), repository_root()).generic_string();
-            for (const std::string& lit : literals_of(*src)) {
+            for (const auto& [lit, line] : literals_of(*src)) {
                 ++n_literals;
-                count(literals, lit, examples, rel);
+                count(literals, lit, examples, rel + ":" + std::to_string(line));
             }
         }
     }
@@ -193,7 +249,7 @@ int gate() {
     std::printf("%-44s %8s %8s %8s %8s %8s %10s\n", "", "/tag top", "/tag in", "'/' tag", "dotted",
                 "/value", "brackets");
     row(("corpus .dta files (" + std::to_string(n_files) + ")").c_str(), files);
-    row(("source literals holding '(' (" + std::to_string(n_literals) + ")").c_str(), literals);
+    row(("DTA literals in sources (" + std::to_string(n_literals) + ")").c_str(), literals);
     for (const std::string& e : examples) std::printf("  %s\n", e.c_str());
     return 0;
 }
@@ -259,8 +315,13 @@ int main(int argc, char** argv) {
         size_t total_leaves = 0, total_depth = 0;
         for (int i = 2; i < argc; ++i) {
             auto text = read_text_file(argv[i]);
-            auto root = read_dta_file(argv[i]);
-            if (!text || !root) return fail(text ? root.error() : text.error());
+            if (!text) return fail(text.error());
+            // The file's own forms: what it includes reads as empty.
+            LoadSession alone;
+            alone.set_pack_levels({"engine", "game", "task", "live"});
+            alone.set_reader([](std::string_view, TextSink) { return true; });
+            auto root = read_string(*text, argv[i], alone);
+            if (!root) return fail(root.error());
             size_t n = 0, depth = 0;
             leaves(**root, 0, n, depth);
             total_leaves += n;
@@ -281,5 +342,25 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (cmd == "gate") return gate();
+    if (cmd == "count" && argc > 3) {
+        const size_t mb = argc > 4 ? static_cast<size_t>(std::atoi(argv[4])) : 1;
+        std::string rows_text;
+        const std::string nested = stacks_text(mb * 1024 * 1024, rows_text);
+        const std::string& text = std::string_view(argv[2]) == "rows" ? rows_text : nested;
+        size_t allocations = 0;
+        for (int i = 0; i < std::atoi(argv[3]); ++i) {
+#if BAKER_SYNTAX_ALLOCS
+            const test::AllocationScope scope;
+#endif
+            auto root = syntax::read(text, "count.dta");
+            if (!root) return fail(root.error());
+#if BAKER_SYNTAX_ALLOCS
+            allocations = scope.count();
+#endif
+        }
+        std::printf("%s: %zu bytes, %zu lines, %zu allocations a read\n", argv[2], text.size(),
+                    count_lines(text), allocations);
+        return 0;
+    }
     return usage();
 }

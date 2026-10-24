@@ -1,0 +1,16 @@
+sample                          lines   code  bytes parens    lines   code  bytes parens
+                                         original (nested)                          rows
+2026-10-17-double-xp                7      5    267     20        6      4    267     18
+2026-10-18-drops                    5      3    158     14        4      2    154     12
+2026-10-19-season-two               5      3    178     14        4      2    174     12
+2026-10-20-lucky-hour               5      3    195     14        4      2    191     12
+agent                               1      1     21      4        1      1     20      2
+bosses_patch                        4      3    172     14        3      2    169      8
+cube-default                       15     10    666     54       12      7    668     48
+duel-agent                          2      2     78     14        3      3     90      6
+duel-retune                         1      1     47     10        1      1     40      2
+economy                            22     17   1496    136       58     53   2132    108
+handheld                            3      2     87      4        2      1     83      2
+
+code: lines that are neither blank nor only a comment. Written by hand from the printer's
+output (baker_syntax_path-rows to-new), with the originals' comments, (pack ...) and (origin ...).

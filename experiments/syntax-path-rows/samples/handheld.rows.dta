@@ -1,0 +1,2 @@
+; The handheld platform: only what differs from default.dta.
+(/renderer.shadows 0)

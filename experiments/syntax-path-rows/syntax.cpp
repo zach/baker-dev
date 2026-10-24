@@ -119,7 +119,10 @@ std::vector<Symbol> segments(std::string_view key, std::string& why) {
         std::string_view name;
         if (key[i] == '\'') {
             i = key.find('\'', i + 1);
-            if (i == std::string_view::npos) return bad("the key has an unclosed quote");
+            if (i == std::string_view::npos)
+                return bad(
+                    "the key has an unclosed quote; a key holds no space or bracket: write that "
+                    "key nested");
             name = key.substr(from + 1, i++ - from - 1);
         } else {
             i = std::min(key.find_first_of("./", i), key.size());
@@ -447,7 +450,12 @@ struct Printer {
 std::string print(const Array& root, PrintStats& stats) {
     Printer p{{}, stats};
     p.root(root);
+#ifdef BAKER_PATH_ROWS
+    // The core's printer (write.cpp's put_rows); this one still counts what it writes.
+    return to_dta(root, {.indent = 3, .width = 96, .rows = true});
+#else
     return std::move(p.out);
+#endif
 }
 
 std::string print(const Array& root) {

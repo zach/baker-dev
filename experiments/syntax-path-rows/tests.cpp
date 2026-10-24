@@ -8,6 +8,7 @@
 
 #include <doctest.h>
 
+#include <filesystem>
 #include <random>
 #include <string>
 
@@ -181,7 +182,8 @@ TEST_CASE("the key's errors are located at the row") {
     same("(/a.b.c.d.e.f.g.h.i.j.k.l.m.n.o.p 1)",
          "(a (b (c (d (e (f (g (h (i (j (k (l (m (n (o (p 1))))))))))))))))");
     e = error("(/a.'b 1)");
-    CHECK(e.message() == "the key has an unclosed quote");
+    CHECK(e.message() ==
+          "the key has an unclosed quote; a key holds no space or bracket: write that key nested");
     e = error("(/a.'' 1)");
     CHECK(e.message() == "the key has an empty segment");
 }
@@ -275,4 +277,25 @@ TEST_CASE("an error is located") {
     REQUIRE(!r);
     CHECK(r.error().file().str() == "broken.dta");
     CHECK(r.error().line() == 1);
+}
+
+TEST_CASE("each sample in rows reads as its original") {
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::path(repository_root()) / "experiments/syntax-path-rows/samples";
+    size_t pairs = 0;
+    for (const fs::directory_entry& e : fs::directory_iterator(dir)) {
+        const std::string name = e.path().filename().string();
+        if (!name.ends_with(".rows.dta")) continue;
+        const fs::path original = dir / (name.substr(0, name.size() - 9) + ".dta");
+        INFO(name);
+        auto a = read_text_file(e.path().string());
+        auto b = read_text_file(original.string());
+        REQUIRE(a);
+        REQUIRE(b);
+        const Ref<Array> as_rows = rows(*a);
+        const Ref<Array> nested = rows(*b);
+        CHECK(first_difference(*as_rows, *nested).empty());
+        ++pairs;
+    }
+    CHECK(pairs == 11);
 }
