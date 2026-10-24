@@ -1,0 +1,28 @@
+pack wayfarer_core (level game) (owners "gameplay-world" "td-mission") (stage custom)
+; Wayfarer's vocabulary (game-stacks.md §4.4): what a cell, a point of interest, a mission,
+; and an objective are. Each shape is (keyed), so one cell, point, or mission can be changed
+; alone in a layer above.
+
+shapes
+   cell (at cells) (keyed)
+      (grid      (list int) (desc "The cell's column and row; it spans cell_size metres of each"))
+      (blocks    any (optional) (desc "(x z width depth height [y]) each: boxes of the world"))
+      (climbable any (optional) (desc "As blocks, with faces a climber can go up (to climb_max)"))
+      (drops     any (optional) (desc "((x y z) (x y z)) each: a one-way step down off a ledge"))
+      (glides    any (optional) (desc "((x y z) (x y z)) each: a glide a glider can make"))
+   poi (at pois) (keyed)
+      (pos      (list float) (desc "x y z, metres: where it stands"))
+      (gives    any (optional) (desc "Items a visit gives"))
+      (needs    any (optional) (desc "Items a visit needs before it gives or sets anything"))
+      (sets     symbol (optional) (desc "A flag a visit sets"))
+      (landmark any (optional) (desc "Found, with nothing to do"))
+   mission (at missions) (keyed)
+      (region     symbol)
+      (unlock     any (optional) (desc "A command, true when the mission opens"))
+      (objectives any)
+      (reward     any (optional))
+      (par        float (range 0 36000) (optional) (kind seconds))
+   objective (at missions * objectives) (keyed)
+      (goal       any (desc "A command; true when done"))
+      (requires   (list symbol) (optional))
+      (hint_after float (range 0 3600) (optional) (kind seconds))

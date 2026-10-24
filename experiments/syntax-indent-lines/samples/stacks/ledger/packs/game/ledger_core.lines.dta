@@ -1,0 +1,28 @@
+pack ledger_core (level game) (owners "gameplay-econ" "systems-design") (stage custom)
+; Ledger's vocabulary (game-stacks.md §4.2): what a good, a building, a strategy, and a
+; milestone are. Each shape is (keyed): it governs every child of its (at ...) path, so a
+; good is (flour ...), which the agent's layer can retune alone.
+
+shapes
+   good (at goods) (keyed)
+      (base_price float (range 0.01 100000))
+      (demand     float (range 1 1000000) (desc "Units a day the market takes near base price"))
+      (spoil_days int   (range 0 3650) (optional) (desc "0: keeps"))
+      (volatility float (range 0 0.9) (optional) (desc "The day's demand varies by this share"))
+   building (at buildings) (keyed)
+      (cost   int   (range 0 100000000))
+      (upkeep float (range 0 100000) (desc "Per in-game day"))
+      (rate   int   (range 1 10000) (desc "Batches a day"))
+      (recipe (list symbol) (desc "inputs -> output, by good name; one output per batch"))
+      (unlock any (optional) (desc "A command; true when the building unlocks"))
+   strategy (at strategies) (keyed)
+      (kind         symbol (optional) (desc "greedy, hoarder, specialist, or random; default the name"))
+      (reserve      float (range 0 100) (optional) (desc "Keeps this many costs in hand before buying"))
+      (sell_above   float (range 0 10) (optional) (desc "Sells only above this share of base price"))
+      (build_chance float (range 0 1) (optional))
+      (horizon      int (range 1 100000) (optional) (desc "Builds only what pays back within these days"))
+      (chain        symbol (optional) (desc "The good a specialist builds toward"))
+   milestone (at milestones) (keyed)
+      (desc       string)
+      (when       any (desc "A command, about the company judged; true once reached"))
+      (target_day int (range 0 1000000))

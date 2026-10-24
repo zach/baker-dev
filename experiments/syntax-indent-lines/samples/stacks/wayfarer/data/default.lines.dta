@@ -1,0 +1,74 @@
+; Wayfarer's data: the traversal limits, the world's cells, its points of interest, and (in
+; regions/) each region's missions. Edit and save while it runs: a changed cell is rebuilt
+; where it stands. Tuning of your own goes in local.dta (not checked in).
+#require "../packs/game/wayfarer_core.dta"
+#require "regions/south_coast.dta"
+#require "regions/north_coast.dta"
+#require "regions/interior.dta"
+
+wayfarer
+   run_speed 6 (range 1 20) (desc "Metres a second on foot")
+   jump_speed 6 (range 0 20) (desc "Metres a second up, leaving the ground")
+   climb_max 8 (range 0 50) (desc "Metres a climb goes up without a ledge to rest on")
+   climb_speed 2.5 (range 0.5 10) (desc "Metres a second, climbing")
+   glide_speed 10 (range 1 40) (desc "Metres a second forward, gliding")
+   glide_sink 2 (range 0.2 10) (desc "Metres a second down, gliding")
+   step 0.5 (range 0 2) (desc "A step walked up without climbing")
+   poi_radius 4 (range 1 20) (desc "Metres from a point of interest that count as at it")
+   discover_radius 20 (range 1 200) (desc "Metres at which a point of interest is found")
+   stream_radius 1 (range 0 4) (desc "Cells around the player's that are built")
+
+world
+   cell_size 64
+   spawn 20 0 12
+
+items climbing_gloves glider lamp_oil spyglass
+abilities
+   climb (item climbing_gloves)
+   glide (item glider)
+
+; Cells: (x z width depth height [y]), in world metres; a ground slab under each is implied.
+cells
+   harbor (grid 0 0)
+      (blocks (12 32 8 8 5) (26 46 8 6 4) (48 12 10 6 5) (34 4 4 8 0.4))
+   market (grid 1 0)
+      (blocks (90 22 4 3 2.5) (102 22 4 3 2.5) (112 54 5 5 12))
+   quarry (grid 2 0)
+      (climbable (168 26 30 24 7))
+   forest (grid 0 1)
+      (blocks (10 75 1.5 1.5 7) (22 86 1.5 1.5 7) (8 98 1.5 1.5 7) (52 104 1.5 1.5 7)
+              (14 116 1.5 1.5 7) (36 122 1.5 1.5 7) (30 72 1.5 1.5 7))
+   center (grid 1 1)
+      (climbable (96 96 12 12 7) (96 96 8 8 7 7) (96 96 4 4 6 14))
+   gorge (grid 2 1)
+      (blocks (140 96 2 50 12))
+      (climbable (160 110 10 10 8) (160 110 6 6 8 8))
+      (glides ((160 16 113) (160 8 146)))
+   north_coast (grid 0 2)
+      (climbable (30 165 24 30 6))
+      (blocks (30 174 6 6 10 6))
+   ruins (grid 1 2)
+      (blocks (90 150 12 1 3) (84 160 1 12 3) (100 166 8 1 2))
+   island (grid 2 2)
+      (blocks (165 162 40 40 8))
+      (drops ((184 8 165) (188 0 165)))
+
+pois
+   harbor         (pos 34 0 22)
+   market         (pos 96 0 30) (gives lamp_oil)
+   windmill       (pos 112 0 48) (landmark)
+   quarry_gate    (pos 140 0 20) (landmark)
+   quarry_top     (pos 168 7 26) (gives glider)
+   shrine         (pos 24 0 100)
+   old_oak        (pos 44 0 76) (landmark)
+   fountain       (pos 80 0 80) (landmark)
+   tower_top      (pos 96 20 96) (landmark)
+   gorge_view     (pos 150 0 80) (landmark)
+   eyrie          (pos 160 16 110)
+   lighthouse     (pos 30 6 160)
+   lamp           (pos 30 6 168) (sets lamp_lit) (needs lamp_oil)
+   coast_rocks    (pos 52 0 140) (landmark)
+   ruins          (pos 94 0 158)
+   standing_stones (pos 112 0 140) (landmark)
+   cove           (pos 176 0 136) (landmark)
+   sky_garden     (pos 170 8 170)

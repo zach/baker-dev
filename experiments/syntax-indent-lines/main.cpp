@@ -17,6 +17,7 @@
 //                           with its includes and compared; lines, bytes and parentheses
 //                           before and after (Markdown); --write saves each under DIR
 //   to-lines-text <file>    the migration tool's text for one file
+//   same <file.dta> <file>  whether a file in lines reads to the tree of one in today's text
 //   trees [<file>...]       each file's tree as this build reads it (the corpus by default):
 //                           a hash of its text, or its error; two builds' outputs, diffed,
 //                           are the gate's exact answer (what a build that reads lines changes)
@@ -50,11 +51,13 @@ int fail(const Error& e) {
 }
 
 int usage() {
-    std::fprintf(stderr,
-                 "usage: baker_syntax_%.*s to-new <file.dta> | to-dta <file> | check | bench "
-                 "[<file.dta>...] | gate [<file.dta>...] | count <file.dta>... | trees "
-                 "[<file>...] | convert [--write DIR] [<file.dta>...] | to-lines-text <file>\n",
-                 static_cast<int>(syntax::kName.size()), syntax::kName.data());
+    std::fprintf(
+        stderr,
+        "usage: baker_syntax_%.*s to-new <file.dta> | to-dta <file> | check | bench "
+        "[<file.dta>...] | gate [<file.dta>...] | count <file.dta>... | trees "
+        "[<file>...] | convert [--write DIR] [<file.dta>...] | to-lines-text <file> | same "
+        "<file.dta> <file>\n",
+        static_cast<int>(syntax::kName.size()), syntax::kName.data());
     return 2;
 }
 
@@ -198,7 +201,7 @@ int convert(int argc, char** argv) {
     }
     struct Totals {
         size_t files = 0, lines[2] = {}, bytes[2] = {}, parens[2] = {}, arrays = 0, first = 0,
-               made = 0, why[6] = {};
+               made = 0, why[7] = {};
     } t;
     size_t failures = 0;
     std::printf(
@@ -239,6 +242,7 @@ int convert(int argc, char** argv) {
         t.why[3] += c.continued;
         t.why[4] += c.layout;
         t.why[5] += c.shares_line;
+        t.why[6] += c.beside_tag;
         if (!dir.empty()) {
             std::string out = dir + "/" + shown(path);
             std::filesystem::create_directories(std::filesystem::path(out).parent_path());
@@ -254,8 +258,8 @@ int convert(int argc, char** argv) {
         "\nkept in brackets, of %zu first on their line: %zu untagged or a macro, %zu in a "
         "bracketed parent, %zu under a parent holding a value, %zu with a line inside that "
         "begins with a value, %zu off the layout's indent (or a tab), %zu sharing their last "
-        "line\n",
-        t.first, t.why[0], t.why[1], t.why[2], t.why[3], t.why[4], t.why[5]);
+        "line, %zu continuing a row of groups on their parent's line\n",
+        t.first, t.why[0], t.why[1], t.why[2], t.why[3], t.why[4], t.why[5], t.why[6]);
     return failures ? 1 : 0;
 }
 
@@ -326,6 +330,19 @@ int main(int argc, char** argv) {
     if (cmd == "count") return count(argc, argv);
     if (cmd == "trees") return trees(argc, argv);
     if (cmd == "convert") return convert(argc, argv);
+    if (cmd == "same" && argc > 3) {  // a file in today's text, and one in lines
+        auto original = read_dta_file(argv[2]);
+        if (!original) return fail(original.error());
+        auto text = read_text_file(argv[3]);
+        if (!text) return fail(text.error());
+        LoadSession session;
+        session.set_pack_levels({"engine", "game", "task", "live"});
+        auto back = syntax::read_with(*text, argv[3], session);
+        if (!back) return fail(back.error());
+        const std::string diff = first_difference(**original, **back);
+        std::printf("%s\n", diff.empty() ? "same tree" : diff.c_str());
+        return diff.empty() ? 0 : 1;
+    }
     if (cmd == "to-lines-text" && argc > 2) {
         auto text = read_text_file(argv[2]);
         if (!text) return fail(text.error());

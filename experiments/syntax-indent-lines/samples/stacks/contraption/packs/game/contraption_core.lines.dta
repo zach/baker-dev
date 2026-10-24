@@ -1,0 +1,28 @@
+pack contraption_core (level game) (owners "gameplay-physics" "td-puzzle") (stage custom)
+; Contraption's vocabulary (game-stacks.md §4.1): what a kind of piece and a level are. Each
+; shape is (keyed), so a level, a piece, or a kind can be retuned alone in a layer above.
+
+shapes
+   kind (at kinds) (keyed)
+      (shape    symbol (desc "box, sphere, or bucket (open at the top)"))
+      (size     (list float) (desc "width height, metres; a sphere's diameter"))
+      (mass     float (range 0 1000) (optional) (desc "kg; 0 or absent: it never moves"))
+      (friction float (range 0 2) (optional))
+      (bounce   float (range 0 1) (optional))
+      (hinge    bool (optional) (desc "Pinned at its center: a seesaw"))
+   level (at levels) (keyed)
+      (desc     string)
+      (bounds   (list float) (desc "x0 y0 x1 y1: where the tray may be placed"))
+      (pieces   any)
+      (tray     any (desc "(kind count) for each kind the player may place"))
+      (goal     any (desc "A command, true when solved: {puzzle.in ball cup}"))
+      (intended any (desc "The designer's solution, from the tray"))
+   piece (at levels * pieces) (keyed)
+      (kind  symbol)
+      (pos   (list float) (desc "x y, metres"))
+      (angle float (range -180 180) (optional) (kind degrees))
+      (fixed bool (optional))
+   placement (at levels * intended) (keyed)
+      (kind  symbol)
+      (pos   (list float))
+      (angle float (range -180 180) (optional) (kind degrees))

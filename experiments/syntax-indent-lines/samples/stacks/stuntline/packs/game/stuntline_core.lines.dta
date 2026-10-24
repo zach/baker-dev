@@ -1,0 +1,24 @@
+pack stuntline_core (level game) (owners "gameplay-vehicle" "td-track") (stage custom)
+; Stuntline's vocabulary (game-stacks.md §4.5): a car, a piece of the kit, a track, a driver.
+; Each shape is (keyed), so one piece, track, or driver can be retuned alone in a layer.
+
+shapes
+   piece (at pieces) (keyed)
+      (kind   symbol (desc "straight, ramp, gap, or turn"))
+      (length float (range 1 500) (optional) (kind meters))
+      (rise   float (range -50 50) (optional) (kind meters))
+      (radius float (range 5 500) (optional) (kind meters))
+      (angle  float (range -180 180) (optional) (kind degrees) (desc "A turn's; positive is left"))
+      (bank   float (range -45 45) (optional) (kind degrees))
+      (width  float (range 3 60) (optional) (kind meters))
+      (in     symbol (desc "Connector type at the start"))
+      (out    symbol (desc "Connector type at the end"))
+   track (at tracks) (keyed)
+      (desc string)
+      (lay  (list symbol))
+      (par  float (range 1 3600) (kind seconds))
+   driver (at drivers) (keyed)
+      (pace       float (range 0.1 1.5) (desc "Share of a corner's grip-limited speed it takes"))
+      (noise      float (range 0 1) (desc "Steering wander, as a share of full lock"))
+      (look_ahead float (range 1 100) (kind meters))
+      (top_speed  float (range 1 150) (desc "m/s"))

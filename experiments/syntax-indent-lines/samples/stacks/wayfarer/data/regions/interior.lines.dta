@@ -1,0 +1,22 @@
+; The interior's missions: the quarry, the eyrie and the island beyond it, and the ruins.
+missions
+   quarry_climb
+      region interior
+      unlock {mission.done lighthouse_signal}
+      objectives
+         summit (goal {at_poi quarry_top}) (hint_after 120)
+      reward (xp 200) (item glider)
+   sky_garden
+      region interior
+      unlock {mission.done quarry_climb}
+      objectives
+         eyrie (goal {at_poi eyrie}) (hint_after 120)
+         garden (goal {at_poi sky_garden}) (requires eyrie)
+      reward (xp 500)
+   ruins_survey
+      region interior
+      unlock {has_item spyglass}
+      objectives
+         ruins (goal {at_poi ruins})
+         shrine (goal {at_poi shrine})
+      reward (xp 200)

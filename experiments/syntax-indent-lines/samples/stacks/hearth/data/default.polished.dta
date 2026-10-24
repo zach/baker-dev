@@ -1,0 +1,117 @@
+; Hearth's data: the needs, the smart objects, the households, and the actions. Edit and save
+; while it runs; the household restarts with the change. Tuning of your own goes in
+; local.dta (not checked in).
+#require "../packs/game/hearth_core.dta"
+
+hearth
+   speed 60 (range 1 3600) (desc "Game seconds per real second while playing")
+   walk_speed 1.4 (range 0.2 5) (desc "Metres a second")
+   choice_top 3 (range 1 10) (desc "A villager picks among this many best options")
+   choice_within 0.7 (range 0 1) (desc "...that score at least this share of the best")
+   distance_scale 25 (range 1 200) (desc "Metres at which a thing's appeal halves")
+   off_hours 0.2 (range 0 1) (desc "A thing's appeal outside its hours, as a share")
+   idle_minutes 10 (range 1 120) (desc "How long a villager waits when nothing appeals")
+   stuck_minutes 60 (range 5 600) (desc "No progress this long counts as stuck")
+   starve_minutes 120 (range 5 1440) (desc "A need at zero this long counts as starving")
+   oscillation_switches 6 (range 2 50) (desc "Interrupted back and forth this often oscillates")
+
+needs
+   hunger  (decay_per_hour 6) (critical 20) (curve quadratic)
+   energy  (decay_per_hour 4.5) (critical 15) (curve quadratic)
+   hygiene (decay_per_hour 3) (critical 15) (curve linear)
+   fun     (decay_per_hour 5) (critical 10) (curve linear)
+   social  (decay_per_hour 3) (critical 15) (curve logistic)
+   comfort (decay_per_hour 4) (critical 10) (curve linear)
+
+objects
+   fridge   (size 0.8 1.8 0.7) (color 0.85 0.88 0.9) (advertise (hunger 35)) (action eat_snack)
+            (minutes 15)
+   stove    (size 0.8 0.9 0.7) (color 0.3 0.3 0.32) (advertise (hunger 80) (fun 10))
+            (action cook) (minutes 50) (hours 11 20)
+   bed      (size 1.6 0.6 2.1) (color 0.55 0.6 0.85) (advertise (energy 100) (comfort 30))
+            (action sleep) (minutes 480) (users 2) (hours 21 7)
+   shower   (size 0.9 2.1 0.9) (color 0.6 0.85 0.9) (advertise (hygiene 80)) (minutes 15)
+            (hours 6 10)
+   sofa     (size 2 0.8 0.9) (color 0.7 0.35 0.3) (advertise (comfort 40) (fun 15)) (minutes 60)
+            (users 3)
+   tv       (size 1.2 1 0.4) (color 0.15 0.15 0.18) (advertise (fun 45)) (minutes 60) (users 3)
+   books    (size 1.2 2 0.4) (color 0.55 0.4 0.25) (advertise (fun 30) (comfort 10)) (minutes 45)
+   table    (size 1.6 0.75 1) (color 0.6 0.45 0.3) (advertise (social 45) (hunger 10))
+            (action chat) (minutes 30) (users 4) (hours 7 21)
+   phone    (size 0.3 1 0.3) (color 0.9 0.8 0.2) (advertise (social 30)) (minutes 20)
+
+; Each household's floor is centered on 0 0; walls are (x z width depth); things are
+; (object x z yaw), yaw in degrees, a thing's user standing at its +z side turned by yaw.
+households
+   cottage
+      desc "Two rooms and a couple"
+      size 14 10
+      walls
+         (0 -5 14 0.2) (0 5 14 0.2) (-7 0 0.2 10) (7 0 0.2 10)
+         (1 -3 0.2 4) (1 3.25 0.2 3.5)
+      things
+         (fridge -6.3 -4.2 0) (stove -5.3 -4.2 0) (table -4 -1 0) (shower -6.2 4.2 180)
+         (sofa 3.5 -4.2 0) (tv 3.5 -1 180) (bed 4.5 3.6 180) (books 6.5 1 -90)
+         (phone -2 4.6 180)
+      residents
+         ada (weights (social 1.4)) (color 0.95 0.55 0.4)
+         bo (weights (fun 1.3) (hygiene 0.8)) (color 0.4 0.6 0.95)
+   farmhouse
+      desc "A family of four in three rooms"
+      size 18 12
+      walls
+         (0 -6 18 0.2) (0 6 18 0.2) (-9 0 0.2 12) (9 0 0.2 12)
+         (-3 -3.5 0.2 5) (-3 3.5 0.2 5) (3 -3.5 0.2 5) (3 3.5 0.2 5)
+      things
+         (fridge -8.3 -5.2 0) (stove -7.3 -5.2 0) (table -6 -1.5 0) (shower -8.2 5.2 180)
+         (phone -4 5.6 180) (sofa 0 -5.2 0) (tv 0 -2 180) (books 2.5 4 -90)
+         (bed 6 -4.6 0) (bed 6 4.6 180) (books 8.5 0 -90)
+      residents
+         cora (weights (hygiene 1.2)) (color 0.9 0.4 0.6)
+         dev (weights (hunger 1.2)) (color 0.5 0.8 0.4)
+         eli (weights (fun 1.5) (comfort 0.8)) (color 0.95 0.8 0.3)
+         fen (weights (social 1.5)) (color 0.5 0.5 0.95)
+   flat
+      desc "One room, one tenant"
+      size 8 6
+      walls
+         (0 -3 8 0.2) (0 3 8 0.2) (-4 0 0.2 6) (4 0 0.2 6)
+      things
+         (fridge -3.3 -2.2 0) (stove -2.3 -2.2 0) (shower 3.2 -2.2 0) (bed 2.6 1.8 180)
+         (sofa -1 2.2 180) (tv -1 -0.6 0) (phone -3.6 1.5 90)
+      residents
+         gus (weights (comfort 1.2)) (color 0.6 0.9 0.9)
+
+; The actions: handlers on villager, each a task on the clock (game minutes). use_object is
+; the default; the others are what makes a kind of thing different.
+#autorun {class villager
+   (use_object ($obj)
+      {clock thread_task
+         {$this walk_to $obj} {wait {$this arrived}}
+         {$this use $obj} {wait {$this used}}
+         {$this done}})
+   (eat_snack ($obj)
+      {clock thread_task
+         {$this walk_to $obj} {wait {$this arrived}}
+         {$this say "opens the fridge"} {wait_for 1}
+         {$this use $obj} {wait {$this used}}
+         {$this say "closes the fridge"} {$this done}})
+   (cook ($obj)
+      {clock thread_task
+         {$this walk_to $obj} {wait {$this arrived}}
+         {$this say "starts cooking"} {wait_for 5}
+         {$this use $obj} {wait {$this used}}
+         {$this say "washes up"} {wait_for 5} {$this done}})
+   (sleep ($obj)
+      {clock thread_task
+         {$this walk_to $obj} {wait {$this arrived}}
+         {$this say "goes to bed"}
+         {$this use $obj} {wait {$this used}}
+         {$this say "gets up"} {$this done}})
+   (chat ($obj)
+      {clock thread_task
+         {$this walk_to $obj} {wait {$this arrived}}
+         {$this say "sits down to talk"}
+         {$this use $obj} {wait {$this used}} {$this done}})
+   (on_need_critical ($need)
+      {if {not {$this helps $need}} {$this interrupt $need}})}
