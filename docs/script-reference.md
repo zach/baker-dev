@@ -42,7 +42,7 @@ A parameter in [brackets] is optional, `unevaluated` is passed as written, and
 
 - `{*= $variable number}` → value
 
-*Native.* `{$x *= n}`: multiplies the place and returns the new value.
+*Native.* `{$x *= n}`: multiplies, stores and returns the new value.
 
 ### `+`
 
@@ -54,7 +54,7 @@ A parameter in [brackets] is optional, `unevaluated` is passed as written, and
 
 - `{+= $variable number}` → value
 
-*Native.* `{$x += n}` or, in a method, `{[property] += n}`: adds to the place and returns the new value.
+*Native.* `{$x += n}`, or in a method `{[property] += n}`: adds, stores and returns the new value.
 
 ### `-`
 
@@ -66,7 +66,7 @@ A parameter in [brackets] is optional, `unevaluated` is passed as written, and
 
 - `{-= $variable number}` → value
 
-*Native.* `{$x -= n}`: subtracts from the place and returns the new value.
+*Native.* `{$x -= n}`: subtracts, stores and returns the new value.
 
 ### `/`
 
@@ -78,7 +78,7 @@ A parameter in [brackets] is optional, `unevaluated` is passed as written, and
 
 - `{/= $variable number}` → value
 
-*Native.* `{$x /= n}`: divides the place, always to a float, and returns the new value.
+*Native.* `{$x /= n}`: divides (a float), stores and returns it.
 
 ### `<`
 
@@ -96,7 +96,7 @@ A parameter in [brackets] is optional, `unevaluated` is passed as written, and
 
 - `{== value value values...}` → bool
 
-*Native.* Equality: numbers by value (1 equals 1.0), anything else by structure; chained, every adjacent pair.
+*Native.* Equality of every adjacent pair: numbers by value (1 equals 1.0), anything else by structure.
 
 ### `>`
 
