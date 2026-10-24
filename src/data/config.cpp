@@ -75,8 +75,12 @@ bool value_nodes(const Array& root, const Path& path, Vec<Node>& out) {
     }
     detail::Resolved r;
     if (detail::resolve(root, path, r) != detail::ResolveStatus::Ok || !r.array) return false;
-    for (size_t i = path.empty() ? 0 : 1; i < r.array->size(); ++i)
-        if (!is_tagged((*r.array)[i])) out.push_back((*r.array)[i]);
+    if (!path.empty()) {
+        out = leaf_values(*r.array);
+        return true;
+    }
+    for (const Node& n : *r.array)
+        if (!is_tagged(n)) out.push_back(n);
     return true;
 }
 
@@ -551,6 +555,19 @@ Expected<void> Config::Impl::push_read(Config& c, LayerState&& layer, LayerOptio
     const Rc<LoadSession> below = session_below(layers, *at);
     Vec<Error> read_warnings(alloc);
     if (auto r = read(layer, *below, nullptr, &read_warnings); !r) return r;
+    if (!opts.policy && warn && layer.root->has_marker()) {
+        // A row whose #was the stack below has moved from warns, as a check would.
+        Ref<Array> stack = Array::make(0);
+        for (size_t i = 0; i < *at; ++i)
+            if (layers[i].options.enabled)
+                stack =
+                    detail::merge(*stack, *layers[i].root, MergePolicy::Overwrite, merge_scratch);
+        Vec<Node> v;
+        for (const Leaf& leaf : leaves_of(*layer.root))
+            if (auto w = stale_pin(*leaf.holder, leaf.path,
+                                   value_nodes(*stack, Path(leaf.path), v) ? &v : nullptr))
+                warn(*w);
+    }
     if (opts.policy) {
         // A file has no report that holds: no check reads by path.
         const uint64_t subject = layer.text ? text_subject(layer.name, *layer.text) : 0;

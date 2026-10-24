@@ -246,17 +246,20 @@ struct StackFile {
 
 struct LayerEffectEntry {
     Symbol path;                // dotted, as get<T>() takes it
-    Node value;                 // this layer's value
+    Node value;                 // this layer's value; a verb's operands; #remove
     std::optional<Node> below;  // the stack's value without this layer, if any
     Source source;              // provenance, as source() returns it
     std::optional<Source> below_source;
     bool shadowed = false;  // a higher enabled layer (or scratch) overrides this path
+    Symbol op;              // the row's verb: #append, #drop, #remove; empty for a value
+    bool stale = false;     // the row's #was is not the stack's value
 };
 
 struct DiffEntry {
     Symbol path;
     std::optional<Node> a, b;  // empty: that layer does not set this path
     std::optional<Source> source_a, source_b;
+    Symbol op_a, op_b;  // each row's verb, as LayerEffectEntry::op
 };
 
 // How one contributor to a path's value stands in the merged value (Config::explain).
@@ -265,6 +268,7 @@ enum class Standing : uint8_t {
     Shadowed,  // supplies a value that a higher contributor overrides or removes
     Removes,   // (key #remove) at the path or an ancestor: below it, the key is gone
     Disabled,  // a disabled layer (or scratch) that has the path: what enabling it would bring
+    Composes,  // (key #append v...) or (key #drop v...): changes the value below it
 };
 
 struct ExplainEntry {
@@ -272,6 +276,7 @@ struct ExplainEntry {
     Node value{};    // packed as LayerEffectEntry::value; the symbol #remove for Removes
     Source source{};
     Standing standing = Standing::Wins;
+    Symbol op{};  // as LayerEffectEntry::op
 };
 
 // What a LayerReport was made against, so that a push can tell whether it still holds
@@ -562,7 +567,10 @@ public:
     void set_journal_history(size_t capacity);
 
     [[nodiscard]] Expected<WriteReport> write_back(const Path& path);
-    [[nodiscard]] Expected<WriteReport> write_back_to(const Path& path, std::string_view layer);
+    // `pin`: the row also names the stack's value below `layer`, `(key v... #was w...)`, so
+    // that a check finds it stale once that value moves (dev/syntax-layer-markers-design.md).
+    [[nodiscard]] Expected<WriteReport> write_back_to(const Path& path, std::string_view layer,
+                                                      bool pin = false);
     // Writes every entry of layer_effect(from) into `to`'s file, or nothing: on any refusal
     // the report lists them all and no file changes. `from` stays in the stack.
     [[nodiscard]] Expected<WriteReport> promote(std::string_view from, std::string_view to);

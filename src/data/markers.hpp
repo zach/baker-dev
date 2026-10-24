@@ -34,17 +34,16 @@ enum class Marker : uint8_t { None, Remove, Append, Drop, Was };
 
 // The marker the directive `#name` names, or None.
 [[nodiscard]] inline Marker marker_named(std::string_view name) noexcept {
-    if (name == "remove") return Marker::Remove;
-    if (name == "append") return Marker::Append;
-    if (name == "drop") return Marker::Drop;
-    if (name == "was") return Marker::Was;
+    for (uint8_t m = 1; m <= 4; ++m)
+        if (marker_symbol(static_cast<Marker>(m)).str().substr(1) == name)
+            return static_cast<Marker>(m);
     return Marker::None;
 }
 
 // The verb in a tagged array's first value slot: Remove, Append or Drop. None for a plain
-// row, pinned or not.
+// row, pinned or not, and for an array that holds no marker (one flag test).
 [[nodiscard]] inline Marker verb_of(const Array& a) noexcept {
-    if (a.size() < 2 || !a[0].try_sym()) return Marker::None;
+    if (!a.has_marker() || a.size() < 2 || !a[0].try_sym()) return Marker::None;
     const Marker m = marker_of(a[1]);
     return m == Marker::Was ? Marker::None : m;
 }
@@ -75,28 +74,18 @@ enum class Marker : uint8_t { None, Remove, Append, Drop, Was };
 
 // The form each marker is written in: the hint of its Directive error.
 [[nodiscard]] inline const char* marker_hint(Marker m) noexcept {
-    switch (m) {
-        case Marker::Remove:
-            return "#remove is written as a key's only value: (key #remove), or pinned: (key "
-                   "#remove #was v...)";
-        case Marker::Append:
-            return "#append is written as a key's first value, with what it adds: (key #append "
-                   "v...)";
-        case Marker::Drop:
-            return "#drop is written as a key's first value, with what it removes: (key #drop "
-                   "v...)";
-        case Marker::Was:
-            return "#was is written after a key's values, with as many values below: (key v... "
-                   "#was w...)";
-        case Marker::None: break;
-    }
-    return "";
+    static const char* const hints[] = {
+        "", "#remove is written as a key's only value: (key #remove), or (key #remove #was v...)",
+        "#append is written as a key's first value, with what it adds: (key #append v...)",
+        "#drop is written as a key's first value, with what it removes: (key #drop v...)",
+        "#was is written after a key's values, with the values below: (key v... #was w...)"};
+    return hints[static_cast<size_t>(m)];
 }
 
 // Whether `nodes` (an array's, tag first) holds its markers as the slot rule writes them:
 // `#remove` alone after the tag, or followed by `#was` and what it removes; `#append` or
 // `#drop` after the tag with one or more operands, which may be anything; `#was` after one
-// or more values with exactly as many nodes after it, trailing tagged arrays apart. Returns
+// or more values with one or more nodes after it, tagged arrays apart. Returns
 // null, or the hint of the marker out of place. Shared by the parser, which refuses the
 // array, and the printer, which quotes the marker where the parser would not take it.
 [[nodiscard]] inline const char* marker_form_error(std::span<const Node> nodes) noexcept {
@@ -130,7 +119,7 @@ enum class Marker : uint8_t { None, Remove, Append, Drop, Was };
             if (nodes.size() < 3) return marker_hint(verb);
             break;
         default:
-            if (was && pins != values) return marker_hint(Marker::Was);
+            if (was && pins == 0) return marker_hint(Marker::Was);
             break;
     }
     return nullptr;

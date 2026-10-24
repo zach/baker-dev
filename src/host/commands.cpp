@@ -244,11 +244,31 @@ int print_effect(const Config& cfg, std::string_view layer, std::string_view hea
     }
     out(Str(heading) + "\n");
     for (const LayerEffectEntry& e : *effect) {
+        // A verb is shown with its operands: `-> #append palm`.
+        const Str value = e.op.empty()        ? detail::text_of(e.value)
+                          : e.op == "#remove" ? Str(e.op.str())
+                                              : Str(e.op.str()) + " " + detail::text_of(e.value);
         out("  " + Str(e.path.str()) + "  " + (e.below ? detail::text_of(*e.below) : Str("(new)")) +
-            " -> " + detail::text_of(e.value) + "  (" + Str(e.source.file.str()) + ":" +
-            detail::decimal(e.source.line) + ")" + (e.shadowed ? "  shadowed" : "") + "\n");
+            " -> " + value + "  (" + Str(e.source.file.str()) + ":" +
+            detail::decimal(e.source.line) + ")" + (e.shadowed ? "  shadowed" : "") +
+            (e.stale ? "  stale" : "") + "\n");
     }
     return 0;
+}
+
+// Each row's (note "...") in a layer, as `# path: note` lines: the reasons for its edits,
+// which promote --patch puts above the diff, where git apply and patch skip them.
+void notes_of(const Array& a, const Str& prefix, Str& out) {
+    for (const Node& n : a) {
+        const Array* c = n.try_array();
+        if (!c || c->tag().empty()) continue;
+        if (c->tag() == "note" && c->size() == 2 && (*c)[1].try_str()) {
+            out += "# " + prefix + ": " + Str(*(*c)[1].try_str()) + "\n";
+            continue;
+        }
+        notes_of(*c, prefix.empty() ? Str(c->tag().str()) : prefix + "." + Str(c->tag().str()),
+                 out);
+    }
 }
 
 int diff(const CommandLine& line, const CommandHooks& hooks) {
@@ -392,6 +412,8 @@ int promote(const CommandLine& line, const CommandHooks& hooks) {
                             : fs::path(Str(line.patch_root).c_str());
         if (root.empty()) root = ".";  // a project file named without a directory
         Str patch;
+        if (const Ref<Array> layer = cfg.layer_root(line.layer); layer && report->ok())
+            notes_of(*layer, "", patch);
         if (report->ok())  // all or nothing, as --write is
             for (const auto& [path, text] : captured) {
                 Str before;

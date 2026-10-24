@@ -190,7 +190,8 @@ LayerReport run_check(const Basis& b, std::string_view name, const Ref<Array>& c
         for (size_t i = b.layers.size(); i-- > 0;) {
             detail::Resolved r;
             if (!finder.resolve(*b.layers[i], path, r)) continue;
-            if (!index && !(r.array && has_values(*r.array))) continue;
+            if (!index && !(r.array && has_values(*r.array) && !detail::composes(*r.array)))
+                continue;
             const Array& holder = *r.values.source();
             Source s{b.names[i], holder.file(), holder.line()};
             if (const Origin* o = b.session.origin_of(holder.file())) {
@@ -209,10 +210,15 @@ LayerReport run_check(const Basis& b, std::string_view name, const Ref<Array>& c
         LayerEffectEntry e{};
         e.path = Symbol(leaf.path);
         e.value = pack(leaf.values);
+        e.op = op_of(*leaf.holder);
         e.source = Source{layer, leaf.holder->file(), leaf.holder->line()};
         if (exists) {
             e.below = pack(below);
             e.below_source = below_source(path);
+        }
+        if (auto w = stale_pin(*leaf.holder, leaf.path, exists ? &below : nullptr)) {
+            e.stale = true;
+            warnings.push_back(std::move(*w));
         }
         effect.push_back(std::move(e));
 

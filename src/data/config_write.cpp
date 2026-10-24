@@ -83,11 +83,34 @@ struct Edit {
 }  // namespace
 
 namespace config_internal {
-Vec<Node> values_of(const Array& a) {
+Vec<Node> leaf_values(const Array& a) {
+    const bool composes = detail::composes(a);
     Vec<Node> out;
-    for (size_t i = 1; i < a.size(); ++i)
-        if (!is_tagged(a[i])) out.push_back(a[i]);
+    for (size_t i = composes ? 2 : 1; i < a.size(); ++i) {
+        if (a.has_marker() && detail::marker_of(a[i]) == detail::Marker::Was) break;
+        if (composes || !is_tagged(a[i])) out.push_back(a[i]);
+    }
     return out;
+}
+
+std::optional<Error> stale_pin(const Array& row, std::string_view path, const Vec<Node>* below) {
+    if (!row.has_marker()) return std::nullopt;
+    Vec<Node> pins;
+    for (size_t i = detail::was_at(row.nodes()) + 1; i < row.size(); ++i)
+        if (!is_tagged(row[i])) pins.push_back(row[i]);
+    if (pins.empty() || (below && same_nodes(pins, *below))) return std::nullopt;
+    return make_error(ErrorCode::NotFound,
+                      "'" + Str(path) + "' was " + detail::text_of(pack(pins)) +
+                          " when this row was written; the stack has " +
+                          (below ? detail::text_of(pack(*below)) : Str("none")),
+                      row.file(), row.line());
+}
+
+const Array* row_at(const Array& root, const Path& path) {
+    detail::Resolved r;
+    const bool ok = detail::resolve(root, last_is_index(path) ? parent_of(path) : path, r) ==
+                    detail::ResolveStatus::Ok;
+    return ok ? r.array : nullptr;
 }
 
 // Each tag's first child only, as lookup sees it: found by the tag run's scan in a small
@@ -104,7 +127,7 @@ static void collect_leaves(const Array& a, size_t first, const Str& prefix, Vec<
         Str path = prefix;
         if (!path.empty()) path += '.';
         detail::append_path_name(path, tag.str());
-        if (has_values(child)) out.push_back({path, &child, values_of(child)});
+        if (has_values(child)) out.push_back({path, &child, leaf_values(child)});
         collect_leaves(child, 1, path, out);
     }
 }
@@ -149,7 +172,8 @@ Node as_written(const Node& old, const Node& value) {
 // `read_file` gives the file as it is now; it must match what the layer was read from.
 Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
                                   const Vec<Node>& values, bool insert,
-                                  const LoadSession::Reader& read_file) const {
+                                  const LoadSession::Reader& read_file,
+                                  const Vec<Node>& pins) const {
     if (layer.path.empty())
         return Unexpected(refused(quoted(path) + " comes from layer '" + layer.name +
                                   "', which has no source file"));
@@ -179,6 +203,11 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
         return std::nullopt;
     };
 
+    Vec<Node> row = values;  // a new entry: the values, then #was and what they pin
+    if (!pins.empty()) {
+        row.emplace_back(detail::marker_symbol(detail::Marker::Was));
+        row.insert(row.end(), pins.begin(), pins.end());
+    }
     if (layer.missing) {
         if (!insert) return Unexpected(detail::get_error(*layer.root, path, nullptr));
         if (auto e = no_index(0, main, 0)) return Unexpected(*e);
@@ -187,7 +216,7 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
             return Unexpected(refused(
                 "'" + layer.file + "' has appeared since it was read; reload before writing back",
                 main));
-        return Plan{main, render_entry(path, 0, values, "") + "\n", true};
+        return Plan{main, render_entry(path, 0, row, "") + "\n", true};
     }
 
     // Walk the layer's own tree, checking that every step was written literally in a file.
@@ -233,9 +262,14 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
         if (!next) return Unexpected(detail::get_error(*layer.root, path, nullptr));
         cur = next;
         offset = seg.is_index ? 0 : 1;
-        if (last)
-            for (size_t j = 1; j < cur->size(); ++j)
-                if (!is_tagged((*cur)[j])) targets.push_back(j);
+        if (last && detail::composes(*cur))
+            return Unexpected(refused(quoted(path) + " is composed in layer '" + layer.name +
+                                          "'; it has no values to write over",
+                                      cur->file(), cur->line()));
+        for (size_t j = 1; last && j < cur->size(); ++j) {
+            if (detail::marker_of((*cur)[j]) == detail::Marker::Was) break;  // the pin stays
+            if (!is_tagged((*cur)[j])) targets.push_back(j);
+        }
     }
 
     Vec<Edit> edits;
@@ -252,7 +286,7 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
             const auto end = static_cast<uint32_t>(text->size());
             edits.push_back(
                 {end, end,
-                 (newline ? "\n" : "") + render_entry(path, missing_from, values, "") + "\n"});
+                 (newline ? "\n" : "") + render_entry(path, missing_from, row, "") + "\n"});
         } else {
             // The last child of the deepest ancestor written in this file itself.
             const SourceSpan* ext = map.extent(*cur);
@@ -270,7 +304,7 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
                                   text->find('\n', ext->begin) >= last->begin;
             if (one_line) {
                 edits.push_back(
-                    {last->end, last->end, " " + render_entry(path, missing_from, values, "")});
+                    {last->end, last->end, " " + render_entry(path, missing_from, row, "")});
             } else {
                 // Indented like the previous sibling, after the rest of its line.
                 const size_t line_start = text->rfind('\n', last->begin) + 1;
@@ -281,7 +315,7 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
                 const auto at = static_cast<uint32_t>(
                     line_end != Str::npos && line_end < ext->end - 1 ? line_end : last->end);
                 edits.push_back(
-                    {at, at, "\n" + indent + render_entry(path, missing_from, values, indent)});
+                    {at, at, "\n" + indent + render_entry(path, missing_from, row, indent)});
             }
         }
     } else {
@@ -317,6 +351,10 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
             edits.push_back({map.span(*cur, targets.front())->begin,
                              map.span(*cur, targets.back())->end, join(values)});
         }
+        if (!pins.empty() && !targets.empty() && detail::was_at(cur->nodes()) == cur->size()) {
+            const uint32_t at = map.span(*cur, targets.back())->end;
+            edits.push_back({at, at, " #was " + join(pins)});
+        }
     }
     if (edits.empty()) return Plan{file, {}, false};
 
@@ -332,11 +370,43 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
     return Plan{file, std::move(text), true};
 }
 
+// Plans deleting `path`'s array from `layer`'s file, for promote of a removal: its extent,
+// and the line it stands on when it has that line to itself. Nothing to plan when the
+// layer lacks the key.
+Expected<Plan> Config::Impl::plan_removal(const LayerState& layer, const Path& path,
+                                          const LoadSession::Reader& read_file) const {
+    const Array* row = row_at(*layer.root, path);
+    if (!row || last_is_index(path)) return Plan{};
+    const SourceSpan* ext = layer.map ? layer.map->extent(*row) : nullptr;
+    const auto text = ext && ext->literal() ? layer.map->text(ext->file) : std::nullopt;
+    Str disk;
+    if (!text || ext->end > text->size())
+        return Unexpected(refused("promote cannot remove " + quoted(path) +
+                                      ": it is not written literally in layer '" + layer.name +
+                                      "'; remove it by hand",
+                                  row->file(), row->line()));
+    if (!detail::read_with(read_file, ext->file.str(), disk) || disk != *text)
+        return Unexpected(refused("'" + Str(ext->file.str()) +
+                                      "' has changed since it was read; reload before writing back",
+                                  ext->file));
+    size_t b = ext->begin, e = ext->end;
+    while (b > 0 && ((*text)[b - 1] == ' ' || (*text)[b - 1] == '\t')) --b;
+    while (e < text->size() && ((*text)[e] == ' ' || (*text)[e] == '\t')) ++e;
+    if (e < text->size() && (*text)[e] == ';') e = std::min(text->find('\n', e), text->size());
+    const bool own_line =
+        (b == 0 || (*text)[b - 1] == '\n') && (e == text->size() || (*text)[e] == '\n');
+    if (own_line) e += e < text->size() ? 1 : 0;
+    disk.erase(b, (own_line ? e : ext->end) - b);
+    return Plan{ext->file, std::move(disk), true};
+}
+
 // Writes one value into layer `li`, re-reads that layer and those above (trigger
 // write_back), and drops the scratch entry the file now holds.
 Expected<WriteReport> Config::Impl::write_into(Config& c, size_t li, const Path& path,
-                                               const Vec<Node>& values, bool insert) {
-    auto p = plan(layers[li], path, values, insert, base.reader());
+                                               const Vec<Node>& values, bool insert,
+                                               const Vec<Node>& pins) {
+    if (auto e = composed(path, li)) return Unexpected(*e);
+    auto p = plan(layers[li], path, values, insert, base.reader(), pins);
     if (!p) return Unexpected(std::move(p).error());
     ReloadRecord rec = begin(trigger_name("write_back"));
     uint64_t t = rec.start_ns;
@@ -388,13 +458,14 @@ Expected<WriteReport> Config::write_back(const Path& path) {
     if (!impl_->current(*this, path, values))
         return Unexpected(detail::get_error(*root_, path, nullptr));
     const auto at = impl_->supplier(path, impl_->layers.size());
+    if (auto e = at ? std::nullopt : impl_->composed(path, 0)) return Unexpected(*e);
     if (!at)
         return Unexpected(refused(
             quoted(path) + " is not in any layer's file; use write_back_to to add it to one"));
     return impl_->write_into(*this, *at, path, values, false);
 }
 
-Expected<WriteReport> Config::write_back_to(const Path& path, std::string_view layer) {
+Expected<WriteReport> Config::write_back_to(const Path& path, std::string_view layer, bool pin) {
     if constexpr (kShipping) return Unexpected(shipping("write-back"));
     if (!path.valid()) return Unexpected(detail::get_error(*root_, path, nullptr));
     if (layer == "scratch") return Unexpected(refused("scratch is never written to disk"));
@@ -404,7 +475,16 @@ Expected<WriteReport> Config::write_back_to(const Path& path, std::string_view l
     const auto at = impl_->find_layer(layer);
     if (!at)
         return Unexpected(make_error(ErrorCode::NotFound, "no layer named '" + Str(layer) + "'"));
-    return impl_->write_into(*this, *at, path, values, true);
+    Vec<Node> pins;  // the stack's value below the layer, which the row is written against
+    if (pin) {
+        Ref<Array> below = Array::make(0);
+        for (size_t i = 0; i < *at; ++i)
+            if (impl_->layers[i].options.enabled)
+                below = detail::merge(*below, *impl_->layers[i].root, MergePolicy::Overwrite,
+                                      impl_->merge_scratch);
+        (void)value_nodes(*below, path, pins);
+    }
+    return impl_->write_into(*this, *at, path, values, true, pins);
 }
 
 Expected<WriteReport> Config::promote(std::string_view from, std::string_view to) {
@@ -422,10 +502,10 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
     // the enabled layers below, then the source, merged, so a repeated tag folds as a
     // merge folds it rather than as find() would see it alone (D134).
     Vec<Leaf> leaves;
+    Ref<Array> upto = Array::make(0);
     if (tree) {
         HashMap<Str, char> seen;
         collect_paths(*tree, 0, "", seen, leaves);
-        Ref<Array> upto = Array::make(0);
         const size_t below = fi ? *fi : impl_->layers.size();
         for (size_t i = 0; i < below; ++i)
             if (impl_->layers[i].options.enabled)
@@ -434,7 +514,7 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
         upto = detail::merge(*upto, *tree, MergePolicy::Overwrite, impl_->merge_scratch);
         for (Leaf& leaf : leaves)
             if (!value_nodes(*upto, Path(leaf.path), leaf.values))
-                leaf.values = values_of(*leaf.holder);
+                leaf.values = leaf_values(*leaf.holder);
     }
 
     // Plan every entry against the target as each earlier one leaves it, in memory.
@@ -454,15 +534,16 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
     before.set_reader(vread);
     Vec<Error> refusals;
     for (const Leaf& leaf : leaves) {
-        if (leaf.values.size() == 1 &&
-            leaf.values[0].is(detail::marker_symbol(detail::Marker::Remove))) {
-            // Writing (key #remove) beside the key's children would not parse (D143).
-            refusals.push_back(refused("promote cannot write the removal of " +
-                                       quoted(Path(leaf.path)) +
-                                       "; remove the key from the target by hand"));
+        // A row the target would compose again above it; a removal deletes the key's text.
+        const Path path(leaf.path);
+        if (auto e = impl_->composed(path, *ti + 1, fi ? *fi : SIZE_MAX)) {
+            refusals.push_back(std::move(*e));
             continue;
         }
-        auto p = impl_->plan(target, Path(leaf.path), leaf.values, true, vread);
+        if (detail::composes(*leaf.holder) && !row_at(*upto, path)) continue;  // #drop of none
+        auto p = detail::is_removal(*leaf.holder)
+                     ? impl_->plan_removal(target, path, vread)
+                     : impl_->plan(target, path, leaf.values, true, vread);
         if (!p) {
             refusals.push_back(std::move(p).error());
             continue;
@@ -494,7 +575,7 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
     Vec<WrittenLine> written;
     for (const Leaf& leaf : leaves) {
         const Source s = impl_->source_in(impl_->layers[*ti], Path(leaf.path));
-        if (!virt.empty()) written.push_back({s.file, s.line});
+        if (!virt.empty() && !detail::is_removal(*leaf.holder)) written.push_back({s.file, s.line});
         // Scratch's edits are in the file now (D93).
         if (from == "scratch") {
             const Symbol key(detail::text_of(Path(leaf.path)));
@@ -533,8 +614,11 @@ Expected<List<LayerEffectEntry>> Config::layer_effect(std::string_view layer) co
         const Path path(leaf.path);
         e.path = Symbol(leaf.path);
         e.value = pack(leaf.values);
+        e.op = op_of(*leaf.holder);
         e.source = li ? Impl::located(impl_->layers[*li], *leaf.holder) : in_scratch;
-        if (value_nodes(*without, path, below)) e.below = pack(below);
+        const bool has = value_nodes(*without, path, below);
+        if (has) e.below = pack(below);
+        e.stale = stale_pin(*leaf.holder, leaf.path, has ? &below : nullptr).has_value();
         // The topmost other layer that supplies the path: it shadows this one if above it.
         const auto s = impl_->supplier(path, impl_->layers.size(), li ? *li : SIZE_MAX);
         const bool scratch_has = !is_scratch && impl_->scratch_entry(path);
@@ -573,18 +657,20 @@ Expected<List<DiffEntry>> Config::diff(std::string_view a, std::string_view b) c
         const auto it = in_b.find(x.path);
         const Leaf* y = it != in_b.end() ? &lb[it->second] : nullptr;
         if (y) matched[it->second] = true;
-        if (y && same_nodes(x.values, y->values)) continue;
-        DiffEntry d{Symbol(x.path), pack(x.values), std::nullopt, source(a, x), std::nullopt};
+        if (y && same_nodes(x.values, y->values) && op_of(*x.holder) == op_of(*y->holder)) continue;
+        DiffEntry d{Symbol(x.path), pack(x.values), std::nullopt,
+                    source(a, x),   std::nullopt,   op_of(*x.holder)};
         if (y) {
             d.b = pack(y->values);
             d.source_b = source(b, *y);
+            d.op_b = op_of(*y->holder);
         }
         out.push_back(std::move(d));
     }
     for (size_t i = 0; i < lb.size(); ++i)
         if (!matched[i])
             out.push_back({Symbol(lb[i].path), std::nullopt, pack(lb[i].values), std::nullopt,
-                           source(b, lb[i])});
+                           source(b, lb[i]), Symbol(), op_of(*lb[i].holder)});
     return List<DiffEntry>(out);
 }
 
@@ -597,7 +683,8 @@ Expected<List<ExplainEntry>> Config::explain(const Path& path) const {
     // of arrays, or nothing.
     struct Held {
         Vec<Node> nodes;
-        const Array* marker = nullptr;
+        const Array* marker = nullptr;    // a removal of it or of an ancestor
+        const Array* composes = nullptr;  // (key #append v...) or (key #drop v...)
         bool value = false, subtree = false;
     };
     auto held = [&](const Array& root) {
@@ -613,6 +700,7 @@ Expected<List<ExplainEntry>> Config::explain(const Path& path) const {
             }
         }
         if (detail::resolve(root, path, r) != detail::ResolveStatus::Ok) return h;
+        if (!last_is_index(path) && r.array && detail::composes(*r.array)) h.composes = r.array;
         if (last_is_index(path) || (r.array && has_values(*r.array)))
             h.value = value_nodes(root, path, h.nodes);
         else
@@ -627,13 +715,16 @@ Expected<List<ExplainEntry>> Config::explain(const Path& path) const {
     auto add = [&](Symbol layer, const Held& h, const Source& source, bool enabled) {
         subtree = subtree || h.subtree;
         if (!h.value && !h.marker) return;
+        const Array* row = h.marker ? h.marker : h.composes;
         ExplainEntry e{
             layer, h.marker ? Node(detail::marker_symbol(detail::Marker::Remove)) : pack(h.nodes),
-            source};
+            source, Standing::Wins, row ? op_of(*row) : Symbol()};
         if (!enabled) {
             e.standing = Standing::Disabled;
         } else if (decided) {
             e.standing = Standing::Shadowed;
+        } else if (h.composes) {
+            e.standing = Standing::Composes;  // the value below it still decides
         } else {
             e.standing = h.marker ? Standing::Removes : Standing::Wins;
             decided = true;

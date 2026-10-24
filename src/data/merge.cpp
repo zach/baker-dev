@@ -75,7 +75,15 @@ bool apply_verb(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const 
     bool changed = false;
     for (size_t j = 2; j < src.size(); ++j) {
         if (verb == Marker::Append) {
-            dst.push_back(src[j]);
+            const Array* op = src[j].type() == Type::Array ? src[j].array() : nullptr;
+            if (op && op->has_marker()) {  // an operand holding a marker is resolved too
+                if (Ref<Array> clean = without_markers(*op, nullptr))
+                    dst.emplace_back(std::move(clean));
+                else
+                    continue;
+            } else {
+                dst.push_back(src[j]);
+            }
             if (spans) {
                 const SourceSpan* sp = map->span(src, j);
                 spans->push_back(sp ? *sp : SourceSpan{});

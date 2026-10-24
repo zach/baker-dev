@@ -105,6 +105,23 @@ def diff_and_promote(s):
            "promote --write writes the line")
 
 
+def layer_verbs(s):
+    """A pinned row, a removal and a note: diff names them, promote --patch carries the note
+    above the diff and deletes the removed line (dev/syntax-layer-markers-design.md)."""
+    agent = "(player (speed 4.5 #was 3.0 (note \"the walk felt slow\")) (lives #remove))\n"
+    code, out, _ = s.run("diff", agent=agent)
+    expect(code == 0 and "player.speed  3.5 -> 4.5" in out and "stale" in out and
+           "player.lives  3 -> #remove" in out, "diff: a stale pin and a removal")
+    code, out, _ = s.run("promote", "--patch", "change.patch")
+    patch = (s.dir / "change.patch").read_text()
+    expect(code == 0 and patch.startswith("# player.speed: the walk felt slow\n--- a/data/") and
+           "-   (lives 3))\n" in patch, "promote --patch: the note above, the removal a - line")
+    if shutil.which("git"):
+        p = subprocess.run(["git", "apply", "--check", "-p1", "change.patch"], cwd=s.dir,
+                           capture_output=True, text=True)
+        expect(p.returncode == 0, "git apply takes the patch with its note preamble: " + p.stderr)
+
+
 def shipping(s):
     """Under BAKER_SHIPPING, the commands that write refuse; the others run."""
     for command in ("diff", "promote"):
@@ -202,8 +219,10 @@ def main():
     if len(sys.argv) not in (3, 4):
         print(__doc__)
         return 2
-    writes = shipping if sys.argv[3:] == ["shipping"] else diff_and_promote
-    for case in (check, reference, eval_json, writes, host_io, scenarios, command_line):
+    shipping_build = sys.argv[3:] == ["shipping"]
+    writes = shipping if shipping_build else diff_and_promote
+    verbs = (lambda s: None) if shipping_build else layer_verbs
+    for case in (check, reference, eval_json, writes, verbs, host_io, scenarios, command_line):
         case(Stack(sys.argv[1], sys.argv[2]))
     print(f"{len(FAILURES)} failures" if FAILURES else "all passed")
     return 1 if FAILURES else 0

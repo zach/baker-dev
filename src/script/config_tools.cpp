@@ -65,6 +65,7 @@ Symbol standing_name(Standing s) {
         case Standing::Shadowed: return Symbol("shadowed");
         case Standing::Removes: return Symbol("removes");
         case Standing::Disabled: return Symbol("disabled");
+        case Standing::Composes: return Symbol("composes");
     }
     return {};
 }
@@ -85,6 +86,7 @@ Expected<Node> explain_node(Config& cfg, std::string_view path) {
         Vec<Node> fields;
         fields.push_back(tagged("layer", Node(e.layer)));
         fields.push_back(tagged("value", e.value));
+        if (!e.op.empty()) fields.push_back(tagged("op", Node(e.op)));
         fields.push_back(tagged("standing", Node(standing_name(e.standing))));
         add_source(fields, e.source, false);
         out.push_back(list(fields));
@@ -135,8 +137,22 @@ Expected<void> bind_config_tools(Context& ctx, Config& cfg, const ConfigToolOpti
         [tools](Name path) -> Expected<Node> {
             auto entries = tools->cfg.explain(Path(path.text));
             if (!entries) return Unexpected(std::move(entries).error());
+            const ExplainEntry* top = nullptr;  // a live edit wins whole; a verb composes
             for (const ExplainEntry& e : *entries)
-                if (e.standing == Standing::Wins && e.layer != "code") return e.value;
+                if ((e.standing == Standing::Wins && e.layer != "code") ||
+                    e.standing == Standing::Composes)
+                    top = &e;
+            const Array* row = top && top->standing == Standing::Composes
+                                   ? tools->cfg.root()->try_get(Path(path.text))
+                                   : nullptr;
+            if (row) {
+                Vec<Node> v;
+                for (size_t i = 1; i < row->size(); ++i)
+                    if (!(*row)[i].try_array() || (*row)[i].try_array()->tag().empty())
+                        v.push_back((*row)[i]);
+                return v.size() == 1 ? v[0] : list(v);
+            }
+            if (top) return top->value;
             return Unexpected(make_error(
                 ErrorCode::NotFound, "nothing sets '" + Str(path.text) + "'; its default stands"));
         },
@@ -180,9 +196,11 @@ Expected<void> bind_config_tools(Context& ctx, Config& cfg, const ConfigToolOpti
                 Vec<Node> f;
                 f.push_back(tagged("path", Node(e.path)));
                 f.push_back(tagged("value", e.value));
+                if (!e.op.empty()) f.push_back(tagged("op", Node(e.op)));
                 if (e.below) f.push_back(tagged("below", *e.below));
                 add_source(f, e.source, false);
                 f.push_back(tagged("shadowed", Node(int64_t{e.shadowed})));
+                if (e.stale) f.push_back(tagged("stale", Node(int64_t{1})));
                 out.push_back(list(f));
             }
             return list(out);
@@ -199,7 +217,9 @@ Expected<void> bind_config_tools(Context& ctx, Config& cfg, const ConfigToolOpti
                 Vec<Node> f;
                 f.push_back(tagged("path", Node(d.path)));
                 if (d.a) f.push_back(tagged("a", *d.a));
+                if (!d.op_a.empty()) f.push_back(tagged("op_a", Node(d.op_a)));
                 if (d.b) f.push_back(tagged("b", *d.b));
+                if (!d.op_b.empty()) f.push_back(tagged("op_b", Node(d.op_b)));
                 out.push_back(list(f));
             }
             return list(out);
