@@ -37,6 +37,27 @@ suites with experiments on), round-trip the 68 corpus files with no fault, and a
 rebuilt the branch, reran the tests and reproduced the note's numbers, with the exceptions
 listed under each idea.
 
+## The branches at their final heads
+
+Each branch forks from this one at `3817213` (main at `565bb63` plus the harness); main has
+since moved on (the 0.6.0 release and later D-entries), and none of the branches has been
+merged anywhere. "Reviewed at" is the head the verifier and the reviewer read; each
+branch's last commit adds its design note's section 11, which records that review, the
+verifier's corrections and the raw gate (curly-infix's commits between the two add only
+its fuzz-harness fix and fuzz record). "Core files" counts files changed under `src/` and
+`include/`.
+
+| Branch | Final head | Commits | Reviewed at | Core files |
+|---|---|---:|---|---:|
+| `claude/fervent-cray-l1kyf0-syntax-curly-infix` | `ffbe386` | 13 | `ed037c5` | 10 |
+| `claude/fervent-cray-l1kyf0-syntax-path-rows` | `a0df58c` | 9 | `d89146f` | 6 |
+| `claude/fervent-cray-l1kyf0-syntax-layer-markers` | `b1674cb` | 9 | `39f5248` | 16 |
+| `claude/fervent-cray-l1kyf0-syntax-hash-declarations` | `3c65782` | 13 | `104fcec` | 2 |
+| `claude/fervent-cray-l1kyf0-syntax-at-metadata` | `c9cd552` | 11 | `1c73321` | 11 |
+| `claude/fervent-cray-l1kyf0-syntax-column-tables` | `cd49650` | 5 | `2f53a8a` | 0 |
+| `claude/fervent-cray-l1kyf0-syntax-indent-lines` | `19c6e88` | 8 | `b1a88ae` | 8 |
+| `claude/fervent-cray-l1kyf0-syntax-inline-layers` | `baa3828` | 11 | `85d53e7` | 7 |
+
 ## How it was done
 
 - **The harness** (`experiments/`, on this branch): the corpus (68 `.dta` files under
