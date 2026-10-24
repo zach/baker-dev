@@ -632,7 +632,7 @@ private:
         }
     }
 
-    // The infix rule (dev/syntax-curly-infix-design.md). A brace of 2k+1 nodes whose odd
+    // The infix rule. A brace of 2k+1 nodes whose odd
     // slots are one bare operator, `{0.3 <= $value <= 0.7}`, is the command `{<= 0.3 $value
     // 0.7}`, and `{c ? a : b}` is `{if c a b}`: the nodes, and their spans, are permuted in
     // place and `kids` shrinks to the command. Only when an operand (an even slot) is a

@@ -260,7 +260,7 @@ TEST_CASE("an error located by an array's line has no column") {
     CHECK(pack.column() == 0);
 }
 
-// --- The infix rule (dev/syntax-curly-infix-design.md) ---
+// --- The infix rule ---
 
 #if BAKER_CURLY_INFIX
 

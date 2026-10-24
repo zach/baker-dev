@@ -268,7 +268,7 @@ TEST_CASE("both double formatters round-trip exactly") {
     }
 }
 
-// --- Infix (dev/syntax-curly-infix-design.md) ---
+// --- Infix ---
 
 #if BAKER_CURLY_INFIX
 

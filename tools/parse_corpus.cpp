@@ -56,7 +56,7 @@ std::string normal(const fs::path& p) {
     return p.lexically_normal().generic_string();
 }
 
-// The infix rule's gate (dev/syntax-curly-infix-design.md): how many braces of a corpus the
+// The infix rule's gate: how many braces of a corpus the
 // rule rewrote (`fired`), and how many it left alone only because no operand was a number,
 // variable, property or command (`guarded`: an operator at slot 1 among bare symbols).
 struct InfixCount {

@@ -138,7 +138,7 @@ TEST_CASE("a [property] argument is evaluated for a function of one overload") {
     CHECK(ok(ctx.eval("{hero alive}")).as_int() == 1);
 }
 
-TEST_CASE("+= and -= store through a [property] in a handler (dev/syntax-curly-infix-design.md)") {
+TEST_CASE("+= and -= store through a [property] in a handler") {
     Context ctx;
     Hero hero;
     ok(ctx.add(hero, "hero"));

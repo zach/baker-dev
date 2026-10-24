@@ -73,7 +73,7 @@ struct Number {
 #define BAKER_COLD [[gnu::noinline, gnu::cold]]
 #endif
 
-// The infix rule (dev/syntax-curly-infix-design.md): a {...} whose odd slots are one bare
+// The infix rule: a {...} whose odd slots are one bare
 // operator reads head-first, `{0.3 <= $value <= 0.7}` for `{<= 0.3 $value 0.7}`. A
 // prototype behind its switch (BAKER_CURLY_INFIX, CMake): off, the reader and the printer
 // are main's. An operator is a symbol of these bytes only; a table, one load a byte.

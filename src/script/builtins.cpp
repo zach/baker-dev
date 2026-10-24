@@ -332,7 +332,7 @@ void register_builtins(Context& ctx) {
         ctx, "override", [](Args a) { return define(a, true); },
         "As `func`, but may replace a native function, which it logs.");
 
-    // --- Arithmetic: variadic, folded left (dev/syntax-curly-infix-design.md). Ints stay
+    // --- Arithmetic: variadic, folded left. Ints stay
     // ints (wrapping on overflow) until a float joins. ---
     add(ctx, "+", folded<Op::Add>, "Sum of two numbers or more, left to right: `{+ 1 2 3}` is 6.");
     add(

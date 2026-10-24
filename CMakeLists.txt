@@ -13,9 +13,8 @@ option(BAKER_BUILD_EXAMPLES   "Build the examples" ${PROJECT_IS_TOP_LEVEL})
 option(BAKER_BUILD_HARNESS    "Build examples/harness-imgui (fetches Dear ImGui and GLFW)" OFF)
 option(BAKER_BUILD_FUZZERS    "Build libFuzzer targets (Clang only)" OFF)
 option(BAKER_BUILD_EXPERIMENTS "Build experiments/ (syntax sketches on branches; never shipped)" OFF)
-# The curly-infix prototype's reader and printer (dev/syntax-curly-infix-design.md): on by
-# default on this prototype branch, whose data in stacks/, examples/ and tests/ is written
-# infix. Off, the reader and printer are main's, and those files no longer read.
+# The curly-infix prototype's reader and printer: on by
+# default on this prototype branch, whose stack, example and test data is written infix. Off, the reader and printer are main's, and those files no longer read.
 option(BAKER_CURLY_INFIX      "Read a brace of one operator head-first (a prototype)" ON)
 option(BAKER_USE_EASTL        "Internal containers from EASTL instead of the STL (D55, D61)" OFF)
 set(BAKER_SANITIZE "" CACHE STRING "Sanitizers to enable, e.g. address,undefined")

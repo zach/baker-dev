@@ -537,7 +537,7 @@ public:
     // which a merge strips from what it adds to the stack (dev/decisions.md D143).
     [[nodiscard]] bool has_removal() const noexcept { return (flags_ & kHasRemoval) != 0; }
     // Whether this command was written infix, `{0.3 <= $value <= 0.7}` for `{<= 0.3 $value
-    // 0.7}`, so the printer gives the spelling back (dev/syntax-curly-infix-design.md). The
+    // 0.7}`, so the printer gives the spelling back. The
     // parser sets it; a tool may. Equality, the digest and evaluation ignore it.
     [[nodiscard]] bool written_infix() const noexcept { return (flags_ & kWrittenInfix) != 0; }
     void set_written_infix(bool on) noexcept {
