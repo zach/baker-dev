@@ -572,8 +572,8 @@ private:
         frames_.pop_back();
         std::span<Node> kids(scratch_.data() + f.start, scratch_.size() - f.start);
 #if BAKER_INLINE_LAYERS
-        if (frames_.size() == head_) head_ = 0;  // the block's head array is read
-        if (f.block) return close_block(f, kids, t.end);
+        if (f.block) [[unlikely]]
+            return close_block(f, kids, t.end);
 #endif
         if (f.removes && kids.size() != 2) return bad_remove(f.line, f.begin);
 
@@ -929,7 +929,18 @@ private:
 #if BAKER_INLINE_LAYERS
     // --- Layer blocks (BAKER_INLINE_LAYERS, a prototype) ---
 
-    [[nodiscard]] bool in_head() const noexcept { return head_ != 0; }
+    // Out of line and cold, so that close() stays small enough to inline into run().
+#if defined(_MSC_VER)
+#define BAKER_PARSE_COLD __declspec(noinline)
+#else
+#define BAKER_PARSE_COLD [[gnu::noinline, gnu::cold]]
+#endif
+
+    // Inside the head array: it is open, and the block holds nothing yet.
+    [[nodiscard]] bool in_head() const noexcept {
+        return head_ != 0 && frames_.size() > head_ &&
+               frames_[head_].start == frames_[head_ - 1].start;
+    }
 
     // (#layer HEAD form*): #layer is the first token inside '(', at the top level or inside
     // tagged arrays. HEAD is a name, read here unexpanded as #ifdef's is, or an array that
@@ -988,8 +999,9 @@ private:
 
     // The block closes: its head is read, its forms become its tree, wrapped in the tags
     // that enclose it, and the session records it. The tree around it gets nothing.
-    bool close_block(const FrameInfo& f, std::span<Node> kids, uint32_t end) {
+    BAKER_PARSE_COLD bool close_block(const FrameInfo& f, std::span<Node> kids, uint32_t end) {
         --in_block_;
+        head_ = 0;
         const Array* head = kids[0].try_array();  // the head: an array or a name
         const Symbol name = head ? head->tag() : kids[0].try_sym().value_or(Symbol());
         if (name.empty()) return bad_head(f.line, f.begin);
@@ -1021,20 +1033,27 @@ private:
         // (renderer (#layer hh (shadows 0))) holds ((renderer (shadows 0))). Each wrapper is
         // made in the block's slots, its tag over the head, and spans the block's extent.
         const SourceSpan extent{file_, f.begin, end, {}};
+        const auto at = static_cast<ptrdiff_t>(f.start);
         for (size_t i = frames_.size(); i-- > 1;) {
             scratch_[f.start] = scratch_[frames_[i].start];
             if (map_) spans_[f.start] = spans_[frames_[i].start];
             Ref<Array> wrap = arena_.make_array(
                 {scratch_.data() + f.start, scratch_.size() - f.start}, file_, frames_[i].line);
-            record(wrap, f.start, f.begin, end);
-            truncate(f.start + 1);
-            scratch_.emplace_back(std::move(wrap));
-            if (map_) spans_.push_back(extent);
+            if (map_)
+                map_->record(wrap, extent, std::span<const SourceSpan>(spans_).subspan(f.start));
+            // erase and insert, which nothing else calls: truncate() and push_back() stay
+            // inlined in the hot path, as before blocks.
+            scratch_.erase(scratch_.begin() + at + 1, scratch_.end());
+            scratch_.insert(scratch_.end(), Node(std::move(wrap)));
+            if (map_) spans_.erase(spans_.begin() + at + 1, spans_.end());
+            if (map_) spans_.insert(spans_.end(), extent);
         }
         Ref<Array> tree = arena_.make_array(
             {scratch_.data() + f.start + 1, scratch_.size() - f.start - 1}, file_, f.line);
-        record(tree, f.start + 1, f.begin, end);
-        truncate(f.start);
+        if (map_)
+            map_->record(tree, extent, std::span<const SourceSpan>(spans_).subspan(f.start + 1));
+        scratch_.erase(scratch_.begin() + at, scratch_.end());
+        if (map_) spans_.erase(spans_.begin() + at, spans_.end());
         if (tree->height() > s_.limits.max_depth) return too_deep(f.line, f.begin);
         s_.st_->blocks.push_back({name, file_, f.line, disabled, when, holds, std::move(tree)});
         return true;
@@ -1120,7 +1139,7 @@ private:
     bool origin_ = false;    // this file declared its origin
     Vec<Symbol> warned_;     // macros this file has been warned about
 #if BAKER_INLINE_LAYERS
-    uint32_t head_ = 0;      // the depth of the block whose head array is being read; 0: none
+    uint32_t head_ = 0;      // the depth of the block whose head is an array; 0: none
     uint32_t in_block_ = 0;  // the blocks open around the current frame
 #endif
 };

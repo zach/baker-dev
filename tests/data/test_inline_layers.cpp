@@ -85,6 +85,9 @@ TEST_CASE("a block's head: a name, (when COND), (disabled)") {
         std::vector<std::string>{"hh on 4: ((a 1))"});
     CHECK(read("[hh (zzz)]\n#define ON\n(#layer hh (a hh))").blocks ==
           std::vector<std::string>{"hh on 3: ((a (zzz)))"});
+    // Past an array head, the forms expand as anywhere, at any depth.
+    CHECK(read("[hh (zzz)]\n(#layer (hh (when (not hh))) (a hh (b hh)))").blocks ==
+          std::vector<std::string>{"hh off 2: ((a (zzz) (b (zzz))))"});
 }
 
 TEST_CASE("a reader that does not take blocks refuses them, located") {
@@ -95,10 +98,14 @@ TEST_CASE("a reader that does not take blocks refuses them, located") {
     CHECK(r.error().message() == "a layer block is read only as a Config's layer");
     CHECK(r.error().line() == 2);
     CHECK(r.error().column() == 4);
-    // Copies carry the setting.
+    // Copies carry the setting; a Config sets it for its own reads only.
     session.layer_blocks = true;
     LoadSession copy = session;
     CHECK(read_string("(#layer x (a 2))", "t.dta", copy));
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer("d", dir.write("d.dta", "(a 1)\n(#layer x (a 2))\n")));
+    CHECK_FALSE(cfg.read_session().layer_blocks);
 }
 
 TEST_CASE("a block inside tagged arrays is wrapped in their tags") {

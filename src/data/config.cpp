@@ -220,6 +220,9 @@ Expected<void> Config::Impl::read(LayerState& layer, const LoadSession& before, 
         session->set_reader(reader);
     }
     session->source_map = nullptr;
+#if BAKER_INLINE_LAYERS
+    session->layer_blocks = before.layer_blocks;  // as read_session() hands it to a host
+#endif
     // The one-way rule's warnings (D80), and a pack's unmet requires, go to the warning
     // handler.
     const auto all = session->warnings();
