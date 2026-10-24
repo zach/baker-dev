@@ -69,6 +69,7 @@ TEST_CASE("the migrated corpus reads to the same trees, packs, origins and macro
                  << (back ? first_difference(**original, **back) : to_string(back.error())));
         REQUIRE(back);
         CHECK(first_difference(**original, **back).empty());
+        CHECK(digest(**original) == digest(**back));
         REQUIRE(plain.packs().size() == migrated.packs().size());
         for (size_t i = 0; i < plain.packs().size(); ++i) {
             CHECK(plain.packs()[i].name == migrated.packs()[i].name);

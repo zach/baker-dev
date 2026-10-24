@@ -77,7 +77,7 @@ std::string session_record(const LoadSession& s) {
 }
 
 int migrate_check() {
-    int mismatches = 0;
+    int mismatches = 0, digests = 0;
     syntax::Migration total;
     const std::string root(repository_root());
     for (const std::string& rel : corpus_files()) {
@@ -100,6 +100,11 @@ int migrate_check() {
             std::printf("tree     %s: %s\n", rel.c_str(), d.c_str());
             ++mismatches;
         }
+        // The value digest (D222) of the tree each reader made.
+        if (digest(**original) != digest(**back)) {
+            std::printf("digest   %s\n", rel.c_str());
+            ++digests;
+        }
         if (session_record(plain) != session_record(migrated)) {
             std::printf("session  %s:\n--- original\n%s--- migrated\n%s", rel.c_str(),
                         session_record(plain).c_str(), session_record(migrated).c_str());
@@ -121,12 +126,12 @@ int migrate_check() {
         }
     }
     std::printf(
-        "%zu corpus files, %d mismatches; migrated %d (pack ...) first forms, %d "
-        "(origin ...) forms, %d (shapes ...) containers into %d #shape declarations, "
-        "%d #define bodies\n",
-        corpus_files().size(), mismatches, total.packs, total.origins, total.shape_sets,
+        "%zu corpus files, %d mismatches, %d digest mismatches; migrated %d (pack ...) first "
+        "forms, %d (origin ...) forms, %d (shapes ...) containers into %d #shape "
+        "declarations, %d #define bodies\n",
+        corpus_files().size(), mismatches, digests, total.packs, total.origins, total.shape_sets,
         total.shapes, total.define_bodies);
-    return mismatches == 0 ? 0 : 1;
+    return mismatches + digests == 0 ? 0 : 1;
 }
 
 // The span of the top-level form opened at `at` (a '('), skipping strings, quoted symbols
