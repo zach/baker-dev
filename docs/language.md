@@ -77,7 +77,9 @@ auto cals = eggs->find_int("calories");                       // one level, by t
 
 A key written as text (`find_int("calories")`) is interned on every call; in a loop,
 write it as a literal, `find_int("calories"_sym)` (after `using namespace baker::literals;`),
-which interns once, or hold a `Symbol`.
+which interns once, or hold a `Symbol`. A name's hash, `Symbol::hash()` or `"calories"_hash`,
+is the same in every process and on every platform, for a save file or a `switch`
+(docs/cookbook.md, "Stable IDs for names").
 `Convert<T>` teaches lookups your own types; vectors, fixed arrays, and
 `std::string` (with `<baker/std_interop.hpp>`) are built in. When an array has several
 children with the same tag, lookup finds the first; `subarrays()` visits them all.

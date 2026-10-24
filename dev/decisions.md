@@ -8154,3 +8154,38 @@ reward by stage or falloff by distance: `(falloff (0 1) (5 3) (10 8))`.
   replacing a curve whole, `set`, `check_tweaks` with a range on y alone, and the tweaks
   JSON; the shape type with its range and refusals located; `curve.sample`; and a
   described curve tweak, with a refused one leaving the registry whole.
+
+## D246. A name's stable ID: `symbol_hash` and `"x"_hash`
+
+*A spec from the owner, by way of a research session.* Games give names stable integer IDs,
+to dispatch in a `switch` and to write into saves, network messages, replays and crash
+dumps. `Symbol::hash()` was already such a value, but its function was in `detail::` and
+nothing promised it.
+
+- **The API** (`<baker/symbol.hpp>`): `constexpr uint64_t symbol_hash(std::string_view)`
+  and the `consteval` literal `"jump"_hash`, both equal to `Symbol("jump").hash()`.
+  `detail::hash_symbol_text` is gone; its callers (the empty entry, the intern table,
+  `Hash<Str>`, a test) use `symbol_hash`.
+- **The promise.** FNV-1a 64 over the bytes as written, UTF-8 for a non-ASCII name, with
+  no normalisation; the same on every platform, compiler and build mode. A change of the
+  algorithm is a breaking change and needs a changelog entry. `symbol.cpp` holds golden
+  `static_assert`s (the empty string, FNV's own vector "a", "jump", and "épée" in UTF-8),
+  so the library does not build if it changes; the tests assert them again, and through
+  `_hash` too.
+- **`"x"_sym` interns with its compiled hash** through `detail::intern_hashed(text,
+  hash)`, so its first call does not hash. `Symbol(text)` keeps its own direct path: routing
+  it through the exported function cost `lookup_text` 2 instructions a call, which the
+  first version did.
+- **Cost.** `tools/count_instructions.py` against main: lookup, lookup_text and parse
+  unchanged. `tools/bench_compare.py` (lookup and parse, 7 runs a side, pinned) moved rows
+  the change does not touch, by up to 35% (`try_find` over 1,000 children, 302 to 198 ns),
+  and `find_float("key19")` by +5.3%, with no change in instructions: code layout. The
+  saving itself is the runtime hash of each literal, once per process: a scratch program
+  times `symbol_hash` at 6.3 ns for 8 bytes, 12.4 ns for 16 and 26.8 ns for 32 (Release,
+  pinned, best of 15).
+- **Docs.** The cookbook's "Stable IDs for names": a hash for IDs that outlive the process,
+  a `Symbol` for everything else, and data files and caches keep the text.
+- **Tests.** The golden values; a `switch` with `_hash` labels over names interned from a
+  literal, from runtime text, and from a data file, a non-ASCII one among them; compile
+  time, run time, `_sym` and `Symbol` agreeing, and `_sym` interning the same Symbol as text
+  does. The header gate compiles `symbol.hpp` alone.

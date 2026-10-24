@@ -716,6 +716,34 @@ and value, not by file, layout or comments; the encoding is fixed and documented
 `array.hpp`. It finds a difference and is no defence against tampering: it is not a
 cryptographic hash.
 
+## Stable IDs for names
+
+A `Symbol` is a name's text and its identity in this process: comparing two is comparing
+pointers, and its `index()` follows the order names were interned. Neither means anything to
+another process, so a save file, a network message, a replay or a crash dump that names a
+move, an item or an event writes its hash instead, and a `switch` dispatches on it:
+
+```cpp
+using namespace baker::literals;
+switch (event.hash()) {            // the Symbol's hash, or symbol_hash(text) of a string
+    case "jump"_hash: start_jump(); break;
+    case "land"_hash: land(); break;
+    default: break;
+}
+save.write_u64(player.weapon.hash());
+```
+
+- **What it is.** `baker::symbol_hash(text)`, `"name"_hash` and `Symbol::hash()` give one
+  value: FNV-1a 64 over the name's bytes as written (UTF-8 for a non-ASCII name), with no
+  normalisation. It is the same on every platform, compiler and build mode, and it is
+  computed at compile time for a literal. Baker promises it: changing the algorithm would be
+  a breaking change, announced in the changelog, and the library's build checks golden
+  values.
+- **What it is for.** Keys that must survive the process. Inside it, hold a `Symbol`, which
+  is cheaper to compare and cannot collide.
+- **What it is not.** A hash is an extra key for the game, never the name's replacement:
+  data files and the binary cache keep the text, and reading them never depends on a hash.
+
 ## Repro scripts
 
 A command is already a serialized, parseable, evaluable value, so a sequence of console

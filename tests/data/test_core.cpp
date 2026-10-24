@@ -26,7 +26,7 @@ TEST_CASE("symbols are interned and compare by identity") {
     CHECK(a == b);
     CHECK(a.id() == b.id());
     CHECK(a.str() == "price");
-    CHECK(a.hash() == detail::hash_symbol_text("price"));
+    CHECK(a.hash() == symbol_hash("price"));
     CHECK("price"_sym == a);
     CHECK_FALSE(Symbol("Price") == a);
     CHECK(Symbol() == Symbol(""));
