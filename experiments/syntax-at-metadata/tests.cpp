@@ -126,6 +126,14 @@ TEST_CASE("metadata comes after the value: a located error at the child") {
     CHECK(syntax::read("((@x 1) 2)", "t.dta"));
     // Inside a {command}, forms are positional; the rule is for parenthesized arrays.
     CHECK(syntax::read("{func f () (@status stub) {body}}", "t.dta"));
+    if constexpr (kAtMetadata) {  // the boundary has 14 bits: metadata past child 16383 is refused
+        std::string big = "(big";
+        for (int i = 0; i < 16382; ++i) big += " 1";  // (@range) at child 16383
+        CHECK(read_string(big + " (@range 0 1))", "big.dta"));
+        auto past = read_string(big + " 1 (@range 0 1))", "big.dta");
+        REQUIRE(!past);
+        CHECK(past.error().code() == ErrorCode::Limit);
+    }
     if constexpr (kAtMetadata) {  // the core's own parser refuses it alike, with the column
         auto c = read_string("(box\n   (x (@range 0 1) 5))\n", "core.dta");
         REQUIRE(!c);
@@ -331,6 +339,10 @@ TEST_CASE("a layer restating a value keeps the metadata below; sorted mode keeps
         CHECK(flat(*r) == "(width 3 (@range 0 10) (@desc \"w\"))");
         CHECK(r->try_find("width")->values().size() == 1);
         CHECK(r->try_find("width")->metadata().size() == 2);
+        // A layer removes one metadata child by its tag, as any key (D143).
+        auto removed = merge(*r, *parse("(width (@range #remove))"));
+        CHECK(flat(*removed) == "(width 3 (@desc \"w\"))");
+        CHECK(removed->try_find("width")->metadata().size() == 1);
         // Sorted: untagged first, then the fields sorted, then the metadata sorted.
         auto s = parse("(rec 1 2 (zeta 1) (@zz 1) (alpha 2) (@aa 2) (mid 3))");
         Array& rec = const_cast<Array&>(*s->try_find("rec"));

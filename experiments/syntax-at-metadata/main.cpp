@@ -2,8 +2,9 @@
 //   to-new <file.dta>       read DTA, print the at-metadata form (the migration over the tree)
 //   to-dta <file>           read the form, strip the sigils, print DTA
 //   check                   round-trip every corpus file; exit 1 on an experiment fault
-//   bench [<file.dta>]      the experiment's reader against baker::read_string, same content
+//   bench [<file.dta>...]   the experiment's reader against baker::read_string, same content
 //   bench-bind [N]          N tweaks (1,000) bound to a layer with metadata on every value
+//   bench-panel [N]         a tuning panel's frame over N tweaks: range, step, kind, desc each
 //   verify <orig> <new>     whether <new> (migrated text) reads as <orig> once stripped
 //   count                   the corpus's arrays tagged with an '@'-led symbol, per file
 #include "experiments.hpp"
@@ -18,6 +19,7 @@
 #include <chrono>
 #include <cstdio>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -35,7 +37,8 @@ int fail(const Error& e) {
 int usage() {
     std::fprintf(stderr,
                  "usage: baker_syntax_%.*s to-new <file.dta> | to-dta <file> | check | bench "
-                 "[<file.dta>] | bench-bind [N] | verify <orig.dta> <new.dta> | count\n",
+                 "[<file.dta>...] | bench-bind [N] | bench-panel [N] | verify <orig.dta> <new.dta> "
+                 "| count\n",
                  static_cast<int>(syntax::kName.size()), syntax::kName.data());
     return 2;
 }
@@ -78,6 +81,34 @@ int bench_bind(int n) {
     return 0;
 }
 
+// A tuning panel's per-frame reads (examples/harness-imgui/panels.cpp): each tweak's range,
+// step, kind and desc, which find the data's metadata by tag. ns per tweak per frame, best of
+// seven runs of 200 frames.
+int bench_panel(int n) {
+    TweakRegistry reg;
+    std::vector<std::unique_ptr<Tweak<float>>> tweaks;
+    tweaks.reserve(static_cast<size_t>(n));
+    for (int i = 0; i < n; ++i)
+        tweaks.push_back(std::make_unique<Tweak<float>>(Symbol("tweaks.t" + std::to_string(i)),
+                                                        0.0f, TweakMeta{}, reg));
+    auto layer = read_string(tweak_layer(n), "tweaks.dta");
+    if (!layer) return fail(layer.error());
+    Config cfg({.tweaks = &reg});
+    if (auto r = cfg.push_layer("default", *layer); !r) return fail(r.error());
+    double best = 1e30, sink = 0;
+    for (int rep = 0; rep < 7; ++rep) {
+        const auto t0 = std::chrono::steady_clock::now();
+        for (int frame = 0; frame < 200; ++frame)
+            for (const auto& t : tweaks)
+                sink += t->range().max + t->step() + double(t->kind().size() + t->desc().size());
+        const auto t1 = std::chrono::steady_clock::now();
+        best = std::min(best, std::chrono::duration<double>(t1 - t0).count() * 1e9 / (200.0 * n));
+    }
+    std::printf("panel frame over %d tweaks (%s): %.1f ns a tweak (best of 7; %g)\n", n,
+                kAtMetadata ? "@metadata" : "trailing metadata", best, sink > 0 ? 1.0 : 0.0);
+    return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -105,14 +136,19 @@ int main(int argc, char** argv) {
         return faults.empty() ? 0 : 1;
     }
     if (cmd == "bench") {
+        // The files' own text, joined, without what a lone read cannot follow: #require and
+        // #include lines and a pack's header line. Else the parse benchmark's 4 MB.
         std::string text;
-        if (argc > 2) {
-            auto t = read_text_file(argv[2]);
+        for (int i = 2; i < argc; ++i) {
+            auto t = read_text_file(argv[i]);
             if (!t) return fail(t.error());
-            text = *t;
-        } else {
-            text = generated_config_text(4 * 1024 * 1024);
+            std::istringstream in(*t);
+            for (std::string line; std::getline(in, line);)
+                if (line.rfind("#require", 0) != 0 && line.rfind("#include", 0) != 0 &&
+                    line.rfind("(pack ", 0) != 0)
+                    text += line + "\n";
         }
+        if (argc <= 2) text = generated_config_text(4 * 1024 * 1024);
         auto root = read_string(text, "bench.dta");
         if (!root) return fail(root.error());
         const std::string converted = syntax::print(**root);
@@ -127,6 +163,7 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (cmd == "bench-bind") return bench_bind(argc > 2 ? std::atoi(argv[2]) : 1000);
+    if (cmd == "bench-panel") return bench_panel(argc > 2 ? std::atoi(argv[2]) : 1000);
     if (cmd == "verify" && argc > 3) {
         auto original = read_dta_file(argv[2]);
         if (!original) return fail(original.error());
