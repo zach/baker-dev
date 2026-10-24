@@ -1,5 +1,5 @@
-# The identity experiment (experiments/README.md). Copy this directory to start one, and
-# rename `column-tables` in the three target names below.
+# Column tables (README.md, dev/syntax-column-tables-design.md): a front end over Baker's
+# public headers, built only with -DBAKER_BUILD_EXPERIMENTS=ON.
 add_executable(baker_syntax_column-tables syntax.cpp main.cpp)
 target_link_libraries(baker_syntax_column-tables PRIVATE baker_experiments)
 

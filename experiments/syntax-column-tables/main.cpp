@@ -1,6 +1,7 @@
 // The experiment's command line:
 //   to-new [--nested] <file.dta>   read DTA, print the column-table form (--nested: no headers)
-//   to-dta <file>                  read the column-table form, print DTA
+//   to-dta [--strict] <file>       read the column-table form, print DTA (--strict: no
+//                                  children after a row's cells)
 //   desugar <file>                 print the reader's rewrite of a file: its tables expanded
 //   check                          round-trip every corpus file; exit 1 on an experiment fault
 //   stats                          the heuristic over the corpus: tables, rows, cells, holes
@@ -35,11 +36,12 @@ int fail(const Error& e) {
 }
 
 int usage() {
-    std::fprintf(stderr,
-                 "usage: baker_syntax_%.*s to-new [--nested] <file.dta> | to-dta <file> | "
-                 "desugar <file> | check | stats | bench [<file.dta>] | bench-table [<bytes>] | "
-                 "count <baker|new|lex|rewrite> <file|gen|gen-table> <n>\n",
-                 static_cast<int>(syntax::kName.size()), syntax::kName.data());
+    std::fprintf(
+        stderr,
+        "usage: baker_syntax_%.*s to-new [--nested] <file.dta> | to-dta [--strict] <file> | "
+        "desugar <file> | check | stats | bench [<file.dta>] | bench-table [<bytes>] | "
+        "count <baker|new|lex|rewrite> <file|gen|gen-table> <n>\n",
+        static_cast<int>(syntax::kName.size()), syntax::kName.data());
     return 2;
 }
 
@@ -104,11 +106,31 @@ std::string input_text(std::string_view input, bool& ok) {
 
 void print_stats(const char* name, const syntax::TableStats& s) {
     std::printf(
-        "%-44s %5zu %5zu %4zu %6zu %5zu %5zu %6ld  (order %zu, coverage %zu, cell %zu, "
-        "repeat %zu, width %zu)\n",
-        name, s.candidates, s.tables, s.rows, s.cells, s.holes, s.columns, s.parens_removed,
-        s.rejected_order, s.rejected_coverage, s.rejected_cell, s.rejected_repeat,
-        s.rejected_width);
+        "%-44s %5zu %5zu %4zu %6zu %5zu %5zu %5zu %6ld %5zu %5zu %6zu  (order %zu, coverage %zu, "
+        "cell %zu, repeat %zu, width %zu)\n",
+        name, s.candidates, s.tables, s.rows, s.cells, s.holes, s.list_cells, s.columns,
+        s.parens_removed, s.flat_candidates, s.flat_rows, s.flat_fields, s.rejected_order,
+        s.rejected_coverage, s.rejected_cell, s.rejected_repeat, s.rejected_width);
+}
+
+void add(syntax::TableStats& total, const syntax::TableStats& s) {
+    total.candidates += s.candidates;
+    total.tables += s.tables;
+    total.rejected_order += s.rejected_order;
+    total.rejected_coverage += s.rejected_coverage;
+    total.rejected_cell += s.rejected_cell;
+    total.rejected_repeat += s.rejected_repeat;
+    total.rejected_width += s.rejected_width;
+    total.rows += s.rows;
+    total.columns += s.columns;
+    total.cells += s.cells;
+    total.holes += s.holes;
+    total.list_cells += s.list_cells;
+    total.parens_removed += s.parens_removed;
+    total.names_removed += s.names_removed;
+    total.flat_candidates += s.flat_candidates;
+    total.flat_rows += s.flat_rows;
+    total.flat_fields += s.flat_fields;
 }
 
 }  // namespace
@@ -128,9 +150,15 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (cmd == "to-dta" && argc > 2) {
-        auto text = read_text_file(argv[2]);
+        syntax::ReadOptions ro;
+        const char* path = argv[2];
+        if (std::string_view(argv[2]) == "--strict" && argc > 3) {
+            ro.trailing_children = false;
+            path = argv[3];
+        }
+        auto text = read_text_file(path);
         if (!text) return fail(text.error());
-        auto root = syntax::read(*text, argv[2]);
+        auto root = syntax::read(*text, path, ro);
         if (!root) return fail(root.error());
         std::fputs(to_dta(**root, {.indent = 3, .width = 96}).c_str(), stdout);
         return 0;
@@ -153,30 +181,21 @@ int main(int argc, char** argv) {
         return faults.empty() ? 0 : 1;
     }
     if (cmd == "stats") {
-        syntax::TableStats total;
-        std::printf("%-44s %5s %5s %4s %6s %5s %5s %6s\n", "file", "cands", "tabls", "rows",
-                    "cells", "holes", "cols", "parens");
+        syntax::TableStats total, stacks_data;
+        std::printf("%-44s %5s %5s %4s %6s %5s %5s %5s %6s %5s %5s %6s\n", "file", "cands", "tabls",
+                    "rows", "cells", "holes", "lists", "cols", "parens", "flat", "frows", "fields");
         for (const std::string& rel : corpus_files()) {
             auto root = read_dta_file(std::string(repository_root()) + "/" + rel);
             if (!root) continue;
             const syntax::TableStats s = syntax::table_stats(**root);
             if (s.candidates == 0) continue;
             print_stats(rel.c_str(), s);
-            total.candidates += s.candidates;
-            total.tables += s.tables;
-            total.rejected_order += s.rejected_order;
-            total.rejected_coverage += s.rejected_coverage;
-            total.rejected_cell += s.rejected_cell;
-            total.rejected_repeat += s.rejected_repeat;
-            total.rejected_width += s.rejected_width;
-            total.rows += s.rows;
-            total.columns += s.columns;
-            total.cells += s.cells;
-            total.holes += s.holes;
-            total.parens_removed += s.parens_removed;
-            total.names_removed += s.names_removed;
+            add(total, s);
+            if (rel.starts_with("stacks/") && rel.find("/data/") != std::string::npos)
+                add(stacks_data, s);
         }
         print_stats("total", total);
+        print_stats("the stacks' data files (stacks/*/data/)", stacks_data);
         return 0;
     }
     if (cmd == "bench" || cmd == "bench-table") {

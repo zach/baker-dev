@@ -1,0 +1,64 @@
+; Contraption's data: the kinds of piece and the levels. Edit and save while it runs; a level
+; restarts with the change. Tuning of your own goes in local.dta (not checked in).
+#require "../packs/game/contraption_core.dta"
+
+(contraption
+   (run_seconds 12 (range 1 120) (desc "An attempt's time limit"))
+   (hold_seconds 0.5 (range 0 10) (desc "How long the goal must hold to count"))
+   (grid 0.05 (range 0 1) (desc "Metres a placement snaps to"))
+   (angle_step 5 (range 0 45) (desc "Degrees a placement snaps to")))
+
+; The kinds stay nested: most kinds have no mass, bounce or hinge, so a sheet of them would
+; be half holes.
+(kinds
+   (ball   (shape sphere) (size 0.4) (mass 0.5) (friction 0.4) (bounce 0.2))
+   (crate  (shape box) (size 0.6 0.6) (mass 4) (friction 0.6))
+   (plank  (shape box) (size 2.5 0.15) (friction 0.4))
+   (ramp   (shape box) (size 4 0.2) (friction 0.3))
+   (wall   (shape box) (size 0.2 3))
+   (post   (shape box) (size 0.2 0.2))
+   (seesaw (shape box) (size 3 0.15) (mass 2) (friction 0.6) (hinge 1))
+   (bucket (shape bucket) (size 1.6 0.8)))
+
+; Each level's pieces are a sheet of their own: a position is a list cell, x y.
+(levels
+   (first_drop
+      (desc "Roll the ball into the bucket.")
+      (bounds -7 0 7 8)
+      (pieces
+         #columns (kind   pos        angle fixed)
+         (ball     ball   (-6 6.5)   _     _)
+         (chute    ramp   (-4.5 5)   -25   1)
+         (cup      bucket (4.5 0.4)  _     _))
+      (tray (plank 1))
+      (goal {puzzle.in ball cup})
+      (intended (p1 (kind plank) (pos 0.5 2) (angle 0))))
+   (high_shelf
+      (desc "The bucket sits on a shelf: carry the ball across.")
+      (bounds -7 0 7 8)
+      (pieces
+         #columns (kind   pos        angle fixed)
+         (ball     ball   (-6 7.5)   _     _)
+         (chute    ramp   (-4.5 6.5) -25   1)
+         (shelf    ramp   (5.3 2.6)  _     1)
+         (post     wall   (5.3 1.1)  _     1)
+         (cup      bucket (5.3 3.1)  _     _))
+      (tray (plank 2))
+      (goal {puzzle.in ball cup})
+      (intended
+         #columns (kind   pos        angle)
+         (p1       plank  (-1.5 5)   -10)
+         (p2       plank  (3 3.5)    10)))
+   (catapult
+      (desc "Drop something heavy on the seesaw to throw the ball.")
+      (bounds -7 0 7 8)
+      (pieces
+         #columns (kind   pos         angle fixed)
+         (lever    seesaw (0 0.7)     22    _)
+         (pivot    post   (0 0.1)     _     1)
+         (stop     post   (-1.55 0.1) _     1)
+         (ball     ball   (-1.1 0.75) _     _)
+         (cup      bucket (-5.5 0.4)  _     _))
+      (tray (crate 1))
+      (goal {puzzle.in ball cup})
+      (intended (p1 (kind crate) (pos 0.5 5)))))

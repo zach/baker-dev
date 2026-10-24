@@ -9,6 +9,9 @@
 #include <doctest.h>
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -27,8 +30,8 @@ std::string same_tree(std::string_view headed, std::string_view nested) {
 }
 
 // The reader's error for `text`: its message, line and column as "message @line:column".
-std::string error_of(std::string_view text) {
-    auto r = syntax::read(text, "t.dta");
+std::string error_of(std::string_view text, const syntax::ReadOptions& options = {}) {
+    auto r = syntax::read(text, "t.dta", options);
     if (r) return "no error";
     return std::string(r.error().message()) + " @" + std::to_string(r.error().line()) + ":" +
            std::to_string(r.error().column());
@@ -288,6 +291,138 @@ TEST_CASE("the rewrite keeps every line and a trailing comment") {
     CHECK(*same == "(a (b 1))\n");
 }
 
+TEST_CASE(
+    "a list cell that begins with a column's bare name is an error, so a nested row cannot read") {
+    // A row written in today's nested form under a header would read with every field
+    // shifted into the wrong column: (k (a a 1) (b b 2)). It does not read.
+    CHECK(error_of("(t\n   #columns (a b)\n   (k (a 1) (b 2)))") ==
+          "row k: the cell for a, (a 1), begins with the column name a: a cell is its values "
+          "alone, and a list that begins with a column's name quotes it ('a' ...) @3:7");
+    CHECK(error_of("(t #columns (a b) (k (b 2) (a 1)))") ==
+          "row k: the cell for a, (b 2), begins with the column name b: a cell is its values "
+          "alone, and a list that begins with a column's name quotes it ('b' ...) @1:22");
+    // Quoted, the name is a value; a list beginning with any other symbol is a list.
+    CHECK(same_tree("(t #columns (a b) (k 1 ('a' 2)))", "(t (k (a 1) (b a 2)))").empty());
+    CHECK(same_tree("(t #columns (a b) (k 1 (c 2)))", "(t (k (a 1) (b c 2)))").empty());
+    // The printer quotes such a value, and the table reads back.
+    auto root = read_string("(t (k (a 1) (b a 2)) (j (a 3) (b b 4)))", "t.dta");
+    REQUIRE(root);
+    const std::string printed = syntax::print(**root, {.width = 30});
+    INFO(printed);
+    CHECK(printed.find("('a' 2)") != std::string::npos);
+    CHECK(printed.find("('b' 4)") != std::string::npos);
+    auto back = syntax::read(printed, "t.new");
+    REQUIRE(back);
+    CHECK(first_difference(**root, **back).empty());
+}
+
+TEST_CASE("the brief's rule: a dropped cell in a row with children shifts silently") {
+    // low_kick's cancels cell (palm) is dropped: the hitbox list slides into cancels and the
+    // first child, (crouching 1), into hitbox. Only a shape can see it, at check.
+    const char* dropped =
+        "(moves\n"
+        "   #columns (button startup push cancels hitbox)\n"
+        "   (low_kick kick 6 0.15 (0.3 0.1 0.6 0.25) (crouching 1) (guard low)))\n";
+    CHECK(same_tree(dropped,
+                    "(moves (low_kick (button kick) (startup 6) (push 0.15)\n"
+                    "   (cancels 0.3 0.1 0.6 0.25) (hitbox crouching 1) (guard low)))")
+              .empty());
+    // The strict rule: a row is its key and one cell per column, so the same row is a count
+    // error, and so is the headline example's (crouching 1) after the cells.
+    const syntax::ReadOptions strict{.trailing_children = false};
+    CHECK(error_of(dropped, strict) ==
+          "row low_kick has 6 cells, #columns declares 5 (the first extra is (guard low)): a row "
+          "is its key and one cell per column @3:4");
+    CHECK(error_of("(moves #columns (button cancels hitbox)\n"
+                   "   (jab light (jab low_kick) (0.3 1.3 0.55 0.2) (crouching 1)))",
+                   strict) ==
+          "row jab has 4 cells, #columns declares 3 (the first extra is (crouching 1)): a row is "
+          "its key and one cell per column @2:4");
+    // Under the strict rule an optional field is a column, with holes where rows lack it.
+    auto a = syntax::read(
+        "(moves #columns (button crouching cancels hitbox)\n"
+        "   (jab      light 1 (jab low_kick) (0.3 1.3 0.55 0.2))\n"
+        "   (palm     special _ _ (0.2 0.8 0.8 0.8)))",
+        "t.dta", strict);
+    REQUIRE(a);
+    auto b = read_string(
+        "(moves (jab (button light) (crouching 1) (cancels jab low_kick) (hitbox 0.3 1.3 0.55 0.2))"
+        "       (palm (button special) (hitbox 0.2 0.8 0.8 0.8)))",
+        "t.dta");
+    REQUIRE(b);
+    CHECK(first_difference(**a, **b).empty());
+    // The printer writes every field as a cell, so its tables read under both rules.
+    auto moves = read_string(kMovesNested, "moves.dta");
+    REQUIRE(moves);
+    auto back = syntax::read(syntax::print(**moves), "moves.new", strict);
+    REQUIRE(back);
+    CHECK(first_difference(**moves, **back).empty());
+}
+
+TEST_CASE("an error the parser finds inside a rewritten row is located as written") {
+    // The rewrite inserts "(a " and ")" around each cell; the column is mapped back.
+    CHECK(error_of("(t\n   #columns (a b)\n   (k 1 2 (x 3 (y 4)) {f)\n") ==
+          "'{' from line 3 is closed by ')' @3:25");
+    CHECK(error_of("(t #columns (a b) (k 1 99999999999999999999))") ==
+          "integer 99999999999999999999 is out of 64-bit range @1:24");
+    CHECK(error_of("(t #columns (a b) (k 1 \"abc\n") == "unterminated string @1:24");
+}
+
+TEST_CASE("an included file's tables are read too") {
+    const std::filesystem::path dir =
+        std::filesystem::temp_directory_path() / "baker_column_tables_include";
+    std::filesystem::create_directories(dir);
+    std::ofstream(dir / "table.dta") << "(goods\n   #columns (price demand)\n   (wheat 2 300))\n";
+    auto root = syntax::read("#include table.dta\n(extra 1)\n", (dir / "main.dta").string());
+    REQUIRE(root);
+    REQUIRE((*root)->try_get("goods.wheat.demand"));
+    CHECK((*root)->try_get("goods.wheat.demand")->line() == 3);
+    CHECK((*root)->try_get("goods.wheat.demand")->file().str() == (dir / "table.dta").string());
+    std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("no text crashes the reader: every prefix and many mutations of the samples") {
+    const char* samples[] = {"duel-default.columns.dta", "ledger-economy.columns.dta",
+                             "stuntline-default.columns.dta", "hearth-default.columns.dta",
+                             "contraption-default.columns.dta"};
+    const std::string dir =
+        std::string(repository_root()) + "/experiments/syntax-column-tables/samples/";
+    const char alphabet[] = "()[]{}_#;\"' \n1a-.$";
+    uint32_t seed = 12345;
+    auto next = [&] { return seed = seed * 1664525u + 1013904223u; };
+    size_t read_ok = 0, refused = 0;
+    for (const char* name : samples) {
+        auto text = read_text_file(dir + name);
+        REQUIRE(text);
+        auto count = [&](const std::string& t) {
+            for (const bool trailing : {true, false}) {
+                auto r = syntax::read(t, name, {.trailing_children = trailing});
+                ++(r ? read_ok : refused);
+                if (!r) CHECK(r.error().line() > 0);
+            }
+        };
+        for (size_t n = 0; n <= text->size(); ++n) count(text->substr(0, n));
+        for (int i = 0; i < 2000; ++i) {
+            std::string t = *text;
+            for (int k = 0; k < 3; ++k) {
+                const size_t at = next() % (t.size() + 1);
+                const char c = alphabet[next() % (sizeof alphabet - 1)];
+                switch (next() % 3) {
+                    case 0: t.insert(at, 1, c); break;
+                    case 1:
+                        if (at < t.size()) t.erase(at, 1);
+                        break;
+                    default:
+                        if (at < t.size()) t[at] = c;
+                }
+            }
+            count(t);
+        }
+    }
+    MESSAGE("read " << read_ok << ", refused with a located error " << refused);
+    CHECK(read_ok > 0);
+}
+
 // --- The printer ---
 
 TEST_CASE("the printer heads a keyed table whose rows agree on an order, and round-trips") {
@@ -403,6 +538,7 @@ TEST_CASE("each sample reads to its original's tree") {
         {"ledger-economy.columns.dta", "stacks/ledger/data/economy.dta", true},
         {"stuntline-default.columns.dta", "stacks/stuntline/data/default.dta", true},
         {"hearth-default.columns.dta", "stacks/hearth/data/default.dta", true},
+        {"contraption-default.columns.dta", "stacks/contraption/data/default.dta", true},
     };
     const std::string root(repository_root());
     for (const Sample& s : samples) {
@@ -427,4 +563,118 @@ TEST_CASE("each sample reads to its original's tree") {
             CHECK(first_difference(*canonical(**original), *canonical(**sample)).empty());
         }
     }
+}
+
+// --- Write-back into headed files, through a Config ---
+
+namespace {
+
+// A disk in memory, and a Config reading and writing it through HeadedFiles.
+struct Disk {
+    std::map<std::string, std::string, std::less<>> files;
+    syntax::HeadedFiles headed;
+    Config cfg{{.tweaks = nullptr}};
+    explicit Disk(const syntax::ReadOptions& options = {})
+        : headed(
+              [this](std::string_view path, std::string& out) {
+                  const auto it = files.find(path);
+                  if (it == files.end()) return false;
+                  out = it->second;
+                  return true;
+              },
+              [this](std::string_view path, std::string_view text) {
+                  files[std::string(path)] = text;
+                  return true;
+              },
+              options) {
+        headed.attach(cfg);
+    }
+};
+
+const char* kHeadedMoves =
+    "; frame data\n"
+    "(moves\n"
+    "   #columns (button  startup cancels        hitbox)\n"
+    "   (jab      light   4       (jab low_kick) (0.3 1.3 0.55 0.2))\n"
+    "   (palm     special 12      _              (0.2 0.8 0.8 0.8)))\n";
+
+}  // namespace
+
+TEST_CASE("write_back of a cell replaces its one token") {
+    Disk disk;
+    disk.files["moves.dta"] = kHeadedMoves;
+    REQUIRE(disk.cfg.push_layer("base", "moves.dta"));
+    CHECK(disk.cfg.get<int>("moves.jab.startup") == 4);
+    REQUIRE(disk.cfg.set("moves.jab.startup", Node(5)));
+    REQUIRE(disk.cfg.write_back("moves.jab.startup"));
+    CHECK(disk.files["moves.dta"] ==
+          "; frame data\n"
+          "(moves\n"
+          "   #columns (button  startup cancels        hitbox)\n"
+          "   (jab      light   5       (jab low_kick) (0.3 1.3 0.55 0.2))\n"
+          "   (palm     special 12      _              (0.2 0.8 0.8 0.8)))\n");
+    CHECK(disk.cfg.unsaved().empty());
+    // A list cell's values, their number changed, inside the cell's own brackets.
+    const Node three[] = {Node(Symbol("jab")), Node(Symbol("low_kick")), Node(Symbol("palm"))};
+    REQUIRE(disk.cfg.set(Path("moves.jab.cancels"), std::span<const Node>(three)));
+    REQUIRE(disk.cfg.write_back("moves.jab.cancels"));
+    CHECK(disk.files["moves.dta"].find("(jab      light   5       (jab low_kick palm) (0.3") !=
+          std::string::npos);
+    CHECK(disk.cfg.unsaved().empty());
+}
+
+TEST_CASE("write_back_to fills a hole, adds a row with holes, and adds a field after the cells") {
+    Disk disk;
+    disk.files["moves.dta"] = kHeadedMoves;
+    REQUIRE(disk.cfg.push_layer("base", "moves.dta"));
+    // palm has a hole for cancels: the hole becomes the cell.
+    REQUIRE(disk.cfg.set("moves.palm.cancels", Node(Symbol("jab"))));
+    REQUIRE(disk.cfg.write_back_to("moves.palm.cancels", "base"));
+    CHECK(disk.files["moves.dta"].find("(palm     special 12      jab              (0.2 0.8") !=
+          std::string::npos);
+    // A move the table lacks: a row, its other cells holes.
+    REQUIRE(disk.cfg.set("moves.uppercut.startup", Node(5)));
+    REQUIRE(disk.cfg.write_back_to("moves.uppercut.startup", "base"));
+    CHECK(disk.files["moves.dta"].ends_with("(0.2 0.8 0.8 0.8))\n   (uppercut _ 5 _ _))\n"));
+    CHECK(disk.cfg.get<int>("moves.uppercut.startup") == 5);
+    // A field that is not a column: a child after the row's cells.
+    REQUIRE(disk.cfg.set("moves.jab.guard", Node(Symbol("low"))));
+    REQUIRE(disk.cfg.write_back_to("moves.jab.guard", "base"));
+    CHECK(disk.files["moves.dta"].find("(0.3 1.3 0.55 0.2) (guard low))\n") != std::string::npos);
+    CHECK(disk.cfg.unsaved().empty());
+    // After a row's last cell, holes included.
+    disk.files["t.dta"] = "(t #columns (a b) (k 1 _) (j 2 3))\n";
+    REQUIRE(disk.cfg.push_layer("t", "t.dta"));
+    REQUIRE(disk.cfg.set("t.k.x", Node(7)));
+    REQUIRE(disk.cfg.write_back_to("t.k.x", "t"));
+    CHECK(disk.files["t.dta"] == "(t #columns (a b) (k 1 _ (x 7)) (j 2 3))\n");
+}
+
+TEST_CASE("under the strict rule a field with no column is refused, and the file is untouched") {
+    Disk disk({.trailing_children = false});
+    disk.files["moves.dta"] = kHeadedMoves;
+    REQUIRE(disk.cfg.push_layer("base", "moves.dta"));
+    REQUIRE(disk.cfg.set("moves.jab.guard", Node(Symbol("low"))));
+    CHECK(!disk.cfg.write_back_to("moves.jab.guard", "base"));
+    REQUIRE(disk.headed.last_error());
+    CHECK(disk.headed.last_error()->message() ==
+          "row jab has no column for guard: add it to the table's #columns");
+    CHECK(disk.files["moves.dta"] == kHeadedMoves);
+}
+
+TEST_CASE("promote into a headed file, which writes many entries at once, is refused") {
+    Disk disk;
+    disk.files["moves.dta"] = kHeadedMoves;
+    disk.files["agent.dta"] = "(moves (jab (startup 6)) (palm (startup 11)))\n";
+    REQUIRE(disk.cfg.push_layer("base", "moves.dta"));
+    REQUIRE(disk.cfg.push_layer("agent", "agent.dta"));
+    CHECK(!disk.cfg.promote("agent", "base"));
+    REQUIRE(disk.headed.last_error());
+    CHECK(std::string(disk.headed.last_error()->message()).find("one cell, one row or one entry") !=
+          std::string::npos);
+    CHECK(disk.files["moves.dta"] == kHeadedMoves);
+    // One entry at a time goes through.
+    REQUIRE(disk.cfg.set("moves.jab.startup", Node(6)));
+    REQUIRE(disk.cfg.write_back_to("moves.jab.startup", "base"));
+    CHECK(disk.files["moves.dta"].find("(jab      light   6 ") != std::string::npos);
 }
