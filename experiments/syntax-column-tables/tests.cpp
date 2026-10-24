@@ -614,6 +614,7 @@ const char* kHeadedMoves =
 }  // namespace
 
 TEST_CASE("write_back of a cell replaces its one token") {
+    if constexpr (kShipping) return;  // write-back is inert
     Disk disk;
     disk.files["moves.dta"] = kHeadedMoves;
     REQUIRE(disk.cfg.push_layer("base", "moves.dta"));
@@ -634,9 +635,14 @@ TEST_CASE("write_back of a cell replaces its one token") {
     CHECK(disk.files["moves.dta"].find("(jab      light   5       (jab low_kick palm) (0.3") !=
           std::string::npos);
     CHECK(disk.cfg.unsaved().empty());
+    // A whole float over an integer cell keeps the integer form (D183).
+    REQUIRE(disk.cfg.set("moves.palm.startup", Node(13.0)));
+    REQUIRE(disk.cfg.write_back("moves.palm.startup"));
+    CHECK(disk.files["moves.dta"].find("(palm     special 13      _ ") != std::string::npos);
 }
 
 TEST_CASE("write_back_to fills a hole, adds a row with holes, and adds a field after the cells") {
+    if constexpr (kShipping) return;  // write-back is inert
     Disk disk;
     disk.files["moves.dta"] = kHeadedMoves;
     REQUIRE(disk.cfg.push_layer("base", "moves.dta"));
@@ -664,6 +670,7 @@ TEST_CASE("write_back_to fills a hole, adds a row with holes, and adds a field a
 }
 
 TEST_CASE("under the strict rule a field with no column is refused, and the file is untouched") {
+    if constexpr (kShipping) return;  // write-back is inert
     Disk disk({.trailing_children = false});
     disk.files["moves.dta"] = kHeadedMoves;
     REQUIRE(disk.cfg.push_layer("base", "moves.dta"));
@@ -676,6 +683,7 @@ TEST_CASE("under the strict rule a field with no column is refused, and the file
 }
 
 TEST_CASE("promote into a headed file, which writes many entries at once, is refused") {
+    if constexpr (kShipping) return;  // write-back is inert
     Disk disk;
     disk.files["moves.dta"] = kHeadedMoves;
     disk.files["agent.dta"] = "(moves (jab (startup 6)) (palm (startup 11)))\n";

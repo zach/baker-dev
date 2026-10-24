@@ -142,9 +142,11 @@ struct TableStats {
     size_t columns = 0;  // header names written, over all tables
     size_t cells = 0;    // fields written as cells
     size_t holes = 0;
-    size_t list_cells = 0;     // cells written as a parenthesized list (they keep a pair)
-    long parens_removed = 0;   // 2 per atom or command cell; a list cell keeps its pair
-    size_t names_removed = 0;  // field names no longer written: the cells
+    size_t list_cells = 0;         // cells written as a parenthesized list (they keep a pair)
+    size_t list_symbol_first = 0;  // of those, lists that begin with a symbol: (jab low_kick)
+    size_t list_column_first = 0;  // and that begin with a column's name, written quoted
+    long parens_removed = 0;       // 2 per atom or command cell; a list cell keeps its pair
+    size_t names_removed = 0;      // field names no longer written: the cells
     // Every candidate whose fields are all flat, whatever its order, coverage and width:
     // the upper bound a table syntax could reach in this tree.
     size_t flat_candidates = 0;

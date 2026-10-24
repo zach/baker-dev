@@ -4,13 +4,18 @@
 //                                  children after a row's cells)
 //   desugar <file>                 print the reader's rewrite of a file: its tables expanded
 //   check                          round-trip every corpus file; exit 1 on an experiment fault
-//   stats                          the heuristic over the corpus: tables, rows, cells, holes
+//   stats                          the heuristic over the corpus (each file's own forms):
+//                                  tables, rows, cells, holes
+//   measure                        the stacks' data files printed nested and headed: lines,
+//                                  bytes, the longest line
 //   bench [<file.dta>]             the reader against baker::read_string, same content
 //   bench-table [<bytes>]          the same over generated keyed tables (default 4 MB)
 //   bench-stacks [<bytes>]         the same over the stacks' data files, nested against headed,
 //                                  repeated to 4 MB
 //   count <what> <input> <n>       read `input` n times, for cachegrind: what is baker,
-//                                  new, lex (read_structure) or rewrite (desugar only);
+//                                  new, same (new on the unconverted text), lex
+//                                  (read_structure), lex-same (it on the unconverted
+//                                  text) or rewrite (desugar only);
 //                                  input is a file, `gen` (the parse benchmark's text),
 //                                  `gen-table` (generated keyed tables) or `stacks` (the
 //                                  stacks' data files), converted by the printer for new
@@ -44,9 +49,9 @@ int usage() {
     std::fprintf(
         stderr,
         "usage: baker_syntax_%.*s to-new [--nested] <file.dta> | to-dta [--strict] <file> | "
-        "desugar <file> | check | stats | bench [<file.dta>] | bench-table [<bytes>] | "
+        "desugar <file> | check | stats | measure | bench [<file.dta>] | bench-table [<bytes>] | "
         "bench-stacks [<bytes>] | "
-        "count <baker|new|lex|rewrite> <file|gen|gen-table|stacks> <n>\n",
+        "count <baker|new|same|lex|lex-same|rewrite> <file|gen|gen-table|stacks> <n>\n",
         static_cast<int>(syntax::kName.size()), syntax::kName.data());
     return 2;
 }
@@ -73,6 +78,17 @@ std::string generated_table_text(size_t bytes) {
     return text;
 }
 
+// A file's own top-level forms, read as Baker reads it: what it #includes or #requires (a
+// pack's shapes, another data file) is counted where it is written, not here too.
+Expected<Ref<Array>> own_forms(const std::string& path) {
+    auto root = read_dta_file(path);
+    if (!root) return root;
+    std::vector<Node> own;
+    for (const Node& n : **root)
+        if (const Array* a = n.try_array(); a && a->file().str() == path) own.push_back(n);
+    return Array::make_from(own);
+}
+
 // The stacks' data files (stacks/*/data/), each read as Baker reads it, its own top-level
 // forms printed twice: nested (the printer with no headers) and headed (the printer's
 // tables). Repeated until the nested text is at least `bytes` long.
@@ -80,16 +96,10 @@ std::pair<std::string, std::string> stacks_texts(size_t bytes) {
     std::string nested_once, headed_once;
     for (const std::string& rel : corpus_files()) {
         if (!rel.starts_with("stacks/") || rel.find("/data/") == std::string::npos) continue;
-        const std::string path = std::string(repository_root()) + "/" + rel;
-        auto root = read_dta_file(path);
-        if (!root) continue;
-        // Only the file's own forms: what it #requires (a pack's shapes) is left out.
-        std::vector<Node> own;
-        for (const Node& n : **root)
-            if (const Array* a = n.try_array(); a && a->file().str() == path) own.push_back(n);
-        auto mine = Array::make_from(own);
-        nested_once += syntax::print(*mine, {.tables = false});
-        headed_once += syntax::print(*mine);
+        auto mine = own_forms(std::string(repository_root()) + "/" + rel);
+        if (!mine) continue;
+        nested_once += syntax::print(**mine, {.tables = false});
+        headed_once += syntax::print(**mine);
     }
     std::string nested, headed;
     while (nested.size() < bytes) {
@@ -159,6 +169,8 @@ void add(syntax::TableStats& total, const syntax::TableStats& s) {
     total.cells += s.cells;
     total.holes += s.holes;
     total.list_cells += s.list_cells;
+    total.list_symbol_first += s.list_symbol_first;
+    total.list_column_first += s.list_column_first;
     total.parens_removed += s.parens_removed;
     total.names_removed += s.names_removed;
     total.flat_candidates += s.flat_candidates;
@@ -218,7 +230,7 @@ int main(int argc, char** argv) {
         std::printf("%-44s %5s %5s %4s %6s %5s %5s %5s %6s %5s %5s %6s\n", "file", "cands", "tabls",
                     "rows", "cells", "holes", "lists", "cols", "parens", "flat", "frows", "fields");
         for (const std::string& rel : corpus_files()) {
-            auto root = read_dta_file(std::string(repository_root()) + "/" + rel);
+            auto root = own_forms(std::string(repository_root()) + "/" + rel);
             if (!root) continue;
             const syntax::TableStats s = syntax::table_stats(**root);
             if (s.candidates == 0) continue;
@@ -229,6 +241,45 @@ int main(int argc, char** argv) {
         }
         print_stats("total", total);
         print_stats("the stacks' data files (stacks/*/data/)", stacks_data);
+        std::printf("list cells that begin with a symbol: %zu of %zu (%zu with a column's name)\n",
+                    total.list_symbol_first, total.list_cells, total.list_column_first);
+        return 0;
+    }
+    if (cmd == "measure") {
+        // Each stacks data file's own forms, printed by the same printer nested and headed:
+        // the syntax's effect alone, with the comments and layout the hand-written files keep
+        // left out of both.
+        auto measure = [](const std::string& text, size_t& lines, size_t& longest) {
+            lines = 0;
+            longest = 0;
+            size_t start = 0;
+            while (start < text.size()) {
+                size_t end = text.find('\n', start);
+                if (end == std::string::npos) end = text.size();
+                ++lines;
+                longest = std::max(longest, end - start);
+                start = end + 1;
+            }
+        };
+        std::printf("%-44s %6s %7s %5s %6s %7s %5s\n", "file", "lines", "bytes", "long", "lines",
+                    "bytes", "long");
+        size_t tl[2] = {0, 0}, tb[2] = {0, 0};
+        for (const std::string& rel : corpus_files()) {
+            if (!rel.starts_with("stacks/") || rel.find("/data/") == std::string::npos) continue;
+            auto mine = own_forms(std::string(repository_root()) + "/" + rel);
+            if (!mine) continue;
+            const std::string texts[2] = {syntax::print(**mine, {.tables = false}),
+                                          syntax::print(**mine)};
+            size_t lines[2], longest[2];
+            for (int k = 0; k < 2; ++k) {
+                measure(texts[k], lines[k], longest[k]);
+                tl[k] += lines[k];
+                tb[k] += texts[k].size();
+            }
+            std::printf("%-44s %6zu %7zu %5zu %6zu %7zu %5zu\n", rel.c_str(), lines[0],
+                        texts[0].size(), longest[0], lines[1], texts[1].size(), longest[1]);
+        }
+        std::printf("%-44s %6zu %7zu %5s %6zu %7zu\n", "total", tl[0], tb[0], "", tl[1], tb[1]);
         return 0;
     }
     if (cmd == "bench-stacks") {
@@ -271,7 +322,7 @@ int main(int argc, char** argv) {
         std::string text = input_text(argv[3], ok);
         if (!ok) return 1;
         const int n = std::atoi(argv[4]);
-        if (what != "baker") {
+        if (what == "new" || what == "lex" || what == "rewrite") {
             auto root = read_string(text, "count.dta");
             if (!root) return fail(root.error());
             text = syntax::print(**root);
@@ -282,11 +333,11 @@ int main(int argc, char** argv) {
                 auto r = read_string(text, "count.dta");
                 if (!r) return fail(r.error());
                 sink += (*r)->size();
-            } else if (what == "new") {
+            } else if (what == "new" || what == "same") {
                 auto r = syntax::read(text, "count.new");
                 if (!r) return fail(r.error());
                 sink += (*r)->size();
-            } else if (what == "lex") {
+            } else if (what == "lex" || what == "lex-same") {
                 sink += read_structure(text).tokens.size();
             } else if (what == "rewrite") {
                 auto r = syntax::desugar(text, "count.new");

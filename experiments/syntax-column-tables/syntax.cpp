@@ -1132,10 +1132,15 @@ void stats_walk(const Array& a, const PrintOptions& o, size_t depth, TableStats&
                 s.names_removed += layout.filled;
                 for (uint32_t r = 1; r < a.size(); ++r)
                     for (const Array& f : a[r].array()->subarrays()) {
-                        if (f.size() == 2 && f[1].type() != Type::Array)
+                        if (f.size() == 2 && f[1].type() != Type::Array) {
                             s.parens_removed += 2;
-                        else
-                            ++s.list_cells;
+                            continue;
+                        }
+                        ++s.list_cells;
+                        if (f.size() > 1 && f[1].type() == Type::Symbol) {
+                            ++s.list_symbol_first;
+                            if (layout.is_column(*f[1].try_sym())) ++s.list_column_first;
+                        }
                     }
                 break;
             }
