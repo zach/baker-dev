@@ -865,18 +865,11 @@ TEST_CASE("a tool tells a type already known from a refusal without reading word
     CHECK(ctx.declare_object("t", "Plane").error().code() == ErrorCode::Type);
 }
 
-TEST_CASE("check holds variadic operators to their literal types, and `=` is a demand") {
+namespace {
+// The variadic operators' report: the same for a prefix tree and its infix spelling.
+void check_operator_report(const char* text) {
     Context ctx;
-    const auto tree = parse(
-        "(rules\n"
-        "  (a {+ 1 \"x\"})\n"
-        "  (b {1 + 2 + \"x\"})\n"
-        "  (c {0.3 <= $value <= 0.7})\n"
-        "  (d {1 < 2 < three})\n"
-        "  (e {$x = 1})\n"
-        "  (f {$i += 1})\n"
-        "  (g {$i += one}))\n",
-        "rules.dta");
+    const auto tree = parse(text, "rules.dta");
     const CheckReport report = check(*tree, ctx);
     REQUIRE(report.errors.size() == 4);
     CHECK(to_string(report.errors[0]) ==
@@ -892,4 +885,28 @@ TEST_CASE("check holds variadic operators to their literal types, and `=` is a d
     REQUIRE(report.demand.size() == 1);
     CHECK(report.demand[0].name == Symbol("="));
     CHECK(report.demand[0].sites[0].line == 6);
+}
+}  // namespace
+
+TEST_CASE("check holds variadic operators to their literal types, and `=` is a demand") {
+    check_operator_report(
+        "(rules\n"
+        "  (a {+ 1 \"x\"})\n"
+        "  (b {+ 1 2 \"x\"})\n"
+        "  (c {<= 0.3 $value 0.7})\n"
+        "  (d {< 1 2 three})\n"
+        "  (e {= $x 1})\n"
+        "  (f {+= $i 1})\n"
+        "  (g {+= $i one}))\n");
+#if BAKER_CURLY_INFIX
+    check_operator_report(
+        "(rules\n"
+        "  (a {+ 1 \"x\"})\n"
+        "  (b {1 + 2 + \"x\"})\n"
+        "  (c {0.3 <= $value <= 0.7})\n"
+        "  (d {1 < 2 < three})\n"
+        "  (e {$x = 1})\n"
+        "  (f {$i += 1})\n"
+        "  (g {$i += one}))\n");
+#endif
 }

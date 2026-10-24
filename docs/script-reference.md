@@ -16,9 +16,9 @@ A parameter in [brackets] is optional, `unevaluated` is passed as written, and
 
 ### `!=`
 
-- `{!= value value values...}` → bool
+- `{!= value value}` → bool
 
-*Native.* Inequality of every adjacent pair.
+*Native.* Inequality.
 
 ### `%`
 
@@ -30,85 +30,85 @@ A parameter in [brackets] is optional, `unevaluated` is passed as written, and
 
 - `{&& values...}` → bool
 
-*Native.* As `and`, for infix: `{$a && $b}`.
+*Native.* As `and`: `{&& $a $b}`.
 
 ### `*`
 
 - `{* number number number...}` → value
 
-*Native.* Product: `{* 2 3 4}`, or infix `{2 * 3 * 4}`.
+*Native.* Product of two numbers or more: `{* 2 3 4}` is 24.
 
 ### `*=`
 
 - `{*= $variable number}` → value
 
-*Native.* `{$x *= n}`: multiplies, stores and returns the new value.
+*Native.* `{*= $x n}`: multiplies, stores and returns the new value.
 
 ### `+`
 
 - `{+ number number number...}` → value
 
-*Native.* Sum: `{+ 1 2 3}`, or infix `{1 + 2 + 3}`.
+*Native.* Sum of two numbers or more, left to right: `{+ 1 2 3}` is 6.
 
 ### `+=`
 
 - `{+= $variable number}` → value
 
-*Native.* `{$x += n}`, or in a method `{[property] += n}`: adds, stores and returns the new value.
+*Native.* `{+= $x n}`, or in a method `{+= [property] n}`: adds, stores and returns the new value.
 
 ### `-`
 
 - `{- number number...}` → value
 
-*Native.* Difference, left to right: `{10 - 2 - 3}` is 5; with one argument, negation.
+*Native.* Difference, left to right: `{- 10 2 3}` is 5; with one argument, negation.
 
 ### `-=`
 
 - `{-= $variable number}` → value
 
-*Native.* `{$x -= n}`: subtracts, stores and returns the new value.
+*Native.* `{-= $x n}`: subtracts, stores and returns the new value.
 
 ### `/`
 
-- `{/ number number number...}` → value
+- `{/ float float}` → float
 
-*Native.* Quotient, left to right, always a float.
+*Native.* Quotient, always a float.
 
 ### `/=`
 
 - `{/= $variable number}` → value
 
-*Native.* `{$x /= n}`: divides (a float), stores and returns it.
+*Native.* `{/= $x n}`: divides (a float), stores and returns it.
 
 ### `<`
 
 - `{< number number number...}` → bool
 
-*Native.* Less than: `{< 1 2}`, or chained, `{1 < $x < 10}`.
+*Native.* Less than, over every adjacent pair: `{< 1 $x 10}`.
 
 ### `<=`
 
 - `{<= number number number...}` → bool
 
-*Native.* Less than or equal: `{0.3 <= $value <= 0.7}` is a band.
+*Native.* Less than or equal, over every adjacent pair: `{<= 0.3 $value 0.7}` is a band.
 
 ### `==`
 
-- `{== value value values...}` → bool
+- `{== value value}` → bool
 
-*Native.* Equality of every adjacent pair: numbers by value (1 equals 1.0), anything else by structure.
+*Native.* Equality: numbers by value (1 equals 1.0), anything else by structure.
 
 ### `>`
 
 - `{> number number number...}` → bool
 
-*Native.* Greater than.
+*Native.* Greater than, over every adjacent pair.
 
 ### `>=`
 
 - `{>= number number number...}` → bool
 
-*Native.* Greater than or equal.
+*Native.* Greater than or equal, over every adjacent pair.
 
 ### `and`
 
@@ -204,7 +204,7 @@ A parameter in [brackets] is optional, `unevaluated` is passed as written, and
 
 - `{|| values...}` → bool
 
-*Native.* As `or`, for infix: `{$a || $b}`.
+*Native.* As `or`: `{|| $a $b}`.
 
 ## Types
 

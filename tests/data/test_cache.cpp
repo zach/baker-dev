@@ -591,6 +591,7 @@ TEST_CASE("a cache replays packs' harness metadata and files' origins (D91)") {
     CHECK(o->tool == Symbol("export"));
 }
 
+#if BAKER_CURLY_INFIX
 TEST_CASE("the written-infix flag rides the cache, so a cached tree prints as it was written") {
     auto root = ok(read_string("(pass {0.3 <= $value <= 0.7})\n{$i += 1}", "t.dta"));
     auto cached = ok(read_cache_bytes(bytes_of(*root)));
@@ -600,3 +601,4 @@ TEST_CASE("the written-infix flag rides the cache, so a cached tree prints as it
     CHECK((*cached)[1].array()->written_infix());
     CHECK(to_dta(*cached) == "(pass {0.3 <= $value <= 0.7})\n{$i += 1}\n");
 }
+#endif

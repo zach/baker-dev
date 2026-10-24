@@ -149,13 +149,8 @@ struct Global {
 [[nodiscard]] Str arity_message(Symbol name, uint32_t min, uint32_t max, size_t given);
 using detail::quoted;
 
-// Errors are built out of line, so the evaluator's frames, which nest once per script call,
-// hold no message temporaries.
-#if defined(_MSC_VER)
-#define BAKER_COLD __declspec(noinline)
-#else
-#define BAKER_COLD [[gnu::noinline, gnu::cold]]
-#endif
+// Errors are built out of line (BAKER_COLD, data/text.hpp), so the evaluator's frames, which
+// nest once per script call, hold no message temporaries.
 
 // Records the current Context's live call frames in `e`, unless it already has a stack.
 void record_stack(Error& e);

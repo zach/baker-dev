@@ -8,6 +8,7 @@
 //                         exit 1 on a fault
 //   stats                 the converter's counts per file, and every changed command
 //   bench [<file.dta>]    baker::read_string on the DTA against itself on the infix text
+//   bench --operators     the same on the generated text with two operator calls a record
 #include "experiments.hpp"
 #include "syntax.hpp"
 
@@ -35,7 +36,7 @@ int fail(const Error& e) {
 int usage() {
     std::fprintf(stderr,
                  "usage: baker_syntax_%.*s to-new <file.dta> | to-dta <file> | check | stats | "
-                 "bench [<file.dta>]\n",
+                 "bench [<file.dta> | --operators]\n",
                  static_cast<int>(syntax::kName.size()), syntax::kName.data());
     return 2;
 }
@@ -232,7 +233,24 @@ int main(int argc, char** argv) {
     if (cmd == "stats") return stats();
     if (cmd == "bench") {
         std::string text, converted;
-        if (argc > 2) {
+        if (argc > 2 && std::string_view(argv[2]) == "--operators") {
+            // Each record of the parse benchmark's text gains a band and a sum of a product,
+            // the corpus's two commonest shapes; the converted text is the same tree, infix.
+            const std::string plain = generated_config_text(4 * 1024 * 1024);
+            const std::string_view at = "   (on_hit";
+            size_t i = 0;
+            for (size_t j; (j = plain.find(at, i)) != std::string::npos; i = j + at.size()) {
+                text.append(plain, i, j - i);
+                text +=
+                    "   (pass {and {>= $value 0.3} {<= $value 0.7}})\n"
+                    "   (score {+ {* $hits 10} $bonus})\n";
+                text += at;
+            }
+            text.append(plain, i, std::string::npos);
+            auto root = read_string(text, "bench.dta");
+            if (!root) return fail(root.error());
+            converted = syntax::print(**root);
+        } else if (argc > 2) {
             auto t = read_text_file(argv[2]);
             if (!t) return fail(t.error());
             text = *t;

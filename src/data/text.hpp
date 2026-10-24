@@ -64,9 +64,21 @@ struct Number {
 // True if `s` reads back as this symbol when written bare (unquoted).
 [[nodiscard]] bool is_bare_symbol(std::string_view s) noexcept;
 
+// Out of line and out of the hot path: a function the common case never calls.
+#if defined(_MSC_VER)
+#define BAKER_COLD __declspec(noinline)
+#else
+#define BAKER_COLD [[gnu::noinline, gnu::cold]]
+#endif
+
 // The infix rule (dev/syntax-curly-infix-design.md): a {...} whose odd slots are one bare
-// operator reads head-first, `{0.3 <= $value <= 0.7}` for `{<= 0.3 $value 0.7}`. An
-// operator is a symbol of these bytes only; a table, so the parser's test is one load a byte.
+// operator reads head-first, `{0.3 <= $value <= 0.7}` for `{<= 0.3 $value 0.7}`. A
+// prototype behind its switch (BAKER_CURLY_INFIX, CMake): off, the reader and the printer
+// are main's. An operator is a symbol of these bytes only; a table, one load a byte.
+#ifndef BAKER_CURLY_INFIX
+#define BAKER_CURLY_INFIX 0
+#endif
+inline constexpr bool kCurlyInfix = BAKER_CURLY_INFIX != 0;
 inline constexpr std::array<bool, 256> kOperatorByte = [] {
     std::array<bool, 256> t{};
     for (const char c : std::string_view("+-*/%<>=!&|^~")) t[static_cast<unsigned char>(c)] = true;

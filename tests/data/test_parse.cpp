@@ -262,6 +262,8 @@ TEST_CASE("an error located by an array's line has no column") {
 
 // --- The infix rule (dev/syntax-curly-infix-design.md) ---
 
+#if BAKER_CURLY_INFIX
+
 namespace {
 const Array& command_at(const Ref<Array>& root, size_t i) {
     REQUIRE(i < root->size());
@@ -335,6 +337,23 @@ TEST_CASE("{c ? a : b} is {if c a b}, and {c ? a} is {if c a}") {
     CHECK(two[1].type() == Type::Var);
     CHECK(two[2].try_int() == 1);
     CHECK(to_string((*root)[1]) == "{$x ? 1}");
+}
+
+TEST_CASE("a ternary's if is written nowhere: its span is empty, its operands' are theirs") {
+    const std::string text = "{$c ? 1 : 2}";
+    LoadSession s;
+    SourceMap map;
+    s.source_map = &map;
+    auto root = read_string(text, "t.dta", s);
+    REQUIRE(root);
+    const Array& t = *(**root)[0].array();
+    REQUIRE(t.size() == 4);
+    REQUIRE(map.span(t, 0));
+    CHECK(map.span(t, 0)->file.empty());
+    CHECK_FALSE(map.span(t, 0)->literal());
+    CHECK(text.substr(map.span(t, 1)->begin, 2) == "$c");
+    CHECK(text.substr(map.span(t, 2)->begin, 1) == "1");
+    CHECK(text.substr(map.span(t, 3)->begin, 1) == "2");
 }
 
 TEST_CASE("mixed operators in one brace are an error at the brace, with its column") {
@@ -428,3 +447,14 @@ TEST_CASE("an #autorun brace reads infix too") {
     CHECK(a[2].try_int() == 1);
     CHECK(a.written_infix());
 }
+#else
+TEST_CASE("with the infix switch off, a brace of operators reads and prints as main's") {
+    auto root = parse("{0.3 <= $value <= 0.7} {+ - 1} {$c ? 1 : 2}");
+    const Array& band = *(*root)[0].array();
+    REQUIRE(band.size() == 5);
+    CHECK(band[0].try_float() == 0.3);
+    CHECK(band[1].is("<="));
+    CHECK_FALSE(band.written_infix());
+    CHECK(to_dta(*root) == "{0.3 <= $value <= 0.7}\n{+ - 1}\n{$c ? 1 : 2}\n");
+}
+#endif

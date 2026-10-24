@@ -270,6 +270,8 @@ TEST_CASE("both double formatters round-trip exactly") {
 
 // --- Infix (dev/syntax-curly-infix-design.md) ---
 
+#if BAKER_CURLY_INFIX
+
 namespace {
 Node command_of(std::vector<Node> nodes) {
     return Node(Array::make_from(nodes), Type::Command);
@@ -358,3 +360,4 @@ TEST_CASE("a long infix command wraps one operand a line, the operator ending ea
           "      9})\n");
     check_round_trip(*tern);
 }
+#endif

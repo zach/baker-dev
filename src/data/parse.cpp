@@ -446,19 +446,21 @@ public:
     }
 
 private:
-    enum class Frame : uint8_t { Root, Array, Command, Property, MacroDef, DefineBody, Autorun };
+    // The braces last, so the infix rule tests for one with one comparison.
+    enum class Frame : uint8_t { Root, Array, Property, MacroDef, DefineBody, Command, Autorun };
     struct FrameInfo {
         Frame kind;
         size_t start;
         int32_t line;
         Symbol name;  // DefineBody
         char open = '(';
-        uint32_t begin = 0;    // offset of the opening bracket
-        bool removes = false;  // holds #remove, which must be its one value (D143)
-        // An odd slot was written as something other than a bare symbol token: a quoted
-        // symbol, `{+ '-' 1}`, or a macro use. Such a brace is never read infix.
-        bool no_infix = false;
+        uint32_t begin = 0;  // offset of the opening bracket
+        // kRemoves: holds #remove, which must be its one value (D143). kNoInfix: an odd slot
+        // was written as something other than a bare symbol token, a quoted symbol (`{+ '-'
+        // 1}`) or a macro use, so the brace is never read infix (the infix rule, below).
+        uint8_t marks = 0;
     };
+    static constexpr uint8_t kRemoves = 1, kNoInfix = 2;
     struct Cond {
         bool active;         // tokens in the current branch are read
         bool parent_active;  // the enclosing region is read
@@ -521,21 +523,25 @@ private:
 
     bool symbol(const Token& t) {
         const Symbol sym(t.text);
-        FrameInfo& f = frames_.back();
+        const FrameInfo& f = frames_.back();
         const bool naming_macro = f.kind == Frame::MacroDef && scratch_.size() == f.start;
-        const bool odd = ((scratch_.size() - f.start) & 1) != 0;
         if (!t.quoted && !naming_macro && !s_.st_->defines.empty()) {
             if (const Array* body = s_.macro(sym)) {
                 if (pack_ >= 0) one_way(sym, t.line);
-                if (odd || body->size() != 1) f.no_infix = true;
+                if constexpr (kCurlyInfix)
+                    if (body->size() != 1 || odd_slot()) frames_.back().marks |= kNoInfix;
                 const SourceSpan from{file_, t.begin, t.end, sym};
                 for (const Node& n : *body)
                     if (!push(n, from)) return false;
                 return true;
             }
         }
-        if (t.quoted && odd) f.no_infix = true;
+        if constexpr (kCurlyInfix)
+            if (t.quoted && odd_slot()) frames_.back().marks |= kNoInfix;
         return push(Node(sym), here(t));
+    }
+    [[nodiscard]] bool odd_slot() const noexcept {
+        return ((scratch_.size() - frames_.back().start) & 1) != 0;
     }
 
     bool open(char bracket, int32_t line, uint32_t begin) {
@@ -570,7 +576,7 @@ private:
                         t.line, t.begin);
         frames_.pop_back();
         std::span<Node> kids(scratch_.data() + f.start, scratch_.size() - f.start);
-        if (f.removes && kids.size() != 2) return bad_remove(f.line, f.begin);
+        if ((f.marks & kRemoves) && kids.size() != 2) return bad_remove(f.line, f.begin);
 
         if (f.kind == Frame::MacroDef) {
             const auto name = kids.empty() ? std::nullopt : kids[0].try_sym();
@@ -586,10 +592,15 @@ private:
             return true;
         }
 
+        // The infix rule, after a test of slot 1 that a call (`{game add_score 10}`) fails.
         bool infix = false;
-        if ((f.kind == Frame::Command || f.kind == Frame::Autorun) && kids.size() >= 3 &&
-            (kids.size() & 1) && !f.no_infix && !infix_rule(kids, f, infix))
-            return false;
+        if (kCurlyInfix && f.kind >= Frame::Command && (kids.size() & 1) && kids.size() >= 3 &&
+            !(f.marks & kNoInfix) && infix_head(kids[1])) {
+            const int r = infix_rule(kids.data(), kids.size(), f.start, f.line, f.begin);
+            if (r < 0) return false;
+            infix = r > 0;
+            if (infix) kids = kids.first(static_cast<size_t>(r));
+        }
         Ref<Array> arr = arena_.make_array(kids, file_, f.line);
         if (infix) arr->set_written_infix(true);
         record(arr, f.start, f.begin, t.end);
@@ -625,54 +636,50 @@ private:
     // place and `kids` shrinks to the command. Only when an operand (an even slot) is a
     // number, variable, property or command, the guard, so a brace of bare symbols means
     // what it did. An operator at slot 1 with neither shape is an error at the brace.
-    bool infix_rule(std::span<Node>& kids, const FrameInfo& f, bool& fired) {
-        const auto op = kids[1].try_sym();
-        if (!op) return true;
-        const bool ternary = kids[1].is(sym_question());
-        if (!ternary && !is_operator_symbol(op->str())) return true;
+    static bool infix_head(const Node& n) noexcept {
+        const auto s = n.try_sym();
+        if (!s || s->str().empty()) return false;
+        const char c = s->str()[0];
+        return c == '?' || kOperatorByte[static_cast<unsigned char>(c)];
+    }
+    // Returns the command's new size, 0 for a command as written, -1 after an error. Out of
+    // line, its arguments by value: the hot loop's close keeps its registers.
+    BAKER_COLD int infix_rule(Node* kids, size_t n, size_t start, int32_t line, uint32_t begin) {
+        const std::string_view op = kids[1].try_sym()->str();
+        const bool ternary = op == "?";
+        if (!ternary && !is_operator_symbol(op)) return 0;
         bool operand = false;
-        for (size_t i = 0; i < kids.size(); i += 2) operand = operand || is_infix_operand(kids[i]);
-        if (!operand) return true;
-        const size_t n = kids.size();
+        for (size_t i = 0; i < n; i += 2) operand = operand || is_infix_operand(kids[i]);
+        if (!operand) return 0;
         auto swap = [&](size_t a, size_t b) {
             kids[a].swap(kids[b]);
-            if (map_) std::swap(spans_[f.start + a], spans_[f.start + b]);
+            if (map_) std::swap(spans_[start + a], spans_[start + b]);
         };
         if (ternary) {
-            if (n != 3 && (n != 5 || !kids[3].is(sym_colon()))) return mixed(f);
-            // [c ? a : b] -> [if c a b]; the `if` takes the `?`'s span.
+            if (n != 3 && (n != 5 || !kids[3].is(":"))) return mixed(line, begin);
+            // [c ? a : b] -> [if c a b]; the `if` is written nowhere, so its span is empty and
+            // write-back refuses to replace it.
             swap(0, 1);
-            kids[0] = Node(sym_if());
+            kids[0] = Node(Symbol("if"));
+            if (map_) spans_[start] = SourceSpan{};
             if (n == 5) swap(3, 4);
         } else {
+            const Symbol head = *kids[1].try_sym();
             for (size_t i = 3; i < n; i += 2)
-                if (!kids[i].is(*op)) return mixed(f);
+                if (!kids[i].is(head)) return mixed(line, begin);
             // [k0 op k2 op k4 ...] -> [op k0 k2 k4 ...]: each operand moves left over the
             // operators before it, which end up past the command and are dropped.
             swap(0, 1);
             for (size_t i = 3, j = 4; j < n; ++i, j += 2) swap(i, j);
         }
-        kids = kids.first((n + 3) / 2);
-        if (map_) spans_.resize(f.start + kids.size());  // the operators' spans go with them
-        fired = true;
-        return true;
+        const size_t size = (n + 3) / 2;
+        if (map_) spans_.resize(start + size);  // the operators' spans go with them
+        return static_cast<int>(size);
     }
-    bool mixed(const FrameInfo& f) {
-        return fail(ErrorCode::Syntax,
-                    "mixed operators in {...}: nest braces to say which applies first", f.line,
-                    f.begin);
-    }
-    static const Symbol& sym_question() {
-        static const Symbol s("?");
-        return s;
-    }
-    static const Symbol& sym_colon() {
-        static const Symbol s(":");
-        return s;
-    }
-    static const Symbol& sym_if() {
-        static const Symbol s("if");
-        return s;
+    int mixed(int32_t line, uint32_t begin) {
+        fail(ErrorCode::Syntax, "mixed operators in {...}: nest braces to say which applies first",
+             line, begin);
+        return -1;
     }
 
     static const Symbol& sym_pack() {
@@ -911,7 +918,7 @@ private:
         if (f.kind != Frame::Array || scratch_.size() != f.start + 1 ||
             !scratch_[f.start].try_sym())
             return bad_remove(t.line, t.begin);
-        f.removes = true;
+        f.marks |= kRemoves;
         return push(Node(remove_marker()), here(t));
     }
 

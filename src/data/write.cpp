@@ -39,7 +39,10 @@ bool marker_slot(const Node& n, const Array& a, uint32_t i) noexcept {
 // How `n`, an array-like node, prints: a command by its infix shape
 // (dev/syntax-curly-infix-design.md); every other array as today.
 detail::InfixShape shape_of(const Node& n, const Array& a) noexcept {
-    return n.type() == Type::Command ? detail::infix_shape(a) : detail::InfixShape::None;
+    if constexpr (detail::kCurlyInfix)
+        return n.type() == Type::Command ? detail::infix_shape(a) : detail::InfixShape::None;
+    else
+        return detail::InfixShape::None;  // the switch off: main's printer
 }
 // Whether `a[i]` is an odd slot of a command printed prefix that the reader would take as an
 // infix operator: `{+ '-' 1}` quotes it.

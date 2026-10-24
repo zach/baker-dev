@@ -142,13 +142,15 @@ TEST_CASE("+= and -= store through a [property] in a handler (dev/syntax-curly-i
     Context ctx;
     Hero hero;
     ok(ctx.add(hero, "hero"));
-    ok(ctx.eval("{class Creature (mend ($n) {[hp] += $n}) (wound ($n) {[hp] -= $n})}"));
+    ok(ctx.eval("{class Creature (mend ($n) {+= [hp] $n}) (wound ($n) {-= [hp] $n})}"));
     CHECK(ok(ctx.eval("{hero mend 2}")).as_int() == 12);
     CHECK(ok(ctx.eval("{hero wound 5}")).as_int() == 7);
     CHECK(ok(ctx.eval("{hero get hp}")).as_int() == 7);
-    // The same handler written prefix is the same tree.
-    ok(ctx.eval("{class Creature (wound2 ($n) {-= [hp] $n})}"));
+#if BAKER_CURLY_INFIX
+    // Written infix, the same tree.
+    ok(ctx.eval("{class Creature (wound2 ($n) {[hp] -= $n})}"));
     CHECK(ok(ctx.eval("{hero wound2 1}")).as_int() == 6);
+#endif
 }
 
 TEST_CASE("a destroyed object leaves a stale handle, never a dangling pointer") {

@@ -97,7 +97,7 @@ int main() {
     auto tree = baker::read_string(
         "{add 1 2} {+ 1 2} {+ 1.5 2} {add $x 1} $x {if 1 2 3} {add1 1} {add {add 1 2} 3} "
         "{bob grow 0} $loaded $solo {len (1 2 3)} "
-        "{0.3 <= $v <= 0.7} {and {>= $v 0.3} {<= $v 0.7}}",
+        "{<= 0.3 $v 0.7} {and {>= $v 0.3} {<= $v 0.7}}",
         "bench.dta");
     if (!tree) return 1;
     const char* names[] = {
@@ -113,8 +113,8 @@ int main() {
         "$loaded: an array from a load",
         "$solo: an array built by the host",
         "{len (1 2 3)}: a const Array& argument",
-        "{0.3 <= $v <= 0.7}: one chained call",
-        "{and {>= $v 0.3} {<= $v 0.7}}: three calls",
+        "{<= 0.3 $v 0.7}: a band, one chained call",
+        "{and {>= $v 0.3} {<= $v 0.7}}: a band, three calls",
     };
 
     std::printf("evaluating a command node (best of 7, 2M calls each)\n");

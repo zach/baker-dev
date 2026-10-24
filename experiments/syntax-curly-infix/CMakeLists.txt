@@ -2,7 +2,8 @@
 # printer; this directory holds the converter that rewrites DTA's operator calls as infix,
 # the corpus checks, and the samples. It links baker::script to evaluate each rewrite against
 # the command it replaces.
-if(NOT TARGET baker::script)
+# The rule is the core's, behind its switch (BAKER_CURLY_INFIX, on with the experiments).
+if(NOT TARGET baker::script OR NOT BAKER_CURLY_INFIX)
   return()
 endif()
 

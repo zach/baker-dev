@@ -228,9 +228,6 @@ bool less_eq(const Node& a, const Node& b) noexcept {
     if (a.type() == Type::Int && b.type() == Type::Int) return *a.try_int() <= *b.try_int();
     return as_double(a) <= as_double(b);
 }
-bool unequal(const Node& a, const Node& b) noexcept {
-    return !equal(a, b);
-}
 bool greater(const Node& a, const Node& b) noexcept {
     return less(b, a);
 }
@@ -238,14 +235,15 @@ bool greater_eq(const Node& a, const Node& b) noexcept {
     return less_eq(b, a);
 }
 
-// `cmp` over every adjacent pair of a, b and the rest, each evaluated once, stopping at the
-// first pair that fails. `first` > 0: the rest must be numbers, and is argument `first` on.
+// `cmp` over every adjacent pair of a, b and the rest (numbers, argument 3 on), each evaluated
+// once, stopping at the first pair that fails.
 template <class Cmp>
-Expected<bool> chain(const Node& a, const Node& b, const Args& rest, Cmp cmp, size_t first = 0) {
+Expected<bool> chain(const Node& a, const Node& b, const Args& rest, Cmp cmp) {
     if (!cmp(a, b)) return false;
+    if (rest.size() == 0) return true;
     Node prev = b;
     for (size_t i = 0; i < rest.size(); ++i) {
-        auto v = first ? number_at(rest, i, first) : rest.eval(i);
+        auto v = number_at(rest, i, 3);
         if (!v) return Unexpected(std::move(v).error());
         if (!cmp(prev, *v)) return false;
         prev = std::move(*v);
@@ -253,18 +251,15 @@ Expected<bool> chain(const Node& a, const Node& b, const Args& rest, Cmp cmp, si
     return true;
 }
 
-// The operators as natives, each its own function so the operation is a constant: `+ * /`
-// take two numbers or more, the comparisons chain over any values or over numbers.
+// The operators as natives, each its own function so the operation is a constant: `+ *`
+// fold two numbers or more, `< <= > >=` chain over two numbers or more.
 template <Op op>
 constexpr auto folded = [](const Number& a, const Number& b, Numbers more) {
     return fold(op, arith(op, a.value, b.value), more.rest, 3);
 };
 template <bool (*cmp)(const Node&, const Node&) noexcept>
-constexpr auto chained =
-    [](const Node& a, const Node& b, Args rest) { return chain(a, b, rest, cmp); };
-template <bool (*cmp)(const Node&, const Node&) noexcept>
 constexpr auto ordered = [](const Number& a, const Number& b, Numbers more) {
-    return chain(a.value, b.value, more.rest, cmp, 3);
+    return chain(a.value, b.value, more.rest, cmp);
 };
 
 template <class F>
@@ -339,7 +334,7 @@ void register_builtins(Context& ctx) {
 
     // --- Arithmetic: variadic, folded left (dev/syntax-curly-infix-design.md). Ints stay
     // ints (wrapping on overflow) until a float joins. ---
-    add(ctx, "+", folded<Op::Add>, "Sum: `{+ 1 2 3}`, or infix `{1 + 2 + 3}`.");
+    add(ctx, "+", folded<Op::Add>, "Sum of two numbers or more, left to right: `{+ 1 2 3}` is 6.");
     add(
         ctx, "-",
         [](const Number& a, Numbers more) -> Expected<Node> {
@@ -347,9 +342,9 @@ void register_builtins(Context& ctx) {
             if (const auto i = a.value.try_int()) return Node(wrap(0 - static_cast<uint64_t>(*i)));
             return Node(-*a.value.try_float());
         },
-        "Difference, left to right: `{10 - 2 - 3}` is 5; with one argument, negation.");
-    add(ctx, "*", folded<Op::Mul>, "Product: `{* 2 3 4}`, or infix `{2 * 3 * 4}`.");
-    add(ctx, "/", folded<Op::Div>, "Quotient, left to right, always a float.");
+        "Difference, left to right: `{- 10 2 3}` is 5; with one argument, negation.");
+    add(ctx, "*", folded<Op::Mul>, "Product of two numbers or more: `{* 2 3 4}` is 24.");
+    add(ctx, "/", [](double a, double b) { return a / b; }, "Quotient, always a float.");
     add(
         ctx, "%",
         [](int64_t x, int64_t y) -> Expected<int64_t> {
@@ -376,22 +371,23 @@ void register_builtins(Context& ctx) {
         };
     };
     add(ctx, "+=", assign(Op::Add),
-        "`{$x += n}`, or in a method `{[property] += n}`: adds, "
-        "stores and returns the new value.");
-    add(ctx, "-=", assign(Op::Sub), "`{$x -= n}`: subtracts, stores and returns the new value.");
-    add(ctx, "*=", assign(Op::Mul), "`{$x *= n}`: multiplies, stores and returns the new value.");
-    add(ctx, "/=", assign(Op::Div), "`{$x /= n}`: divides (a float), stores and returns it.");
+        "`{+= $x n}`, or in a method `{+= [property] n}`: adds, stores and returns the new "
+        "value.");
+    add(ctx, "-=", assign(Op::Sub), "`{-= $x n}`: subtracts, stores and returns the new value.");
+    add(ctx, "*=", assign(Op::Mul), "`{*= $x n}`: multiplies, stores and returns the new value.");
+    add(ctx, "/=", assign(Op::Div), "`{/= $x n}`: divides (a float), stores and returns it.");
 
     // --- Comparison: chained over every adjacent pair, each argument evaluated once, stopping
     // at the first pair that fails: `{0.3 <= $value <= 0.7}`. ---
-    add(ctx, "==", chained<equal>,
-        "Equality of every adjacent pair: numbers by value (1 equals 1.0), anything else by "
-        "structure.");
-    add(ctx, "!=", chained<unequal>, "Inequality of every adjacent pair.");
-    add(ctx, "<", ordered<less>, "Less than: `{< 1 2}`, or chained, `{1 < $x < 10}`.");
-    add(ctx, "<=", ordered<less_eq>, "Less than or equal: `{0.3 <= $value <= 0.7}` is a band.");
-    add(ctx, ">", ordered<greater>, "Greater than.");
-    add(ctx, ">=", ordered<greater_eq>, "Greater than or equal.");
+    add(
+        ctx, "==", [](const Node& a, const Node& b) { return equal(a, b); },
+        "Equality: numbers by value (1 equals 1.0), anything else by structure.");
+    add(ctx, "!=", [](const Node& a, const Node& b) { return !equal(a, b); }, "Inequality.");
+    add(ctx, "<", ordered<less>, "Less than, over every adjacent pair: `{< 1 $x 10}`.");
+    add(ctx, "<=", ordered<less_eq>,
+        "Less than or equal, over every adjacent pair: `{<= 0.3 $value 0.7}` is a band.");
+    add(ctx, ">", ordered<greater>, "Greater than, over every adjacent pair.");
+    add(ctx, ">=", ordered<greater_eq>, "Greater than or equal, over every adjacent pair.");
 
     // --- Logic. and/or stop at the first argument that decides the result; `&&`, `||` and
     // `!` are the same functions, for infix: `{{0 < $v} && {$v <= 10}}`. ---
@@ -413,8 +409,8 @@ void register_builtins(Context& ctx) {
     add(ctx, "and", all, "True if every argument is; stops at the first false one.");
     add(ctx, "or", any, "True if any argument is; stops at the first true one.");
     add(ctx, "not", negate, "Negation.");
-    add(ctx, "&&", all, "As `and`, for infix: `{$a && $b}`.");
-    add(ctx, "||", any, "As `or`, for infix: `{$a || $b}`.");
+    add(ctx, "&&", all, "As `and`: `{&& $a $b}`.");
+    add(ctx, "||", any, "As `or`: `{|| $a $b}`.");
     add(ctx, "!", negate, "As `not`: `{! $a}`.");
 }
 

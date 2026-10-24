@@ -276,11 +276,11 @@ private:
     }
 
     // {op a b ...} -> {a op b op ...}; a nest of the same operator merges into it where the
-    // fold is the same: anywhere for + and *, leftmost for - and /.
+    // fold is the same: anywhere for + and *, leftmost for -.
     bool chain(Out& o, const std::string& op) {
         const Array& a = *o.node.array();
         const bool assoc = op == "+" || op == "*";
-        const bool left = assoc || op == "-" || op == "/";
+        const bool left = assoc || op == "-";  // `/` takes two
         std::vector<const Out*> operands;
         int merged = 0, reassociated = 0;
         for (size_t i = 1; i < o.kids.size(); ++i) {
