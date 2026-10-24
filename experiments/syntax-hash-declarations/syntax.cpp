@@ -179,13 +179,15 @@ std::string one_line(std::string_view form) {
 class Translator {
 public:
     Translator(std::string_view src, std::string_view name, std::vector<std::string>* notes,
-               bool* data_first, bool refuse_shapes = false)
+               bool* data_first, bool refuse_shapes = false,
+               std::vector<std::pair<int32_t, int32_t>>* hoisted_lines = nullptr)
         : src_(src),
           name_(name),
           notes_(notes),
           data_first_(data_first),
           refuse_shapes_(refuse_shapes),
           sc_(src) {
+        hoisted_lines_ = hoisted_lines;
         out_.reserve(src.size() + 64);
     }
 
@@ -213,7 +215,16 @@ public:
         flush(src_.size());
         if (!hoisted_.empty()) {
             out_ += "\n(shapes";
-            for (const std::string& h : hoisted_) out_ += "\n" + h;
+            auto line = static_cast<int32_t>(1 + std::count(out_.begin(), out_.end(), '\n'));
+            for (size_t i = 0; i < hoisted_.size(); ++i) {
+                out_ += "\n";
+                ++line;
+                // Where it reads, and where it is written: read_with moves it back.
+                if (hoisted_lines_) hoisted_lines_->emplace_back(line, hoisted_at_[i]);
+                out_ += hoisted_[i];
+                line +=
+                    static_cast<int32_t>(std::count(hoisted_[i].begin(), hoisted_[i].end(), '\n'));
+            }
             out_ += ")\n";
         }
         // A first form tagged pack, or origin with a string, is data in the new form; Baker
@@ -346,6 +357,7 @@ private:
                 for (const std::string& p : f.path) h += " " + p;
                 h += ") (keyed)" + form.substr(split);
                 hoisted_.push_back(std::move(h));
+                hoisted_at_.push_back(f.at.line);
                 break;
             }
         }
@@ -568,6 +580,8 @@ private:
     size_t copied_ = 0;
     std::vector<Frame> frames_;
     std::vector<std::string> hoisted_;
+    std::vector<int32_t> hoisted_at_;  // the line each hoisted #shape is written on
+    std::vector<std::pair<int32_t, int32_t>>* hoisted_lines_ = nullptr;
     std::string prefix_;
     Error err_;
     int top_forms_ = 0;  // top-level nodes written so far: a declaration after one moves
@@ -909,24 +923,56 @@ Expected<std::string> translate(std::string_view text, std::string_view name,
     return t.run();
 }
 
+namespace {
+
+// `a` and every array in it, `delta` lines later.
+Ref<Array> shifted(const Array& a, int32_t delta) {
+    std::vector<Node> nodes;
+    nodes.reserve(a.size());
+    for (const Node& n : a) {
+        if (const Array* c = n.array())
+            nodes.emplace_back(shifted(*c, delta), n.type());
+        else
+            nodes.push_back(n);
+    }
+    return Array::make_from(nodes, a.file(), a.line() + delta);
+}
+
+}  // namespace
+
 Expected<Ref<Array>> read_with(std::string_view text, std::string_view name, LoadSession& session,
                                std::vector<std::string>* notes) {
     bool data_first = false;
-    auto dta = translate(text, name, notes, &data_first);
+    std::vector<std::pair<int32_t, int32_t>> hoisted;
+    Translator t(text, name, notes, &data_first, false, &hoisted);
+    auto dta = t.run();
     if (!dta) return Unexpected(dta.error());
     auto root = read_string(*dta, name, session);
-    if (!root || !data_first) return root;
-    // The node put before a first form that is data goes (after any an #include spliced).
+    if (!root || (!data_first && hoisted.empty())) return root;
     const Array& r = **root;
     std::vector<Node> rest;
     rest.reserve(r.size());
-    bool dropped = false;
+    bool dropped = !data_first;
     for (const Node& n : r) {
+        // The node put before a first form that is data goes (after any an #include spliced).
         if (!dropped && n.try_sym() && n.try_sym()->str() == kDataFirst) {
             dropped = true;
             continue;
         }
         rest.push_back(n);
+    }
+    // The shapes written at their tables, read from the container at the end, go back to the
+    // lines they are written on, so a field's file and line are its declaration's.
+    if (!hoisted.empty() && !rest.empty()) {
+        if (const Array* c = rest.back().array(); c && c->size() == hoisted.size() + 1) {
+            std::vector<Node> shapes{(*c)[0]};
+            for (size_t i = 0; i < hoisted.size(); ++i) {
+                const Array* h = (*c)[static_cast<uint32_t>(i + 1)].array();
+                if (!h) return root;
+                shapes.emplace_back(shifted(*h, hoisted[i].second - hoisted[i].first));
+            }
+            rest.back() = Node(Array::make_from(shapes, c->file(), c->line()));
+        }
     }
     return Array::make_from(rest, r.file(), r.line());
 }

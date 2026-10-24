@@ -623,6 +623,11 @@ TEST_CASE("Duel's shapes at their tables, and four floats are four") {
         // Located where it is written, at its table.
         CHECK(sh->file.str().ends_with("duel-at-table/data/default.dta"));
     }
+    CHECK(set.find(Symbol("fighter"))->line == 22);
+    CHECK(set.find(Symbol("fighter"))->field(Symbol("health"))->line == 23);
+    CHECK(set.find(Symbol("cpu_level"))->line == 52);
+    CHECK(set.find(Symbol("cpu_level"))->field(Symbol("reaction"))->line == 53);
+    CHECK(set.find(Symbol("bot"))->line == 68);
     const shape::Shape* move = set.find(Symbol("move"));
     REQUIRE(move);
     CHECK(move->file.str().ends_with("packs/game/duel_core.dta"));
