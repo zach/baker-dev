@@ -139,7 +139,7 @@ void find_code(const Array& a, Vec<Symbol>& tags, Vec<Error>& out) {
 // ...), (desc ...) or another of the old metadata keys: a field now, which the migrator
 // spells (@range ...). One warning per layer, at the first such array, so an unmigrated file
 // is noticed at its first check.
-const Array* unmigrated_metadata(const Array& a) {
+[[maybe_unused]] const Array* unmigrated_metadata(const Array& a) {
     static const Symbol keys[] = {"range", "step", "desc", "note", "kind", "group", "one_of"};
     if (const Array* last = a.size() > 1 ? a[a.size() - 1].try_array() : nullptr;
         last && !last->empty() && has_values(a))
