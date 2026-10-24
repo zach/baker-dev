@@ -49,6 +49,24 @@ baker::Ref<baker::Array> twenty() {
     return *r;
 }
 
+// bench_layers' case (D161, D164): a 2,000-item table, and an overlay changing 400 prices,
+// each row pinned to the price below it when `pinned` (dev/syntax-layer-markers-design.md).
+std::string table_text() {
+    std::string s = "(shop\n";
+    for (int i = 0; i < 2000; ++i)
+        s += "   (item" + std::to_string(i) + " (price " + std::to_string(10 + i % 90) +
+             ") (damage " + std::to_string(i % 7) + ") (name \"Item number " + std::to_string(i) +
+             "\"))\n";
+    return s + ")\n";
+}
+std::string overlay_text(bool pinned) {
+    std::string s = "(shop\n";
+    for (int i = 0; i < 2000; i += 5)
+        s += "   (item" + std::to_string(i) + " (price " + std::to_string(20 + i % 90) +
+             (pinned ? " #was " + std::to_string(10 + i % 90) : std::string()) + "))\n";
+    return s + ")\n";
+}
+
 std::filesystem::path temp_dir() {
     const auto dir = std::filesystem::temp_directory_path() / "baker_count";
     std::filesystem::create_directories(dir);
@@ -87,6 +105,25 @@ int main(int argc, char** argv) {
             return 2;
         for (long i = 0; i < n; ++i)
             if (!cfg.set("speed", baker::Node(static_cast<int64_t>(i)))) return 2;
+    } else if (which == "check" || which == "check_text" || which == "check_pinned") {
+        // check_layer under bench_layers' policy: on a tree read once, on the text, or on
+        // a tree whose every row is pinned
+        baker::Config cfg({.edit_mode = false, .tweaks = nullptr});
+        if (!cfg.push_layer_text("default", table_text())) return 2;
+        const baker::Path shop[] = {baker::Path("shop")};
+        const baker::LayerPolicy policy{.data_only = true,
+                                        .scalars_only = true,
+                                        .existing_only = true,
+                                        .warnings_refuse = true,
+                                        .allow = shop};
+        const std::string text = overlay_text(which == "check_pinned");
+        const auto tree = baker::read_string(text, "overlay");
+        if (!tree) return 2;
+        for (long i = 0; i < n; ++i) {
+            auto r = which == "check_text" ? cfg.check_layer_text("overlay", text, policy)
+                                           : cfg.check_layer("overlay", *tree, policy);
+            if (!r || !r->ok()) return 2;
+        }
 #if BAKER_COUNT_HOST
     } else if (which == "frame") {  // a quiet frame of the host kit's Live, watching 2 files
         const auto dir = temp_dir() / "frame";
@@ -104,8 +141,11 @@ int main(int argc, char** argv) {
         }
 #endif
     } else {
-        std::fprintf(stderr, "usage: baker_count CASE N; cases: parse lookup lookup_text set%s\n",
-                     BAKER_COUNT_HOST ? " frame" : "");
+        std::fprintf(
+            stderr,
+            "usage: baker_count CASE N; cases: parse lookup lookup_text set check check_text "
+            "check_pinned%s\n",
+            BAKER_COUNT_HOST ? " frame" : "");
         return 2;
     }
     return 0;

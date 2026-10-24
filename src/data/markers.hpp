@@ -67,7 +67,8 @@ enum class Marker : uint8_t { None, Remove, Append, Drop, Was };
 // Whether `nodes` holds a marker after its first node. The parser knows when it pushed
 // one; an array built in C++ is scanned once, in make_from, so the flag is the same.
 [[nodiscard]] inline bool holds_marker(std::span<const Node> nodes) noexcept {
-    for (size_t i = 1; i < nodes.size(); ++i)
+    // Only a tagged array holds one: the root, and any untagged array, are never scanned.
+    for (size_t i = 1; i < nodes.size() && nodes[0].type() == Type::Symbol; ++i)
         if (marker_of(nodes[i]) != Marker::None) return true;
     return false;
 }

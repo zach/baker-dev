@@ -24,7 +24,8 @@ import re
 import subprocess
 import sys
 
-CASES = {"parse": 200, "lookup": 20000, "lookup_text": 20000, "set": 20000, "frame": 2000}
+CASES = {"parse": 200, "lookup": 20000, "lookup_text": 20000, "set": 20000, "frame": 2000,
+         "check": 20, "check_text": 20}
 REFS = re.compile(r"I\s+refs:\s+([\d,]+)")
 
 

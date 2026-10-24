@@ -7,6 +7,7 @@
 //   bench-pins [rows]                        an overlay of value rows read plain and pinned
 //   lists                                    the stacks' lists: a package's layer text today
 //                                            and with a verb, in bytes, and what each reads
+//   parse-n <file> <n>                       read a file n times (for cachegrind)
 #include "experiments.hpp"
 #include "syntax.hpp"
 
@@ -169,6 +170,13 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (cmd == "bench-pins") return bench_pins(argc > 2 ? std::stoul(argv[2]) : 20000);
+    if (cmd == "parse-n" && argc > 3) {  // for cachegrind: read a file N times
+        auto text = read_text_file(argv[2]);
+        if (!text) return fail(text.error());
+        for (unsigned long i = 0, n = std::stoul(argv[3]); i < n; ++i)
+            if (!read_string(*text, "n.dta")) return 1;
+        return 0;
+    }
     if (cmd == "lists") return lists();
     return usage();
 }

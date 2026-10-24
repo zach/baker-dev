@@ -668,8 +668,8 @@ Expected<List<DiffEntry>> Config::diff(std::string_view a, std::string_view b) c
         const Leaf* y = it != in_b.end() ? &lb[it->second] : nullptr;
         if (y) matched[it->second] = true;
         if (y && same_nodes(x.values, y->values) && op_of(*x.holder) == op_of(*y->holder)) continue;
-        DiffEntry d{Symbol(x.path), pack(x.values), std::nullopt,
-                    source(a, x),   std::nullopt,   op_of(*x.holder)};
+        DiffEntry d{Symbol(x.path), pack(x.values),   std::nullopt, source(a, x),
+                    std::nullopt,   op_of(*x.holder), Symbol()};
         if (y) {
             d.b = pack(y->values);
             d.source_b = source(b, *y);
