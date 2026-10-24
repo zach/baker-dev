@@ -80,6 +80,71 @@ struct Edit {
     Str text;
 };
 
+#ifdef BAKER_PATH_ROWS
+// Whether `main`'s text holds a row at its top level, written "(/": then a key the layer
+// lacks is added to it as a row (dev/syntax-path-rows-design.md).
+bool holds_rows(const SourceMap& map, const Array& root, Symbol main, std::string_view text) {
+    for (size_t i = 0; i < root.size(); ++i) {
+        const SourceSpan* sp = map.span(root, i);
+        if (sp && sp->literal() && sp->file == main && text.substr(sp->begin, 2) == "(/")
+            return true;
+    }
+    return false;
+}
+
+// (/a.b.c values): empty when a segment cannot be written in a key.
+Str render_row(const Path& path, const Vec<Node>& values) {
+    const Str key = detail::text_of(path, SIZE_MAX, '.');
+    for (const char c : key)
+        if (detail::is_atom_end(static_cast<unsigned char>(c))) return {};
+    return key[0] == '*' ? Str() : "(/" + key + (values.empty() ? "" : " ") + join(values) + ")";
+}
+
+// Deleting `path`'s array from `layer`'s file, with its line when it stands alone there: a
+// removal promoted (D143). Nothing to do when the file does not hold the key.
+Expected<Plan> plan_removal(const LayerState& layer, const Path& path,
+                            const LoadSession::Reader& read_file) {
+    if (!layer.map || layer.text)
+        return Unexpected(refused("layer '" + layer.name + "' has no file read in edit mode"));
+    const Array* cur = layer.root.get();
+    const SourceSpan* sp = nullptr;
+    for (size_t i = 0; i < path.size() && cur; ++i) {
+        const Array* parent = cur;
+        cur = nullptr;
+        for (size_t k = 0; k < parent->size() && !cur; ++k)
+            if (detail::tag_of((*parent)[k]) == path[i].name) {
+                cur = (*parent)[k].try_array();
+                sp = layer.map->span(*parent, k);
+            }
+        const bool last = i + 1 == path.size();
+        if (cur && (!sp || !(sp->literal() || (!last && sp->macro == detail::row_marker()))))
+            return Unexpected(refused("promote cannot remove " + quoted(path) +
+                                          ", which is not written as itself in '" + layer.file +
+                                          "'; remove it by hand",
+                                      cur->file(), cur->line()));
+    }
+    if (!cur) return Plan{Symbol(layer.file), {}, false};
+    const auto text = layer.map->text(sp->file);
+    Str out;
+    if (!text || !detail::read_with(read_file, sp->file.str(), out) || out != *text)
+        return Unexpected(refused("'" + Str(sp->file.str()) +
+                                      "' has changed since it was read; reload before writing back",
+                                  sp->file));
+    size_t b = sp->begin, e = sp->end;
+    while (b > 0 && (out[b - 1] == ' ' || out[b - 1] == '\t')) --b;
+    while (e < out.size() && (out[e] == ' ' || out[e] == '\t')) ++e;
+    const bool line_start = b == 0 || out[b - 1] == '\n';
+    if (line_start && (e == out.size() || out[e] == '\n' || out[e] == '\r'))
+        e = std::min(out.find('\n', e), out.size() - 1) + 1;  // the line, which held it alone
+    else if (line_start)
+        b = sp->begin, e = sp->end;  // closers follow on its line: keep the indentation
+    else
+        e = sp->end;
+    out.erase(b, e - b);
+    return Plan{sp->file, std::move(out), true};
+}
+#endif
+
 }  // namespace
 
 namespace config_internal {
@@ -187,6 +252,10 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
             return Unexpected(refused(
                 "'" + layer.file + "' has appeared since it was read; reload before writing back",
                 main));
+#ifdef BAKER_PATH_ROWS
+        if (const Str row = render_row(path, values); !row.empty())
+            return Plan{main, row + "\n", true};  // a file of rows, from its first
+#endif
         return Plan{main, render_entry(path, 0, values, "") + "\n", true};
     }
 
@@ -197,6 +266,9 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
             return refused(
                 quoted(path) + " is in an array assembled by #merge; edit it where it is defined",
                 parent.file(), parent.line());
+#ifdef BAKER_PATH_ROWS
+        if (sp->macro == detail::row_marker()) return std::nullopt;  // a row's key, in this file
+#endif
         if (!sp->macro.empty()) {
             const auto text = map.text(sp->file);
             return refused(quoted(path) + " comes from macro '" + Str(sp->macro.str()) +
@@ -246,13 +318,18 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
         file = main;
         const auto text = map.text(main);
         if (!text) return Unexpected(refused("no source text for '" + layer.file + "'", main));
-        if (cur == layer.root.get()) {
+        Str row;  // in a file of rows, a key it lacks is one more row
+#ifdef BAKER_PATH_ROWS
+        if (holds_rows(map, *layer.root, main, *text)) row = render_row(path, values);
+#endif
+        if (cur == layer.root.get() || !row.empty()) {
             // A new top-level form at the end of the file.
             const bool newline = !text->empty() && text->back() != '\n';
             const auto end = static_cast<uint32_t>(text->size());
             edits.push_back(
                 {end, end,
-                 (newline ? "\n" : "") + render_entry(path, missing_from, values, "") + "\n"});
+                 (newline ? "\n" : "") +
+                     (row.empty() ? render_entry(path, missing_from, values, "") : row) + "\n"});
         } else {
             // The last child of the deepest ancestor written in this file itself.
             const SourceSpan* ext = map.extent(*cur);
@@ -454,7 +531,13 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
     before.set_reader(vread);
     Vec<Error> refusals;
     for (const Leaf& leaf : leaves) {
-        if (leaf.values.size() == 1 && leaf.values[0].is(detail::remove_marker())) {
+        const bool removal = leaf.values.size() == 1 && leaf.values[0].is(detail::remove_marker());
+#ifdef BAKER_PATH_ROWS
+        // A removal deletes the key from the target: its array, with its line if alone.
+        auto p = removal ? plan_removal(target, Path(leaf.path), vread)
+                         : impl_->plan(target, Path(leaf.path), leaf.values, true, vread);
+#else
+        if (removal) {
             // Writing (key #remove) beside the key's children would not parse (D143).
             refusals.push_back(refused("promote cannot write the removal of " +
                                        quoted(Path(leaf.path)) +
@@ -462,6 +545,7 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
             continue;
         }
         auto p = impl_->plan(target, Path(leaf.path), leaf.values, true, vread);
+#endif
         if (!p) {
             refusals.push_back(std::move(p).error());
             continue;

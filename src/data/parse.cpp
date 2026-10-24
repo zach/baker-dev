@@ -9,6 +9,12 @@
 
 #ifdef BAKER_PATH_ROWS
 #include <baker/path.hpp>
+// Out of line, so close() and symbol() stay as small as without rows.
+#if defined(_MSC_VER)
+#define BAKER_ROWS_COLD __declspec(noinline)
+#else
+#define BAKER_ROWS_COLD [[gnu::noinline, gnu::cold]]
+#endif
 #endif
 
 #include <algorithm>
@@ -440,7 +446,7 @@ public:
         }
 #ifdef BAKER_PATH_ROWS
         Str path;
-        if (!rows_.empty() && !fold(scratch_, map_ ? &spans_ : nullptr, 0, path)) return false;
+        if (!rows_.empty() && !fold(scratch_, map_ ? &spans_ : nullptr, 0, path, 0)) return false;
 #endif
         Ref<Array> root = arena_.make_array(scratch_, file_, 1);
         if (root->height() > s_.limits.max_depth + 1) return too_deep(1);
@@ -643,7 +649,7 @@ private:
     // The key after the sigil: segments separated by '.' or '/', a 'quoted' one for a name
     // holding either, as a Path is written (D27); each a key, never an element. The last is
     // the array's tag; close() wraps the array in the others.
-    bool row_key(const Token& t, size_t sigil) {
+    BAKER_ROWS_COLD bool row_key(const Token& t, size_t sigil) {
         auto bad = [&](const Str& why) { return fail(ErrorCode::Syntax, why, t.line, t.begin); };
         if (frames_.size() != 2)
             return bad("a row is a top-level form; write the key nested, or quote '" + Str(t.text) +
@@ -655,7 +661,10 @@ private:
             std::string_view name;
             if (key[i] == '\'') {
                 i = key.find('\'', i + 1);
-                if (i == std::string_view::npos) return bad("the key has an unclosed quote");
+                if (i == std::string_view::npos)
+                    return bad(
+                        "the key has an unclosed quote; a key holds no space or bracket: write "
+                        "that key nested");
                 name = key.substr(from + 1, i++ - from - 1);
             } else {
                 i = std::min(key.find_first_of("./", i), key.size());
@@ -685,7 +694,7 @@ private:
     // `arr` in one array for each segment before its tag, each made in the load's arena with
     // the row's line (D64). In edit mode each wrapper's extent is the row's, and its child's
     // span is marked #row: written here, as the key, not literally.
-    bool wrap_row(Ref<Array> arr, const FrameInfo& f, uint32_t end) {
+    BAKER_ROWS_COLD bool wrap_row(Ref<Array> arr, const FrameInfo& f, uint32_t end) {
         const SourceSpan extent{file_, f.begin, end, {}};
         for (size_t i = row_size_ - 1; i-- > 0;) {
             Node pair[2] = {Node(row_[i].name), Node(std::move(arr))};
@@ -703,60 +712,74 @@ private:
     // in nodes[from..] are joined, in the order written, at the first one's place, and the
     // joined children folded in turn. A key written twice, by two rows or by a row and a
     // literal, is an error at the second: D31's first-wins holds only in files without rows.
-    bool fold(Vec<Node>& nodes, Vec<SourceSpan>* spans, size_t from, Str& path) {
-        const size_t n = nodes.size();
-        Vec<uint32_t> next(n, UINT32_MAX), tail(n, UINT32_MAX);  // each head's members
-        HashMap<Symbol, uint32_t> heads;
+    // Grouped by sorting, in buffers kept a depth (as MergeScratch's, D127): no allocation
+    // once they are warm.
+    BAKER_ROWS_COLD bool fold(Vec<Node>& nodes, Vec<SourceSpan>* spans, size_t from, Str& path,
+                              size_t depth) {
+        if (fold_.empty()) fold_.reserve(s_.limits.max_depth + 2);  // a level never moves
+        if (fold_.size() <= depth) fold_.resize(depth + 1);
+        FoldLevel& l = fold_[depth];
+        l.order.clear();
+        for (size_t i = from; i < nodes.size(); ++i)
+            if (!tag_of(nodes[i]).empty()) l.order.push_back(static_cast<uint32_t>(i));
+        std::sort(l.order.begin(), l.order.end(), [&](uint32_t x, uint32_t y) {
+            const void *a = tag_of(nodes[x]).id(), *b = tag_of(nodes[y]).id();
+            return a != b ? std::less<>()(a, b) : x < y;
+        });
+        l.next.assign(nodes.size(), kNoNext);  // each array's next with its tag; kLater: not first
         bool joins = false;
-        for (size_t i = from; i < n; ++i) {
-            if (tag_of(nodes[i]).empty()) continue;
-            const auto [it, fresh] = heads.emplace(tag_of(nodes[i]), static_cast<uint32_t>(i));
-            if (!fresh) next[tail[it->second]] = static_cast<uint32_t>(i);
-            tail[it->second] = static_cast<uint32_t>(i);
-            joins = joins || !fresh;
+        for (size_t k = 1; k < l.order.size(); ++k) {
+            const uint32_t x = l.order[k - 1], y = l.order[k];
+            if (tag_of(nodes[x]) != tag_of(nodes[y])) continue;
+            l.next[x] = (l.next[x] & kLater) | y;
+            l.next[y] |= kLater;
+            joins = true;
         }
         size_t out = from;
-        for (size_t i = from; i < n && joins; ++i) {
-            if (tail[i] == UINT32_MAX && !tag_of(nodes[i]).empty()) continue;  // joined
-            if (next[i] != UINT32_MAX && !join(nodes, spans, i, next, path)) return false;
+        for (size_t i = from; i < nodes.size() && joins; ++i) {
+            if (l.next[i] & kLater) continue;  // joined into the first with its tag
+            if (l.next[i] != kNoNext && !join(nodes, spans, i, path, depth)) return false;
             nodes[out] = std::move(nodes[i]);
             if (spans) (*spans)[out] = (*spans)[i];
             ++out;
         }
-        nodes.resize(joins ? out : n);
+        // pop_back, not resize: a second caller of vector<Node>'s erase made GCC stop inlining
+        // it into truncate(), every close() (+1.4% parse instructions, measured).
+        while (joins && nodes.size() > out) nodes.pop_back();
         if (spans) spans->resize(nodes.size());
         return true;
     }
 
     // nodes[h] and the arrays after it with its tag, as one array.
-    bool join(Vec<Node>& nodes, Vec<SourceSpan>* spans, size_t h, const Vec<uint32_t>& next,
-              Str& path) {
+    bool join(Vec<Node>& nodes, Vec<SourceSpan>* spans, size_t h, Str& path, size_t depth) {
+        FoldLevel& l = fold_[depth];
         const Array& a = *nodes[h].try_array();
-        Vec<Node> kids(a.begin(), a.end());
-        Vec<SourceSpan> kid_spans;
+        l.kids.assign(a.begin(), a.end());
+        l.spans.clear();
         auto add_spans = [&](const Array& x, size_t skip) {
             const auto known = map_->spans(x);
             for (size_t k = skip; k < x.size(); ++k)
-                kid_spans.push_back(known ? (*known)[k] : SourceSpan{});
+                l.spans.push_back(known ? (*known)[k] : SourceSpan{});
         };
         if (spans) add_spans(a, 0);
         const size_t mark = path.size();
         if (mark) path += '/';
         append_path_name(path, a.tag().str());
         bool values = has_values(a), removed = is_removal(a);
-        for (uint32_t m = next[h]; m != UINT32_MAX; m = next[m]) {
+        for (uint32_t m = l.next[h]; m != kNoNext; m = l.next[m] & ~kLater) {
             const Array& b = *nodes[m].try_array();
             if ((values && has_values(b)) || removed || is_removal(b))
                 return written_twice(b, path, values && has_values(b));
             values = values || has_values(b);
-            kids.insert(kids.end(), b.begin() + 1, b.end());
+            l.kids.insert(l.kids.end(), b.begin() + 1, b.end());
             if (spans) add_spans(b, 1);
         }
-        if (!fold(kids, spans ? &kid_spans : nullptr, 1, path)) return false;
+        if (!fold(l.kids, spans ? &l.spans : nullptr, 1, path, depth + 1)) return false;
         path.resize(mark);
-        Ref<Array> joined = arena_.make_array(kids, a.file(), a.line());
+        Ref<Array> joined = arena_.make_array(l.kids, a.file(), a.line());
+        while (!l.kids.empty()) l.kids.pop_back();  // moved from; see fold()
         const SourceSpan* ext = map_ ? map_->extent(a) : nullptr;
-        if (map_) map_->record(joined, ext ? *ext : SourceSpan{}, kid_spans);
+        if (map_) map_->record(joined, ext ? *ext : SourceSpan{}, l.spans);
         nodes[h] = Node(std::move(joined));
         return true;
     }
@@ -1165,9 +1188,18 @@ private:
         int32_t line;
         uint32_t key;  // the offset of the key
     };
+    // A depth's buffers for the fold: the nodes by tag, each array's next with its tag, and
+    // a joined array's children with their spans.
+    struct FoldLevel {
+        Vec<uint32_t> order, next;
+        Vec<Node> kids;
+        Vec<SourceSpan> spans;
+    };
+    static constexpr uint32_t kLater = 0x80000000u, kNoNext = 0x7FFFFFFFu;
     RowSegment row_[Path::kMaxSegments];  // the open row's key: rows do not nest
     size_t row_size_ = 0;
     Vec<RowAt> rows_;  // the rows read, for the fold and its errors
+    Vec<FoldLevel> fold_;
 #endif
 };
 
@@ -1590,6 +1622,11 @@ TextStructure read_structure(std::string_view text, Symbol file) {
             case Tok::Directive: out.kind = TextTokenKind::Directive; break;
             case Tok::Symbol: {
                 out.kind = t.quoted ? TextTokenKind::QuotedSymbol : TextTokenKind::Symbol;
+#ifdef BAKER_PATH_ROWS
+                if (!t.quoted && fresh >= 0 && brackets[fresh].open == '(' &&
+                    brackets[fresh].parent < 0 && t.text.size() > 1 && t.text[0] == '/')
+                    out.kind = TextTokenKind::PathKey;
+#endif
                 const Symbol name(t.text);
                 if (!t.quoted && naming && fresh >= 0) {
                     macros.push_back(name);

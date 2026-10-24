@@ -220,6 +220,9 @@ enum class TextTokenKind : uint8_t {
     Variable,      // $name
     Directive,     // #name
     Macro,         // a symbol this text defines as a macro, [name ...] at the top level
+#if defined(BAKER_PATH_ROWS) && BAKER_PATH_ROWS
+    PathKey,  // a row's key: (/a.b.c ...) at the top level
+#endif
 };
 struct TextToken {
     TextTokenKind kind{};

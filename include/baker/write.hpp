@@ -26,6 +26,12 @@ namespace baker {
 struct WriteOptions {
     int indent = 2;  // spaces per nesting level
     int width = 80;  // arrays that fit within this many columns stay on one line
+#if defined(BAKER_PATH_ROWS) && BAKER_PATH_ROWS
+    // write_dta: each top-level array as rows keyed by a path, one a leaf: (/a.b.c 1 (range
+    // 0 2)), its metadata and bare tags kept in its row. What a row cannot spell is written
+    // nested, and a file whose top level repeats a tag (a list, D31) is nested throughout.
+    bool rows = false;
+#endif
 };
 
 // Writes the compact single-line form of a node: (price 12.75).
