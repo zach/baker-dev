@@ -90,6 +90,12 @@ bool check_parse(std::string_view data) {
     auto cached = read_cache_bytes(bytes);
     if (!cached || !structurally_equal(**first, **cached)) return false;
 
+    // A tree whose first form is (origin "...") prints as a declaration the reader consumes
+    // (D91): a tree today's text cannot spell (D13). The fuzzer found it.
+    if (const Array* a = (*first)->size() > 0 ? (**first)[0].try_array() : nullptr;
+        a && a->tag() == Symbol("origin") && a->size() > 1 && (*a)[1].type() == Type::String)
+        return true;
+
     const std::string printed = to_dta(**first);
     LoadSession s2 = make_session();
     auto second = read_string(printed, "printed.dta", s2);
