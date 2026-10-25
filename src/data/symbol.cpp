@@ -6,6 +6,15 @@
 #include <mutex>
 
 namespace baker {
+
+// The hash is a promise (symbol_hash): these golden values are FNV-1a 64's, and a change of the
+// algorithm fails the library's own build.
+static_assert(symbol_hash("") == 0xcbf29ce484222325ull);
+static_assert(symbol_hash("a") == 0xaf63dc4c8601ec8cull);  // FNV-1a 64's own test vector
+static_assert(symbol_hash("jump") == 0xeb1776ddf832a4cdull);
+static_assert(symbol_hash("\xC3\xA9p\xC3\xA9"
+                          "e") == 0x3ae05f984f97964aull);  // "épée", UTF-8
+
 namespace {
 
 // Append-only arena + open-addressed hash table of entry pointers, from the default
@@ -19,8 +28,7 @@ namespace {
 // it replaced: a reader may still be probing it, and geometric growth bounds the total.
 class SymbolTable {
 public:
-    const detail::SymbolEntry* intern(std::string_view text) {
-        const uint64_t hash = detail::hash_symbol_text(text);
+    const detail::SymbolEntry* intern(std::string_view text, uint64_t hash) {
         if (const auto* e = find(*table_.load(std::memory_order_acquire), text, hash)) return e;
         std::lock_guard lock(mutex_);
         Table* t = table_.load(std::memory_order_relaxed);
@@ -126,7 +134,11 @@ SymbolTable& table() {
 }  // namespace
 
 Symbol::Symbol(std::string_view text)
-    : e_(text.empty() ? &detail::kEmptySymbolEntry : table().intern(text)) {}
+    : e_(text.empty() ? &detail::kEmptySymbolEntry : table().intern(text, symbol_hash(text))) {}
+
+const detail::SymbolEntry* detail::intern_hashed(std::string_view text, uint64_t hash) {
+    return text.empty() ? &kEmptySymbolEntry : table().intern(text, hash);
+}
 
 size_t Symbol::table_size() noexcept {
     return table().size();
