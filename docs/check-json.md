@@ -66,7 +66,7 @@ then `message`:
 
 | Field | Type | Contents |
 |---|---|---|
-| `code` | string | the `ErrorCode`: `syntax`, `range`, `directive`, `io`, `limit`, `type`, `not found`, `refused` |
+| `code` | string | the `ErrorCode`: `syntax`, `range`, `directive`, `io`, `limit`, `type`, `not found`, `refused`, `collision` |
 | `file` | string | where it was found; `""` if unknown |
 | `line` | integer | the line; 0 if unknown (a pack's finding names only its file) |
 | `column` | integer | the column, 1-based, in characters from the line's start; 0 if unknown. A parse error has one; a call or shape problem, located by its array's line, does not (1.2) |

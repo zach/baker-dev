@@ -46,6 +46,7 @@ std::string_view error_code_name(ErrorCode code) noexcept {
         case ErrorCode::Type: return "type";
         case ErrorCode::NotFound: return "not found";
         case ErrorCode::Refused: return "refused";
+        case ErrorCode::Collision: return "collision";
     }
     return "unknown";
 }
