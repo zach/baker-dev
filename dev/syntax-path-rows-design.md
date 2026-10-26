@@ -647,3 +647,32 @@ earlier section, this section is the later word.
 - **Recommendation after review.** Compare rows with a host `set` command in the stacks'
   agent loop before taking the grammar; fix the four edges either way; promote's removal
   stands on its own.
+
+### The completion round
+
+*Added in the session's last pass over every branch, which took each to spec §8's fuzz bar
+and CI to green on every job; `dev/syntax-ideas.md` on `claude/fervent-cray-l1kyf0` records
+the round for all eight.*
+
+- **A bug the long run found, fixed.** Resumed from section 11's corpus, libFuzzer stopped
+  after 1,091,362 more executions (2,116,515 in all) on `(/pack drop1017 (level live...))`
+  as a file's first form. A row never declares, so the tree's first form is data tagged
+  `pack`; the printer wrote it nested, and the reparse took it as a pack declaration (D80).
+  A declaration is left out of the tree, so a first form tagged `pack`, or `origin` with a
+  string first, is always data there, and with the switch on the printer now writes it as a
+  row (`662d119`). A tree read from rows never repeats a top-level tag, so the row is always
+  possible for this case. The same spelling prints main's unprintable second `(origin ...)`
+  whenever the top level repeats no tag. Regression input: `row_first_form_pack.bin`; the
+  experiment's tests pin both.
+- **Fuzzing, 10,000,000 executions on the final parser** (from `662d119`), in runs each
+  resumed from the last one's corpus. None found a failure in the parser. One stopped, after
+  2.6 million, on main's unprintable second `(origin ...)` in the one case the row spelling
+  cannot cover: a top level that repeats a tag, which a file with rows may not hold. The
+  harness now skips exactly that tree, as indent-lines' does for main's, and keeps testing
+  the row spelling (`4401579`, `origin_repeated_tags.bin`).
+- **A harness fix from another branch.** main's harness skipped a tree over 100,000
+  expanded nodes but read its print back with a 65,536-node limit; indent-lines' run found
+  it, and the fix and `macro_sharing_budget.bin` are here too (`75ebb95`).
+- **CI.** Every job passes on the final head. The release dry run had failed on four
+  comments that cited this note or a decision number in running text, which
+  `tools/release/publish.py check` refuses; they were reworded (`3d7d5be`).
