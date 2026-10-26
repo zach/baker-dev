@@ -567,3 +567,24 @@ earlier section, this section is the later word.
   1,119,340 in all, short of spec §8's 10 million.
 - **Recommendation after review.** Decline, as section 10 says; `(when COND)` on the
   project file's layer entries if conditional platform layers are wanted.
+
+### The completion round
+
+*Added in the session's last pass over every branch, which took each to spec §8's fuzz bar
+and CI to green on every job; `dev/syntax-ideas.md` on `claude/fervent-cray-l1kyf0` records
+the round for all eight.*
+
+- **Fuzzing, 10,000,000 executions on the final parser** (from `283d74e`, the block fix; the
+  later commits change the note and the harness), in runs each resumed from the last one's
+  corpus: a run stopped to apply a harness fix, or by one of two machine restarts, resumed
+  from its last logged count, so no execution is counted twice. None found a failure in the
+  parser. Section 11's 1,119,340 are not counted.
+- **A harness fix from another branch.** main's harness skipped a tree over 100,000
+  expanded nodes but read its print back with a 65,536-node limit; indent-lines' run found
+  it, and the fix and `macro_sharing_budget.bin` are here too (`ab1d3d8`).
+- **CI.** Every job passes on the final head.
+- **A second harness skip, for a defect on main.** main's printer cannot spell a tree whose
+  first form is `(origin "...")` held as data, a second origin, since it prints as the
+  declaration the reader consumes (D91). The parser reads it right. The harness now skips
+  that tree, as indent-lines' does, with the same regression input (`bed1c65`). The
+  parser did not change, so the count carried on.
