@@ -91,16 +91,22 @@ bool check_parse(std::string_view data) {
     if (!cached || !structurally_equal(**first, **cached)) return false;
 
     // A first form (origin "...") held as data, a second origin, prints as the declaration
-    // the reader consumes (D91), a tree main's text cannot spell (D13). The printer writes
-    // it as a row instead, which a top level that repeats a tag cannot hold (D31).
+    // the reader consumes (D91), a tree main's text cannot spell (D13). With rows on, the
+    // printer writes it as a row instead, which a top level that repeats a tag cannot hold
+    // (D31); with them off, nothing can.
     if (const Array* a = (*first)->size() > 0 ? (**first)[0].try_array() : nullptr;
-        a && a->tag() == Symbol("origin") && a->size() > 1 && (*a)[1].type() == Type::String)
+        a && a->tag() == Symbol("origin") && a->size() > 1 && (*a)[1].type() == Type::String) {
+#ifndef BAKER_PATH_ROWS
+        return true;
+#else
         for (uint32_t i = 1; i < (*first)->size(); ++i)
             for (uint32_t j = 0; j < i; ++j) {
                 const Array* x = (**first)[i].try_array();
                 const Array* y = (**first)[j].try_array();
                 if (x && y && !x->tag().str().empty() && x->tag() == y->tag()) return true;
             }
+#endif
+    }
 
     const std::string printed = to_dta(**first);
     LoadSession s2 = make_session();
