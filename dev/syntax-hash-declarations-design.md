@@ -771,3 +771,23 @@ later word.*
 - **The recommendation after review stands**, but for question 6: the core change bears out
   its cost estimate within 28 lines, and costs no instructions; what holds the directives back
   is still that `diff`, `layer_effect` and the tolerant read show no declaration.
+
+### The completion round
+
+*Added in the session's last pass over every branch, which took each to spec §8's fuzz bar
+and CI to green on every job; `dev/syntax-ideas.md` on `claude/fervent-cray-l1kyf0` records
+the round for all eight.*
+
+- **The raw gate, reproduced.** The orchestrator reran D101's gate on the switch-on build:
+  270 of 464 files parse, and all 194 failures carry the one message, `#define NAME defines a
+  flag; a macro is written [NAME ...]`, as section 11 says.
+- **Fuzzing, 10,000,000 executions on the final parser** (from `b42f2ff`; the later commits
+  change comments, the note and the harness), the first 519,956 in section 11's second run,
+  the rest in runs each resumed from the last one's corpus: a run stopped to apply a harness
+  fix, or by one of two machine restarts, resumed from its last logged count, so no
+  execution is counted twice. None found a failure in the parser.
+- **A harness fix from another branch.** main's harness skipped a tree over 100,000
+  expanded nodes but read its print back with a 65,536-node limit; indent-lines' run found
+  it, and the fix and `macro_sharing_budget.bin` are here too (`cc5f483`).
+- **CI.** Every job passes on the final head; `ef9480d` had reworded the four comments the
+  release dry run refused.
