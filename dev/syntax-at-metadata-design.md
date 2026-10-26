@@ -682,3 +682,29 @@ earlier section, this section is the later word.
   `metadata()` returning only `@` children and every bare old word and unknown `@word`
   reported, measure it to zero on parse, `find_float` and `set`, and decide it together
   with hash-declarations' `#shape`.
+
+### The completion round
+
+*Added in the session's last pass over every branch, which took each to spec §8's fuzz bar
+and CI to green on every job; `dev/syntax-ideas.md` on `claude/fervent-cray-l1kyf0` records
+the round for all eight.*
+
+- **CI.** Every job passes on the final head. Five Clang jobs (C++20, C++23, libc++,
+  ASan+UBSan, TSan) had failed to build since the first core commit: `is_meta_child` and
+  `unmigrated_metadata` are used only under `if constexpr (kAtMetadata)`, so with the switch
+  off Clang reports each as an unneeded internal declaration, an error under CI's warnings
+  as errors. Both are `[[maybe_unused]]` (`5151c5f`, `e690d2c`), and a Clang Debug build
+  configured as CI's builds whole with 21 of 21 tests passing. The release dry run had
+  failed on two lines citing this note; they were reworded.
+- **Fuzzing, 10,000,000 executions on the final parser** (the attribute changes no code), in
+  runs each resumed from the last one's corpus: a run stopped to apply a harness fix, or by
+  one of two machine restarts, resumed from its last logged count, so no execution is
+  counted twice. None found a failure in the parser. Section 11's 1,075,950 are not counted.
+- **A harness fix from another branch.** main's harness skipped a tree over 100,000
+  expanded nodes but read its print back with a 65,536-node limit; indent-lines' run found
+  it, and the fix and `macro_sharing_budget.bin` are here too (`42ad1af`).
+- **A second harness skip, for a defect on main.** main's printer cannot spell a tree whose
+  first form is `(origin "...")` held as data, a second origin, since it prints as the
+  declaration the reader consumes (D91). The parser reads it right. The harness now skips
+  that tree, as indent-lines' does, with the same regression input (`0a6d93c`). The
+  parser did not change, so the count carried on.
