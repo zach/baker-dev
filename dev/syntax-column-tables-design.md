@@ -648,3 +648,32 @@ earlier section, this section is the later word.
   directory-path crash section 8 records.
 - **Recommendation after review.** Decline, as section 10 says; an aligning printer for
   today's keyed tables first.
+
+### The completion round
+
+*Added in the session's last pass over every branch, which took each to spec §8's fuzz bar
+and CI to green on every job; `dev/syntax-ideas.md` on `claude/fervent-cray-l1kyf0` records
+the round for all eight.*
+
+- **A libFuzzer target for the translator.** The branch changes no core code, so section 11
+  recorded no coverage-guided run. `experiments/syntax-column-tables/fuzz.cpp` now holds the
+  core harness's property for this form, under both row rules: a read is a located error, or
+  a tree that prints and reads back to itself. Built with `-DBAKER_BUILD_EXPERIMENTS=ON
+  -DBAKER_BUILD_FUZZERS=ON`, under ASan and UBSan; `fuzz/dta.dict` gains `#columns` and `_`,
+  as section 2 says.
+- **Three bugs it found, each fixed with a test.**
+  - Its second input, the seed `bom_inside_symbol.bin`: the printer could begin a file with a
+    symbol whose first bytes are a byte order mark, which a reader skips. It now adds a
+    leading space there, as the core printer does (`407840d`).
+  - After 4.4 million executions: a quoted column name may hold a line break, and the rewrite
+    writes each name into every row, so each row moved every later line and an error was
+    located past the text's end. The reader refuses such a name at the header, and the
+    printer heads no table whose field tag holds one (`c7b8cf6`).
+  - After 1.3 million more: a table of keys alone, too wide for nested text, was headed with
+    no columns, which the reader refuses. A layout with no column is rejected (`b9c8365`).
+- **Fuzzing, 10,000,000 executions on the final translator** (`b9c8365`), in two runs, the
+  second resumed from its last logged count after a machine restart. None found a failure.
+- **A harness fix.** main's harness skipped a tree over 100,000 expanded nodes but read its
+  print back with a 65,536-node limit; indent-lines' run found it. The fix and
+  `macro_sharing_budget.bin` are here too, and `fuzz.cpp` takes the same budget (`6b0504f`).
+- **CI.** Every job passes on the final head.
