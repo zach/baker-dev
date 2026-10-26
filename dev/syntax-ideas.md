@@ -57,7 +57,7 @@ fuzz target), the fixes the fuzz runs and CI called for, and each note's last su
 | Branch | Final head | Commits | Reviewed at | Core files |
 |---|---|---:|---|---:|
 | `claude/fervent-cray-l1kyf0-syntax-curly-infix` | `56dfa1f` | 21 | `ed037c5` | 10 |
-| `claude/fervent-cray-l1kyf0-syntax-path-rows` | `ebbf85b` | 16 | `d89146f` | 6 |
+| `claude/fervent-cray-l1kyf0-syntax-path-rows` | `4c98385` | 17 | `d89146f` | 6 |
 | `claude/fervent-cray-l1kyf0-syntax-layer-markers` | `cd8f07f` | 14 | `39f5248` | 16 |
 | `claude/fervent-cray-l1kyf0-syntax-hash-declarations` | `a80575d` | 21 | `104fcec` | 11 |
 | `claude/fervent-cray-l1kyf0-syntax-at-metadata` | `8ff8995` | 19 | `1c73321` | 11 |
