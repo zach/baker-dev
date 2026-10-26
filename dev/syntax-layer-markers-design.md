@@ -618,3 +618,26 @@ earlier section, this section is the later word.
   when a package that composes a list exists, rebuilt at zero cost when unused (the flag
   set where a marker is made, `Array::set` included), with a warning when an appended
   operand is already present, at about 150 lines; `#was` with at-metadata.
+
+### The completion round
+
+*Added in the session's last pass over every branch, which took each to spec §8's fuzz bar
+and CI to green on every job; `dev/syntax-ideas.md` on `claude/fervent-cray-l1kyf0` records
+the round for all eight.*
+
+- **Fuzzing, 10,000,000 executions on the final parser** (`d5a365c`'s code; the later
+  commits change comments and the harness), in runs each resumed from the last one's corpus:
+  a run stopped to apply a harness fix, or by one of two machine restarts, resumed from its
+  last logged count, so no execution is counted twice. None found a failure in the parser.
+  Section 11's 1,083,088 are not counted.
+- **A harness fix from another branch.** main's harness skipped a tree over 100,000
+  expanded nodes but read its print back with a 65,536-node limit; indent-lines' run found
+  it, and the fix and `macro_sharing_budget.bin` are here too (`ac26376`).
+- **CI.** Every job passes on the final head. The release dry run had failed on eleven
+  shipped comments, a test's docstring and a regression note that cited this note or a
+  decision number in running text; they were reworded (`06b1ec0`).
+- **A second harness skip, for a defect on main.** main's printer cannot spell a tree whose
+  first form is `(origin "...")` held as data, a second origin, since it prints as the
+  declaration the reader consumes (D91). The parser reads it right. The harness now skips
+  that tree, as indent-lines' does, with the same regression input (`7c67417`). The
+  parser did not change, so the count carried on.
