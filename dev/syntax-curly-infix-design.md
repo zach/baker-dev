@@ -729,3 +729,33 @@ rewritten), `4115c52` (malformed infix), and the commit of this subsection. Meas
   forms and their siblings fail the load at the brace, which `check` and `sim` report, and a
   head no call can have is a check error. The second is not: no reading trial was run, and
   the rewritten metrics are its material. Section 10 now says so.
+
+### The completion round
+
+*Added in the session's last pass over every branch, which took each to spec §8's fuzz bar
+and CI to green on every job; `dev/syntax-ideas.md` on `claude/fervent-cray-l1kyf0` records
+the round for all eight.*
+
+- **CI.** Every job passes on the final head, MSVC, libc++, TSan and the stacks included. The
+  release dry run had failed on every commit since the prototype's first: eleven shipped
+  comments, test names and a CMake comment cited this note in running text, which
+  `tools/release/publish.py check` refuses. They were reworded (`58cbf46`).
+- **The raw gate on the final code**, with the counter section 11 added: 464/464, 0
+  round-trip failures, 0 braces fired, 0 held back, 0 files refused as malformed infix.
+- **Fuzzing, 10,000,000 executions on the final parser.** With the reader on, built as CI's
+  fuzz job, and seeded with the corpus, the regressions and every file the rewrite changed,
+  in runs each resumed from the last one's corpus: a run stopped to apply a harness fix, or
+  by one of two machine restarts, resumed from its last logged count, so no execution is
+  counted twice. None found a failure in the parser. The 2,220,593 executions of section 8
+  ran before the malformed-infix change and are not counted.
+- **A harness fix from another branch.** main's harness skipped a tree over 100,000
+  expanded nodes but read its print back with a 65,536-node limit, so a tree between the two,
+  which macro sharing makes from a few hundred bytes, failed a property the parser never
+  broke. indent-lines' run found it; the fix and `macro_sharing_budget.bin` are here too
+  (`251bec7`).
+- **A second harness skip, for a defect on main.** main's printer cannot spell a tree whose
+  first form is `(origin "...")` held as data, a second origin, since it prints as the
+  declaration the reader consumes (D91). The parser reads it right. libFuzzer stopped on it
+  here after 5.2 million executions; the harness now skips that tree, as indent-lines'
+  does, with the same regression input (`617004a`). The parser did not change, so the count
+  carried on.
