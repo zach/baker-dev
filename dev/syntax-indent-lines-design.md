@@ -600,3 +600,24 @@ earlier section, this section is the later word.
   failure; 1,880,759 in all, short of spec §8's 10 million.
 - **Recommendation after review.** Decline the layout; take indent 3 and width 100 as the
   printer's defaults, as section 10 says.
+
+### The completion round
+
+*Added in the session's last pass over every branch, which took each to spec §8's fuzz bar
+and CI to green on every job; `dev/syntax-ideas.md` on `claude/fervent-cray-l1kyf0` records
+the round for all eight.*
+
+- **A defect in main's harness, found here.** Resumed from section 11's corpus, the run
+  stopped after 563,079 more executions on a text whose macros expand to between 65,536 and
+  100,000 nodes. The harness skipped a tree over 100,000 expanded nodes, but read its print
+  back with a 65,536-node limit; macro sharing lets a text read under the limit, since a use
+  counts once, while its print spells every node. main's harness has the same two numbers:
+  `macro_sharing_budget.bin`, 164 bytes of three nested macros, fails it. The budget is now
+  the session's own limit (`88ccf90`), here and on the other seven branches.
+- **Fuzzing, 10,000,000 executions on the final parser** (the layout always on), in runs
+  each resumed from the last one's corpus: a run stopped to apply a harness fix, or by one
+  of two machine restarts, resumed from its last logged count, so no execution is counted
+  twice. None found a failure in the parser. Section 11's 1,880,759 are not counted.
+- **CI.** Every job passes on the final head. The release dry run had failed on six lines
+  that cited this note, a decision number or a stack's path in running text; they were
+  reworded (`b14d93c`).
