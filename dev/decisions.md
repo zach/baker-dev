@@ -8527,7 +8527,11 @@ debug-build tracking, an arena-owned read destination and a fallible allocator f
 - **Weak memory (finding 12).** CI was x86-64 only, where the symbol table's lock-free reads
   (D197) and `read_consistent`'s seqlock (D240) cannot fail, and TSan does not model the
   fence. baker-dev is public, so an `ubuntu-24.04-arm` job runs the whole suite, those
-  tests among it.
+  tests among it. Its first run found the tweak codegen check written for x86: GCC 13 on
+  AArch64 reads a `Tweak<float>` in five instructions, `adrp` and `ldr` for the address
+  from the GOT, an `add` for the value's offset (its relaxed atomic load takes no immediate
+  offset), `ldr w0` and `fmov s0, w0`. Still one load of the value, no branch or barrier;
+  the check allows five there.
 - **Doc rules (findings 3 and 13).** Read a tweak once into a local before a hot loop: an
   atomic load is never hoisted, so `v[i] *= speed` compiles to scalar `mulss`, and with
   `const float s = speed;` first to `mulps` (GCC 13 and Clang 18 at -O3, checked). And no
