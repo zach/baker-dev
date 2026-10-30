@@ -183,11 +183,11 @@ TEST_CASE("check applies the one-way rule to calls across packs (D80)") {
     // An in-memory file system: three packs and a loose file.
     std::map<std::string, std::string> files{
         {"task.dta",
-         "(pack boss_task (level task))\n{func boss.restart_phase () 1}\n"
+         "#pack (boss_task (level task))\n{func boss.restart_phase () 1}\n"
          "{func boss.use_engine () {engine.shake}}"},
-        {"engine.dta", "(pack engine_core (level engine))\n{func engine.shake () 0}"},
+        {"engine.dta", "#pack (engine_core (level engine))\n{func engine.shake () 0}"},
         {"game.dta",
-         "(pack game_rules (level game))\n#require engine.dta\n#require task.dta\n"
+         "#pack (game_rules (level game))\n#require engine.dta\n#require task.dta\n"
          "{func game.tick () {boss.restart_phase}}\n{boss.restart_phase}"},
         {"loose.dta", "#require task.dta\n{boss.restart_phase}"},
     };
@@ -221,7 +221,7 @@ TEST_CASE("check applies the one-way rule to calls across packs (D80)") {
     // A script function the Context has registered is attributed by its file too.
     auto task = test::ok(read_file("task.dta", session));
     for (const Node& n : *task) (void)test::ok(ctx.eval(n));
-    files["call.dta"] = "(pack more_rules (level game))\n{boss.restart_phase}";
+    files["call.dta"] = "#pack (more_rules (level game))\n{boss.restart_phase}";
     auto call = test::ok(read_file("call.dta", session));
     const CheckReport registered = check(*call, ctx, {.packs = &session});
     REQUIRE(registered.warnings.size() == 1);
@@ -233,10 +233,10 @@ TEST_CASE("check reports a pack with one owner, and repetition across its trees 
     LoadSession session;
     session.set_pack_levels({"game", "task"});
     const auto solo =
-        ok(read_string("(pack boss (level task) (owners \"td-a\"))\n(x 1)", "boss.dta", session));
+        ok(read_string("#pack (boss (level task) (owners \"td-a\"))\n(x 1)", "boss.dta", session));
     const auto pair = ok(
-        read_string("(pack econ (level game) (owners \"a\" \"b\"))\n(y 1)", "econ.dta", session));
-    const auto none = ok(read_string("(pack ui (level game))\n(z 1)", "ui.dta", session));
+        read_string("#pack (econ (level game) (owners \"a\" \"b\"))\n(y 1)", "econ.dta", session));
+    const auto none = ok(read_string("#pack (ui (level game))\n(z 1)", "ui.dta", session));
     CheckReport report;
     check(*solo, ctx, report, {.packs = &session});
     REQUIRE(report.findings.size() == 1);
@@ -268,11 +268,11 @@ TEST_CASE("check's JSON is versioned, sorted, and the same bytes on every run (D
     // repeat whose form needs escaping, a one-owner finding, and packs with metadata.
     std::map<std::string, std::string> files{
         {"task.dta",
-         "(pack boss_task (level task) (owners \"td-encounter\") (for designers) (stage custom))\n"
+         "#pack (boss_task (level task) (owners \"td-encounter\") (for designers) (stage custom))\n"
          "{func boss.restart () 1}\n"
          "(phase (say \"Get \\qready\\q\") (hp 30) (wait 2))\n"},
         {"game.dta",
-         "(pack game_rules (level game) (requires boss_task) (owners \"a\" \"b\"))\n"
+         "#pack (game_rules (level game) (requires boss_task) (owners \"a\" \"b\"))\n"
          "#require task.dta\n"
          "{boss.restart}\n{spawn grunt}\n{+ 1}\n"
          "(phase (say \"Get \\qready\\q\") (hp 30) (wait 2))\n"},
@@ -323,10 +323,10 @@ TEST_CASE("check's JSON is versioned, sorted, and the same bytes on every run (D
 TEST_CASE("the reference lists the session's packs and origins: the harness register (D95)") {
     LoadSession session;
     session.set_pack_levels({"game"});
-    (void)test::ok(
-        read_string("(pack econ (level game) (owners \"td-econ\") (for designers) (stage product))",
-                    "econ.dta", session));
-    (void)test::ok(read_string("(origin \"economy.xlsx\" (tool sheets-export))\n(price 5)",
+    (void)test::ok(read_string(
+        "#pack (econ (level game) (owners \"td-econ\") (for designers) (stage product))",
+        "econ.dta", session));
+    (void)test::ok(read_string("#origin (\"economy.xlsx\" (tool sheets-export))\n(price 5)",
                                "prices.dta", session));
     Context ctx;
     const std::string with = reference(ctx, &session);
@@ -341,11 +341,11 @@ TEST_CASE("the reference lists the session's packs and origins: the harness regi
 TEST_CASE("a Config's read_session has every layer's packs and origins (D110)") {
     std::map<std::string, std::string> files{
         {"default.dta",
-         "(pack game_rules (level game) (owners \"a\"))\n#require task.dta\n"
+         "#pack (game_rules (level game) (owners \"a\"))\n#require task.dta\n"
          "{func game.tick () {boss.restart}}\n(x 1)"},
         {"task.dta",
-         "(pack boss_task (level task) (owners \"a\" \"b\"))\n{func boss.restart () 1}"},
-        {"agent.dta", "(origin \"sheet.xlsx\" (tool export))\n(x 2)"},
+         "#pack (boss_task (level task) (owners \"a\" \"b\"))\n{func boss.restart () 1}"},
+        {"agent.dta", "#origin (\"sheet.xlsx\" (tool export))\n(x 2)"},
     };
     Config cfg({.tweaks = nullptr});
     cfg.session().set_reader([&](std::string_view path, TextSink out) {

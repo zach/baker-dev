@@ -113,8 +113,8 @@ TEST_CASE("a misplaced verb is a located Directive error with its form as the hi
         CHECK(has(r.error().message(), c.hint));
     }
     // A macro's body may hold a row with a verb; it cannot splice a bare verb into a row.
-    CHECK(to_string(*parse("#define ADD ((items #append rope))\nADD")) == "((items #append rope))");
-    CHECK_FALSE(read_string("#define V (#append)\n(items V rope)", "m.dta"));
+    CHECK(to_string(*parse("[ADD (items #append rope)]\nADD")) == "((items #append rope))");
+    CHECK_FALSE(read_string("[V #append]\n(items V rope)", "m.dta"));
 }
 
 TEST_CASE("#append composes in order, before the metadata; a key below is made from operands") {

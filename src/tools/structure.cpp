@@ -13,10 +13,11 @@ TextStructure read_structure(std::string_view text, Symbol file) {
     Vec<detail::LexComment> comments;
     Vec<TextToken> tokens;
     Vec<TextBracket> brackets;
-    Vec<int32_t> open;    // the brackets not yet closed, innermost last
-    Vec<Symbol> macros;   // the names [name ...] at the top level defines, in order
-    int32_t fresh = -1;   // a bracket just opened, whose first token may be its tag
-    bool naming = false;  // the next symbol names a macro
+    Vec<int32_t> open;       // the brackets not yet closed, innermost last
+    Vec<Symbol> macros;      // the names [name ...] at the top level defines, in order
+    int32_t fresh = -1;      // a bracket just opened, whose first token may be its tag
+    bool naming = false;     // the next symbol names a macro
+    int32_t declaring = -1;  // a declaring directive just read, whose form comes next
     detail::Lexer lexer(text, file);
     lexer.tolerate(errors, comments);
     auto problem = [&](const Str& message, int32_t line, uint32_t at) {
@@ -41,7 +42,9 @@ TextStructure read_structure(std::string_view text, Symbol file) {
                                     .line = t.line,
                                     .begin = t.begin,
                                     .end = static_cast<uint32_t>(text.size()),
-                                    .parent = parent});
+                                    .parent = parent,
+                                    .declares = t.bracket == '(' && parent == -1 ? declaring : -1});
+                declaring = -1;
                 open.push_back(fresh);
                 tokens.push_back(out);
                 continue;
@@ -70,7 +73,17 @@ TextStructure read_structure(std::string_view text, Symbol file) {
             case Tok::Float: out.kind = TextTokenKind::Float; break;
             case Tok::String: out.kind = TextTokenKind::String; break;
             case Tok::Var: out.kind = TextTokenKind::Variable; break;
-            case Tok::Directive: out.kind = TextTokenKind::Directive; break;
+            case Tok::Directive:
+                out.kind = TextTokenKind::Directive;
+                // #pack, #origin, #shape at the top level: the form that follows declares.
+                if (open.empty() && (t.text == "pack" || t.text == "origin" || t.text == "shape")) {
+                    fresh = -1;
+                    naming = false;
+                    declaring = index;
+                    tokens.push_back(out);
+                    continue;
+                }
+                break;
             case Tok::Symbol: {
                 out.kind = t.quoted ? TextTokenKind::QuotedSymbol : TextTokenKind::Symbol;
                 if (!t.quoted && fresh >= 0 && brackets[fresh].open == '(' &&
@@ -90,6 +103,7 @@ TextStructure read_structure(std::string_view text, Symbol file) {
         }
         fresh = -1;
         naming = false;
+        declaring = -1;
         tokens.push_back(out);
     }
     for (const int32_t b : open)

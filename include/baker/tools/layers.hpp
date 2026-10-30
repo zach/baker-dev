@@ -13,6 +13,7 @@ struct DiffEntry {
     std::optional<Node> a, b;  // empty: that layer does not set this path
     std::optional<Source> source_a, source_b;
     Symbol op_a, op_b;  // each row's verb, as LayerEffectEntry::op
+    Symbol declares;    // a declaration's directive, as LayerEffectEntry::declares
 };
 
 // How one contributor to a path's value stands in the merged value (explain).
@@ -45,6 +46,9 @@ struct ExplainEntry {
 // Every contributor to `path`'s value, bottom to top: the code default of a tweak at the
 // path, each layer that holds a value there or removes it, and scratch. The one that
 // Wins is the one Config::source() names. Refuses a path that holds arrays rather than values.
+// A path `#shape.NAME` or `#shape.NAME.FIELD` lists each layer that declares that shape, or
+// that field of it, with the declaration as the value: every enabled one Wins, since a
+// shape's declarations combine, harder packs' holding (D145, D261).
 [[nodiscard]] Expected<List<ExplainEntry>> explain(const Config& cfg, const Path& path);
 
 }  // namespace baker::tools

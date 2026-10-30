@@ -148,39 +148,9 @@ void write(const Array& array, TextSink text) {
 }
 
 namespace {
-// Whether `root`'s first form is one a reader takes as a declaration, (pack ...) or
-// (origin "..."), which in a tree is data (D80, D91): a row spells it, since a row never
-// declares. Only when no top-level tag repeats, which a file with rows may not hold (D249).
-bool first_as_row(const Array& root) {
-    static const Symbol pack("pack");
-    static const Symbol origin("origin");
-    const Array* lead = root.size() > 0 ? root[0].try_array() : nullptr;
-    if (!lead || !(lead->tag() == pack || (lead->tag() == origin && lead->size() > 1 &&
-                                           (*lead)[1].type() == Type::String)))
-        return false;
-    for (size_t i = 1; i < root.size(); ++i)
-        for (size_t j = 0; j < i; ++j)
-            if (!detail::tag_of(root[i]).empty() &&
-                detail::tag_of(root[i]) == detail::tag_of(root[j]))
-                return false;
-    return true;
-}
-
 Str dta_text(const Array& root, const WriteOptions& options) {
     Str out;
-    const bool row = first_as_row(root);
     for (const Node& n : root) {
-        if (row && out.empty()) {
-            const Array& a = *n.try_array();
-            out += "(/";
-            out += a.tag().str();
-            for (uint32_t i = 1; i < a.size(); ++i) {
-                out += ' ';
-                put_flat(out, a[i], SIZE_MAX, slot_of(n, a, i));
-            }
-            out += ")\n";
-            continue;
-        }
         put_pretty(out, n, 0, options);
         out += '\n';
     }

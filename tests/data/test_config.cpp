@@ -343,7 +343,7 @@ TEST_CASE("source names the layer, file, and line") {
 TEST_CASE("source names a generated file's origin and tool (D91)") {
     TempDir dir;
     Config cfg({.tweaks = nullptr});
-    dir.write("econ.dta", "(origin \"economy.xlsx\" (tool sheets-export))\n(econ (price 5))\n");
+    dir.write("econ.dta", "#origin (\"economy.xlsx\" (tool sheets-export))\n(econ (price 5))\n");
     REQUIRE(
         cfg.push_layer("default", dir.write("default.dta", "(shop (tax 2))\n#include econ.dta\n")));
     REQUIRE(cfg.push_layer("patch", dir.write("patch.dta", "(shop (tax 3))\n")));
@@ -981,9 +981,9 @@ BAKER_DEV_TEST_CASE("cache_dir reads a cache through a custom reader, and from d
 
 TEST_CASE("Config forwards the one-way rule's warnings") {
     TempDir dir;
-    dir.write("task.dta", "(pack boss_task (level task))\n#define PHASES (3)");
+    dir.write("task.dta", "#pack (boss_task (level task))\n[PHASES 3]");
     const std::string game =
-        dir.write("game.dta", "(pack rules (level game))\n#require task.dta\n(b PHASES)");
+        dir.write("game.dta", "#pack (rules (level game))\n#require task.dta\n(b PHASES)");
     Config cfg({.tweaks = nullptr});
     cfg.session().set_pack_levels({"game", "task"});
     std::vector<std::string> warnings;

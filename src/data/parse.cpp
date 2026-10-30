@@ -109,6 +109,7 @@ struct LoadSession::State {
           pack_levels(a),
           packs(a),
           origins(a),
+          shapes(a),
           definitions(a),
           flags(a),
           sections(a),
@@ -130,6 +131,7 @@ struct LoadSession::State {
         pack_levels = o.pack_levels;
         packs = o.packs;
         origins = o.origins;
+        shapes = o.shapes;
         definitions = o.definitions;
         flags = o.flags;
         sections = o.sections;
@@ -144,6 +146,7 @@ struct LoadSession::State {
         required_from = o.required_from;
         packs_from = o.packs_from;
         origins_from = o.origins_from;
+        shapes_from = o.shapes_from;
         definitions_from = o.definitions_from;
         include_stack = o.include_stack;
         nodes = o.nodes;
@@ -163,6 +166,7 @@ struct LoadSession::State {
     Vec<Symbol> pack_levels;           // hardest first
     Vec<Pack> packs;                   // in the order they were read
     Vec<Origin> origins;               // files that declared one, in the order read
+    Vec<ShapeDecl> shapes;             // #shape declarations, in the order read
     Vec<Definition> definitions;       // macro definitions, in the order read
     Vec<ActiveDefine> flags;           // the flags that stand, in the order made
     Vec<ConditionalSection> sections;  // the #ifdef branches the reads took
@@ -178,6 +182,7 @@ struct LoadSession::State {
     size_t required_from = 0;
     size_t packs_from = 0;
     size_t origins_from = 0;
+    size_t shapes_from = 0;
     size_t definitions_from = 0;
     // Per top-level read.
     Vec<Str> include_stack;
@@ -201,6 +206,7 @@ public:
           size_(static_cast<uint32_t>(text.size())) {
         if (map_) map_->record_text(file, text);
         ++s_.st_->parses;
+        defs_from_ = s_.st_->definitions.size();
         // A name this file brings that shares a hash with another is reported at its line.
         if constexpr (!kShipping) outer_site_ = set_intern_site({file, &line_});
     }
@@ -264,12 +270,22 @@ public:
     }
 
 private:
-    enum class Frame : uint8_t { Root, Array, Command, Property, MacroDef, DefineBody, Autorun };
+    // Declare: the one form of #pack, #origin or #shape (D261).
+    enum class Frame : uint8_t {
+        Root,
+        Array,
+        Command,
+        Property,
+        MacroDef,
+        DefineBody,
+        Autorun,
+        Declare
+    };
     struct FrameInfo {
         Frame kind;
         size_t start;
         int32_t line;
-        Symbol name;  // DefineBody
+        Symbol name;  // DefineBody; Declare: the directive's name
         char open = '(';
         uint32_t begin = 0;  // offset of the opening bracket
         bool verb = false;   // holds a layer verb: its form is checked at close (D143)
@@ -366,7 +382,10 @@ private:
         const bool naming_macro = f.kind == Frame::MacroDef && scratch_.size() == f.start;
         if (!t.quoted && !naming_macro && !s_.st_->defines.empty()) {
             if (const Array* body = s_.macro(sym)) {
-                if (pack_ >= 0) one_way(sym, t.line);
+                if (pack_ >= 0)
+                    one_way(sym, t.line);
+                else if (!s_.st_->macro_pack.empty())  // checked if a #pack follows
+                    unpacked_.emplace_back(sym, t.line);
                 const SourceSpan from{file_, t.begin, t.end, sym};
                 for (const Node& n : *body)
                     if (!push(n, from)) return false;
@@ -448,16 +467,8 @@ private:
                 return true;
             case Frame::Command: return push(Node(std::move(arr), Type::Command), span);
             case Frame::Property: return push(Node(std::move(arr), Type::Property), span);
-            default:
-                // A file's first form may declare it a pack, which the tree leaves out.
-                if (frames_.size() == 1 && f.start == 0 && pack_ < 0 && !arr->empty() &&
-                    (*arr)[0].is(sym_pack()))
-                    return declare_pack(*arr);
-                // So may (origin "source" ...), first or after the pack declaration (D91).
-                if (frames_.size() == 1 && f.start == 0 && !origin_ && arr->size() >= 2 &&
-                    (*arr)[0].is(sym_origin()) && (*arr)[1].type() == Type::String)
-                    return declare_origin(*arr);
-                return push(Node(std::move(arr)), span);
+            case Frame::Declare: return declared(f, std::move(arr));
+            default: return push(Node(std::move(arr)), span);
         }
     }
 
@@ -635,13 +646,49 @@ private:
         return false;
     }
 
-    static const Symbol& sym_pack() {
-        static const Symbol s("pack");
-        return s;
+    // A declaration's form, which the tree leaves out: #pack (NAME ...), #origin ("SRC" ...),
+    // #shape (NAME ...), the name or source first.
+    bool declared(const FrameInfo& f, Ref<Array> form) {
+        if (f.name == "pack") return declare_pack(*form);
+        if (f.name == "shape") {
+            if (form->tag().empty() || form->tag().is_meta())
+                return fail(ErrorCode::Directive,
+                            "#shape takes a named form: #shape (NAME (FIELD TYPE ...) ...)", f.line,
+                            f.begin);
+            SessionAccess::add_shape(
+                s_, {std::move(form), file_, f.line, Symbol(s_.st_->include_stack.front())});
+            return true;
+        }
+        if (form->empty() || (*form)[0].type() != Type::String)
+            return fail(ErrorCode::Directive,
+                        "#origin takes a string first: #origin (\"source\" (tool NAME))", f.line,
+                        f.begin);
+        return declare_origin(*form);
     }
-    static const Symbol& sym_origin() {
-        static const Symbol s("origin");
-        return s;
+
+    // #pack, #origin, #shape: one form at the file's top level; a pack and an origin once.
+    bool declaration(const Token& t) {
+        const Str d(t.text);
+        if (frames_.size() != 1)
+            return fail(ErrorCode::Directive, "#" + d + " is written at a file's top level", t.line,
+                        t.begin);
+        if ((d == "pack" && pack_ >= 0) || (d == "origin" && origin_))
+            return fail(ErrorCode::Directive,
+                        "second #" + d + " in this file: a file declares one " + d, t.line,
+                        t.begin);
+        Token next;
+        if (!lex_.next(next, *err_)) return false;
+        if (next.kind != Tok::Open || next.bracket != '(')
+            return fail(ErrorCode::Directive,
+                        "#" + d + " takes one form: #" + d +
+                            (d == "pack"     ? " (NAME (level L) ...)"
+                             : d == "origin" ? " (\"source\" (tool NAME))"
+                                             : " (NAME (FIELD TYPE ...) ...)"),
+                        next.line, next.begin);
+        if (!open('(', next.line, next.begin)) return false;
+        frames_.back().kind = Frame::Declare;
+        frames_.back().name = Symbol(d);
+        return true;
     }
 
     // A name written as a symbol or a string: (owners "td-combat" td-encounter).
@@ -700,26 +747,25 @@ private:
         return true;
     }
 
-    // (origin "economy.xlsx" (tool sheets-export)): recorded for this file, left out of the
-    // tree.
+    // #origin ("economy.xlsx" (tool sheets-export)): recorded for this file.
     bool declare_origin(const Array& decl) {
         origin_ = true;
         Symbol tool;
         if (const Array* t = decl.try_find("tool")) {
             const auto x = t->size() == 2 ? name_of((*t)[1]) : std::nullopt;
             if (!x)
-                return fail(ErrorCode::Syntax, "write (origin \"source\" (tool name))", t->line());
+                return fail(ErrorCode::Syntax, "write #origin (\"source\" (tool name))", t->line());
             tool = *x;
         }
-        SessionAccess::add_origin(s_, {file_, Symbol(*decl[1].try_str()), tool});
+        SessionAccess::add_origin(s_, {file_, Symbol(*decl[0].try_str()), tool});
         return true;
     }
 
-    // (pack name (level L) (requires other ...)): other children are metadata for later.
+    // #pack (name (level L) (requires other ...)): other children are metadata for later.
     bool declare_pack(const Array& decl) {
         LoadSession::State& st = *s_.st_;
-        const auto name = decl.size() > 1 ? decl[1].try_sym() : std::nullopt;
-        if (!name) return fail(ErrorCode::Syntax, "(pack ...) needs a name", decl.line());
+        const auto name = decl.tag().empty() ? std::nullopt : std::optional<Symbol>(decl.tag());
+        if (!name) return fail(ErrorCode::Syntax, "#pack (...) needs a name", decl.line());
         const Array* level = decl.try_find("level");
         const auto l = level && level->size() == 2 ? (*level)[1].try_sym() : std::nullopt;
         if (!l)
@@ -776,6 +822,12 @@ private:
                      List<Symbol>({owners.data(), owners.size()}),
                      List<Symbol>({audience.data(), audience.size()}), stage}));
         pack_line_ = decl.line();
+        // A pack is its whole file's: what the file defined above #pack is the pack's, and the
+        // macros it used above #pack are checked now.
+        for (size_t i = defs_from_; i < st.definitions.size(); ++i)
+            if (st.definitions[i].file == file_)
+                st.macro_pack[st.definitions[i].name] = static_cast<uint32_t>(pack_);
+        for (const auto& [macro, line] : unpacked_) one_way(macro, line);
         return true;
     }
 
@@ -943,6 +995,12 @@ private:
             Token next;
             if (!lex_.peek(next, *err_)) return false;
             if (next.kind == Tok::Open && next.bracket == '(' && next.line == name.line) {
+                // The older macro form, still read; [NAME ...] is the one a check suggests.
+                s_.st_->warnings.push_back(make_error(
+                    ErrorCode::Syntax,
+                    "#define " + Str(name.text) + " (...) is the older macro form; write [" +
+                        Str(name.text) + " ...]",
+                    file_, name.line));
                 (void)lex_.next(next, *err_);
                 if (!open('(', next.line, next.begin)) return false;
                 frames_.back().kind = Frame::DefineBody;
@@ -963,6 +1021,7 @@ private:
             s_.st_->tested.emplace_back(name.text);
             return true;
         }
+        if (d == "pack" || d == "origin" || d == "shape") return declaration(t);
         if (d == "autorun") {
             Token next;
             if (!lex_.next(next, *err_)) return false;
@@ -1189,6 +1248,8 @@ private:
     int32_t pack_line_ = 0;  // where it declared it
     bool origin_ = false;    // this file declared its origin
     Vec<Symbol> warned_;     // macros this file has been warned about
+    size_t defs_from_ = 0;   // the session's definitions before this file
+    Vec<std::pair<Symbol, int32_t>> unpacked_;  // macros used before a #pack, and where
     InternSite outer_site_;  // the intern site of the read that included this file
     struct RowSegment {
         Symbol name;
@@ -1346,6 +1407,9 @@ std::span<const Definition> LoadSession::macro_definitions() const noexcept {
 std::span<const Origin> LoadSession::origins() const noexcept {
     return {st_->origins.data(), st_->origins.size()};
 }
+std::span<const ShapeDecl> LoadSession::shapes() const noexcept {
+    return {st_->shapes.data(), st_->shapes.size()};
+}
 const Origin* LoadSession::origin_of(Symbol file) const noexcept {
     for (const Origin& o : st_->origins)
         if (o.file == file) return &o;
@@ -1476,6 +1540,18 @@ void SessionAccess::add_origin(LoadSession& s, const Origin& origin) {
         }
     s.st_->origins.push_back(origin);
 }
+std::span<const ShapeDecl> SessionAccess::new_shapes(const LoadSession& s) noexcept {
+    const auto& d = s.st_->shapes;
+    return {d.data() + std::min(s.st_->shapes_from, d.size()), d.data() + d.size()};
+}
+void SessionAccess::add_shape(LoadSession& s, ShapeDecl shape) {
+    for (ShapeDecl& d : s.st_->shapes)
+        if (d.file == shape.file && d.line == shape.line && d.form->tag() == shape.form->tag()) {
+            d = std::move(shape);
+            return;
+        }
+    s.st_->shapes.push_back(std::move(shape));
+}
 void SessionAccess::set_macro_pack(LoadSession& s, Symbol macro, Symbol file) {
     const auto& packs = s.st_->packs;
     for (size_t i = 0; i < packs.size(); ++i)
@@ -1558,6 +1634,7 @@ Expected<Ref<Array>> read_string(std::string_view text, std::string_view name,
             st.required_from = st.required.size();
             st.packs_from = st.packs.size();
             st.origins_from = st.origins.size();
+            st.shapes_from = st.shapes.size();
             st.definitions_from = st.definitions.size();
         }
     }

@@ -170,6 +170,20 @@ void row_warnings(const Array& row, std::string_view path, const Vec<Node>* belo
 // Each tag's first child only, as lookup sees it, depth first.
 Vec<Leaf> leaves_of(const Array& root);
 
+// A declaration a layer's read made (D261): #shape (NAME ...), #pack (NAME ...) or
+// #origin ("source" ...), which the layer's tree does not hold, as the layer tools list it.
+struct Declaration {
+    Symbol directive;  // #shape, #pack, #origin
+    Symbol name;       // the shape's or pack's name; the file an origin describes
+    Node form;         // as written for a shape; (NAME (level L)) and ("source" (tool T))
+    Symbol file;
+    int32_t line = 0;
+};
+// The declarations of the read whose root is `root`, its files `files` (a layer's deps), in
+// `session`: shapes by their read's root, packs and origins by their file.
+void declarations_of(const LoadSession& session, Symbol root, std::span<const Dep> files,
+                     Vec<Declaration>& out);
+
 }  // namespace config_internal
 using namespace config_internal;
 

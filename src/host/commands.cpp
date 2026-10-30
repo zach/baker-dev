@@ -106,6 +106,17 @@ Expected<void> read_book(const Loaded& l, sim::Book& book) {
     return {};
 }
 
+#if BAKER_HOST_SHAPE
+// The shapes the enabled layers declare, each layer's read alone with the stack's packs
+// (D145), as the validator reads them.
+void add_shapes(const Config& cfg, shape::Set& set, shape::Report& report) {
+    for (const Symbol layer : cfg.layers())
+        if (cfg.layer_enabled(layer.str()))
+            if (const Ref<Array> root = cfg.layer_root(layer.str()))
+                set.add(cfg.read_session(), report, root->file());
+}
+#endif
+
 int report_check(CheckReport& report, const Loaded& l, const LoadSession* packs) {
     report.load = List<Error>(l.live.load_errors());
     tools::write_json(report, stdout_sink(), packs);
@@ -162,7 +173,7 @@ int check(const CommandLine& line, const CommandHooks& hooks) {
     // check; a field no shape declares is reported, as demand for a word, and passes.
     shape::Set shapes;
     shape::Report shaped;
-    shapes.add(*cfg.root(), shaped);
+    add_shapes(cfg, shapes, shaped);
     shape::check(*cfg.root(), shapes, shaped);
     shape::unused(*cfg.root(), shapes, shaped);  // a shape at the wrong depth checks nothing
     tools::check_rules(*cfg.root(), shapes, l.ctx, shaped);  // a broken rule fails the check
@@ -190,10 +201,7 @@ int reference(const CommandLine& line, const CommandHooks& hooks) {
 #if BAKER_HOST_SHAPE
     shape::Set set;
     shape::Report report;
-    for (const Symbol layer : cfg.layers())
-        if (cfg.layer_enabled(layer.str()))
-            if (const Ref<Array> root = cfg.layer_root(layer.str()))
-                set.add(*root, report, &cfg.read_session());
+    add_shapes(cfg, set, report);
     shapes.clear();
     shape::write_json(set, detail::str_out(shapes));
 #endif
@@ -265,6 +273,10 @@ void print_rows(const Config& cfg, std::string_view layer, const List<LayerEffec
     const Ref<Array> root = cfg.layer_root(layer);
     for (const LayerEffectEntry& e : effect) {
         const std::string_view key = e.path.str();
+        if (!e.declares.empty()) {  // a declaration is written as itself, not as a row
+            out(Str(e.declares.str()) + " " + detail::text_of(e.value) + "\n");
+            continue;
+        }
         const Array* a = row_of(root.get(), e);
         bool spelled = a && !key.empty() && key[0] != '*';
         for (const char c : key)
@@ -328,8 +340,10 @@ int print_effect(const Config& cfg, std::string_view layer, std::string_view hea
     out(Str(heading) + "\n");
     for (const LayerEffectEntry& e : *effect) {
         const bool verb = !e.op.empty() && e.op != Symbol("#remove");  // #remove is the value
-        out("  " + Str(e.path.str()) + "  " + (e.below ? detail::text_of(*e.below) : Str("(new)")) +
-            " -> " + (verb ? Str(e.op.str()) + " " : Str()) + detail::text_of(e.value) + "  (" +
+        const Str what = e.declares.empty() ? Str() : Str(e.declares.str()) + " ";
+        out("  " + what + Str(e.path.str()) + "  " +
+            (e.below ? detail::text_of(*e.below) : Str("(new)")) + " -> " +
+            (verb ? Str(e.op.str()) + " " : Str()) + detail::text_of(e.value) + "  (" +
             Str(e.source.file.str()) + ":" + detail::decimal(e.source.line) + ")" +
             (e.shadowed ? "  shadowed" : "") + (e.stale ? "  stale" : "") + "\n");
     }
