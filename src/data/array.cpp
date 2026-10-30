@@ -1,6 +1,7 @@
 #include <baker/array.hpp>
 
 #include "arena.hpp"
+#include "markers.hpp"
 #include "text.hpp"
 
 #include <bit>
@@ -70,9 +71,9 @@ bool is_meta_child(const Node& n) noexcept {
 }
 }  // namespace
 
-void Array::finish() noexcept {
+void Array::finish(int verb) noexcept {
     uint16_t h = 0;
-    uint16_t below = 0;       // the children's flags, for kHasRemoval (D143)
+    uint16_t below = 0;       // the children's flags, for kHasMarker (D143)
     uint32_t first_meta = 0;  // the metadata boundary, from the size word tag_key's test loads
     uint32_t* tags = tag_run();
     for (uint32_t i = 0; i < size_; ++i) {
@@ -88,15 +89,31 @@ void Array::finish() noexcept {
         if (tag && tag->is_meta() && !first_meta && i) first_meta = i;
     }
     height_ = above(h);
-    if (size_ == 2 && data()[1].type() == Type::Symbol) {
-        static const Symbol marker("#remove");
-        if (data()[1].is(marker)) below = kHasRemoval;
-    }
+    // A verb stands in the first value slot, which the parser knows; a pin is metadata.
+    if (verb < 0) verb = size_ >= 2 && data()[1].type() == Type::Symbol ? -1 : 0;
+    if (verb || first_meta) below = static_cast<uint16_t>(below | marker_flag(verb, first_meta));
     // sort_for_lookup() runs this again, so the old boundary goes first. Past the 14 bits,
     // metadata would read as values: the parser refuses such an array.
-    flags_ = static_cast<uint16_t>((flags_ & kFlagBits) | (below & kHasRemoval));
+    flags_ = static_cast<uint16_t>((flags_ & kFlagBits) | (below & kHasMarker));
     if (first_meta <= kMaxMetaFirst)
         flags_ = static_cast<uint16_t>(flags_ | (first_meta << kMetaShift));
+}
+
+#if defined(_MSC_VER)
+#define BAKER_COLD __declspec(noinline)
+#else
+#define BAKER_COLD [[gnu::noinline, gnu::cold]]
+#endif
+
+BAKER_COLD uint16_t Array::marker_flag(int verb, uint32_t first_meta) const noexcept {
+    if (verb < 0)
+        verb = size_ >= 2 && data()[1].type() == Type::Symbol &&
+               detail::marker_of(data()[1]) != detail::Marker::None;
+    const uint32_t* tags = tag_run();
+    for (uint32_t i = first_meta; i && i < size_ && !verb; ++i)
+        verb =
+            tags[i] == key_of(detail::was_tag()) && data()[i].array()->tag() == detail::was_tag();
+    return verb ? kHasMarker : 0;
 }
 
 void Array::set(size_t i, Node node) noexcept {
@@ -104,8 +121,15 @@ void Array::set(size_t i, Node node) noexcept {
     const uint16_t h = above(child_height(node));
     if (h > height_) height_ = h;
     flags_ = static_cast<uint16_t>(flags_ & ~kSortedForLookup);
-    if (const Array* a = node.array())
-        flags_ = static_cast<uint16_t>(flags_ | (a->flags_ & kHasRemoval));
+    // A verb or a pin made here is flagged as finish() flags one.
+    if (const Array* a = node.array()) {
+        const bool pin = i > 0 && node.type() == Type::Array && a->tag().is_meta() &&
+                         a->tag() == detail::was_tag();
+        flags_ = static_cast<uint16_t>(flags_ | (a->flags_ & kHasMarker) | (pin ? kHasMarker : 0));
+    } else if (i == 1 && node.type() == Type::Symbol &&
+               detail::marker_of(node) != detail::Marker::None) {
+        flags_ = static_cast<uint16_t>(flags_ | kHasMarker);
+    }
     tag_run()[i] = tag_key(node);
     // The boundary moves only if this slot is, or was, the first metadata child.
     const uint32_t m = meta_first();

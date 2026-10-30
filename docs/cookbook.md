@@ -233,6 +233,8 @@ it stands:
 - `Wins`: it supplies the value `get` returns.
 - `Shadowed`: a layer above overrides it.
 - `Removes`: it holds `(key #remove)` for the key or an ancestor.
+- `Composes`: it holds `(key #append ...)` or `(key #drop ...)`, which changes the value
+  below it; its `op` names the verb.
 - `Disabled`: a toggled-off layer that would bring the value back.
 
 A tweak at the path adds a first entry, `code`, holding its default.
@@ -518,10 +520,10 @@ How a game delivers content after it ships (dev/background/content-updates.md):
   parse is an empty layer, its error located and passed to the warning handler, until it is
   fixed; the rest stand. A host with an archive or a virtual root lists the directory with
   `LoadSession::set_lister`, as it reads with `set_reader` (D243).
-- **Anything packages extend is a keyed table.** Two layers that set one value list leave
-  the top one's list, because Overwrite replaces values. Keyed children merge, so every
-  package's entries survive. This is how Rock Band's `songs.dta` scaled to thousands of
-  downloadable songs:
+- **Key what packages retune by name; mark what they extend in order.** Two layers that set
+  one value list leave the top one's list, because Overwrite replaces values. Keyed
+  children merge, so every package's entries survive, and each can retune one by its name.
+  This is how Rock Band's `songs.dta` scaled to thousands of downloadable songs:
 
   ```dta
   ; base: (songs (song_a (bpm 120)) (song_b (bpm 90)))
@@ -530,8 +532,18 @@ How a game delivers content after it ships (dev/background/content-updates.md):
   ; merged: (songs (song_a ...) (song_b ...) (song_c ...))
   ```
 
-  A value list such as `(setlist song_a song_b)` is right for something one package owns.
-  `layer_effect` shows a layer that replaces another's list.
+  A list whose entries have no names of their own, items, a move's cancels, a room's
+  furniture with two beds, takes `#append` and `#drop` (D250): `(items #append rope)` adds
+  to the list below without restating it, so packages compose in their stack order, and a
+  title update drops one entry without reverting the rest. A list that one package owns
+  stays a plain value list. `layer_effect` shows a layer that replaces another's list, and
+  names each verb.
+- **A mod directory is a stack of packages** (D243): each mod that extends a list appends to
+  it, and `order.dta` decides the order their entries take.
+- **An overlay pins what it was written against.** A live-ops overlay or an agent's layer
+  written with `write_back_to(path, layer, true)` carries `(@was v...)`, the value below it
+  then. When a title update moves that value, checking the overlay warns at the row
+  instead of silently reverting the update, and `warnings_refuse` refuses it.
 - **A title update removes with `(key #remove)`**, a debug menu or an exploit's entry, and
   the key stays gone until the layer is removed (D143).
 - **A title update changes values, not the macros below it.** A layer reads with the macros

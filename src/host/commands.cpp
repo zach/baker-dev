@@ -240,15 +240,31 @@ int eval(const CommandLine& line, const CommandHooks& hooks) {
     return status;
 }
 
+// The row of `root` an effect entry was read from: the first with its key, or for a later
+// row that composes (a key's second #append), the one on the entry's line.
+const Array* row_of(const Array* root, const LayerEffectEntry& e) {
+    const Path path(e.path.str());
+    const Array* a = root && path.valid() ? root->try_get(e.path.str()) : nullptr;
+    if (!a || a->line() == e.source.line || path.empty()) return a;
+    const Array* parent =
+        path.size() == 1 ? root : root->try_get(Path(detail::text_of(path, path.size() - 1)));
+    for (size_t i = 0; parent && i < parent->size(); ++i)
+        if (const Array* c = (*parent)[i].try_array();
+            c && c->tag() == path[path.size() - 1].name && c->line() == e.source.line)
+            return c;
+    return a;
+}
+
 // Each value the layer sets as a row, (/player.speed 4.5), its value below in a comment:
-// text a layer file can hold (D249). A key no row can spell is a comment.
+// text a layer file can hold (D249). A verb reads bare in its slot (D143), and metadata
+// follows. A key no row can spell is a comment.
 void print_rows(const Config& cfg, std::string_view layer, const List<LayerEffectEntry>& effect,
                 std::string_view heading) {
     out("; " + Str(heading) + "\n");
     const Ref<Array> root = cfg.layer_root(layer);
     for (const LayerEffectEntry& e : effect) {
         const std::string_view key = e.path.str();
-        const Array* a = root ? root->try_get(key) : nullptr;
+        const Array* a = row_of(root.get(), e);
         bool spelled = a && !key.empty() && key[0] != '*';
         for (const char c : key)
             spelled = spelled && !detail::is_atom_end(static_cast<unsigned char>(c));
@@ -257,14 +273,37 @@ void print_rows(const Config& cfg, std::string_view layer, const List<LayerEffec
             continue;
         }
         Str row = "(/" + Str(key);
-        static const Symbol marker("#remove");  // a removal's, which reads bare there (D143)
-        for (const Node& v : a->values())
-            row += " " + (v.is(marker) ? Str("#remove") : detail::text_of(v));
+        const Values values = a->values();
+        for (size_t i = 0; i < values.size(); ++i)
+            row += " " + (i == 0 && !e.op.empty() ? Str(e.op.str()) : detail::text_of(values[i]));
+        for (const Array& m : a->metadata())
+            row += " " + detail::text_of(Node(Ref<Array>(const_cast<Array*>(&m))));
         row += ")  ; ";
         row += e.below ? "was " + detail::text_of(*e.below) : Str("new");
         if (e.shadowed) row += ", shadowed";
+        if (e.stale) row += ", stale";
         out(row + "\n");
     }
+}
+
+// What a layer's rows say of themselves: "# path: note" for each (@note ...), a patch's
+// preamble, which git apply and patch skip.
+Str notes_of(const Config& cfg, std::string_view layer) {
+    Str out;
+    auto effect = tools::layer_effect(cfg, layer);
+    const Ref<Array> root = cfg.layer_root(layer);
+    for (const LayerEffectEntry& e : effect ? *effect : List<LayerEffectEntry>()) {
+        const Array* a = row_of(root.get(), e);
+        const Array* note = a ? a->meta(Symbol("@note")) : nullptr;
+        if (!note) continue;
+        Str text;
+        for (const Node& v : note->values()) {
+            if (!text.empty()) text += ' ';
+            text += v.try_str() ? Str(*v.try_str()) : detail::text_of(v);
+        }
+        out += "# " + Str(e.path.str()) + ": " + text + "\n";
+    }
+    return out;
 }
 
 // One line per value the layer sets: path, the value below it, its value, where; or, with
@@ -287,9 +326,11 @@ int print_effect(const Config& cfg, std::string_view layer, std::string_view hea
     }
     out(Str(heading) + "\n");
     for (const LayerEffectEntry& e : *effect) {
+        const bool verb = !e.op.empty() && e.op != Symbol("#remove");  // #remove is the value
         out("  " + Str(e.path.str()) + "  " + (e.below ? detail::text_of(*e.below) : Str("(new)")) +
-            " -> " + detail::text_of(e.value) + "  (" + Str(e.source.file.str()) + ":" +
-            detail::decimal(e.source.line) + ")" + (e.shadowed ? "  shadowed" : "") + "\n");
+            " -> " + (verb ? Str(e.op.str()) + " " : Str()) + detail::text_of(e.value) + "  (" +
+            Str(e.source.file.str()) + ":" + detail::decimal(e.source.line) + ")" +
+            (e.shadowed ? "  shadowed" : "") + (e.stale ? "  stale" : "") + "\n");
     }
     return 0;
 }
@@ -435,7 +476,7 @@ int promote(const CommandLine& line, const CommandHooks& hooks) {
                             ? fs::path(Str(l.live.project_file().str()).c_str()).parent_path()
                             : fs::path(Str(line.patch_root).c_str());
         if (root.empty()) root = ".";  // a project file named without a directory
-        Str patch;
+        Str patch = report->ok() ? notes_of(cfg, line.layer) : Str();
         if (report->ok())  // all or nothing, as --baker-write is
             for (const auto& [path, text] : captured) {
                 Str before;

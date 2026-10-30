@@ -100,7 +100,7 @@ follows, and is never part of it.
 `player.speed` is `4.5` to every reader, and `player.tint` three numbers, so
 `get<std::array<float, 3>>("player.tint")` reads them; `values()` ends at the first
 metadata child, and `metadata()` lists the metadata. Baker's own readers use `@range`,
-`@step`, `@desc`, `@note`, `@kind`, `@group` and `@one_of` (tweaks and tuning panels, D88)
+`@step`, `@desc`, `@note`, `@kind`, `@group` and `@one_of` (tweaks and tuning panels, D88), and `@was` (a layer's pin, Merging)
 and the shape words below; `check` warns on any other `@` word, so a misspelt
 `(@rnage 0 10)` is found. A path reaches metadata like any child: `player.speed.@desc`.
 
@@ -131,11 +131,57 @@ from the layers below (D143):
 (enemies (exploit_boss #remove))
 ```
 
-The marker is the key's only value. Anything else, such as `(a #remove 1)` or a bare
-`#remove`, is an error at load. A key the layers below lack removes nothing, a layer above
-may set the key again, and removing the layer brings the key back. The merged tree never
-holds a marker, and `#merge` ignores one (it only fills in what is missing).
-`layer_effect` lists a removal with the value `#remove`, and what it removed in `below`.
+The marker is the key's only value; metadata may follow it. Anything else, such as
+`(a #remove 1)` or a bare `#remove`, is an error at load. A key the layers below lack
+removes nothing, a layer above may set the key again, and removing the layer brings the
+key back. The merged tree never holds a marker, and `#merge` ignores one (it only fills in
+what is missing). `layer_effect` lists a removal with the value `#remove`, and what it
+removed in `below`.
+
+**Adding to and dropping from a list.** A layer that restates a list replaces it, so two
+packages that each add an item leave only the top one's. `#append` and `#drop` change the
+list below instead (D250):
+
+```dta
+; dlc_a.dta and dlc_b.dta, over (items climbing_gloves glider lamp_oil spyglass)
+(items #append rope)
+(items #append torch)          ; merged: ... spyglass rope torch
+; a patch: one tuple out, one in, the rest of the list untouched
+(households (cottage (things #drop (phone -2 4.6 180))
+                     (things #append (lamp -2 4 0))))
+```
+
+The verb is the key's first value, and what follows it, up to any metadata, is what it
+adds or drops: numbers, symbols, strings, or whole arrays, which here are elements and not
+keys (`(lamp -2 4 0)`). `#append` adds its operands after the values below, before their
+metadata; layers that append to one list apply in stack order, so their placement orders
+the list. `#drop` removes, for each operand, the first value below that is equal to it, a
+tuple restated as written. A key with two verbs takes two rows, which apply in order. A
+key the layers below lack is made from an `#append`'s operands, and a `#drop` of it does
+nothing. As with `#remove`, the merged tree never holds a verb, `#merge` skips one, and a
+verb anywhere but a key's first value is an error at load. A verb is never written inside
+`(shapes ...)`: a shape is declared whole.
+
+A composing row supplies no value of its own: `source()` names the layer whose list it
+changes, `explain` shows it as `Composes` with its verb, and `layer_effect`'s `op` names the
+verb. A check warns at the row when an `#append` adds a value already there (a layer left
+behind after its promotion would add it twice) or a `#drop` names one that is not. Writing
+a value back into a layer at or below a row that composes it is refused, since the verb
+would apply again over what is written; `promote` writes the list the verb makes.
+
+**Pinning what a row was written against.** `(@was v...)` is metadata on a layer's row: the
+value below the layer when the row was written.
+
+```dta
+; agent.dta
+(cpu (easy (reaction 26 (@was 30) (@note "easy blocked the first low kick too often"))))
+```
+
+When the layers below move, a check of the layer says so at the row: `'cpu.easy.reaction'
+was 30 when this row was written; the stack has 32`, which a policy with `warnings_refuse`
+turns into a refusal, and pushing the layer sends the same warning to the warning handler.
+`write_back_to(path, layer, true)` writes the pin, and `write_back` keeps the one a row
+has. A pin is metadata, so every reader of the value reads past it.
 
 ### Rows: a key by its path
 
@@ -157,7 +203,8 @@ reads as the tree `(fighters (kestrel (health 1100) (walk_back 1.7))) (cpu (easy
 nothing knows rows were written. The key is written as a path is (Tags and lookup):
 segments separated by `.` or `/`, a `'quoted'` one for a name holding either,
 `(/menu.'v1.2'.price 3)`, at most 16 segments. What follows the key is what follows a tag:
-values, metadata, children, or `#remove`.
+values, metadata, children, or a verb: `#remove`, `#append` or `#drop`. A key's verb rows
+stay apart, in the order written, where its other rows fold.
 
 - **A file with rows holds each key once.** A value written twice, by two rows or by a row
   and a nested array, is an error at the second, where a file without rows keeps the first

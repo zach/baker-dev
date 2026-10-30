@@ -123,3 +123,56 @@ BAKER_DEV_TEST_CASE("diff compares two layers' own values, for A/B") {
 }
 
 // --- Change 3: snapshot and restore ---
+
+TEST_CASE("the layer tools name each verb: effect, diff and explain (D250)") {
+    TempDir dir;
+    const char* cancels = "fighters.kestrel.moves.jab.cancels";
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer(
+        "default",
+        dir.write("default.dta",
+                  "(fighters (kestrel (moves (jab (cancels jab low_kick) (damage 30)))))\n")));
+    REQUIRE(cfg.push_layer(
+        "dlc",
+        dir.write("dlc.dta", "(fighters (kestrel (moves (jab (cancels #append kick)))))\n")));
+    REQUIRE(cfg.push_layer("agent", dir.write("agent.dta",
+                                              "(fighters (kestrel (moves (jab (cancels #append "
+                                              "palm) (damage 32 (@was 31))))))\n")));
+    CHECK(to_string(*cfg.root()->try_get(cancels)) == "(cancels jab low_kick kick palm)");
+
+    // Each package's effect is its verb and operands over the value below it; a stale pin
+    // says so.
+    const auto effect = ok(tools::layer_effect(cfg, "agent"));
+    REQUIRE(effect.size() == 2);
+    CHECK(effect[0].op == Symbol("#append"));
+    CHECK(to_string(effect[0].value) == "palm");
+    CHECK(to_string(*effect[0].below) == "(jab low_kick kick)");
+    CHECK_FALSE(effect[0].stale);
+    CHECK(effect[1].op.empty());
+    CHECK(effect[1].stale);
+
+    // The same verb with other operands differs; with the same, it does not.
+    const auto d = ok(tools::diff(cfg, "dlc", "agent"));
+    REQUIRE(d.size() == 2);
+    CHECK(d[0].op_a == Symbol("#append"));
+    CHECK(d[0].op_b == Symbol("#append"));
+    CHECK(to_string(*d[0].a) == "kick");
+    CHECK(d[1].op_b.empty());
+
+    // explain: the list's own layer wins, each verb composes, located at its row.
+    const auto entries = ok(tools::explain(cfg, Path(cancels)));
+    REQUIRE(entries.size() == 3);
+    CHECK(entries[0].standing == tools::Standing::Wins);
+    CHECK(entries[1].standing == tools::Standing::Composes);
+    CHECK(entries[2].layer == Symbol("agent"));
+    CHECK(entries[2].standing == tools::Standing::Composes);
+    CHECK(entries[2].op == Symbol("#append"));
+    CHECK(to_string(entries[2].value) == "palm");
+    CHECK(entries[2].source.line == 1);
+    // An element of the composed list that only a verb made: each verb says what it adds.
+    const auto element = ok(tools::explain(cfg, Path("fighters.kestrel.moves.jab.cancels.3")));
+    REQUIRE(element.size() == 2);
+    CHECK(element[1].standing == tools::Standing::Composes);
+    CHECK(to_string(element[1].value) == "palm");
+    CHECK(ok(cfg.source(cancels)).layer == Symbol("default"));
+}

@@ -34,6 +34,7 @@ add_executable(baker_data_tests
   data/test_version.cpp
   data/test_metadata.cpp
   data/test_rows.cpp
+  data/test_layer_verbs.cpp
   data/test_tweaks_json.cpp
   data/test_read_consistent.cpp
   data/test_defines.cpp

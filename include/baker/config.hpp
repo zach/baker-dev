@@ -249,11 +249,13 @@ struct StackFile {
 
 struct LayerEffectEntry {
     Symbol path;                // dotted, as get<T>() takes it
-    Node value;                 // this layer's value
+    Node value;                 // this layer's value; a verb's operands; #remove
     std::optional<Node> below;  // the stack's value without this layer, if any
     Source source;              // provenance, as source() returns it
     std::optional<Source> below_source;
     bool shadowed = false;  // a higher enabled layer (or scratch) overrides this path
+    Symbol op;              // the row's verb: #append, #drop or #remove; empty for a value
+    bool stale = false;     // the row's (@was ...) pin is not `below`
 };
 
 // What a LayerReport was made against, so that a push can tell whether it still holds
@@ -595,7 +597,10 @@ public:
     void set_journal_history(size_t capacity);
 
     [[nodiscard]] Expected<WriteReport> write_back(const Path& path);
-    [[nodiscard]] Expected<WriteReport> write_back_to(const Path& path, std::string_view layer);
+    // `pin`: the row also carries `(@was v...)`, the stack's value below `layer` as it is now,
+    // so that a check of the layer warns once that value moves (D250).
+    [[nodiscard]] Expected<WriteReport> write_back_to(const Path& path, std::string_view layer,
+                                                      bool pin = false);
     // Writes every entry of tools::layer_effect(from) into `to`'s file, or nothing: on any
     // refusal the report lists them all and no file changes. `from` stays in the stack.
     [[nodiscard]] Expected<WriteReport> promote(std::string_view from, std::string_view to);

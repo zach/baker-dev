@@ -5,6 +5,7 @@
 #include <baker/curve.hpp>
 
 #include "common/containers.hpp"
+#include "data/markers.hpp"
 #include "data/text.hpp"
 
 #include <algorithm>
@@ -261,6 +262,16 @@ bool read_rule(const Array& a, Rule& r, Vec<Error>& errors) {
     return true;
 }
 
+// The first row in `a` that holds a layer verb, or null: one flag test for an array with none.
+const Array* verb_in(const Array& a) {
+    if (!a.has_marker()) return nullptr;
+    if (detail::verb_of(a) != detail::Marker::None) return &a;
+    for (const Node& n : a)
+        if (const Array* c = n.try_array())
+            if (const Array* found = verb_in(*c)) return found;
+    return nullptr;
+}
+
 }  // namespace
 
 void Set::add(const Array& tree, Report& report, const LoadSession* packs) {
@@ -279,6 +290,17 @@ void Set::add(const Array& tree, Report& report, const LoadSession* packs) {
                 errors.push_back(make_error(ErrorCode::Syntax,
                                             "a shape is declared as (name field ...)", at.file(),
                                             at.line()));
+                continue;
+            }
+            // A shape is declared whole: a verb would compose one past the one-way rule,
+            // since each layer's shapes are read alone (D145).
+            if (const Array* v = verb_in(*a)) {
+                errors.push_back(make_error(
+                    ErrorCode::Syntax,
+                    "shape '" + Str(name->str()) + "' holds " +
+                        detail::preview(Node(Ref<Array>(const_cast<Array*>(v)))) +
+                        ": a shape is declared whole, so a layer writes its fields, not verbs",
+                    v->file(), v->line()));
                 continue;
             }
             size_t i = 0;

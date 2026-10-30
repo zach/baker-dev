@@ -8477,3 +8477,138 @@ sigil-free dotted form declined.*
   198,390 on the shared corpus, because inputs whose nested macros expand into trees of tens
   of thousands of nodes cost the harness up to 400 ms each (it re-reads, caches and prints
   every tree); the cost is the harness's and main's macro expansion, not the rows'.
+
+## D250. Layer verbs: `(key #append v...)`, `(key #drop v...)`, and the `(@was v...)` pin
+
+*The layer-markers syntax idea, prototyped on `claude/fervent-cray-l1kyf0-syntax-layer-markers`
+(its design note is that branch's `dev/syntax-layer-markers-design.md`), reviewed with the
+owner on 2026-10-30, who chose the verbs now, reworked as the review asked, with the pin as
+at-metadata's `(@was ...)` (D248) rather than a `#was` marker in the value run. Promote's
+removal was built once, with rows (D249).*
+
+- **D138 and D142, revisited in light of D243.** Gap 36 decided that anything packages
+  extend is a keyed table, with no new syntax, and D142 wrote that convention into the
+  cookbook. It holds for a table whose entries have names: Wayfarer's objectives, the
+  cottage's things. D243 then made a directory of mods a stack of layers anyone can add to,
+  and the stacks show lists no convention keys: items, a move's cancels, a farmhouse with two
+  beds, 16 of their 26 lists (the prototype's count). For those, two packages that each add an
+  entry leave only the top one's, a title update that drops one entry restates and reverts
+  the rest, and a list of one cannot be emptied. The cookbook now says: key what packages
+  retune by name; mark what they extend in order.
+- **The forms.** Each verb is a directive token, read only as a tagged array's first value
+  (metadata's tags included, so `(@step #remove)` still removes a metadata child); the form
+  is checked when the array closes, by `detail::verb_of`, the one rule the parser, printer,
+  merge and tools share (`src/data/markers.hpp`):
+  - `(key #remove)`, as D143, now with metadata after it: `(key #remove (@was 1))`.
+  - `(key #append v...)` and `(key #drop v...)`: one or more operands, up to the metadata.
+    An operand is any value, a tagged array among them, which is an element and not a key:
+    `(things #append (lamp -2 4 0))`.
+  - Anything else is a located `Directive` error whose hint is the form. A quoted verb in its
+    slot is the verb, as D143's quoted `'#remove'` is; elsewhere the printer quotes it.
+  - In a file of rows (D249) a key's verb rows stay apart, in order, where its other rows
+    fold: `(/h.cottage.things #drop ...)` then `(/h.cottage.things #append ...)`.
+  - A verb inside `(shapes ...)` is an error of the shape read: a shape is declared whole, and
+    each layer's shapes are read alone (D145), so a composed one would pass the one-way rule.
+- **The merge.** A verb row applies to the value run below in place of the Overwrite rule:
+  `#append` inserts its operands after the values and before the run's metadata; `#drop`
+  erases, per operand, the first value `structurally_equal` to it. The row's own metadata then
+  merges key by key. A key the layers below lack is made from an `#append`'s operands, and a
+  `#drop` of it adds nothing (`without_markers`, which shares a subtree it does not change).
+  FillMissing (`#merge`) skips verb rows, as it skips `#remove`. No merged tree holds a verb.
+- **The flag, set where a verb or pin is made.** D143's `kHasRemoval` is `kHasMarker`: set by
+  `finish()` when slot 1 holds a verb's symbol (the test D143 made for `#remove`, now three
+  identity compares when slot 1 is a symbol) or a child is tagged `@was`, and by `set()` when
+  it writes either, so an overlay a tool builds with `make` and `set` composes (the review's
+  invariant hole). No scan anywhere else: the prototype's scan in `make_from` cost a
+  marker-free check +2.19% and is gone.
+- **The pin, as metadata.** `(reaction 26 (@was 30))` names the value below the layer when
+  the row was written. It is metadata, so `values()` and every reader read past it, the
+  merged tree keeps it (a pinned row is shared into the merge as any row is, where the
+  prototype's `#was` made the merge rebuild each one: +15% on a pinned check), and `@was` is
+  one of the words `check` knows. A layer's leaves leave it out, so promote never writes a
+  pin into its target.
+  - `check_layer` and `check_layer_text` warn at a row whose pin is not the stack's value:
+    "'cpu.easy.reaction' was 30 when this row was written; the stack has 32" (a refusal
+    under `warnings_refuse`), and `LayerEffectEntry::stale` marks it.
+  - A layer pushed without a policy sends the same warnings to the handler, after one merge
+    of the layers below it, only when its root holds a verb or pin. A reload does not.
+  - `write_back_to(path, layer, true)` writes `(@was v...)`, the stack's value below the
+    layer, after the row's values or over the pin it has; `write_back` keeps a row's pin.
+- **The tools.**
+  - A composing row supplies no value: `supplier()` and `source()` skip it, and
+    `write_back`, `write_back_to` and `promote` refuse a path a layer at or above their
+    target composes, located at that row: "'.../cancels' is composed by layer 'agent':
+    (cancels #append palm); write the layer below it, or promote the layer".
+  - `LayerEffectEntry::op` names the verb; `DiffEntry::op_a`/`op_b`; `explain`'s new
+    standing `Composes`, with `op`, for the row and for an element of the list it composes.
+    The console's `config.effect`, `config.explain` and `config.diff` carry `(op ...)`,
+    `(stale 1)` and `(op_a ...)`/`(op_b ...)` in their values; the envelope is unchanged, so
+    the reply version is not bumped.
+  - `check` warns at an `#append` operand the value already holds ("'items' already has a;
+    #append adds another": an agent layer left in place after its promotion, the tool
+    author's idempotence finding) and at a `#drop` operand it lacks ("'items' has no z to
+    drop"), comparing against the whole run below, keyed tuples included.
+  - The policy reads operands: `scalars_only` refuses a tuple operand, `existing_only` a
+    verb on a key the stack lacks.
+  - `promote` writes the list a verb makes, deletes a removed key with its line and its
+    comment (`plan_removal`, D249, now also taking a trailing `;` comment), skips a `#drop`
+    of a key the stack lacks, and refuses a verb that moves keyed tuples.
+  - The kit: `diff` prints `loot  (coin gem) -> #append ruby` and `stale`; `--baker-rows`
+    spells a verb in its slot with the row's metadata; `promote --baker-patch` starts with a
+    `# path: note` line for each row's `(@note ...)`, which `git apply` skips.
+- **Costs.** Instructions per operation (`tools/count_instructions.py --base 77124a6`, cachegrind,
+  Release; five cases new to `tools/count`, which runs the working tree's driver on both
+  sides: a 2,000-item table and an overlay of 400 of its prices, plain or with every row
+  pinned `(@was v)`, merged with `baker::merge` or checked with `Config::check_layer`; and 400
+  `(tags #append d)` rows, which the base cannot read):
+
+  | Case | GCC 13: main | this | change | Clang 18: main | this | change |
+  |---|---:|---:|---:|---:|---:|---:|
+  | `parse`, 16 KB, no verb | 1,879,018 | 1,886,372 | +0.39% | 1,774,641 | 1,776,079 | +0.08% |
+  | `lookup` | 208 | 208 | 0 | 180 | 180 | 0 |
+  | `set` | 642 | 644 | +0.31% | 592 | 602 | +1.69% |
+  | `merge`, 400 plain rows | 1,206,473 | 1,202,489 | −0.33% | 1,157,034 | 1,176,286 | +1.66% |
+  | `merge_pinned` | 1,272,964 | 1,340,661 | +5.32% | 1,220,734 | 1,252,802 | +2.63% |
+  | `merge_append` | — | 1,624,667 | | — | 1,500,013 | |
+  | `check`, 400 plain rows | 3,786,598 | 3,834,250 | +1.26% | 3,520,605 | 3,571,680 | +1.45% |
+  | `check_pinned` | 5,423,651 | 4,420,784 | −18.49% | 4,987,883 | 4,039,317 | −19.02% |
+
+  - **Parsing.** The first version tested slot 1 of every array in `finish()` (three
+    identity compares with a function-local static's guard) and the pin among every child:
+    +0.99% on GCC. The parser now passes what it knows (`make_array`'s `verb`), the test of an
+    array built elsewhere is out of line behind one type test, and a pin is looked for only
+    in an array with metadata: +0.39%. The verb directive's name is compared as a literal.
+  - **A check of a layer without verbs** costs +1.26% (GCC). Callgrind on both sides: `verb_of`
+    was not inlined at first, so each of its flag tests was a call; it is now the flag test
+    inline and the form check out of line (`verb_in`), and `row_warnings` and `stale` run only
+    for a row whose flag is set (from +2.48%). What remains is in `collect_leaves`' string
+    copies and symbol interning's `memcmp`, the same calls as on main costing more
+    instructions: GCC's inlining of the larger function, not new work.
+  - **A pinned layer** checks 18–19% cheaper than main reading the same text: main took each
+    `(@was ...)` as a leaf of its own (`shop.item0.price.@was`), with its path parsed, interned
+    and allocated, where a layer's leaves now leave pins out (callgrind: `collect_leaves`,
+    `Path::parse`, `Symbol` and malloc −11.8M over 20 checks, `verb_in` and `stale` +3.5M).
+    Merging one costs +2.6% to +5.3%, the out-of-line pin test on each rebuilt row. The
+    prototype's `#was` cost a pinned check +15.3%.
+  - **Clang's plain merge**, +1.66% where GCC's is −0.33%, is the verb test in the merge's
+    loop over a source's children, one flag test a child; it was not taken apart further.
+  - MSVC's counts are not taken: no Windows machine here, and CI runs no counter (D249).
+- **Lines.** The core is 15,844 counted lines (15,582 before): `baker::data` +262. The host
+  kit 2,609 (+34), `baker::tools` 2,195 (+31), `baker::shape` 880 (+18).
+- **Tests.** `tests/data/test_layer_verbs.cpp`: the forms and their errors, a quoted verb, the
+  flag from `make_from` and `set()`; `#append` and `#drop` in the merge, beside metadata, on a
+  missing key, inside an operand; `#merge` and the cache; verbs in rows; two packages in stack
+  order with placement and removal; the check's stale pins, verb warnings and push-time
+  warnings; the policy; write-back's refusal and pins; promote's removal, composed lists, and
+  refusals. `tests/tools/test_layers.cpp`: effect, diff and explain. The kit's
+  `test_commands.py`: diff, rows and the patch's notes. The shape tests: a verb in a shape.
+  Fuzz regressions `quoted_layer_verbs.bin` and `verb_rows.bin`; the harness skips a verb's
+  token as it skips `#remove`'s.
+- **Raw gate.** 464/464 files, 0 round-trip failures.
+- **Fuzzing.** libFuzzer under ASan and UBSan, built as CI's fuzz job, seeded with D249's
+  corpus, the fuzz regressions and files of verbs, pins and verb rows, toward the 1 million
+  executions of each adoption step; the run's total follows.
+- **Not done.** `#scale`, `#add` and `#prepend` are not built (the review held them), nor
+  several verbs in one row. A reload does not repeat the push-time pin warnings. The stacks'
+  agent skill still asks for a `;` comment; it can move to `(@note ...)` and `(@was ...)` in
+  its own step.

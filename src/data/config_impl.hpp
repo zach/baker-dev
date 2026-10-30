@@ -146,8 +146,27 @@ struct Leaf {
 [[nodiscard]] uint64_t tree_subject(std::string_view name, const Array* tree) noexcept;
 [[nodiscard]] uint64_t policy_hash(const LayerPolicy& policy) noexcept;
 
-// A tag array's values: its children that are not tagged arrays.
-Vec<Node> values_of(const Array& a);
+// A layer row's values, as every reader of a layer's own tree takes them: its children that
+// are not tagged arrays; a verb's operands, whatever their kind, up to its metadata; a
+// removal's #remove. Appended to `out`. A merged tree holds no verb, so there it is the
+// row's values.
+void leaf_values(const Array& a, Vec<Node>& out);
+Vec<Node> leaf_values(const Array& a);
+// The array holding `path`'s value in `root` (its parent's, for an element), or null.
+const Array* row_at(const Array& root, const Path& path);
+// A layer row's verb as LayerEffectEntry::op names it: empty for a plain row.
+inline Symbol op_of(const Array& row) {
+    const detail::Marker m = detail::verb_of(row);
+    return m == detail::Marker::None ? Symbol() : detail::marker_symbol(m);
+}
+// Whether `row`'s (@was ...) pin no longer names `below`, the stack's value without the
+// row's layer (null: the stack lacks the key). False for a row without a pin.
+bool stale(const Array& row, const Vec<Node>* below);
+// What a check says of layer row `path` over the stack below it, `stack`, whose value there
+// is `below`: a stale pin, an appended operand the value already holds, a dropped one it
+// lacks (a keyed tuple among them). Each located at the row.
+void row_warnings(const Array& row, std::string_view path, const Vec<Node>* below,
+                  const Array& stack, Vec<Error>& out);
 // Each tag's first child only, as lookup sees it, depth first.
 Vec<Leaf> leaves_of(const Array& root);
 
@@ -475,16 +494,37 @@ struct Config::Impl {
     [[nodiscard]] Expected<void> may_change(const Config& c) const;
 
     // The enabled layer below `top` (skipping `skip`) whose own tree has `path`'s value:
-    // overwrite merging means its values won.
+    // overwrite merging means its values won. A row that composes (#append, #drop) supplies
+    // none: the value it changes does.
     [[nodiscard]] std::optional<size_t> supplier(const Path& path, size_t top,
                                                  size_t skip = SIZE_MAX) const {
         const bool index = last_is_index(path);
         for (size_t i = top; i-- > 0;) {
-            if (i == skip || !layers[i].options.enabled) continue;
+            if (i == skip || !layers[i].options.enabled || composes_at(i, path)) continue;
             detail::Resolved r;
             if (detail::resolve(*layers[i].root, path, r) != detail::ResolveStatus::Ok) continue;
             if (index || (r.array && has_values(*r.array))) return i;
         }
+        return std::nullopt;
+    }
+    // Whether layer `i` composes `path`'s value: one flag test for a layer with no verb.
+    [[nodiscard]] bool composes_at(size_t i, const Path& path) const {
+        const Array* row = layers[i].root->has_marker() ? row_at(*layers[i].root, path) : nullptr;
+        return row && detail::composes(*row);
+    }
+    // A write of `path` into layer `from` would be appended to or dropped from again by a
+    // composing row in an enabled layer at or above it, `skip` apart: the refusal naming
+    // that row.
+    [[nodiscard]] std::optional<Error> composed(const Path& path, size_t from,
+                                                size_t skip = SIZE_MAX) const {
+        for (size_t i = layers.size(); i-- > from;)
+            if (i != skip && layers[i].options.enabled && composes_at(i, path)) {
+                const Array& row = *row_at(*layers[i].root, path);
+                return refused(quoted(path) + " is composed by layer '" + layers[i].name + "': " +
+                                   detail::preview(Node(Ref<Array>(const_cast<Array*>(&row)))) +
+                                   "; write the layer below it, or promote the layer",
+                               row.file(), row.line());
+            }
         return std::nullopt;
     }
 
@@ -534,11 +574,14 @@ struct Config::Impl {
 
     // --- Write-back ---
 
+    // `pin`: a (@was ...) array the row carries after its values, replacing one it has.
     [[nodiscard]] Expected<Plan> plan(const LayerState& layer, const Path& path,
                                       const Vec<Node>& values, bool insert,
-                                      const LoadSession::Reader& read_file) const;
+                                      const LoadSession::Reader& read_file,
+                                      const Node* pin = nullptr) const;
     Expected<WriteReport> write_into(Config& c, size_t li, const Path& path,
-                                     const Vec<Node>& values, bool insert);
+                                     const Vec<Node>& values, bool insert,
+                                     const Node* pin = nullptr);
 };
 
 }  // namespace baker
