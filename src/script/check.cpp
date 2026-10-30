@@ -106,7 +106,13 @@ struct Checker {
         const size_t n = command.size() - first;
         for (size_t i = 0; i < n && i < o.params.size(); ++i) {
             const detail::ParamInfo& p = o.params[i];
-            if (p.kind == detail::ParamKind::Rest) return true;
+            if (p.kind == detail::ParamKind::Rest) {
+                // A typed rest (`number...`) holds every remaining literal to its type (D262).
+                for (size_t k = i; p.match && k < n; ++k)
+                    if (!evaluable(command[k + first]) && !p.match(command[k + first], true))
+                        return false;
+                return true;
+            }
             if (evaluable(command[i + first])) continue;
             const Node& arg = command[i + first];
             if (p.match
@@ -196,6 +202,15 @@ struct Checker {
 
     void call(const Array& command) {
         const auto name = command[0].try_sym();
+        const Type t = command[0].type();
+        if (!name && t != Type::Command && t != Type::Var && t != Type::Object) {
+            // A head no call can have, as evaluation finds; in malformed infix, `{0.3 $v <= 1}`
+            // (D262).
+            const bool op = std::any_of(command.begin(), command.end(), detail::quoted_in_command);
+            error(command, "a command starts with a function or an object, not a " +
+                               Str(type_name(t)) +
+                               (op ? ": infix needs an operator between every two operands" : ""));
+        }
         if (!name) return;  // an object computed at run time
         const uint32_t n = command.size() - 1;
         const Function* f = impl.find(*name);
@@ -253,10 +268,14 @@ void check(std::span<const Array* const> trees, const Context& ctx, CheckReport&
     for (size_t i = 0; i < b.demand.size(); ++i)
         c.demand_index[Checker::key(b.demand[i].name, b.demand[i].on)] = i;
     // Every tree's definitions first, so a call in one file to a function another defines
-    // counts as defined.
-    for (const Array* tree : trees)
+    // counts as defined. The session's #shape forms are read too: a rule's calls are demand
+    // (D261).
+    Vec<const Array*> all(trees.data(), trees.data() + trees.size());
+    if (options.packs)
+        for (const ShapeDecl& d : options.packs->shapes()) all.push_back(d.form.get());
+    for (const Array* tree : all)
         if (tree) c.collect(*tree, false);
-    for (const Array* tree : trees)
+    for (const Array* tree : all)
         if (tree) c.walk(*tree, false);
     Vec<CheckReport::Demand> demand;
     for (const Checker::DemandBuild& d : b.demand)

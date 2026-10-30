@@ -25,7 +25,7 @@ panels.
 | `main.cpp` | L2: the clock, script words (`econ.`), the Ledger window, the town | Engineers |
 | `packs/game/ledger_core.dta` | L2: the shapes of a good, a building, a strategy, a milestone | By pull request |
 | `economy.xlsx` | L3: the designers' spreadsheet: the Goods and Buildings sheets | Designers |
-| `tools/export_economy.py` | L3: the sheet to `data/economy.dta`, with an `origin` form | Engineers |
+| `tools/export_economy.py` | L3: the sheet to `data/economy.dta`, with an `#origin` declaration | Engineers |
 | `data/economy.dta` | Generated: never edit; a test fails if it is not the sheet's export | The exporter |
 | `data/default.dta` | L4: rules, strategies, the designer's milestones | By pull request |
 | `data/agent.dta` | The agent's layer | The agent |
@@ -41,7 +41,7 @@ panels.
   `base_price × demand / (demand + saturation)`, selling adds to the saturation (revenue
   is the integral of the price curve), and each day `econ.recovery` of it clears. So a
   tenth farm earns less than the first, and moving up the chain pays.
-- **Commands are data.** An unlock (`{>= {econ.total_earned} 10000}`) and a milestone's
+- **Commands are data.** An unlock (`{{econ.total_earned} >= 10000}`) and a milestone's
   `when` are commands, evaluated each day about the company being judged; the economy
   itself never sees script.
 - **Strategies** (`(strategies ...)`): greedy buys the best payback within its horizon and
@@ -52,7 +52,7 @@ panels.
   same days (the market's random draws depend only on the seed).
 - **The spreadsheet stays first-class.** `economy.xlsx` is the source of the goods and
   buildings; the exporter (standard library only: an `.xlsx` is zipped XML) writes
-  `economy.dta` with `(origin "economy.xlsx" (tool sheets-export))`, so `source()` names the
+  `economy.dta` with `#origin ("economy.xlsx" (tool sheets-export))`, so `source()` names the
   sheet behind every number, and ends each line with its sheet and row. An agent tunes in
   `agent.dta` and reports the cells to change; a person changes the sheet and exports.
 

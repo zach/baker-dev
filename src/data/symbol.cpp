@@ -32,11 +32,10 @@ static_assert(symbol_hash("\xC3\xA9p\xC3\xA9"
 namespace {
 
 thread_local detail::InternSite this_site;
+thread_local detail::NewSymbols* this_new_symbols = nullptr;
 
 void report_by_default(const Error& report) {
-    std::fprintf(stderr, "%.*s\n", static_cast<int>(to_string(report).size()),
-                 to_string(report).data());
-    std::abort();
+    detail::fatal(to_string(report));
 }
 
 std::atomic<SymbolCollisionHandler> collision_handler{report_by_default};
@@ -91,8 +90,10 @@ private:
     };
 
     static Table* new_table(size_t n) {
-        auto* t = static_cast<Table*>(detail::default_alloc(sizeof(Table), alignof(Table)));
-        auto* s = static_cast<Slot*>(detail::default_alloc(n * sizeof(Slot), alignof(Slot)));
+        auto* t = static_cast<Table*>(
+            detail::default_alloc(sizeof(Table), alignof(Table), MemoryKind::Symbols));
+        auto* s = static_cast<Slot*>(
+            detail::default_alloc(n * sizeof(Slot), alignof(Slot), MemoryKind::Symbols));
         for (size_t i = 0; i < n; ++i) new (s + i) Slot(nullptr);
         t->slots = s;
         t->capacity = n;
@@ -133,6 +134,8 @@ private:
             insert(*t, e);
             ++count_;
         }
+        if (detail::NewSymbols* n = this_new_symbols; n && ++n->count > n->limit)
+            *n->trip = n->trip_at;
         if constexpr (!kShipping)
             if (clash) report_collision(*clash, *e);
         return e;
@@ -187,9 +190,11 @@ private:
     char* alloc(size_t n) {
         n = (n + alignof(detail::SymbolEntry) - 1) & ~(alignof(detail::SymbolEntry) - 1);
         constexpr size_t align = alignof(detail::SymbolEntry);
-        if (n > kBlockSize / 4) return static_cast<char*>(detail::default_alloc(n, align));
+        if (n > kBlockSize / 4)
+            return static_cast<char*>(detail::default_alloc(n, align, MemoryKind::Symbols));
         if (!cur_ || used_ + n > kBlockSize) {
-            cur_ = static_cast<char*>(detail::default_alloc(kBlockSize, align));
+            cur_ =
+                static_cast<char*>(detail::default_alloc(kBlockSize, align, MemoryKind::Symbols));
             used_ = 0;
         }
         char* p = cur_ + used_;
@@ -206,7 +211,8 @@ private:
 
 // Inlined into the constructor, as the probe it guards is.
 BAKER_INLINE SymbolTable& table() {
-    static SymbolTable* t = detail::create<SymbolTable>(default_allocator());  // leaked; see above
+    static SymbolTable* t =
+        detail::create<SymbolTable>(default_allocator(MemoryKind::Symbols));  // leaked; see above
     return *t;
 }
 
@@ -226,6 +232,12 @@ size_t Symbol::table_size() noexcept {
 SymbolCollisionHandler set_symbol_collision_handler(SymbolCollisionHandler handler) noexcept {
     return collision_handler.exchange(handler ? handler : report_by_default,
                                       std::memory_order_acq_rel);
+}
+
+detail::NewSymbols* detail::count_new_symbols(NewSymbols* counter) noexcept {
+    NewSymbols* const was = this_new_symbols;
+    this_new_symbols = counter;
+    return was;
 }
 
 detail::InternSite detail::set_intern_site(InternSite site) noexcept {

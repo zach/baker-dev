@@ -27,9 +27,9 @@ namespace {
 // The grammar's words. Its metadata carry the sigil, so a field may be named at, kind, desc
 // or rule, and an unknown @word is an error instead of silence.
 struct Names {
-    baker::Symbol shapes{"shapes"}, at{"@at"}, range{"@range"}, step{"@step"}, kind{"@kind"},
-        desc{"@desc"}, note{"@note"}, optional{"@optional"}, list{"list"}, any_tag{"*"},
-        keyed{"@keyed"}, one_of{"@one_of"}, key_of{"key_of"}, rule{"@rule"}, warn{"@warn"};
+    baker::Symbol at{"@at"}, range{"@range"}, step{"@step"}, kind{"@kind"}, desc{"@desc"},
+        note{"@note"}, optional{"@optional"}, list{"list"}, any_tag{"*"}, keyed{"@keyed"},
+        one_of{"@one_of"}, key_of{"key_of"}, rule{"@rule"}, warn{"@warn"};
 };
 const Names& names() {
     static const Names n;
@@ -106,16 +106,17 @@ struct Set::State {
     Vec<Ref<Array>> keep;    // the declarations the fields' text points into
 };
 
-Set::Set() : st_(detail::create<State>(default_allocator())) {}
+Set::Set() : st_(detail::create<State>(default_allocator(MemoryKind::Config))) {}
 Set::~Set() {
-    detail::destroy(default_allocator(), st_);
+    detail::destroy(default_allocator(MemoryKind::Config), st_);
 }
-Set::Set(const Set& other) : st_(detail::create<State>(default_allocator(), *other.st_)) {}
+Set::Set(const Set& other)
+    : st_(detail::create<State>(default_allocator(MemoryKind::Config), *other.st_)) {}
 Set& Set::operator=(const Set& other) {
     if (this != &other) *st_ = *other.st_;
     return *this;
 }
-Set::Set(Set&& other) noexcept : st_(detail::create<State>(default_allocator())) {
+Set::Set(Set&& other) noexcept : st_(detail::create<State>(default_allocator(MemoryKind::Config))) {
     std::swap(st_, other.st_);
 }
 Set& Set::operator=(Set&& other) noexcept {
@@ -288,24 +289,17 @@ const Array* verb_in(const Array& a) {
 
 }  // namespace
 
-void Set::add(const Array& tree, Report& report, const LoadSession* packs) {
+void Set::add(const LoadSession& session, Report& report, baker::Symbol root) {
     Vec<Error> errors(report.errors.begin(), report.errors.end());
     Vec<Error> warnings(report.warnings.begin(), report.warnings.end());
     const Names& n = names();
-    for (const Node& top : tree) {
-        const Array* decls = top.try_array();
-        if (!decls || decls->empty() || !(*decls)[0].is(n.shapes)) continue;
-        st_->keep.emplace_back(const_cast<Array*>(decls));
-        for (const Node& d : decls->values()) {
-            const Array* a = d.try_array();
-            const auto name = a && !a->empty() ? (*a)[0].try_sym() : std::nullopt;
-            if (!name) {
-                const Array& at = a ? *a : *decls;
-                errors.push_back(make_error(ErrorCode::Syntax,
-                                            "a shape is declared as (name field ...)", at.file(),
-                                            at.line()));
-                continue;
-            }
+    const LoadSession* packs = &session;
+    for (const ShapeDecl& decl : session.shapes()) {
+        if (!root.empty() && decl.root != root) continue;
+        st_->keep.push_back(decl.form);
+        {
+            const Array* a = decl.form.get();
+            const auto name = (*a)[0].try_sym();  // the parser took only a named form
             // A shape is declared whole: a verb would compose one past the one-way rule,
             // since each layer's shapes are read alone (D145).
             if (const Array* v = verb_in(*a)) {
@@ -766,7 +760,6 @@ struct Checker {
             const Array* c = n.array();
             if (!c) continue;
             const auto tag = !c->tag().empty() ? std::optional(c->tag()) : std::nullopt;
-            if (tag && chain.empty() && *tag == names().shapes) continue;  // declarations
             if (tag) chain.push_back(*tag);
             if constexpr (Keys) arrays.push_back(c);
             const size_t mark = nested.size();
@@ -809,7 +802,6 @@ struct RuleWalker {
             const Array* c = n.array();
             if (!c) continue;
             const auto tag = !c->tag().empty() ? std::optional(c->tag()) : std::nullopt;
-            if (tag && chain.empty() && *tag == names().shapes) continue;  // declarations
             if (tag) {
                 chain.push_back(*tag);
                 path.clear();
@@ -889,7 +881,7 @@ Config::Validator validator() {
     return [](const ValidatorStack& stack, const Callback<void(const Error&)>& warn) {
         Set set;
         Report report;
-        for (const Ref<Array>& tree : stack.layers) set.add(*tree, report, &stack.session);
+        for (const Ref<Array>& tree : stack.layers) set.add(stack.session, report, tree->file());
         check(stack.root, set, report, &stack.session);
         if (!warn) return;
         for (const Error& e : report.errors) warn(e);

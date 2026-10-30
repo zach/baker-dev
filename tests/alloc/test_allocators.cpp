@@ -32,13 +32,13 @@ struct Counting {
     size_t live_bytes = 0;
 
     [[nodiscard]] baker::Allocator allocator() {
-        return {[](void* u, size_t size, size_t) -> void* {
+        return {[](void* u, size_t size, size_t, baker::MemoryKind) -> void* {
                     auto& c = *static_cast<Counting*>(u);
                     ++c.allocs;
                     c.live_bytes += size;
                     return std::malloc(size);
                 },
-                [](void* u, void* p, size_t size) {
+                [](void* u, void* p, size_t size, baker::MemoryKind) {
                     auto& c = *static_cast<Counting*>(u);
                     ++c.frees;
                     c.live_bytes -= size;
@@ -311,4 +311,84 @@ TEST_CASE("tasks allocate through the Context's allocator, and nothing through o
     CHECK(mine.allocs == mine.frees);
     CHECK(mine.live_bytes == 0);
     MESSAGE("Context with tasks: " << mine.allocs << " allocations through its allocator");
+}
+
+namespace {
+
+// Bytes live per kind, and whether every free named the kind its allocation did.
+struct ByKind {
+    static constexpr size_t kMax = 4096;
+    size_t live[baker::kMemoryKinds] = {};
+    size_t peak[baker::kMemoryKinds] = {};
+    void* ptrs[kMax] = {};
+    baker::MemoryKind kinds[kMax] = {};
+    size_t count = 0;
+    bool mismatched = false;
+    bool overflowed = false;
+
+    [[nodiscard]] baker::Allocator allocator() {
+        return {[](void* u, size_t size, size_t, baker::MemoryKind kind) -> void* {
+                    auto& b = *static_cast<ByKind*>(u);
+                    void* p = std::malloc(size);
+                    const auto k = static_cast<size_t>(kind);
+                    b.live[k] += size;
+                    if (b.live[k] > b.peak[k]) b.peak[k] = b.live[k];
+                    if (b.count < kMax) {
+                        b.ptrs[b.count] = p;
+                        b.kinds[b.count++] = kind;
+                    } else {
+                        b.overflowed = true;
+                    }
+                    return p;
+                },
+                [](void* u, void* p, size_t size, baker::MemoryKind kind) {
+                    auto& b = *static_cast<ByKind*>(u);
+                    b.live[static_cast<size_t>(kind)] -= size;
+                    for (size_t i = 0; i < b.count; ++i)
+                        if (b.ptrs[i] == p) {
+                            b.mismatched = b.mismatched || b.kinds[i] != kind;
+                            b.ptrs[i] = b.ptrs[--b.count];
+                            b.kinds[i] = b.kinds[b.count];
+                            break;
+                        }
+                    std::free(p);
+                },
+                this};
+    }
+    [[nodiscard]] size_t peak_of(baker::MemoryKind k) const { return peak[static_cast<size_t>(k)]; }
+};
+
+}  // namespace
+
+TEST_CASE("each allocation names its kind, and its free names the same (D258)") {
+    ByKind kinds;
+    const baker::Allocator alloc = kinds.allocator();
+    bool ok = false;
+    int n = 0;
+    {
+        baker::Config config({}, alloc);
+        config.session().set_reader(&read_text);
+        ok = config.push_layer("base", "base.dta").has_value();
+        baker::Context ctx(alloc);
+        ok = ok && ctx.func("add", &add).has_value();
+        ok = ok && ctx.eval("{func twice ($x) {add $x $x}} {twice 4}").has_value();
+        baker::Scheduler& s = ctx.scheduler();
+        ok = ok && s.spawn(counter(s, &n)).has_value();
+        for (int i = 0; i < 4; ++i) s.tick(1);
+    }
+    CHECK(ok);
+    CHECK(n == 3);
+    CHECK(kinds.peak_of(baker::MemoryKind::Config) > 0);
+    CHECK(kinds.peak_of(baker::MemoryKind::Trees) > 0);
+    CHECK(kinds.peak_of(baker::MemoryKind::Script) > 0);
+    CHECK(kinds.peak_of(baker::MemoryKind::Tasks) > 0);
+    CHECK(kinds.peak_of(baker::MemoryKind::Other) == 0);  // every owner tags what it keeps
+    CHECK_FALSE(kinds.overflowed);
+    CHECK_FALSE(kinds.mismatched);
+    for (size_t k = 0; k < baker::kMemoryKinds; ++k) CHECK(kinds.live[k] == 0);
+    CHECK(std::string_view(baker::memory_kind_name(baker::MemoryKind::Trees)) == "trees");
+    // The default allocator's copies: one a kind, each the same for the life of the program.
+    CHECK(&baker::default_allocator(baker::MemoryKind::Symbols) ==
+          &baker::default_allocator(baker::MemoryKind::Symbols));
+    CHECK(baker::default_allocator(baker::MemoryKind::Symbols).kind == baker::MemoryKind::Symbols);
 }

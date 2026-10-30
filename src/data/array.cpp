@@ -43,7 +43,7 @@ Ref<Array> Array::make(uint32_t size, Symbol file, int32_t line) {
 }
 
 Ref<Array> Array::make_from(std::span<Node> nodes, Symbol file, int32_t line) {
-    if (nodes.size() > UINT32_MAX) std::abort();
+    if (nodes.size() > UINT32_MAX) detail::fatal("an array of more than 4,294,967,295 nodes");
     const auto size = static_cast<uint32_t>(nodes.size());
     Array* a = allocate(size, file, line);
     Node* d = a->data();
@@ -53,7 +53,7 @@ Ref<Array> Array::make_from(std::span<Node> nodes, Symbol file, int32_t line) {
 }
 
 Ref<Array> Array::make_copy(std::span<const Node> nodes, Symbol file, int32_t line) {
-    if (nodes.size() > UINT32_MAX) std::abort();
+    if (nodes.size() > UINT32_MAX) detail::fatal("an array of more than 4,294,967,295 nodes");
     const auto size = static_cast<uint32_t>(nodes.size());
     Array* a = allocate(size, file, line);
     Node* d = a->data();
@@ -92,7 +92,7 @@ void Array::finish(int verb) noexcept {
     // A verb stands in the first value slot, which the parser knows; a pin is metadata.
     if (verb < 0) verb = size_ >= 2 && data()[1].type() == Type::Symbol ? -1 : 0;
     if (verb || first_meta) below = static_cast<uint16_t>(below | marker_flag(verb, first_meta));
-    // sort_for_lookup() runs this again, so the old boundary goes first. Past the 14 bits,
+    // sort_for_lookup() runs this again, so the old boundary goes first. Past the 13 bits,
     // metadata would read as values: the parser refuses such an array.
     flags_ = static_cast<uint16_t>((flags_ & kFlagBits) | (below & kHasMarker));
     if (first_meta <= kMaxMetaFirst)
@@ -149,6 +149,35 @@ void Array::set(size_t i, Node node) noexcept {
     // Arena nodes count nothing: the old node is dropped as it is, and the arena counts
     // the new one's owner if it is another (D64).
     detail::Arena::of(owner).adopt(data() + i, std::move(node), false);
+}
+
+namespace {
+// `n` without the metadata of its data arrays: `n` itself when there is none to leave out.
+Node without_metadata(const Node& n) {
+    const Array* a = n.type() == Type::Array ? n.array() : nullptr;
+    if (!a || a->height() < 2) return n;
+    const uint32_t first = a->meta_first();
+    Vec<Node> kept;
+    kept.reserve(a->size());
+    bool changed = false;
+    for (uint32_t i = 0; i < a->size(); ++i) {
+        const Node& c = (*a)[i];
+        // From the boundary on, a field may follow metadata (D248): only '@' tags go.
+        if (first && i >= first && c.type() == Type::Array && c.array()->tag().is_meta()) {
+            changed = true;
+            continue;
+        }
+        kept.push_back(without_metadata(c));
+        changed = changed || kept.back().array() != c.array();
+    }
+    if (!changed) return n;
+    return Node(Array::make_from(std::span<Node>(kept.data(), kept.size()), a->file(), a->line()));
+}
+}  // namespace
+
+Ref<Array> without_metadata(const Array& root) {
+    const Node kept = without_metadata(Node(Ref<Array>(const_cast<Array*>(&root))));
+    return Ref<Array>(const_cast<Array*>(kept.array()));
 }
 
 bool structurally_equal(const Node& a, const Node& b) noexcept {

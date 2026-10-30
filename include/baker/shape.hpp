@@ -1,13 +1,12 @@
 #pragma once
 
-// baker::shape (spec §6, dev/decisions.md D84): the expected structure of a data domain,
-// declared in data, by whichever layer owns the vocabulary.
+// baker::shape (spec §6, dev/decisions.md D84, D261): the expected structure of a data
+// domain, declared in data, by whichever layer owns the vocabulary, with #shape:
 //
-//   (shapes
-//     (boss_phase (@at bosses * phases)
-//       (enter_at float (@range 0 1) (@kind percent) (@desc "HP fraction that starts it"))
-//       (attacks  (list symbol))
-//       (cadence  float (@range 0.2 5) (@optional))))
+//   #shape (boss_phase (@at bosses * phases)
+//     (enter_at float (@range 0 1) (@kind percent) (@desc "HP fraction that starts it"))
+//     (attacks  (list symbol))
+//     (cadence  float (@range 0.2 5) (@optional)))
 //
 // A shape governs every array tagged with its name, or, given (@at ...), those whose
 // ancestors' tags from the root are the ones listed (`*` matches any). A shape declared
@@ -15,7 +14,7 @@
 // keyed data, as (fighters (kestrel (moves (jab ...) (kick ...)))), which layers merge by
 // name (D108).
 //
-//   (shapes (move (@at fighters * moves) (@keyed) (startup int (@range 1 60))))
+//   #shape (move (@at fighters * moves) (@keyed) (startup int (@range 1 60)))
 //
 // A field has a type (int, float, bool, symbol, string, any, curve, (list T), another shape's
 // name, or (key_of TABLE)) and the tweak metadata, each with its sigil (spec §4, D248). A list
@@ -116,15 +115,17 @@ public:
     Set(Set&& other) noexcept;
     Set& operator=(Set&& other) noexcept;
 
-    // Reads every (shapes ...) at the top of `tree`. A field declared again takes the new
+    // Reads every #shape the session's reads declared, or, given `root`, those of the read
+    // that began with that file: one layer's (Config::layer_root(name)->file()). A field
+    // declared again takes the new
     // type and whatever metadata the new declaration gives, as Config's merge of two layers
     // would. A malformed declaration is an error in `report`.
     //
-    // With `packs`, harder packs' declarations hold (D145): a field a softer pack declares
+    // Harder packs' declarations hold (D145): a field a softer pack declares
     // again may narrow a range or add metadata, but one that widens or drops a range, changes
     // the type, or makes a required field optional is a warning in `report`, and the harder
     // declaration stays. Files that declare no pack are unconstrained, as in the one-way rule.
-    void add(const Array& tree, Report& report, const LoadSession* packs = nullptr);
+    void add(const LoadSession& session, Report& report, baker::Symbol root = {});
     [[nodiscard]] std::span<const Shape> shapes() const noexcept;
     [[nodiscard]] const Shape* find(baker::Symbol name) const noexcept;
 

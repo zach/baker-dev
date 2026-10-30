@@ -140,7 +140,7 @@ removed in `below`.
 
 **Adding to and dropping from a list.** A layer that restates a list replaces it, so two
 packages that each add an item leave only the top one's. `#append` and `#drop` change the
-list below instead (D250):
+list below instead (D251):
 
 ```dta
 ; dlc_a.dta and dlc_b.dta, over (items climbing_gloves glider lamp_oil spyglass)
@@ -160,7 +160,7 @@ tuple restated as written. A key with two verbs takes two rows, which apply in o
 key the layers below lack is made from an `#append`'s operands, and a `#drop` of it does
 nothing. As with `#remove`, the merged tree never holds a verb, `#merge` skips one, and a
 verb anywhere but a key's first value is an error at load. A verb is never written inside
-`(shapes ...)`: a shape is declared whole.
+a `#shape`: a shape is declared whole.
 
 A composing row supplies no value of its own: `source()` names the layer whose list it
 changes, `explain` shows it as `Composes` with its verb, and `layer_effect`'s `op` names the
@@ -269,10 +269,13 @@ in the order they are read; a Config's layers read in one session, bottom to top
 | `#merge path` | Merge another file into the enclosing array, keeping existing keys and adding missing ones. |
 | `#ifdef N`, `#ifndef N`, `#else`, `#endif` | Conditional sections. |
 | `#define N` | Define a flag, for `#ifdef`. |
-| `#define N (body)` | Define a macro whose body is the array's contents. |
+| `#define N (body)` | The older macro form: define macro N. The read warns; write `[N body]`. |
 | `#undef N` | Remove a flag or macro. |
 | `#autorun {command}` | Collect the command into the session's `autorun()` list, for the host to run after loading. A Config reads each layer with a session of its own: `cfg.autorun()` returns its enabled layers' commands, bottom to top (D107). |
 | `[N node ...]` | At the top level of a file: define macro N. |
+| `#pack (NAME ...)` | Declare the file a pack. See Packs and levels. |
+| `#origin ("source" ...)` | Declare the file generated. See Generated files. |
+| `#shape (NAME ...)` | Declare a shape. See Shapes. |
 
 Paths may be quoted (`#include "shared/common.dta"`) or bare, and resolve against the
 including file's directory, then the session's include directories
@@ -280,7 +283,7 @@ including file's directory, then the session's include directories
 
 Any other `#name` is an error, so a misspelled directive is caught. `#` opens a directive
 only before a letter: a lone `#`, `#1` and `#00aa00` are symbols, as in a key binding
-`(# {toggle_hud})` (D101) or a color, and the printer writes them bare (D251).
+`(# {toggle_hud})` (D101) or a color, and the printer writes them bare (D260).
 
 ### A directory as a table: `#include_dir`
 
@@ -373,10 +376,10 @@ three files, it is read once, and its macros serve all three.
 
 ## Packs and levels
 
-A *pack* is a file that declares itself one, as its first form:
+A *pack* is a file that declares itself one with `#pack`, anywhere at its top level:
 
 ```dta
-(pack boss_tools (level game) (requires combat_core))
+#pack (boss_tools (level game) (requires combat_core))
 [boss.restart_phase {boss_phase_restart}]
 ```
 
@@ -388,8 +391,11 @@ files) (D80):
 cfg.session().set_pack_levels({"engine", "game", "task"});
 ```
 
-The form is recorded (`session.packs()`, `session.pack_of(file)`) and left out of the
-tree. A pack without a level, or with a level not in the list, is an error at load.
+The form is recorded (`session.packs()`, `session.pack_of(file)`) and never in the tree.
+A file declares one pack, and the whole file is the pack's, above its `#pack` too. A pack
+without a level, with a level not in the list, a second `#pack`, or one below the top level
+is an error at load. A form `(pack ...)` without the `#` is ordinary data, and a layer
+check warns of it.
 
 **Requires and versions.** Once a pack's file is read, each pack it `requires` must be
 loaded, and a required version met; otherwise the load warns, located, and goes on
@@ -397,14 +403,14 @@ loaded, and a required version met; otherwise the load warns, located, and goes 
 `"1.2"`), written as a string, a symbol, or an integer, never a float:
 
 ```dta
-(pack frost_dlc (level dlc) (version "1.0") (requires (base_game "1.2") season_pass))
+#pack (frost_dlc (level dlc) (version "1.0") (requires (base_game "1.2") season_pass))
 ```
 
 **Harness metadata.** A pack may also say who keeps it, whom it is for, and how far it has
 evolved, from an idea to a commodity:
 
 ```dta
-(pack boss_tools (level task) (requires combat_core)
+#pack (boss_tools (level task) (requires combat_core)
    (owners "td-encounter" "td-combat") (for designers) (stage custom))
 ```
 
@@ -429,33 +435,33 @@ in files that declare no pack, so a small project pays nothing. By convention a 
 names carry a dotted prefix (`boss.restart_phase`), which the reference and tuning panels
 group by.
 
-### Generated files: `origin`
+### Generated files: `#origin`
 
-A file that a tool generates, such as an export from a spreadsheet, says so in its first
-form (or the first after its pack declaration):
+A file that a tool generates, such as an export from a spreadsheet, says so with `#origin`,
+anywhere at its top level:
 
 ```dta
-(origin "economy.xlsx" (tool sheets-export))
+#origin ("economy.xlsx" (tool sheets-export))
 (econ (price 5) (tax 2))
 ```
 
-The form is recorded (`session.origin_of(file)`) and left out of the tree, and a Config's
+The form is recorded (`session.origin_of(file)`) and never in the tree, and a Config's
 `source()` reports `origin` and `tool` for every value the file supplies, so a number can
-be traced to the spreadsheet it came from. The first value must be a string, so ordinary
-data such as `(origin 0 0 0)` is not taken for one (D91).
+be traced to the spreadsheet it came from. The first value must be a string, and a file
+declares one origin. A form `(origin ...)` without the `#`, such as `(origin 0 0 0)`, is
+ordinary data.
 
 ## Shapes
 
 A shape says what an array should look like: its fields, their types, and their ranges.
-Shapes are declared in data, in one `(shapes ...)` container, each tagged by its own name
-(D84):
+Each shape is declared with `#shape` at a file's top level, a form tagged by the shape's
+name (D84, D261). The session records it, and the tree never holds it:
 
 ```dta
-(shapes
-   (boss_phase (@at bosses * phases)
-      (enter_at float (@range 0 1) (@kind percent) (@desc "HP fraction that starts it"))
-      (attacks  (list symbol))
-      (cadence  float (@range 0.2 5) (@optional))))
+#shape (boss_phase (@at bosses * phases)
+   (enter_at float (@range 0 1) (@kind percent) (@desc "HP fraction that starts it"))
+   (attacks  (list symbol))
+   (cadence  float (@range 0.2 5) (@optional)))
 ```
 
 - **Types:** `int`, `float`, `bool`, `symbol`, `string`, `any`, `curve`, `(list T)`,
@@ -480,9 +486,8 @@ Shapes are declared in data, in one `(shapes ...)` container, each tagged by its
   naming their parent, and it governs every child there, whatever its tag (D108):
 
   ```dta
-  (shapes
-     (move (@at fighters * moves) (@keyed)
-        (startup int (@range 1 60) (@kind frames))))
+  #shape (move (@at fighters * moves) (@keyed)
+     (startup int (@range 1 60) (@kind frames)))
   (fighters (kestrel (moves (jab (startup 4)) (heavy (startup 9)))))
   ```
 
@@ -500,9 +505,8 @@ Shapes are declared in data, in one `(shapes ...)` container, each tagged by its
   root last, so a fighter's move names one of that fighter's moves:
 
   ```dta
-  (shapes
-     (unit (@at units) (@keyed) (weapon (key_of weapons)))
-     (move (@at fighters * moves) (@keyed) (cancel_into (list (key_of moves)) (@optional))))
+  #shape (unit (@at units) (@keyed) (weapon (key_of weapons)))
+  #shape (move (@at fighters * moves) (@keyed) (cancel_into (list (key_of moves)) (@optional)))
   (weapons (laser (damage 3)) (cannon (damage 9)))
   (units (scout (weapon laser)))
   (fighters (kestrel (moves (jab) (heavy (cancel_into jab)))))
@@ -512,9 +516,10 @@ Shapes are declared in data, in one `(shapes ...)` container, each tagged by its
   removes is an error at each record that still names it, with the key it most likely
   meant: `'lazer' is not a key of weapons (laser?)`. With packs, a harder pack naming a
   softer pack's key is a warning, as for a call.
-- **Layers merge shapes like any data**, because the container is tagged `shapes` and
-  each shape by its name: a later layer adds a shape, adds a field, or retunes one
-  field's range.
+- **Layers combine shapes by name**: a later layer's `#shape` of the same name adds a
+  field or retunes one field's range, and one of a new name adds a shape. Its form is
+  written whole, never with a layer verb. A layer received under `data_only` or
+  `scalars_only` may not declare one.
 
 Checking reports a field of the wrong type, out of range or outside its `one_of`, a key
 its table lacks, or a required field missing, as an error, located by file, line, and
@@ -539,19 +544,18 @@ each a message and a script expression that must be true for every record the sh
 governs:
 
 ```dta
-(shapes
-   (unit (@at units) (@keyed)
-      (max_hp int (@range 1 9999))
-      (start_hp int)
-      (@rule "starts at or below its maximum" {<= $start_hp $max_hp}))
-   (card (@at cards) (@keyed)
-      (tier (key_of tiers))
-      (power float)
-      (@rule "within 10% of its tier's ideal"
-            {and {>= $power {* 0.9 {data tiers $tier ideal}}}
-                 {<= $power {* 1.1 {data tiers $tier ideal}}}}
-            (@warn)))
-   (loot (@rule "weights sum to 100" {== {data.sum loot weight} 100})))
+#shape (unit (@at units) (@keyed)
+   (max_hp int (@range 1 9999))
+   (start_hp int)
+   (@rule "starts at or below its maximum" {<= $start_hp $max_hp}))
+#shape (card (@at cards) (@keyed)
+   (tier (key_of tiers))
+   (power float)
+   (@rule "within 10% of its tier's ideal"
+         {and {>= $power {* 0.9 {data tiers $tier ideal}}}
+              {<= $power {* 1.1 {data tiers $tier ideal}}}}
+         (@warn)))
+#shape (loot (@rule "weights sum to 100" {== {data.sum loot weight} 100}))
 ```
 
 - **What a rule reads.**
@@ -612,9 +616,9 @@ special forms, which is why the whole language is the [reference](script-referen
 list of functions.
 
 The built-ins are control (`if`, `do`, `set`, `func`, `override`, `class`, `new`,
-`delete`), arithmetic (`+ - * / %`), comparison (`== != < <= > >=`), and logic (`and or
-not`). Ints stay ints (wrapping on overflow) until a float joins them; `{/ 7 2}` is 3.5.
-Everything else is what the host binds:
+`delete`), arithmetic (`+ - * / %`), assignment (`+= -= *= /=`), comparison (`== != < <= >
+>=`), and logic (`and or not`). Ints stay ints (wrapping on overflow) until a float joins
+them; `{/ 7 2}` is 3.5. Everything else is what the host binds:
 
 ```cpp
 baker::Context ctx;
@@ -626,7 +630,53 @@ A native function's parameter and result types are deduced from its signature; i
 take `Raw<Node>` for an argument it evaluates itself, `std::optional<T>` for an optional
 one, `Args` for the rest, and registering the name again with another signature makes an
 overload set. A call with two scalar arguments takes about 31 ns and never allocates
-(D78).
+(D78). The Context keeps a copy of the callable (moved, when given a temporary) in its own
+memory; a lambda that captures nothing is not kept at all. Registering costs about 460
+bytes of code per binding with GCC at -O2, most of it the call itself, and the
+registration's own work runs out of line.
+
+### Operators, and braces written infix
+
+The operators take more than two arguments where that reads as one idea. `+`, `-` and `*`
+fold left over two numbers or more: `{+ 1 2 3}` is 6 and `{- 10 2 3}` is 5, and `{- 5}` is
+-5. `<`, `<=`, `>` and `>=` test every adjacent pair, evaluating each argument once and
+stopping at the first pair that fails, so `{<= 0.3 $value 0.7}` is a band. `==`, `!=`, `/`
+and `%` take two. `{+= $hp 5}` adds, stores and returns the new value, and so do `-=`, `*=`
+and `/=`; in a method, `{+= [hp] 5}` stores to the property. A place that is not set, or
+holds no number, is an error, as reading it is.
+
+A brace may be written with its operator between its operands:
+
+```dta
+(objective cube.turns
+   (measure {cube.turns})
+   (pass {2 <= $value <= 10}))        ; the command {<= 2 $value 10}
+(unlock {{econ.total_earned} >= 10000})
+{func average ($a $b) {{$a + $b} / 2}}
+```
+
+A brace of an odd number of nodes, three or more, whose odd slots hold one and the same
+bare operator (a symbol of `+ - * / % < > = ! & | ^ ~` only), reads head-first: `{a op b op
+c}` is `{op a b c}`. It does so only when one of its operands is a number, a variable, a
+property or a command, so a brace of bare symbols, `{wheat -> flour}`, is a call of `wheat`
+as it always was. The tree is the prefix command's, so evaluation, `check`, layers and
+provenance see no difference; the array remembers it was written infix, and printing,
+write-back and promote give that spelling back.
+
+- **One operator a brace.** `{0 < $value <= 10}` is an error at the brace ("mixed
+  operators in {...}: nest braces to say which applies first"). Nest instead, under `and`:
+  `{and {0 < $value} {$value <= 10}}`. There is no precedence to learn.
+- **Every operand needs its operator.** `{0.3 <= $value 0.7}` and `{$value <=}` are errors
+  at the brace, which name the fix.
+- **A call stays a call.** A brace whose first element is a function's name is a call
+  whatever follows it (`{f + 1 2}`), and so is a prefix command (`{<= 0.3 $v 0.7}`). A
+  quoted operator never reads infix: `{$obj '<=' 1 2}` calls the object's `<=` handler, and
+  the printer quotes an operator where the reader would otherwise take a prefix command as
+  infix (`{+ '-' 1}`). A macro used between operands, or one that expands to more than one
+  node, leaves its brace as written.
+- **Overlays for older builds.** A build of Baker before infix reads `{2 <= $value <= 10}` as
+  a call of 2. Data that a build without it reads, such as a live-ops overlay for a game
+  already shipped, stays in the prefix spelling, which every build reads.
 
 ### Variables
 
@@ -779,3 +829,20 @@ baker: '%' by zero  (boss.dta:9)
 Read it top down: the failing call, then each caller, each with the file and line where it
 is written. `script_backtrace()` prints the same stack while a call is running, for an
 assert handler or crash reporter to print beside the C++ stack.
+
+### Fatal errors
+
+A few failures leave Baker nothing to return: an allocator that returns null, an array or a
+string past 4 GB, reading the value of an `Expected` that holds an error. Baker reports
+each to the fatal handler and aborts. The message names what failed, and while a script
+call is running it carries the script stack, innermost first:
+
+```
+baker: fatal: an allocator returned null, asked for 16 bytes
+in {exhaust}  (level.dta:1)
+in {spawn_wave}  (level.dta:1)
+```
+
+`baker::set_fatal_handler(fn)` routes it to an engine's crash reporter; the default writes
+it to stderr. The handler must not return, and Baker aborts if it does. The message is built
+without allocating, since the allocator may be what failed, and is cut at 4 KB.

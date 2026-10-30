@@ -66,8 +66,8 @@ it with copyleft, source-available, commercial or NDA platforms. In this reposit
   compatibility layer.)
 - Record each deviation from `dev/spec.md` in `dev/decisions.md` (spec §11). Results of
   a step go in a D-entry too, with benchmark numbers.
-- Hold designs and hot-path changes to `.claude/skills/acton-review/` (the skill and its
-  `references/baker-gaps.md` status table). Write a short design note before a step that
+- TD designs and hot-path changes: hold them to `.claude/skills/gamedev-td/` (the skill and
+  its `references/baker-gaps.md` status table). Write a short design note before a step that
   changes ownership or the API.
 - **Ask the owner each open question with the AskUserQuestion tool,** one question per
   decision with the recommended option first, rather than listing questions in prose.

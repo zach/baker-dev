@@ -81,12 +81,12 @@ void TweakBase::detach() noexcept {
     }
     prev_ = next_ = nullptr;
     registry_->unlock();
-    detail::destroy(default_allocator(), extra_);
+    detail::destroy(default_allocator(MemoryKind::Tweaks), extra_);
     extra_ = nullptr;
 }
 
 const Path& TweakBase::parsed() {
-    if (!extra_) extra_ = detail::create<Extra>(default_allocator());
+    if (!extra_) extra_ = detail::create<Extra>(default_allocator(MemoryKind::Tweaks));
     if (!extra_->parsed) extra_->parsed.emplace(path_);
     return *extra_->parsed;
 }
@@ -141,7 +141,7 @@ void TweakBase::notify() {
 }
 
 void TweakBase::on_change(Callback<void()> callback) {
-    if (!extra_) extra_ = detail::create<Extra>(default_allocator());
+    if (!extra_) extra_ = detail::create<Extra>(default_allocator(MemoryKind::Tweaks));
     extra_->on_change.push_back(std::move(callback));
 }
 
@@ -261,7 +261,7 @@ struct Allowed {
     Vec<Symbol> texts;
     Vec<TweakChoice> numbers;
 };
-Allowed allowed(const Array* data, const TweakMeta& code) {
+Allowed allowed(const Array* data, const detail::KeptTweakMeta& code) {
     Allowed out;
     if (data) {
         for (const Node& n : data->values()) {
@@ -546,7 +546,7 @@ void write_json(const TweakRegistry& tweaks, TextSink text) {
         detail::json_string(out, t.kind());
         out += ", \"group\": ";
         detail::json_string(out, t.group());
-        out += Str(", \"dev_only\": ") + (t.code_meta().dev_only ? "true" : "false");
+        out += Str(", \"dev_only\": ") + (t.dev_only() ? "true" : "false");
         out += ", \"one_of\": ";
         const List<Symbol> one_of = t.one_of();
         detail::json_names(out, one_of.items());

@@ -573,10 +573,10 @@ public:
         return nullptr;
     }
     // The index of the first metadata child, or 0 for none (slot 0 is the tag's and is never
-    // metadata). The parser refuses metadata past child kMaxMetaFirst, which the 14 bits it
-    // is kept in cannot name.
+    // metadata). The parser refuses metadata past child kMaxMetaFirst, which the 13 bits it
+    // is kept in cannot name; written_infix took the fourteenth (D262).
     [[nodiscard]] uint32_t meta_first() const noexcept { return flags_ >> kMetaShift; }
-    static constexpr uint32_t kMaxMetaFirst = 0x3FFF;
+    static constexpr uint32_t kMaxMetaFirst = 0x1FFF;
 
     // Replaces the node at `i` (must be in range). Arrays may be shared, e.g. by macro
     // expansion, so the change is visible through every reference. Clears sorted mode.
@@ -669,6 +669,13 @@ public:
     // and strips from what it adds to the stack (dev/decisions.md D143). Set where either is
     // made: by finish() and by set().
     [[nodiscard]] bool has_marker() const noexcept { return (flags_ & kHasMarker) != 0; }
+    // Whether this command was written infix, `{0.3 <= $value <= 0.7}` for `{<= 0.3 $value
+    // 0.7}`, so the printer gives the spelling back (D262). The parser sets it; a tool may.
+    // Equality, the digest and evaluation ignore it.
+    [[nodiscard]] bool written_infix() const noexcept { return (flags_ & kWrittenInfix) != 0; }
+    void set_written_infix(bool on) noexcept {
+        flags_ = static_cast<uint16_t>(on ? flags_ | kWrittenInfix : flags_ & ~kWrittenInfix);
+    }
 
     [[nodiscard]] Symbol file() const noexcept { return file_; }
     [[nodiscard]] int32_t line() const noexcept { return line_; }
@@ -702,8 +709,9 @@ public:
 private:
     static constexpr uint16_t kSortedForLookup = 1;
     static constexpr uint16_t kHasMarker = 2;
-    static constexpr uint16_t kMetaShift = 2;  // above them, the metadata boundary
-    static constexpr uint16_t kFlagBits = kSortedForLookup | kHasMarker;
+    static constexpr uint16_t kMetaShift = 3;     // above them, the metadata boundary
+    static constexpr uint16_t kWrittenInfix = 4;  // written_infix() (D262)
+    static constexpr uint16_t kFlagBits = kSortedForLookup | kHasMarker | kWrittenInfix;
 
     Array(uint32_t block, uint32_t size, Symbol file, int32_t line) noexcept
         : block_(block), size_(size), file_(file), line_(line) {}
@@ -762,7 +770,8 @@ private:
     Symbol file_;
     int32_t line_;
     uint16_t height_ = 1;
-    uint16_t flags_ = 0;  // kSortedForLookup, kHasMarker; above them, the metadata boundary
+    // kSortedForLookup, kHasMarker, kWrittenInfix; above them, the metadata boundary
+    uint16_t flags_ = 0;
     // uint32_t tags[size_], padded to 8, follows (D77), then Node nodes[size_].
 };
 
@@ -924,6 +933,13 @@ Expected<T> Array::get(const Path& path, T fallback) const {
 // Floats compare by bit pattern. Strings compare by content; arrays recursively.
 [[nodiscard]] bool structurally_equal(const Node& a, const Node& b) noexcept;
 [[nodiscard]] bool structurally_equal(const Array& a, const Array& b) noexcept;
+
+// `root` with every data array's metadata children left out, below it too: (@range 0 1),
+// (@desc "..."), (@was ...). For a shipped build, which reads values and no metadata: a bake
+// step writes the cache of this tree (baker_bake --drop-metadata, D265). Commands and
+// properties are kept as written, and an array with no metadata below it is shared, not
+// copied.
+[[nodiscard]] Ref<Array> without_metadata(const Array& root);
 
 // A refcounted string node payload: array("name", str("Bob")).
 [[nodiscard]] inline Ref<String> str(std::string_view text) {

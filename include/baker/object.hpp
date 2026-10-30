@@ -41,6 +41,7 @@
 // {bob hit 20} reaches the same handler, and handle() reaches a script handler (hit ($points)
 // ...) first, as a command would (dev/decisions.md D53).
 
+#include <baker/fwd.hpp>
 #include <baker/script.hpp>
 
 #include <cstddef>
@@ -66,6 +67,9 @@ struct ObjectParams;
 void set_type_name(TypeRecord& type, std::string_view name);
 // Adds an overload to method `name`, replacing an inherited method of that name.
 [[nodiscard]] MethodEntry* add_method(TypeRecord& type, Symbol name, Overload overload);
+// add_method of the Overload `native` describes, out of line (D255).
+[[nodiscard]] MethodEntry* add_native_method(TypeRecord& type, Symbol name,
+                                             const NativeDesc& native);
 void set_method_doc(MethodEntry& method, std::string_view doc);
 void set_method_status(MethodEntry& method, Status status, Symbol replacement);
 using PropertyGet = Node (*)(const void* accessor, ObjectBase& self);
@@ -279,7 +283,7 @@ private:
 template <class T>
 class Binder;
 
-template <class T, class Base = ObjectBase>
+template <class T, class Base>  // Base defaults to ObjectBase (fwd.hpp)
 class Object : public Base {
     static_assert(std::is_base_of_v<ObjectBase, Base>, "Base must be a bound type");
 
@@ -334,9 +338,9 @@ public:
                     static_cast<typename detail::DropFirst<typename Sig::params>::type*>(nullptr));
         }();
         using W = decltype(w);
-        return MethodRef(*detail::add_method(
+        return MethodRef(*detail::add_native_method(
             r_, name,
-            detail::make_overload<W, R>(
+            detail::describe_native<W, R>(
                 std::move(w), static_cast<typename detail::signature_of<W>::params*>(nullptr))));
     }
 

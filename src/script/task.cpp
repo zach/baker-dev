@@ -44,13 +44,13 @@ bool later(const Due& a, const Due& b) noexcept {
 
 struct Scheduler::Impl {
     Impl(Scheduler& s, Context& c, SchedulerOptions o)
-        : self(s), ctx(c), alloc(c.impl().alloc), options(o) {
+        : self(s), ctx(c), alloc(with_kind(c.impl().alloc, MemoryKind::Tasks)), options(o) {
         if (options.chunk == 0) options.chunk = 1;  // the size grow() and ~Scheduler agree on
     }
 
     Scheduler& self;
     Context& ctx;
-    const Allocator& alloc;
+    const Allocator alloc;  // the Context's, tagged Tasks
     SchedulerOptions options;
     double now = 0;
     uint64_t next_seq = 0;
@@ -189,16 +189,17 @@ void park_tick(TaskPromiseBase& p) noexcept {
 }  // namespace detail
 
 void Task::promise_type::unhandled_exception() noexcept {
-    std::abort();
+    detail::fatal("a script task's coroutine threw");  // never, with exceptions disabled
 }
 
 Scheduler::Scheduler(Context& ctx, SchedulerOptions options)
-    : impl_(detail::create<Impl>(ctx.impl().alloc, *this, ctx, options)) {}
+    : impl_(detail::create<Impl>(with_kind(ctx.impl().alloc, MemoryKind::Tasks), *this, ctx,
+                                 options)) {}
 
 Scheduler::~Scheduler() {
     for (uint32_t i = 0; i < impl_->slots.size(); ++i)
         if (impl_->slots[i].wait != Wait::Free) impl_->slots[i].h.destroy();
-    const Allocator& alloc = impl_->alloc;
+    const Allocator alloc = impl_->alloc;  // a copy: impl_ goes first
     const size_t bytes = impl_->options.chunk * impl_->block_bytes();
     for (void* c : impl_->chunks) detail::deallocate(alloc, c, bytes);
     detail::destroy(alloc, impl_);

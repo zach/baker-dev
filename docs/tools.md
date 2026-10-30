@@ -62,8 +62,8 @@ An editor works on text that rarely parses, and checks it on every pause:
   rename and a highlighter can all work from it, with no lexer of the tool's own. A row's
   key, the `/a.b.c` of a top-level `(/a.b.c 1)`, is a token of the kind `PathKey`.
 - **Laid out as Baker writes it.** `tools::format_text(text, sink, {.layout = ...})` lays
-  out text as `write_dta` lays out a tree, with the project's `(format (indent 3) (width
-  100))`, keeping every comment, directive, macro and spelling. Only whitespace changes:
+  out text as `write_dta` lays out a tree, with the project's `(format ...)`, keeping every
+  comment, directive, macro and spelling. Only whitespace changes:
   - a form goes on one line if it fits, else one item a line;
   - a `;` comment stays on its line, and a blank line between forms stays (once);
   - a table or a column of trailing comments written aligned stays aligned, re-padded when
@@ -74,6 +74,10 @@ An editor works on text that rarely parses, and checks it on every pause:
   editor applies them without moving the cursor through unchanged text; `.begin` and
   `.end` lay out only the forms a selection touches. Formatting twice changes nothing. 2 MB
   takes about 60 ms.
+- **The house layout.** Three spaces a level and a hundred columns is `WriteOptions`'
+  default, and the layout of a project without `(format ...)`. A Config opened from a
+  project (`open_project`) writes in the project's layout: the forms promote and write-back
+  add to a layer's file, and `layer_text` (`Config::set_layout`).
 - **Values as Baker presents them.** An array's `values()` end before its metadata,
   `(width 2 (@range 0 10))`, and `metadata()` lists it; `presented_kind(values)` gives the
   kind a value is shown as (its `(@kind ...)`, or "color" for 3 or 4 numbers ranged 0 to 1).

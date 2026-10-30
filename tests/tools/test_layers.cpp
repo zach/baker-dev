@@ -45,7 +45,7 @@ TEST_CASE("layer_effect names each removal, and what it removed (D143)") {
 TEST_CASE("layer_effect names a generated file's origin and tool (D91)") {
     TempDir dir;
     Config cfg({.tweaks = nullptr});
-    dir.write("econ.dta", "(origin \"economy.xlsx\" (tool sheets-export))\n(econ (price 5))\n");
+    dir.write("econ.dta", "#origin (\"economy.xlsx\" (tool sheets-export))\n(econ (price 5))\n");
     REQUIRE(
         cfg.push_layer("default", dir.write("default.dta", "(shop (tax 2))\n#include econ.dta\n")));
     const auto effect = ok(tools::layer_effect(cfg, "default"));
@@ -124,7 +124,7 @@ BAKER_DEV_TEST_CASE("diff compares two layers' own values, for A/B") {
 
 // --- Change 3: snapshot and restore ---
 
-TEST_CASE("the layer tools name each verb: effect, diff and explain (D250)") {
+TEST_CASE("the layer tools name each verb: effect, diff and explain (D251)") {
     TempDir dir;
     const char* cancels = "fighters.kestrel.moves.jab.cancels";
     Config cfg({.tweaks = nullptr});
@@ -175,4 +175,49 @@ TEST_CASE("the layer tools name each verb: effect, diff and explain (D250)") {
     CHECK(element[1].standing == tools::Standing::Composes);
     CHECK(to_string(element[1].value) == "palm");
     CHECK(ok(cfg.source(cancels)).layer == Symbol("default"));
+}
+
+TEST_CASE("the layer tools list a layer's declarations: effect, diff and explain (D261)") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    cfg.session().set_pack_levels({"game", "mod"});
+    REQUIRE(cfg.push_layer("base", dir.write("base.dta",
+                                             "#pack (core (level game))\n"
+                                             "#shape (unit (hp int (@range 1 10)) (name symbol))\n"
+                                             "(unit (hp 5) (name a))\n")));
+    REQUIRE(cfg.push_layer("mod", dir.write("mod.dta",
+                                            "#shape (unit (hp int (@range 1 99)))\n"
+                                            "(unit (hp 50))\n")));
+    // The mod's effect: its value, and its #shape over the base's, which an agent would
+    // otherwise not see widen the range.
+    const auto effect = ok(tools::layer_effect(cfg, "mod"));
+    REQUIRE(effect.size() == 2);
+    CHECK(effect[1].declares == Symbol("#shape"));
+    CHECK(effect[1].path == Symbol("unit"));
+    CHECK(to_string(effect[1].value) == "(unit (hp int (@range 1 99)))");
+    REQUIRE(effect[1].below);
+    CHECK(to_string(*effect[1].below) == "(unit (hp int (@range 1 10)) (name symbol))");
+    CHECK(effect[1].below_source->layer == Symbol("base"));
+    CHECK(effect[1].source.line == 1);
+    const auto base = ok(tools::layer_effect(cfg, "base"));
+    CHECK(std::count_if(base.begin(), base.end(), [](const LayerEffectEntry& e) {
+              return e.declares == Symbol("#pack") && e.path == Symbol("core");
+          }) == 1);
+    // diff: the two layers' shapes differ; a pack only the base declares.
+    const auto d = ok(tools::diff(cfg, "base", "mod"));
+    CHECK(std::count_if(d.begin(), d.end(), [](const tools::DiffEntry& e) {
+              return e.declares == Symbol("#shape") && e.a && e.b;
+          }) == 1);
+    CHECK(std::count_if(d.begin(), d.end(), [](const tools::DiffEntry& e) {
+              return e.declares == Symbol("#pack") && e.a && !e.b;
+          }) == 1);
+    // explain: each layer that declares the shape, or its field.
+    const auto shape = ok(tools::explain(cfg, Path("#shape.unit")));
+    REQUIRE(shape.size() == 2);
+    CHECK(shape[0].layer == Symbol("base"));
+    CHECK(shape[1].layer == Symbol("mod"));
+    const auto field = ok(tools::explain(cfg, Path("#shape.unit.name")));
+    REQUIRE(field.size() == 1);
+    CHECK(to_string(field[0].value) == "(name symbol)");
+    CHECK_FALSE(tools::explain(cfg, Path("#shape.nothing")));
 }

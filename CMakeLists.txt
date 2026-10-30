@@ -14,6 +14,8 @@ option(BAKER_BUILD_HARNESS    "Build examples/harness-imgui (fetches Dear ImGui 
 option(BAKER_BUILD_FUZZERS    "Build libFuzzer targets (Clang only)" OFF)
 option(BAKER_BUILD_EXPERIMENTS "Build experiments/ (syntax sketches on branches; never shipped)" OFF)
 option(BAKER_USE_EASTL        "Internal containers from EASTL instead of the STL (D55, D61)" OFF)
+option(BAKER_STEP_BUDGET      "Count a step a call for Context::set_step_budget. OFF compiles the check out, for a game that runs no script it did not write (D259)" ON)
+option(BAKER_RTTI             "Build Baker with RTTI. OFF is for a game that builds without RTTI, or never derives from baker::ObjectBase with it on (D250)" ON)
 set(BAKER_SANITIZE "" CACHE STRING "Sanitizers to enable, e.g. address,undefined")
 
 if(NOT DEFINED CMAKE_CXX_STANDARD)
@@ -36,13 +38,29 @@ if(BAKER_BUILD_FUZZERS)
   # Coverage instrumentation for everything the fuzzer exercises, not just its main.
   add_compile_options(-fsanitize=fuzzer-no-link)
 endif()
-# Baker never throws, and everything here builds with exceptions disabled (D54).
+# Baker never throws, and everything here builds with exceptions disabled (D54). No compiler
+# fuses a multiply and an add into one rounding, which GCC and Clang do by default where the
+# target has FMA: a curve's sample, or a digest of computed values, would differ by compiler
+# and platform (D250). MSVC does not contract under /fp:precise, its default.
+#
+# RTTI is on by default: a game that keeps it and derives from ObjectBase needs the typeinfo
+# Baker's object.cpp emits, and without it fails to link. Baker uses no typeid or
+# dynamic_cast, so BAKER_RTTI=OFF builds everything here without it, for a game that has
+# RTTI off itself or never derives from ObjectBase with it on; the EASTL configuration
+# tests it (D250).
 if(MSVC)
   string(REPLACE "/EHsc" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-  add_compile_options(/EHs-c-)
+  add_compile_options(/EHs-c- /fp:precise)
   add_compile_definitions(_HAS_EXCEPTIONS=0)
+  if(NOT BAKER_RTTI)
+    string(REPLACE "/GR" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+    add_compile_options(/GR-)
+  endif()
 else()
-  add_compile_options(-fno-exceptions)
+  add_compile_options(-fno-exceptions -ffp-contract=off)
+  if(NOT BAKER_RTTI)
+    add_compile_options(-fno-rtti)
+  endif()
 endif()
 
 # Whether the library's Expected<T> is std::expected, decided once at configure time and
@@ -108,6 +126,9 @@ function(baker_configure_library target)
       target_compile_definitions(${target} PUBLIC ${flag}=1)
     endif()
   endforeach()
+  if(NOT BAKER_STEP_BUDGET)
+    target_compile_definitions(${target} PUBLIC BAKER_STEP_BUDGET=0)
+  endif()
 endfunction()
 
 # --- baker::data: nodes, arrays, parsing, lookup, config, tweaks, binary cache.
@@ -246,10 +267,14 @@ if(BAKER_BUILD_TOOLS)
   if(BAKER_BUILD_SCRIPT)  # the tolerant read of text is in baker::tools
     add_executable(baker_migrate_metadata tools/migrate_metadata.cpp)
     target_link_libraries(baker_migrate_metadata PRIVATE baker::tools baker::data)
+    add_executable(baker_migrate_declarations tools/migrate_declarations.cpp)
+    target_link_libraries(baker_migrate_declarations PRIVATE baker::tools baker::data)
   endif()
   if(BAKER_BUILD_TESTS)
     add_test(NAME baker_bake COMMAND baker_bake -D DEBUG
       ${PROJECT_SOURCE_DIR}/tests/corpus/config_app.dta ${CMAKE_CURRENT_BINARY_DIR}/config_app.datb)
+    add_test(NAME baker_bake_drop_metadata COMMAND baker_bake --drop-metadata
+      ${PROJECT_SOURCE_DIR}/tests/corpus/config_app.dta ${CMAKE_CURRENT_BINARY_DIR}/config_app_lean.datb)
   endif()
 endif()
 

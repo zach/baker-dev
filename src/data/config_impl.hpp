@@ -63,6 +63,10 @@ struct LayerState {
     Str dir;
     Str group;
     bool broken = false;  // a found layer that did not read: empty until its files change
+    // LayerOptions::when (D264): the condition, the one node of `when`, and the enabled the
+    // host asked for; options.enabled is that and the condition holding. Null: no condition.
+    Ref<Array> when;
+    bool wanted = true;
 };
 
 // One path in scratch. The array is owned by scratch alone, so set() may change it in
@@ -170,11 +174,25 @@ void row_warnings(const Array& row, std::string_view path, const Vec<Node>* belo
 // Each tag's first child only, as lookup sees it, depth first.
 Vec<Leaf> leaves_of(const Array& root);
 
+// A declaration a layer's read made (D261): #shape (NAME ...), #pack (NAME ...) or
+// #origin ("source" ...), which the layer's tree does not hold, as the layer tools list it.
+struct Declaration {
+    Symbol directive;  // #shape, #pack, #origin
+    Symbol name;       // the shape's or pack's name; the file an origin describes
+    Node form;         // as written for a shape; (NAME (level L)) and ("source" (tool T))
+    Symbol file;
+    int32_t line = 0;
+};
+// The declarations of the read whose root is `root`, its files `files` (a layer's deps), in
+// `session`: shapes by their read's root, packs and origins by their file.
+void declarations_of(const LoadSession& session, Symbol root, std::span<const Dep> files,
+                     Vec<Declaration>& out);
+
 }  // namespace config_internal
 using namespace config_internal;
 
 struct ConfigSnapshot::State {
-    explicit State(const Allocator& a) : alloc(a) {}
+    explicit State(const Allocator& a) : alloc(with_kind(a, MemoryKind::Config)) {}
     const Allocator alloc;  // the Config's, which outlives its snapshots (D61)
     Vec<LayerState> layers{alloc};
     Vec<ScratchEntry> scratch{alloc};
@@ -234,12 +252,13 @@ struct Config::Impl {
         Callback<void(const ReloadRecord&)> fn;
     };
 
-    explicit Impl(const Allocator& a) : alloc(a) {
+    explicit Impl(const Allocator& a) : alloc(with_kind(a, MemoryKind::Config)) {
         base.allocator = &alloc;  // every layer's tree is the Config's (D64)
     }
 
     const Allocator alloc;  // first: the containers below take it
     ConfigOptions options;
+    WriteOptions layout{};           // of the text it writes (D263)
     Str cache_dir{alloc};            // options.cache_dir views this
     mutable Str scan{alloc};         // changed()'s buffer, kept so that a poll allocates nothing
     mutable Vec<Str> listed{alloc};  // the same for a directory's listing
@@ -377,6 +396,11 @@ struct Config::Impl {
                                        std::span<const Error> read_warnings) const;
     // push_layer by path or text, once the layer is named.
     Expected<void> push_read(Config& c, LayerState&& layer, LayerOptions opts);
+    // A pushed layer's options: its condition read (D264), and options.enabled from it.
+    Expected<void> take_options(LayerState& layer, LayerOptions opts) const;
+    // options.enabled from what the host asked and the layer's condition, over `base`'s
+    // defines (D264). Whether it changed.
+    bool apply_condition(LayerState& l) const;
 
     bool changed(const LayerState& layer, Symbol& first) const;
     // Whether reload() must read `layer` again: a file of it changed, or, for a directory of

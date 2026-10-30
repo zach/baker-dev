@@ -163,8 +163,40 @@ void record_stack(Error& e);
 // An error located at `at`, with the call stack.
 BAKER_COLD Expected<Node> fail(const Array& at, ErrorCode code, std::string_view message);
 
-// A variable cell never set holds a Func node with no record, which nothing else makes.
-inline const Node kUnset = Node::func(nullptr);
+// A variable cell never set holds a Func node with no record, which nothing else makes. Made
+// where it is needed, not kept in a static: a static Node costs every file that includes this
+// a dynamic initializer and an exit-time destructor (D250).
+[[nodiscard]] inline Node unset_node() noexcept {
+    return Node::func(nullptr);
+}
+
+// A call's evaluated arguments: eight on the stack, more from the Context's allocator, so a
+// call of nine counts against the Context's memory as the rest of it does (D61). Not a Vec:
+// an empty std::vector allocates in MSVC's debug library. Not a NodeBuffer: it costs 70
+// instructions a call.
+class ArgValues {
+public:
+    ArgValues(const Allocator& alloc, size_t n) : alloc_(&alloc) {
+        if (n <= kInline) return;
+        data_ = static_cast<Node*>(detail::allocate(alloc, n * sizeof(Node), alignof(Node)));
+        for (; held_ < n; ++held_) ::new (data_ + held_) Node();
+    }
+    ~ArgValues() {
+        if (data_ == inline_) return;
+        for (size_t i = 0; i < held_; ++i) data_[i].~Node();
+        detail::deallocate(*alloc_, data_, held_ * sizeof(Node));
+    }
+    ArgValues(const ArgValues&) = delete;
+    ArgValues& operator=(const ArgValues&) = delete;
+    [[nodiscard]] Node* data() noexcept { return data_; }
+
+private:
+    static constexpr size_t kInline = 8;
+    const Allocator* alloc_;
+    Node inline_[kInline];
+    Node* data_ = inline_;
+    size_t held_ = 0;
+};
 [[nodiscard]] inline bool is_unset(const Node& n) noexcept {
     return n.type() == Type::Func && !n.func_record();
 }
@@ -185,7 +217,7 @@ struct Context::Impl {
     static constexpr uint32_t kPageBits = 10;
     static constexpr uint32_t kMaxDepth = 1000;
 
-    Impl(Context& c, const Allocator& a) : alloc(a), self(c) {}
+    Impl(Context& c, const Allocator& a) : alloc(with_kind(a, MemoryKind::Script)), self(c) {}
     ~Impl();
     Impl(const Impl&) = delete;
     Impl& operator=(const Impl&) = delete;
@@ -205,6 +237,8 @@ struct Context::Impl {
 
     [[nodiscard]] Expected<Node> eval(const Node& n);
     [[nodiscard]] Expected<Node> call(const Array& command);
+    // The step budget is spent: true if the hook granted more (Context::set_step_hook).
+    bool more_steps();
     // The call itself. `counted`, if given, receives the counters of what was called.
     [[nodiscard]] Expected<Node> call_body(const Array& command, Counters** counted);
     // A call while profiling or tracing: times it, and reports it to the trace sink.
@@ -311,6 +345,9 @@ struct Context::Impl {
     }
     const CallFrame* top = nullptr;  // the innermost call in progress
     uint32_t depth = 0;
+    uint64_t steps = Context::kUnlimitedSteps;  // Context::set_step_budget
+    Context::StepHook step_hook = nullptr;
+    void* step_user = nullptr;
     uintptr_t stack_base = 0;                        // the outermost call's stack address
     uintptr_t stack_budget = uintptr_t{256} * 1024;  // see Context::set_stack_budget
     NoticeSink sink = nullptr;

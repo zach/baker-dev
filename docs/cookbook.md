@@ -37,6 +37,15 @@ static baker::Tweak<float> kJumpHeight{"player.jump.height", 1.2f,
 - **Declare tweaks at namespace scope.** A function-local static adds a guard check to
   every read. At namespace scope, reading a `Tweak<float>` is one relaxed atomic load,
   checked in the generated assembly by a test.
+- **Read a tweak once into a local before a hot loop.** A read is an atomic load, which no
+  compiler hoists out of a loop, so `for (...) v[i] *= speed;` multiplies one float at a
+  time where `const float s = speed;` first lets the loop use SIMD (GCC and Clang, -O3).
+  Reading once also gives the loop one value even if a reload lands meanwhile.
+
+  ```cpp
+  const float s = speed;                 // one read a frame
+  for (float& v : velocities) v *= s;    // vectorized
+  ```
 - **The default is the old constant.** A path the data does not set keeps it, and that
   is never an error: a tweak can go in before anyone writes its data.
 - **Metadata belongs in the data once someone tunes it.** The code's `TweakMeta` is a
@@ -121,12 +130,13 @@ and the game and every tool read it.
    (reference "build/reference.json") ; for tools: where the build writes the reference
    (tool "build/bin/my_game")         ; for tools: the binary that answers the commands
    (console 4555)                     ; for tools: the port the game's console listens on
-   (format (indent 3) (width 100))    ; for tools: how its files are laid out (format)
+   (format (indent 3) (width 100))    ; how its files are laid out, by format and write-back
    (scenarios "sim")                  ; for sim: scenarios and objectives (docs/sim-json.md)
    (objectives "metrics")
    (layers                            ; bottom to top
       (default "data/default.dta")
       (mods (dir "mods") optional)    ; a layer for each mod in mods/
+      (handheld "data/handheld.dta" (when (and HANDHELD (not PC))))
       (local "data/local.dta" optional dev_only)
       (agent "data/agent.dta" optional dev_only)))
 ```
@@ -149,6 +159,15 @@ if (auto r = baker::open_project(cfg, *project); !r) return report(r.error());
   shipping build never pushes even when its file is present. A `(dir "path")` entry is a
   directory of layers, one for each file or folder in it (see Content packages below); its
   flags apply to every layer it finds.
+- **A condition:** `(when COND)` keeps a layer in the merge only while the session's
+  defines say so: a platform's differences, a demo build's store, an experiment for one
+  build. COND is a define's name, `(not C)`, `(and C C...)` or `(or C C...)`, read as
+  `#ifdef` reads names, unexpanded. The layer is pushed and read either way; while its
+  condition does not hold it is skipped as a disabled one is. `set_defines` applies every
+  condition again in its one merge, `explain` lists a layer's condition with its values,
+  and `Config::layer_condition` gives it to a panel. With `disabled` too, it is off until
+  enabled, and then still under its condition. In C++, `push_layer(name, path, {.when =
+  "(not PC)"})`.
 - **Packaging:** a build step that copies the data directory whole would ship those files
   too. It reads the project instead and leaves out each layer whose `dev_only` is set, by
   the path the project names; a file such a layer only `#include`s is the step's to know.
@@ -328,14 +347,14 @@ declares.
 
 | Rule | Refuses |
 |---|---|
-| `data_only` | commands, properties, variables, `#autorun`, and `(shapes ...)` |
-| `scalars_only` | a value that is not a number, symbol or string, a removal, and `(shapes ...)` |
+| `data_only` | commands, properties, variables, `#autorun`, and `#shape` |
+| `scalars_only` | a value that is not a number, symbol or string, a removal, and `#shape` |
 | `existing_only` | a new key, and a removal |
 | `allow` | anything outside the listed paths |
 | `warnings_refuse` | anything a validator, or the read, warns about |
 
 Shapes are refused by both data rules because they change how the stack is checked: an
-overlay that sent `(shapes (item (price int (@range 0 99999))))` beside `(shop (sword (price
+overlay that sent `#shape (item (price int (@range 0 99999)))` beside `(shop (sword (price
 5000)))` would widen the range its own value is checked against.
 
 **The check.** `cfg.check_layer_text(name, text, policy)` checks text received from
@@ -372,11 +391,11 @@ which base it needs:
 
 ```dta
 ; data/default.dta
-(pack game_data (level game) (version "1.0"))
+#pack (game_data (level game) (version "1.0"))
 
 ; overlays/2026-10-17-double-xp.dta
-(pack double_xp_1017 (level live) (version 1) (requires (game_data "1.0")))
-(origin "liveops console, ticket 4412" (tool baker-publish))
+#pack (double_xp_1017 (level live) (version 1) (requires (game_data "1.0")))
+#origin ("liveops console, ticket 4412" (tool baker-publish))
 (event (xp_multiplier 2) (banner "Double XP all weekend!"))
 ```
 
@@ -385,7 +404,7 @@ which base it needs:
   refused.
 - This guards rollbacks too. An overlay checked against the base it lands on cannot meet
   data whose shape has moved since it was made.
-- `(origin ...)` carries into provenance. `source("event.xp_multiplier")` names the
+- `#origin` carries into provenance. `source("event.xp_multiplier")` names the
   overlay's layer, the ticket, and the publishing tool, so an operator can see what is live
   and why.
 
@@ -476,6 +495,12 @@ and one allocation each: a 6.2 MB tree in 2.3–2.5 ms (D79).
   and `baker::read_cached(text_path, cache_path, session)` in the game, which uses the
   cache when it is fresh and the text otherwise. Give `baker_bake` the same defines as the
   game, or the cache is stale for it.
+- **Leave the metadata at home:** `baker_bake --drop-metadata` writes a cache without any
+  `(@...)` child of data (ranges, descriptions, notes, `(@was ...)` pins), which only
+  development tools read; `ConfigOptions::cache_drop_metadata` does the same for a Config's
+  `cache_dir`, and `baker::without_metadata(root)` gives the tree. Values read the same.
+  Commands keep their own forms. A development build reading such a cache has no metadata
+  either, so bake the shipped caches apart from the ones developers use.
 - **A cache is a memory image**, for one byte order and pointer size: bake it with the
   target's layout. Today's consoles and PCs are all little-endian and 64-bit, so a bake
   on a development PC serves them. A cache from another layout is refused with an error
@@ -537,7 +562,7 @@ How a game delivers content after it ships (dev/background/content-updates.md):
   ```
 
   A list whose entries have no names of their own, items, a move's cancels, a room's
-  furniture with two beds, takes `#append` and `#drop` (D250): `(items #append rope)` adds
+  furniture with two beds, takes `#append` and `#drop` (D251): `(items #append rope)` adds
   to the list below without restating it, so packages compose in their stack order, and a
   title update drops one entry without reverting the rest. A list that one package owns
   stays a plain value list. `layer_effect` shows a layer that replaces another's list, and
@@ -556,9 +581,10 @@ How a game delivers content after it ships (dev/background/content-updates.md):
 - **Run autorun with `Context::run_autorun(cfg.autorun().items())`** after every stack
   change. Script an uninstalled DLC defined goes with it, and what it replaced comes back
   (D146).
-- **Declare what a package requires**, and at which version: `(pack expansion (level dlc)
-  (version "1.0") (requires (base_game "1.2") season_pass))`. A requirement that is not loaded once the pack's file is read is a
-  located warning, forwarded to the Config's warning handler (D141).
+- **Declare what a package requires**, and at which version: `#pack (expansion (level dlc)
+  (version "1.0") (requires (base_game "1.2") season_pass))`. A requirement that is not
+  loaded once the pack's file is read is a located warning, forwarded to the Config's
+  warning handler (D141).
 - **A cache patches about as small as its text** (D148). It is laid out in source order,
   with no absolute offsets, so an edit changes the cache's bytes near the edit and a binary
   diff or a chunked store sends little more than the edit: inserting a section into a
@@ -571,6 +597,13 @@ How a game delivers content after it ships (dev/background/content-updates.md):
   Content that arrives as text, such as a live overlay, also sets
   `LoadSession::refuse_includes`, so it cannot `#include` the game's files;
   `Config::push_layer_text` sets both (D163).
+- **Bound the names outside text adds.** Symbols live until the program ends, so overlays
+  read all session, mods, or a console that use unique IDs as symbols add to them with every
+  read. `ParseLimits::max_new_symbols` (on the session's `limits`) caps the names a read
+  may add that the program had not seen: past it the read fails with `ErrorCode::Limit`.
+  The default, 1,048,576, suits the game's own data; set it far lower for text you do not
+  trust. A name already interned costs nothing, so reading the same overlay again counts
+  none (D253).
 
 ## Linking a shipped game
 
@@ -598,6 +631,32 @@ A minimal game (load, read, a tweak, a function, an object, `eval`) built with
 `BAKER_SHIPPING` links 580 KB of Baker code, 41.5 KB of it tooling; with sections, 407
 KB, 4.8 KB of it tooling (the source maps that loading reaches).
 
+A tweak's tool text stays out too. Under `BAKER_SHIPPING` a `Tweak` keeps only the
+metadata that decides its value (`range`, `one_of`, `choices`, `dev_only`): its `desc`,
+`kind`, `group` and `step` are not copied, so an optimized build drops their literals with
+the copy, and a `Tweak<float>` is 128 bytes, not 184. Metadata in the data still applies
+(D256).
+
+Baker's memory comes from the allocators you give it: one to each `Config` and `Context`,
+and the default (`set_default_allocator`, before Baker first allocates) for what has no
+owner. Each call says what the memory is for, so a game can hold Baker to a budget per
+kind:
+
+```cpp
+void* game_alloc(void* user, size_t size, size_t align, baker::MemoryKind kind) {
+    budgets[size_t(kind)] += size;  // symbols, trees, config, script, tasks, tweaks, errors...
+    return engine_heap_alloc(size, align);
+}
+void game_free(void* user, void* p, size_t size, baker::MemoryKind kind) {
+    budgets[size_t(kind)] -= size;  // the same kind its allocation named
+    engine_heap_free(p);
+}
+```
+
+Every owner tags the copy it keeps (a Context allocates as `Script`, its Schedulers as
+`Tasks`, what a load builds as `Trees`), and a free names the kind its allocation did.
+`memory_kind_name` gives each a name for a report (D258).
+
 ## Harness packs
 
 A harness is the set of data, macros, and functions a team builds to make one kind of work
@@ -605,14 +664,14 @@ fast: a boss-tuning harness, an economy harness. Packs give harnesses a structur
 
 ```dta
 ; harness/combat_core.dta
-(pack combat_core (level game))
+#pack (combat_core (level game))
 [combat.hit_pause 0.08]
 {func combat.knockback ($force) {* $force 1.5}}
 ```
 
 ```dta
 ; harness/boss_tools.dta
-(pack boss_tools (level task) (requires combat_core))
+#pack (boss_tools (level task) (requires combat_core))
 #require "combat_core.dta"
 [boss.restart_phase {boss_phase_restart}]
 ```
@@ -707,10 +766,27 @@ frames. Other threads may read, on these terms:
 - **Checks off the game's thread** take `cfg.checker()` (see
   [Live ops](#tests-before-an-overlay-ships)).
 - **Symbols** may be made from any thread; the symbol table's reads take no lock.
+- **No fiber switch inside a Baker call.** A Context's current call, the symbol table's
+  intern site and a few tools keep thread-local state, which a compiler may read once and
+  keep across a call. A native function bound into script that waits on a job counter
+  must not switch fibers, or resume on another thread, before it returns to Baker. A
+  fiber-based job system waits outside the call: the native starts the job and returns,
+  and the script picks up the result later (a task, or the next frame).
 - **Script on a small stack.** `Context::set_stack_budget(bytes)` bounds how deep a script
   may nest before it gets a Limit error instead of a stack overflow. The default, 256 KB,
   suits a desktop or console thread; on a thread with a smaller stack (a handheld's worker,
   a fiber of a job system) set it to well under that thread's stack size.
+- **A budget for script you did not write.** Depth bounds recursion, not work: a doubly
+  recursive `{func}` in a mod or a live overlay can stay shallow and still hang a frame.
+  `Context::set_step_budget(n)` gives the Context n steps; every call spends one, so a
+  script spends the same on every run, as a replay or a headless simulation needs. When
+  they run out the call fails with a Limit error, and so does every call after it until
+  the budget is set again: set it once a frame, or before each console command. A hook,
+  `set_step_hook(fn, user)`, is asked first and may grant more, for a time limit (grant
+  10,000 steps and check the clock each time it is asked) or a sampling profiler (read
+  `top_frame()` in it). The default budget is unlimited; the check costs five
+  instructions a call (D257). A game that runs only its own script can build with
+  `-DBAKER_STEP_BUDGET=OFF`, which compiles the check out (D259).
 
 ## Agreeing on the data: lockstep, replays, saves
 

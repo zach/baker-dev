@@ -92,10 +92,10 @@ TEST_CASE("rows with macros, conditionals, includes and declarations") {
     CHECK(nested("[a 7]\n(/a.b 1)\n") == "(a (b 1))\n");  // the key never does
     CHECK(error_of("[M (/a 1)]\n").find("a row is a top-level form") != std::string::npos);
     CHECK(nested("#define X\n#ifdef X\n(/a.b 1)\n#else\n(/a.b 2)\n#endif\n") == "(a (b 1))\n");
-    // A row never declares: (/pack ...) is data, and the printer spells it as a row again.
+    // A row never declares: (/pack ...) is data, as (pack ...) is since #pack (D261).
     const Ref<Array> pack = ok(read_string("(/pack drops (level live))\n(a 1)\n", "r.dta"));
     CHECK(pack->size() == 2);
-    CHECK(to_dta(*pack) == "(/pack drops (level live))\n(a 1)\n");
+    CHECK(to_dta(*pack) == "(pack drops (level live))\n(a 1)\n");
     CHECK(structurally_equal(*ok(read_string(to_dta(*pack), "p.dta")), *pack));
 
     TempDir dir;

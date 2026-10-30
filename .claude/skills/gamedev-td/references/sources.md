@@ -1,4 +1,4 @@
-# Sources for the acton-review skill
+# Sources for the gamedev-td skill
 
 Gathered 2026-10-11 in two passes.
 1. **Web search from this repository's sandbox.** Its network policy blocks fetching pages,
@@ -63,6 +63,15 @@ differently again.
     - 120–122 and later: "bools in structs… (3) Extremely low information density". The
       deck works the arithmetic at 147–148: cache lines loaded per frame against bits of
       information used.
+    - 158–184: a review of OGRE's `OgreNode.cpp`. Page 160 links Matias Goldberg's reply,
+      <http://yosoygames.com.ar/wp/2013/11/on-mike-actons-review-of-ogrenode-cpp/>.
+      Findings (1) memory that cannot be rearranged (ABI, padding); (2) bools and
+      last-minute decisions; (5) over-generalization, including "Unmanaged icache (i.e.
+      virtuals)"; (6) under-defined constraints ("Strings, generally. Filenames, in
+      particular."); (7) over-solving. Then "Step 1: organize… Step 2: triage… p(call) *
+      count… Step 3: reduce waste" (181–183), and "~200 cycles x 2 x count" (184).
+      Checked against the deck on 2026-10-30 (pages 158–184 read with `pdftotext`;
+      findings 3 and 4 are images).
     - 195–198: "Most problems are easy to see"; solving the 90% well lets the compiler
       solve the 10% better; "Organized data makes maintenance, debugging and concurrency
       much easier"; "Good programming is hard. Bad programming is easy."
@@ -188,10 +197,13 @@ them as cited (for example, the deck's slide 120 for the "Typical C++ Bullshit" 
 They agree with the rest of the record, but the skill does not attribute them:
 - **Scripting.** Interpreted scripting on runtime hot paths is costly. He preferred
   compiled visual graphs to bytecode in the DOTS era.
-- **"Typical C++ Bullshit" (around 2014).** Its critiques of virtual calls, heap
-  allocation, and getter/setter abstraction. The original annotated images were not
-  found. The deck's own worked review (around slides 120–150) is about `bool`s,
-  last-minute decision making, and information density, not those topics.
+- **"Typical C++ Bullshit."** Its critiques of virtual calls, heap allocation, and
+  getter/setter abstraction. The annotated photos are a 2008 SmugMug album,
+  `macton.smugmug.com/Other/2008-07-15-by-Eye-Fi/n-xmKDH` (linked from
+  `github.com/dbartolini/data-oriented-design`); they could not be read from the sandbox.
+  *Correction, 2026-10-30:* an earlier version of this file said the deck's worked review
+  covers only `bool`s and information density. Pages 158–184 also review constructors,
+  destructors and virtuals (see the deck entry above).
 - **Insomniac, GDC 2013.** Live editing on in-place binary buffers rather than text
   parsing.
 - **Allocators.** No global heap during gameplay; frame, per-system, and fixed-capacity
@@ -206,10 +218,107 @@ They agree with the rest of the record, but the skill does not attribute them:
 ## Peer practice, from general knowledge (not checked this session)
 
 - Naughty Dog built GOOL (Crash Bandicoot) and GOAL (Jak and Daxter), custom Lisps for the
-  PlayStation. Pass 2 confirms this. Pass 2 omits that its later games kept a Lisp-family
-  data and script language: Jason Gregory's *Game Engine Architecture* describes a
-  Racket-based one. That is the closest shipped relative of DTA in the console AAA world,
-  and worth sourcing properly before relying on it.
+  PlayStation. Pass 2 confirms this. Its later games kept a Lisp-family data language, now
+  sourced (below, 2026-10-30): DC, in Racket.
+
+## The 2026-10-30 research pass
+
+Three research agents, with web search and GitHub access only (most other hosts are
+blocked from the sandbox), plus experiments in the repository (`recipes.md`).
+- **VP** means the text was read from the source or a GitHub-hosted copy.
+- **SE** means a search excerpt only.
+
+Quotes in SKILL.md come only from VP sources. The CppCon 2014 deck's pages 158–184 were
+re-read by this session itself. Third-party PDFs and decks were downloaded to the scratchpad
+only, never committed: their licenses are unknown.
+
+**Acton and the school**
+- Acton, **"How to Write Code the Compiler Can Actually Optimize"**, GDC 2014 Code Clinic
+  (GDC Vault 1020472). The pptx is at
+  <https://github.com/Michaelangel007/write_code_compiler_can_optimize> (VP). Slides 66–73
+  cover ghost reads and writes and hoisting, 76–80 the summary rules, 84–91 information
+  density by compression, and 3 "Our role is not to write 'good' code". The GDC 2015
+  follow-up is Vault 1021866 (SE only).
+- Tony Albrecht, **"Pitfalls of Object Oriented Programming"**, SCEE, GCAP 2009. A Git LFS
+  copy is in `Michaelangel007/game_dev_pdfs`, `c++/` (VP): the dirty flag (pp. 29–31),
+  19.6 → 12.9 → 4.8 → 3.3 ms (pp. 62, 98, 101), "Don't test for exceptions – sort by
+  them" (p. 111), "OO is not necessarily EVIL" (p. 102).
+- Christer Ericson, **"Memory Optimization"**, GDC 2003. In the same repository, `memory/`
+  (VP): the 3 R's (p. 12), hot/cold splitting (p. 23), aliasing and `const` (pp. 42–58).
+- Ulrich Drepper, **"What Every Programmer Should Know About Memory"**, 2007. In the same
+  repository (VP): `pahole` (§6.2), the critical word first, false sharing (§6.4).
+- Andrew Kelley, **"A Practical Guide to Applying Data-Oriented Design"**, Handmade Seattle
+  2021, <https://vimeo.com/649009599>. VP from an auto-caption transcript, which is garbled,
+  so only clean phrases are quoted.
+- Niklas Frykholm, **Bitsquid blog**, <https://github.com/niklasfrykholm/blog> (VP): "The
+  Blob and I" (2010); "A Pragmatic Approach to Performance" (2011); "Strings Redux"
+  (2011); "Lightweight Lua Bindings" (2011); "Sensible Error Handling" (2012); "A Simpler
+  Design for Asynchronous APIs" (2012); "Allocation Adventures" (2015).
+- Niklas Gray and Tobias Persson, **Our Machinery blog**, archived at
+  <https://github.com/ruby0x1/machinery_blog_archive> (VP): "Data Structures Part 1: Bulk
+  Data", "Defaulting to Zero", "Physical Design", "Minimalist container library in C",
+  "Dig Shallow Graves", "Step by Step Programming", "It's all about the data".
+- Casey Muratori, **"'Clean' Code, Horrible Performance"**, 2023. VP from a mirror
+  (`KraXen72/tech-support-wiki`) and from his Q&A with Robert Martin
+  (`cmuratori/misc`, `cleancodeqa.md`). `computerenhance.com` itself is blocked here.
+- Andre Weissflog, **"Handles are the better pointers"**, 2018, `floooh/floooh.github.io`
+  (VP).
+- Dan Liebgold, **"Racket on the Playstation 3? It's Not What you Think!"**, RacketCon 2013
+  keynote. The abstract is in `racket/racket-lang-org`, `rcon/2013/all.rkt` (VP): "DC, a
+  custom data scripting system developed in Racket at Naughty Dog". Its slides say syntax
+  was "the prime enabler of rapid DSL development, but also a source of much inefficiency
+  and confusion" (SE). The video is YouTube `oSmqbnhHp1c`.
+- Richard Fabian, *Data-Oriented Design* (2018). The contents ("Existence Based
+  Processing", "Don't use booleans") are VP, the text SE.
+- Vittorio Romeo, "More Speed & Simplicity: Practical Data-Oriented Design in C++", CppCon
+  2025 keynote (SE, abstract only). It presents data-oriented design as a complement to
+  object orientation. This is a citable source for the critique that "Reported without
+  quotes" excludes.
+- **Acton since 2022:** reported as having left Unity (SE, dates unconfirmed). No public
+  talk or post from 2024–2026 was found.
+
+**Interpreters**
+- Luau (Roblox), <https://github.com/luau-lang/site> and <https://github.com/luau-lang/luau>
+  (VP):
+  - `performance.md`: fastcalls without a frame, the core loop in about 16 KB, imports,
+    the native `vector`, GC pacing;
+  - `sandbox.md`: the interrupt, read-only builtins, no bytecode loading;
+  - `profile.md`: the 10 kHz sampler;
+  - `VM/src/lvmexecute.cpp`: where `VM_INTERRUPT()` sits.
+- Wasmtime, `docs/examples-interrupting-wasm.md` (VP): fuel is deterministic; epochs cost
+  about 10%.
+- Wren, `doc/site/performance.markdown` (VP): computed goto 5–10%, copy-down inheritance,
+  benchmarks with LuaJIT's JIT off.
+- Crafting Interpreters, `book/chunks-of-bytecode.md` and `book/optimization.md` (VP).
+- Godot, `modules/gdscript/gdscript_vm.cpp` (VP), and the typed-instructions progress
+  report in `godot-website` (VP).
+- PEP 659 (VP). Rohou, Swamy and Seznec, "Branch prediction and the performance of
+  interpreters: Don't trust folklore", CGO 2015 (SE).
+- Lua 5.4 manual (`lua_Alloc`), `lstate.c` and `lstring.c` (VP). Erlang's
+  `code_loading.md` (VP): two versions of a module at most.
+
+**Engine practice and tools**
+- Tracy's manual, `wolfpld/tracy`, `manual/tracy.tex` (VP).
+- ClangBuildAnalyzer and `vcperf` READMEs (VP); Bloaty and SizeBench READMEs (VP).
+- Chromium, `docs/static_initializers.md` (VP).
+- Microsoft's C++ documentation, `MicrosoftDocs/cpp-docs` (VP): `fp_contract`'s default
+  (off since VS 2022 17.0), `/Ob`, `/JMC`, `[[msvc::intrinsic]]`, `_ITERATOR_DEBUG_LEVEL`,
+  `/GT`, `/Zc:tlsGuards`. Also `microsoft/STL`'s `yvals.h` for `detect_mismatch` (VP).
+- LLVM PR #166542, on TSan and `atomic_thread_fence` (VP).
+- GitHub changelog, arm64 runners for public repositories, 2025-08-07 (VP).
+- EASTL's `allocator.h` (VP). Unreal's Low-Level Memory Tracker (SE).
+- DirectStorage's `DeveloperGuidance.md` (SE). Android's frame-rate guidance, P99 as the
+  stutter indicator (SE).
+- Frontier, "Cross Platform Determinism", GDC 2024 (SE). Overwatch, "Gameplay Architecture
+  and Netcode", GDC 2017 (SE). Gyrling, "Parallelizing the Naughty Dog Engine Using
+  Fibers", GDC 2015 (SE: the abstract only).
+- Autodesk Stingray documentation: "Consoles and iOS do not allow just-in-time
+  compilation" (SE).
+
+**Not found this pass:** Acton's CellPerformance articles on aliasing and `restrict`; the
+text of the GDC 2015 Code Clinic; Ryan Fleury's arena material; Reinalter's allocator
+series; Fredriksson's "SIMD at Insomniac Games"; anything public on Frostbite's or
+Insomniac's script runtimes.
 
 ## Not found
 

@@ -343,7 +343,7 @@ TEST_CASE("source names the layer, file, and line") {
 TEST_CASE("source names a generated file's origin and tool (D91)") {
     TempDir dir;
     Config cfg({.tweaks = nullptr});
-    dir.write("econ.dta", "(origin \"economy.xlsx\" (tool sheets-export))\n(econ (price 5))\n");
+    dir.write("econ.dta", "#origin (\"economy.xlsx\" (tool sheets-export))\n(econ (price 5))\n");
     REQUIRE(
         cfg.push_layer("default", dir.write("default.dta", "(shop (tax 2))\n#include econ.dta\n")));
     REQUIRE(cfg.push_layer("patch", dir.write("patch.dta", "(shop (tax 3))\n")));
@@ -535,8 +535,9 @@ TEST_CASE("tweaks bind, rebind, and fall back to their defaults") {
 
     // Metadata: the data file's wins over the code's, and note exists only in data.
     CHECK(width.range().max == 10);
-    CHECK(width.step() == 1);
-    CHECK(width.desc() == "Box width");
+    // A shipping build keeps none of the code's tool text (D256).
+    CHECK(width.step() == (kShipping ? 0 : 1));
+    CHECK(width.desc() == (kShipping ? "" : "Box width"));
     CHECK(width.note() == "good values are 2-3");
     CHECK(width.group() == "box");
 
@@ -980,9 +981,9 @@ BAKER_DEV_TEST_CASE("cache_dir reads a cache through a custom reader, and from d
 
 TEST_CASE("Config forwards the one-way rule's warnings") {
     TempDir dir;
-    dir.write("task.dta", "(pack boss_task (level task))\n#define PHASES (3)");
+    dir.write("task.dta", "#pack (boss_task (level task))\n[PHASES 3]");
     const std::string game =
-        dir.write("game.dta", "(pack rules (level game))\n#require task.dta\n(b PHASES)");
+        dir.write("game.dta", "#pack (rules (level game))\n#require task.dta\n(b PHASES)");
     Config cfg({.tweaks = nullptr});
     cfg.session().set_pack_levels({"game", "task"});
     std::vector<std::string> warnings;
@@ -1033,7 +1034,7 @@ TEST_CASE("a tweak's path made at runtime is kept by the symbol (D171)") {
     }
     CHECK(tunables[0]->path() == "enemy.speed");
     CHECK(tunables[1]->path() == "enemy");
-    CHECK(tunables[1]->desc() == "Enemy speed");
+    CHECK(tunables[1]->desc() == (kShipping ? "" : "Enemy speed"));
     TempDir dir;
     Config cfg({.tweaks = &reg});
     REQUIRE(cfg.push_layer("default", dir.write("default.dta", "(enemy (speed 4.5))\n")));
@@ -1242,4 +1243,23 @@ BAKER_DEV_TEST_CASE("a read of a record or table above a live edit sees it (D224
     // A clear goes back to the files' value everywhere.
     REQUIRE(cfg.clear_scratch("units.tank.price"));
     CHECK(ok(cfg.get<UnitRecord>("units.tank")).price == 40);
+}
+
+TEST_CASE("cache_drop_metadata: the caches a bake writes hold no metadata (D265)") {
+    if constexpr (kShipping) return;  // shipping writes no caches
+    TempDir dir;
+    fs::create_directories(dir.path("cache"));
+    const std::string base = dir.write("base.dta", "(speed 3 (@range 0 10) (@desc \"Run\"))\n");
+    const std::string cache_dir = dir.path("cache");
+    Config bake({.edit_mode = false,
+                 .tweaks = nullptr,
+                 .cache_dir = cache_dir,
+                 .cache_drop_metadata = true});
+    REQUIRE(bake.push_layer("base", base));
+    CHECK(bake.get<int>("speed") == 3);
+    // The game's Config reads the cache: the value, and no metadata.
+    Config game({.edit_mode = false, .tweaks = nullptr, .cache_dir = cache_dir});
+    REQUIRE(game.push_layer("base", base));
+    CHECK(game.get<int>("speed") == 3);
+    CHECK(game.root()->try_find("speed")->metadata().empty());
 }

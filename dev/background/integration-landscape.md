@@ -304,7 +304,7 @@ Columns:
 - **Shows** is whether the pairing demonstrates §6.1, rated low, mid or high.
 - **Reach** is the audience it opens.
 - **Cost** is the rough effort.
-- **Friction** covers the license policy and the Acton review (`.claude/skills/acton-review`).
+- **Friction** covers the license policy and the Acton review (`.claude/skills/gamedev-td`).
 
 | # | Integration | Mission (0–5) | Shows | Reach | Cost | Friction | Verdict |
 |---|---|---|---|---|---|---|---|

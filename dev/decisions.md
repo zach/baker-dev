@@ -8478,7 +8478,70 @@ sigil-free dotted form declined.*
   of thousands of nodes cost the harness up to 400 ms each (it re-reads, caches and prints
   every tree); the cost is the harness's and main's macro expansion, not the rows'.
 
-## D250. Layer verbs: `(key #append v...)`, `(key #drop v...)`, and the `(@was v...)` pin
+## D250. A review's findings: the clear fixes
+
+*From a review of Baker made while revising the acton-review skill, measured on main at
+77124a6 (GCC 13.2, Clang 18.1, x86-64). Nineteen findings. These are the defects and rules
+built here; the owner chose the larger items (D251 on), and left a sorted lookup's key run,
+debug-build tracking, an arena-owned read destination and a fallible allocator for later.*
+
+- **Nine arguments allocated from the default allocator (finding 1).** An overload set and
+  a declared function hold their evaluated arguments, eight on the stack and more in a
+  spill, which came from `detail::default_alloc`: a 9-argument call made one allocation
+  outside the Context's allocator, every call. `detail::ArgValues` holds them now, spilling
+  from the Context's allocator. A test with a counting allocator calls a 9-argument
+  overload set and a 9-argument declared function 1,000 times each: 2,000 default
+  allocations before, 0 after, and 2,000 from the Context's allocator. The other inline
+  capacities have tests one past them: a `ValueList` of 9 (`NodeBuffer`, whose default
+  allocator is right, as it belongs to no owner), and a cache 256 arrays deep, past the
+  loader's 256 inline frames, which already grew from the load's allocator.
+- **RTTI (finding 7).** The review suggested building Baker with `-fno-rtti`. Measured
+  first: a game that keeps RTTI and derives from `ObjectBase` then fails to link
+  (`undefined reference to typeinfo for baker::ObjectBase`), since the typeinfo is emitted
+  only where `~ObjectBase` is defined. So RTTI stays on by default, and the option
+  `BAKER_RTTI=OFF`, the owner's addition, builds everything Baker builds without it
+  (`-fno-rtti`, `/GR-`), for a game that has RTTI off or never derives from `ObjectBase`
+  with it on. The libraries then emit no typeinfo (4 objects before) and their archives are
+  5.3 KB smaller (Release, GCC 13); the review measured about 0.5 KB of code linked. The
+  EASTL configuration, in the local matrix and CI, builds with it, so Baker cannot come to
+  need RTTI: it builds clean and its 23 tests pass.
+- **FMA contraction (finding 11).** GCC and Clang fuse a multiply and an add where the
+  target has FMA (`-march=x86-64-v3`; AArch64 always), so a curve's sample, and anything
+  computed from it, differed by compiler. Baker's targets build with `-ffp-contract=off`
+  (`/fp:precise` on MSVC, which does not contract under it). A test pins eleven samples'
+  bits over monotone, catmull-rom, extrapolated and sloped curves; compiled with
+  contraction on, three of them change in their last bits.
+- **`sim::number_text` followed the locale (finding 14).** It wrote `%.6g`, so under a
+  comma-decimal `LC_NUMERIC`, 1.5 was "1,5" in sim's JSON and results. It writes through
+  `detail::print_g` now (D136's, made visible). A test under `de_DE.UTF-8` failed before
+  ("1,5") and passes after. The locale tests skipped wherever no such locale was
+  installed, CI included: the Linux jobs now generate `de_DE.UTF-8`.
+- **Dynamic initializers (finding 6).** `inline const Node kUnset` gave every script and
+  tools file that included `internal.hpp` an initializer and an exit-time destructor: nine
+  in all. It is a function, `unset_node()`, now. `VarRef::value()`'s function-local static
+  zero, a guard check a call, is a constant-initialized holder that is never destroyed. A
+  `Node` has a destructor, so no static of one can be free under GCC: GCC keeps one
+  initializer, in `context.cpp`, registering the holder's empty destructor; Clang has none.
+  Making `Node()` constexpr for it cost `Config::set` 12 instructions, so a tagged
+  constructor, `Node(detail::ConstantZero)`, makes the constant instead.
+- **Weak memory (finding 12).** CI was x86-64 only, where the symbol table's lock-free reads
+  (D197) and `read_consistent`'s seqlock (D240) cannot fail, and TSan does not model the
+  fence. baker-dev is public, so an `ubuntu-24.04-arm` job runs the whole suite, those
+  tests among it. Its first run found the tweak codegen check written for x86: GCC 13 on
+  AArch64 reads a `Tweak<float>` in five instructions, `adrp` and `ldr` for the address
+  from the GOT, an `add` for the value's offset (its relaxed atomic load takes no immediate
+  offset), `ldr w0` and `fmov s0, w0`. Still one load of the value, no branch or barrier;
+  the check allows five there.
+- **Doc rules (findings 3 and 13).** Read a tweak once into a local before a hot loop: an
+  atomic load is never hoisted, so `v[i] *= speed` compiles to scalar `mulss`, and with
+  `const float s = speed;` first to `mulps` (GCC 13 and Clang 18 at -O3, checked). And no
+  fiber switch inside a Baker call, since its thread-local state may be cached across one.
+  In the cookbook, and the first beside `Tweak<T>`.
+- **Cost.** `tools/count_instructions.py` against 77124a6: call, message, lookup, set,
+  frame and parse unchanged; overload −4 instructions (788 to 784); declared +3 (524 to
+  527), the spill holder keeping its allocator.
+
+## D251. Layer verbs: `(key #append v...)`, `(key #drop v...)`, and the `(@was v...)` pin
 
 *The layer-markers syntax idea, prototyped on `claude/fervent-cray-l1kyf0-syntax-layer-markers`
 (its design note is that branch's `dev/syntax-layer-markers-design.md`), reviewed with the
@@ -8607,13 +8670,248 @@ removal was built once, with rows (D249).*
 - **Raw gate.** 464/464 files, 0 round-trip failures.
 - **Fuzzing.** libFuzzer under ASan and UBSan, built as CI's fuzz job, seeded with D249's
   corpus, the fuzz regressions and files of verbs, pins and verb rows, toward the 1 million
-  executions of each adoption step; the run's total follows.
+  executions of each adoption step: 1,000,003 executions, with no crash, leak or
+  sanitizer report, and a corpus of 13,450 inputs at the end.
+- **The formatter.** `baker_format` read a verb as a directive, which keeps one argument on
+  its line, so `(items #append rope\n torch)` kept `torch` on a line of its own; a verb is now
+  a value, laid out with the operands after it (`test_format.cpp`).
 - **Not done.** `#scale`, `#add` and `#prepend` are not built (the review held them), nor
   several verbs in one row. A reload does not repeat the push-time pin warnings. The stacks'
   agent skill still asks for a `;` comment; it can move to `(@note ...)` and `(@was ...)` in
   its own step.
+## D252. A fatal error goes to the host's handler, with the script stack
 
-## D251. Shapes count a list, name a shape that governs nothing, and stay out of received data; `#` opens a directive only before a letter
+*From the review of D250 (finding 18); the owner chose to build it.* Ten `std::abort()`
+sites in `src/` had no hook: an engine routes fatal errors to its crash reporter, with the
+script stack, and Baker's only replaceable handler was the symbol collision's (D247).
+
+- **The API** (`<baker/error.hpp>`): `set_fatal_handler(fn)`, a function pointer taking the
+  message, returning the one it replaces; null restores the default, which writes to
+  stderr. The handler must not return; Baker aborts if it does. Every abort site calls
+  `detail::fatal(what, more)` now: an allocator returning null (with the size asked), an
+  array or a string past 4 GB, an alignment past the default allocator's, EASTL asking for
+  an offset, a coroutine's unhandled exception, reading the value of an `Expected` that
+  holds an error (with the error, where Baker's own `Expected` is used: C++20), and the
+  collision's default handler.
+- **The script stack.** The data library cannot see script, so it holds a function pointer,
+  `detail::set_fatal_stack`, which each Context's constructor sets to `script_backtrace`, as
+  it sets the data library's evaluator: no static initializer. While a call runs, the
+  message carries the stack, innermost first, in the form errors already use.
+- **No allocation.** The message is built in a 4 KB buffer on the stack and cut there,
+  since what failed may be the allocator.
+- **Cost.** `fatal` is marked cold, as glibc marks `std::abort`: without it,
+  `Arena::make_array`'s size check compiled differently and parse took 885 more
+  instructions a parse. With it, `tools/count_instructions.py` against D250: parse +16 a
+  parse (0.001%), lookup, set, call, overload, declared, message and frame unchanged. The
+  allocation failure's formatting is in its own cold function.
+- **Tests,** each in a forked child (POSIX): a handler that reports and ends the process,
+  with the message exact; a failure inside a script function, carrying `{exhaust}` then
+  `{spawn_wave}`; a handler that returns, and the process still aborts; no handler, the
+  message on stderr; reading an `Expected`'s error, in C++20 builds.
+
+## D253. A cap on the names a read adds
+
+*From the review of D250 (finding 17); the owner chose to build it, with a default of
+1,048,576.* Symbols are never freed. A host that reads text it does not control all session
+(live overlays, mods, a console) grows the table with every unique ID written as a symbol,
+and no limit stopped it.
+
+- **The API.** `ParseLimits::max_new_symbols`, per top-level read like `max_nodes`: the
+  names it interns that the table did not hold. Past it the read fails with
+  `ErrorCode::Limit`, "more than N new names (ParseLimits::max_new_symbols)", located at the
+  line. The names interned up to then stay, so a read adds at most N plus one token's
+  names. Includes count into their reader's total; a cache load is not counted, as caches
+  come only from the game's own packages (D142). Every build counts, shipping included.
+- **Counting.** The table already knows when a name is new: it takes the lock to add it.
+  A thread-local pointer, set for the read, receives the count there. Nothing on the
+  lock-free path changes.
+- **No check of its own.** A first version compared the count after each symbol, variable
+  and directive token: parse +1.83% in instructions. Now, past the limit, the table sets
+  the read's node count to its limit, so `push`'s node check, made for every node anyway,
+  fails next and reports the names instead; the end of each file checks once more, for a
+  directive's last name. `tools/count_instructions.py` against D252: parse +34 a parse
+  (0.002%, the scope that sets the counter), lookup_text unchanged.
+- **Default.** 1,048,576 new names a read: far above what the game's own data interns, so
+  only a host's untrusted reads lower it. The cookbook says to.
+- **Test** (`test_preprocessor.cpp`): five new names under a cap of eight; the same text
+  again under a cap of zero, since nothing is new; twenty refused with the message and
+  line; an include, a macro name and a variable counting into one total.
+
+## D254. `<baker/fwd.hpp>`, declarations alone
+
+*From the review of D250 (finding 9); the owner chose to build it.* Every public header
+costs a translation unit 0.4 to 0.6 s with Clang 18, most of it `<string_view>` and
+`<span>`, so a game header that only names `Config` or `Context` pays it in every file that
+includes it.
+
+- **The header** declares the types a game's headers name: data (`Symbol`, `Node`,
+  `Array`, `Path`, `Error`, `ErrorCode`, `Type`, `Ref`, `List`, `Callback`, `Convert`,
+  `LoadSession`, `ParseLimits`, `Config` and its options, `Tweak`, `TweakBase`,
+  `TweakRegistry`, `Curve`, `Project`, ...), script (`Context`, `Args`,
+  `FuncRef`, `ObjectBase`, `Object`, `MethodRef`, `Task`, `Scheduler`) and `shape::Set`.
+  It includes `<cstdint>` alone, for the enums' underlying types; `check_headers.py`
+  holds it to that.
+- **`Object`'s default argument** (`Base = ObjectBase`) moves to `fwd.hpp`, since a
+  default may be given once; `object.hpp` includes it.
+- **Kept honest.** A header-alone unit includes `fwd.hpp` and then every public header: a
+  declaration that disagrees with its definition fails to compile (a template declared
+  as a class: checked), and under Clang `-Wmismatched-tags` catches a class declared a
+  struct (checked), which MSVC's ABI would mangle differently.
+- **Measured** (Clang 18, `-fsyntax-only`, five runs): an empty unit 0.022 s; `fwd.hpp`
+  0.033 s and 422 preprocessed lines; `config.hpp` 0.545 s and 36,086 lines;
+  `script.hpp` 0.404 s and 36,222 lines.
+
+## D255. A binding's registration out of line
+
+*From the review of D250 (finding 8); the owner chose to build it.* Each `ctx.func` and
+`Binder::method` call site inlined the whole registration: boxing the callable in the
+Context's allocator (a templated `Shared::Box`, with its own destroy function), counting
+the arguments over the parameter table, and building and moving an `Overload`. It runs
+once per binding, and it was about 400 of the 900 bytes a binding cost.
+
+- **Now** the call site builds a `NativeDesc` of constants (the thunk, the parameter
+  table, the result's name) and an `ErasedCallable` (the callable's address, size and
+  alignment, and two function pointers: construct it from there, by copy or by move as
+  the call was given it, and destroy it), and calls `Context::add_native` or
+  `add_native_method`, out of line. `Shared::make_erased` boxes the callable after a
+  header at its alignment; `make_native` counts the arguments. `make_overload` is gone.
+- **A stateless callable is not kept.** A lambda with no captures is empty, trivially
+  copyable and default-constructible, so `invoke` uses a `static constexpr` one instead of
+  reading the box, and the Context allocates nothing for it: one allocation fewer per
+  binding, for most of them.
+- **Measured** (GCC 13, a unit of N bindings of four kinds, N = 40 against 160, three
+  compiles each; a script in the session, not checked in):
+
+  | | before | after |
+  |---|---:|---:|
+  | code per binding, -O2 | 902 B | 463 B |
+  | compile time per binding, -O2 | 31 ms | 16 ms |
+  | code per binding, -O0 | 1,834 B | 1,129 B |
+  | compile time per binding, -O0 | 9 ms | 6 ms |
+
+  One registration's function: a stateless lambda 392 to 207 bytes, a capturing one 408
+  to 271. What remains per binding is mostly the thunk, the call itself.
+- **The calls are unchanged.** `tools/count_instructions.py` against D254: call, overload,
+  declared, message, frame and set the same to the instruction.
+- **Test** (`test_binding.cpp`): an lvalue callable is copied and a temporary moved (a
+  counter of live copies), a move-only lambda binds, the Context destroys what it kept,
+  and a stateless lambda costs one allocation fewer than a capturing one.
+
+## D256. A shipping build keeps no tweak tool text
+
+*From the review of D250 (finding 5); the owner chose to build it.* A `Tweak` copied its
+112-byte `TweakMeta` into itself in every build, so a shipping `Tweak<float>` was 184 bytes
+with its value at offset 180, and `strings` on a shipping object found every `desc` and
+`group` written: text for tools, and sometimes text a team would not publish.
+
+- **Now** `TweakBase` keeps a `detail::KeptTweakMeta`: `TweakMeta` itself, or under
+  `BAKER_SHIPPING` a `ShippedTweakMeta` of what decides the value (`range`, `one_of`,
+  `choices`, `dev_only`), with `step`, `desc`, `kind` and `group` as empty static members,
+  so `tweak.cpp` reads it the same way. The conversion is inline where the Tweak is made,
+  so the optimizer drops the text with the copy that no longer happens. The data's
+  metadata still applies in shipping.
+- **`code_meta()` is gone;** its one reader wanted `dev_only()`, which replaces it.
+- **Measured** (GCC 13, -O2): a shipping `Tweak<float>` is 128 bytes (`TweakBase` 120),
+  from 184 (176); development builds are unchanged. Of a tweak's three tool-text literals, a
+  shipping unit's assembly held 3 and now holds none.
+- **Kept honest.** `baker_tweak_shipping_text` compiles `tests/codegen/tweak_text.cpp` at
+  -O2 with and without `BAKER_SHIPPING` and counts the literals: all three in development,
+  none shipped (it failed against D255's header: 3). An unoptimized build still emits the
+  literals the source writes; the claim is for optimized ones. The tests of `step()` and
+  `desc()` expect the code's text only outside shipping.
+
+## D257. An execution budget: a step a call
+
+*From the review of D250 (finding 4); the owner chose to build it, failing or asking a
+hook when it runs out.* The depth limit and the stack budget bound recursion, not work: a
+doubly recursive `{func}` from a mod or a live overlay stays shallow and can hang a frame.
+
+- **The API** (`Context`): `set_step_budget(n)`, `steps_left()`, and `set_step_hook(fn,
+  user)`, where `fn(user, ctx)` returns the steps it grants. `kUnlimitedSteps`
+  (`UINT64_MAX`) is the default. At 0 the hook is asked; 0 from it, or no hook, fails the
+  call that ran out with `ErrorCode::Limit`, "the step budget ran out", located and with
+  the script stack, unwinding as any error does. The count stays 0, so the scripts after
+  it fail too until the host sets it again.
+- **What a step is.** Every call through `call_body`: a native or script function, a
+  built-in such as `if` or `+`, or a message sent from script. Script has no loop
+  construct, so iteration is recursion or a task's tick, and both are calls; the
+  "back-edge" check the finding describes is this one. A message sent from C++
+  (`handle`) is not script and spends nothing. The count is exact, so the same script
+  spends the same on every run: what a headless simulation or a replay needs, and what a
+  wall clock is not.
+- **A hook, not a timer.** A host that wants a time limit grants, say, 10,000 steps a time
+  and checks the clock in the hook; a sampling profiler reads `top_frame()` there. The
+  hook is cold and out of line.
+- **Cost.** `steps-- == 0` and a cold branch: GCC 13 emits a load, a subtract, a store, a
+  test and the branch (`__builtin_sub_overflow` gave the same, so the plain form stays).
+  `tools/count_instructions.py` against D256: call 307 to 312 (+5), overload 784 to 789,
+  declared 527 to 532, message, frame and lookup unchanged. `tools/bench_compare.py
+  --bench call`, five runs a side: `{add 1 2}` 32.3 to 32.1 ns, `{add1 1}` 73.8 to
+  74.8 ns, nested 66.4 to 66.6 ns, all within noise. `handle_all` over 64 objects moved
+  366.6 to 421.0 ns (+15%) in both runs, but it never reaches `call_body`, and its count
+  is 4,772 instructions on both sides: code layout in the benchmark binary.
+- **Test** (`test_eval.cpp`): `{fib 10}` spends the same twice, a native call spends one,
+  `{fib 30}` under 1,000 steps fails with the message and leaves 0, a later call fails
+  until the budget is reset, and a hook granting 100 steps three times lets `{fib 8}`
+  finish and then ends `{fib 20}`, asked once more than it granted.
+
+## D258. Every allocation names its kind
+
+*From the review of D250 (finding 19); the owner chose an argument to the allocator.* A host
+could give each Config and Context its own allocator, but could not tell what Baker's bytes
+were for inside one, nor what the default allocator's were, so it could not hold Baker to
+budgets per kind as engines do.
+
+- **The API** (`<baker/allocator.hpp>`): `enum class MemoryKind` (`Other`, `Symbols`,
+  `Trees`, `Config`, `Script`, `Tasks`, `Tweaks`, `Errors`, `Tools`), `kMemoryKinds`, and
+  `memory_kind_name`. `Allocator::alloc` and `free` take the kind as a fourth argument;
+  `Allocator` gains a `kind` member, and `with_kind(a, kind)` tags a copy.
+  `default_allocator(kind)` is the default's copy for a kind, stable for the program's
+  life; `default_allocator()` is `Other`. Breaking: every host allocator adds the argument.
+- **Tagging at the owners.** Each owner already kept a copy of the allocator it was given
+  (D61), and every container it holds points at that copy, so tagging the copy tags them
+  all, and `deallocate` and `destroy` pass the same kind back. A Config, its snapshots,
+  its LayerChecker, a SourceMap and a default LoadSession tag `Config`; an arena and solo
+  arrays and strings `Trees`; a Context `Script`, and its Schedulers keep their own copy
+  tagged `Tasks` (it was a reference to the Context's); the symbol table `Symbols`; error
+  records `Errors`; a tweak's extra state `Tweaks`; shapes `Config`; `baker::tools` and
+  `baker::host` `Tools`. Each owner's own record is created and destroyed with the same
+  tagged copy. What has no owner (Callbacks, Lists, results) stays `Other`.
+- **A fix on the way.** `~ConfigSnapshot` destroyed its state with an allocator read from
+  the state it was destroying; it copies the allocator first now, as the others did.
+- **Test** (`baker_alloc_tests`): an allocator that tallies live bytes per kind and records
+  each pointer's kind. A Config pushing a layer and a Context with a native, a script
+  function and a task allocate `Config`, `Trees`, `Script` and `Tasks`, nothing `Other`;
+  every free names its allocation's kind; every kind is back to 0 bytes after.
+- **Cost.** The kind is one more argument on allocation paths, which calls and lookups do
+  not take. `tools/count_instructions.py` against D257: call, overload, declared and
+  lookup unchanged, frame +2, set 652 to 655, parse +0.51% (1,886,423 to 1,896,063),
+  merge +1.67%. Parse's change was not the kind's own: callgrind put it in GCC's inlining,
+  which stopped inlining `vector<Node>::resize`'s erase into `Parser::run` and inlined
+  `string_view::find` instead. With `resize` as written, `tools/bench_compare.py --bench
+  parse` measured +4.6% (3 runs) and +5.8% (7 runs, ranges overlapping); the parser's
+  `truncate` now pops instead (it only shrinks), and parse measured 30.5 to 30.6 ms
+  (+0.4%, 7 runs). Layers, 3 runs: `read_string` +3.1%, `push_layer_text` +2.3%, the
+  policy rows within 1%.
+
+## D259. `BAKER_STEP_BUDGET`: the step count can be compiled out
+
+*The owner's call, after D257:* a game that knows it runs no script it did not write should
+be able to drop the budget's cost, as `BAKER_RTTI` lets a game drop RTTI (D250).
+
+- **The option.** `BAKER_STEP_BUDGET`, on by default. Off, the libraries and their users
+  see `BAKER_STEP_BUDGET=0`, `baker::kStepBudget` is false, and `call_body`'s check is
+  under `if constexpr`. `set_step_budget` and `set_step_hook` stay, so a host compiles
+  either way; they do nothing, and `steps_left()` is `kUnlimitedSteps`.
+- **Measured** (`tools/count`, GCC 13 Release): call 312 on, 307 off; overload 789 on, 784
+  off. Off is D256's count to the instruction.
+- **Tested** both ways: the budget test checks, under `!kStepBudget`, that a budget of 10
+  stops nothing and `steps_left()` stays unlimited. The local matrix's and CI's plain
+  refcounts configuration builds with it off, as a game that wants every instruction
+  would.
+
+
+## D260. Shapes count a list, name a shape that governs nothing, and stay out of received data; `#` opens a directive only before a letter
 
 *The first half of the hash-declarations idea, prototyped on
 `claude/fervent-cray-l1kyf0-syntax-hash-declarations` (its design note is that branch's
@@ -8661,5 +8959,413 @@ the parts that need no new syntax first, then the directives with the tools that
   `#` tokens read and print back as written. Fuzz regression `hash_symbols.bin`; the
   dictionary gains `#0` and `#-`.
 - **Raw gate.** 464/464 files, 0 round-trip failures.
+- **Fuzzing.** libFuzzer under ASan and UBSan, built as CI's fuzz job, seeded with D251's
+  corpus and the fuzz regressions, toward the 1 million executions of each adoption step:
+  1,000,000 executions in runs each resumed from the last one's corpus, with no crash, leak
+  or sanitizer report, and a corpus of 17,509 inputs at the end.
+
 - **Fuzzing.** libFuzzer under ASan and UBSan, toward the 1 million executions of each
   adoption step; the run's total follows.
+
+## D261. A file declares with `#pack`, `#origin` and `#shape`: the forms that declared by position are data
+
+*The second half of the hash-declarations idea (D260 took the first), prototyped on
+`claude/fervent-cray-l1kyf0-syntax-hash-declarations` behind a switch, reviewed with the
+owner on 2026-10-30, who chose the three directives with the tools that see them, `#define
+NAME (body)` kept with a nudge toward `[NAME ...]`, and the at-the-table `#shape` deferred.*
+
+- **The need.** A file told the reader what it is through forms that look like data: a first
+  form `(pack ...)` (D82), `(origin "..." ...)` when first, or first after the pack, and its
+  first value a string (D91), and a top-level `(shapes ...)` that stayed in the tree and merged
+  as data (D84). The parser and the shape library recognised them by position and type, so a
+  second `(pack ...)`, or one after an `#include`, became data silently, `(origin 0 0 0)` stayed
+  data only by a type test, and a layer's `(shapes ...)` was data a policy could not tell from
+  a value (D260). The printer had to spell a data first form `(pack ...)` as a row so that it
+  read back as data (D249), and the fuzz harness skipped a data `(origin "...")` first form.
+- **The directives.** `#pack (NAME (level L) ...)`, `#origin ("source" (tool T))` and
+  `#shape (NAME ...)` each take one form, at a file's top level, anywhere there; the form is
+  read as an array in the load's arena (D64), its macros expanded, and recorded in the session,
+  never in the tree. A pack and an origin once a file; any number of shapes. Each is a located
+  `Directive` error otherwise: below the top level, a second pack or origin, no form, an origin
+  whose first value is not a string, a shape with no name. A declaration counts only in the
+  `#ifdef` branch read.
+  - **A pack is its whole file's.** What a file defines above its `#pack` is the pack's, and
+    the macros it used above `#pack` are held to the one-way rule when the `#pack` is read,
+    since a position-free declaration would otherwise make the order a trap (D82).
+  - **`LoadSession::shapes()`** lists each `ShapeDecl`: the form, its file and line, and the
+    root of the read that declared it (a layer's file), so shapes are read per layer.
+- **The forms that declared by position are data.** `(pack ...)`, `(origin "...")` and
+  `(shapes ...)` are ordinary arrays wherever written. The printer writes them as they are:
+  D249's first-form row is gone, and so is the fuzz harness's skip of a data origin. A layer
+  check warns of each, once per layer, at the form: "(pack ...) is data; a file declares its
+  pack with #pack (NAME (level L) ...)", and the same for an origin and for shapes.
+- **`#define NAME (body)`** still defines a macro; the read warns, at the name, "#define RED
+  (...) is the older macro form; write [RED ...]". The migrator rewrites it.
+- **The shape library** reads declarations from the session: `Set::add(session, report,
+  root)` replaces `add(tree, report, packs)`, and with `root` reads one layer's. The validator,
+  the rules validator, the kit's `check` and `reference`, and the ImGui harness's panel read
+  each enabled layer's shapes with the stack's packs (D145); the kit's `check` read the
+  merged root without packs before, which the review found could disagree with `reference`.
+  The script `check` walks the session's `#shape` forms with the trees, so a rule's calls are
+  still demand.
+- **Received layers.** Under `data_only` or `scalars_only`, a candidate's `#shape` is refused,
+  located at it: "#shape 'item' declares a shape; the layer may change data only". This
+  replaces D260's refusal of `(shapes ...)`, which is now data that declares nothing. `#pack`
+  and `#origin` are admitted: a published overlay declares itself with them (D162).
+- **The binary cache, version 8.** The load's meta tree gains `(shapes (file line root FORM)
+  ...)`, replayed into the session; a version 7 cache is refused, and its text read.
+- **The tools see declarations.** Shapes leaving the tree would have left `layer_effect`,
+  `diff` and `explain`, so an agent's layer could loosen a shape and no tool say so (the
+  review's tool author). `LayerEffectEntry::declares` and `DiffEntry::declares` name the
+  directive of an entry that is a declaration: its `path` is the shape's or pack's name, or the
+  file an origin describes, its `value` the form, and `below` the same declaration in the
+  nearest enabled layer under it. `layer_effect`, a layer check's effect, and `diff` list them
+  after the values. `explain` takes `#shape.NAME` and `#shape.NAME.FIELD`, listing each layer
+  that declares it, every enabled one `Wins`, since a shape's declarations combine. The
+  console's replies carry `(declares ...)`; the kit's `diff` prints `#shape unit  ... -> (unit
+  ...)`, and `--baker-rows` writes a declaration as itself.
+- **The tolerant read** marks a declaration's form: `TextBracket::declares` is the index of its
+  directive's token, so an editor's outline can show `#shape unit` (the review's finding that a
+  bracket tree would show it as data).
+- **The formatter** needed no change: a directive keeps its one argument on its line, and
+  `#shape (unit` lays out as a top-level form after it.
+- **Migration.** `tools/migrate_declarations.cpp` (`baker_migrate_declarations`) rewrites the
+  four forms through `read_structure`: a first `(pack NAME ...)` to `#pack (NAME ...)`;
+  `(origin "source" ...)`, first or after the pack, to `#origin ("source" ...)`; a top-level
+  `(shapes (a ...) (b ...))` to a `#shape` a shape, each on its own line with its lines moved
+  left (in C++ literals, beside each other); and a top-level `#define NAME (body)` to `[NAME
+  body]`. It reads `.dta` files, C++ string literals (`--cpp`) and Markdown (`--md`), with the
+  run readers it now shares with `baker_migrate_metadata` (`tools/migrate_runs.hpp`). A
+  second run changes nothing.
+  - **The repository.** One commit carries the core, the migrator, and the migrator's run
+    over the repository, since the new reader takes the old forms as data and the old one
+    cannot read the new. Over the tests and examples it rewrote 73 packs, 14 origins, 83
+    shapes and 19 macros in 28 files; over the stacks' seven files 6 packs, 1 origin and 22
+    shapes; over the Markdown 6 packs, 2 origins, 9 shapes and 1 macro. The tests whose point
+    is an old form (the formatter's `#define`, the positional forms as data) were kept by
+    hand, and so was the cookbook's live-ops overlay, whose pack follows another file's in
+    one block. The Ledger's exporter writes `#origin`, and `docs/language.md`, the cookbook
+    and spec §1 describe the directives.
+- **For the next release's changelog** (written at the release, dev/releasing.md): "`#pack`,
+  `#origin` and `#shape` declare a file's pack, origin and shapes; `(pack ...)`, `(origin
+  ...)` and `(shapes ...)` are data. Run `baker_migrate_declarations --write` over your data.
+  A live-ops publisher switches its overlays to `#pack`/`#origin` before the game takes this
+  release: an overlay still in the old form reads as data, and a game whose policy has
+  `warnings_refuse` refuses it." The editor note is in the session's scratchpad for the owner.
+- **Costs.** `tools/count_instructions.py` against D260's commit, instructions per operation:
+
+  | case | GCC before | GCC after | change | Clang before | Clang after | change |
+  |---|---:|---:|---:|---:|---:|---:|
+  | parse | 1,886,372 | 1,894,667 | +0.44% | 1,776,079 | 1,767,425 | −0.49% |
+  | set | 644 | 652 | +1.24% | 602 | 610 | +1.33% |
+  | check | 3,832,628 | 3,840,988 | +0.22% | 3,563,650 | 3,561,579 | −0.06% |
+  | check_pinned | 4,431,994 | 4,433,151 | +0.03% | 4,044,119 | 4,048,085 | +0.10% |
+
+  The other twelve cases are unchanged on both compilers. Parse moves either way by under
+  half a percent: the directive dispatch gained three names, and the reader no longer tests
+  a file's first forms for a pack or an origin. `set`'s 8 instructions are all in glibc's
+  `memcmp`: under callgrind, the same 4,006 calls from the same caller, each 8 instructions
+  dearer (GCC: 77,179 to 109,190 over the run), with every Baker function's count unchanged.
+  The AVX2 `memcmp` branches on its operands' addresses, so the likely cause is the same
+  strings at other heap addresses (the session holds a shapes list now); no work was added.
+- **Lines.** The library gains 416 lines and loses 136, in 20 files; the migrator and the run
+  readers it now shares with `baker_migrate_metadata`, 498 and 183; the tests, 473 and 260.
+- **Tests.** `tests/data/test_declarations.cpp`: the three directives recorded and out of the
+  tree, macros and conditionals in a form; the old forms as data, printed back, and the
+  check's three warnings; each placement error; a pack's whole file, the one-way rule for a
+  use above `#pack`; `#define (body)`'s warning; a cache's `#shape`. The shape, rules, layer
+  tools, received-layer and kit tests read `#shape` through a session; `test_layers.cpp`
+  lists declarations in effect, diff and explain; `test_structure.cpp` marks a form. Fuzz
+  regression `declarations.bin`; the dictionary gains the three directives.
+- **Raw gate.** 464/464 files, 0 round-trip failures.
+- **Fuzzing.** libFuzzer under ASan and UBSan, built as CI's fuzz job, seeded with D260's
+  corpus and the fuzz regressions, toward the 1 million executions of each adoption step:
+  1,000,000 executions in runs each resumed from the last one's corpus, with no crash, leak
+  or sanitizer report, and a corpus of 18,695 inputs at the end. The first run stopped at
+  once: the dictionary's `#origin` entry escaped its own closing quote, which libFuzzer
+  refuses, so CI's fuzz job would have failed too; it reads `"#origin (\""` now.
+- **Not done.** The at-the-table `#shape` (deferred by the owner). A `#pack` or `#origin` in a
+  layer's `layer_effect` has no line, since `Pack` and `Origin` keep none.
+
+## D262. Braces written infix, `{0.3 <= $value <= 0.7}`, and the operators as a vocabulary
+
+*The curly-infix idea, prototyped on `claude/fervent-cray-l1kyf0-syntax-curly-infix` (its
+design note is that branch's `dev/syntax-curly-infix-design.md`), reviewed with the owner on
+2026-10-30, who chose the vocabulary and the infix reader for everyone, without the ternary
+and without `&&`, `||` and `!`.*
+
+- **The need.** Script was wordier than the data around it: a band was
+  `{and {>= $value 0.3} {<= $value 0.7}}`, two calls and three braces, in every objective of
+  every stack, and the people who write objectives read arithmetic infix.
+- **The vocabulary.**
+  - `+`, `-` and `*` fold left over two numbers or more (`{- 5}` negates).
+  - `<`, `<=`, `>` and `>=` test every adjacent pair, evaluating each argument once and
+    stopping at the first pair that fails, so `{<= 0.3 $value 0.7}` is a band in one call.
+  - `+=`, `-=`, `*=` and `/=` load a `$variable`, or in a method a `[property]`, apply,
+    store and return the value. An unset place is `NotFound` and one that holds no number is
+    `Type`, as reading it is.
+  - `==`, `!=`, `/` and `%` keep two arguments: each was one overload, and a rest parameter
+    cost it 23% to 40% a call in the prototype.
+  - Each operator is one native with a typed rest (`number...`); `check` holds every literal
+    of the rest to its type.
+  - With them, `Args` evaluates a `[property]` argument as it does a command or a variable.
+    A function of one overload used to read a property unevaluated: `{% [hp] 3}` failed
+    "argument 1 of '%' is property, not int".
+    - The fast path's test for a number parameter is left to the read, which takes only an
+      int or a float. As a three-type test, Clang kept it before its type switch, +12
+      instructions a two-argument call; as main's two-type test, it folded the test away.
+  - `check` reports a head no call can have (a number, a string or a property), as
+    evaluation does, and for malformed infix adds "infix needs an operator between every
+    two operands".
+- **The reader rule.** Inside `{...}` only, a brace of an odd number of nodes, three or
+  more, whose odd slots hold one and the same bare operator symbol (bytes of
+  `+-*/%<>=!&|^~` only), reads head-first when one of its operands is a number, variable,
+  property or command: `{0.3 <= $value <= 0.7}` is the tree `{<= 0.3 $value 0.7}`.
+  - The nodes and their edit-mode spans are permuted in place at the close. The head's
+    span is the first operator's.
+  - It is always on; the prototype's switch is gone.
+  - A quoted symbol at an odd slot exempts the brace (`{$obj '<=' 1 2}` calls a handler),
+    and so does a macro used there or one that expands to several nodes.
+  - Errors, each located at the brace:
+    - two different operators: "mixed operators in {...}: nest braces to say which applies
+      first";
+    - an operand where an operator belongs: "infix {...} needs '<=' between every two
+      operands";
+    - an even brace that ends with its operator after an operand head: "infix {...} ends
+      with '<=': write an operand after it".
+  - There is no precedence: nest, under `and`.
+  - No ternary: `{if c a b}` is already one word, and the ternary added two reserved
+    symbols, an empty-span head and a branch in the rule and the printer. `?` and `:` are
+    ordinary symbols.
+  - No `&&`, `||` or `!`: they were three words for three the vocabulary has.
+- **The written spelling.** `Array::written_infix()` records that a command was read infix,
+  so the printer, and with it `write_file`, promote and a reply's text, gives a designer
+  back the spelling they wrote. Equality, the digest and evaluation ignore it.
+  - It rides the binary cache with the array.
+  - A tool may set it: `set_written_infix`.
+  - Where it is kept: in `flags_`, beside D251's marker bit, so `finish()` and `set()` keep
+    it as they keep the others and no hot path pays for it. The metadata boundary above the
+    flags shrinks from 14 bits to 13: metadata past child 8,191 is refused (`Limit`),
+    where D248 refused it past 16,383.
+    - `height_`'s top bit was tried first. Masking each child's height in `finish()` cost
+      Clang about 9,000 instructions a parse and merge 0.4%.
+  - The printer writes a flagged command `{k0 op k2 ...}` when it still has the shape (an
+    operator head, an operand, `/*` never between operands). Long, it wraps one operand a
+    line with the operator ending each line.
+  - It quotes an operator at an odd slot of a prefix command that would otherwise read
+    infix (`{+ '-' 1}`), so every tree prints to text that reads back to it.
+- **The tolerant read.** `read_structure` applies the rule slot by slot.
+  `TextBracket::infix` is an infix brace's first operator token, its head, and the three
+  errors are reported with the parser's messages, lines and columns. It does not know a
+  macro's body, so it leaves a brace with any macro use as written.
+- **The repository's data.** The prototype's in-tree rewrite was replayed onto main:
+  - the seven stacks' metrics;
+  - Ledger's milestones and unlocks, with the four cells of `economy.xlsx` they are
+    exported from, so `export_economy.py --check` holds;
+  - the calculator's and scripting example's functions;
+  - three test fixtures.
+
+  Its three ternaries went back to `if`. Data written since the prototype is prefix, which
+  still reads. `stacks/agent.md` and the stacks-agent skill say how a brace reads.
+- **Docs.** `docs/language.md`'s "Operators, and braces written infix", and the regenerated
+  script reference. The guide says that data a build before this release reads, such as a
+  live-ops overlay for a shipped game, stays prefix, since an older build reads
+  `{2 <= $value <= 10}` as a call of 2.
+- **For the next release's changelog** (written at the release, dev/releasing.md): "A brace
+  may be written infix, `{0.3 <= $value <= 0.7}`, one operator a brace; `+ - *` take two
+  numbers or more, comparisons chain, and `+= -= *= /=` store. Keep data that older builds
+  read, such as live-ops overlays, in the prefix spelling." The editor note is in the
+  session's scratchpad for the owner.
+- **Costs.** `tools/count_instructions.py` against D261 with main merged, before main's D252
+  to D259, instructions per operation:
+
+  | case | GCC before | GCC after | change | Clang before | Clang after | change |
+  |---|---:|---:|---:|---:|---:|---:|
+  | parse | 1,894,667 | 1,894,122 | −0.03% | 1,767,425 | 1,779,734 | +0.70% |
+  | call | 307 | 302 | −1.63% | 235 | 237 | +0.85% |
+  | overload | 784 | 472 | −39.8% | 661 | 450 | −31.9% |
+  | check | 3,840,988 | 3,828,148 | −0.33% | 3,561,579 | 3,561,571 | −0.00% |
+  | lookup_text | 371 | 379 | +2.16% | 310 | 310 | 0 |
+
+  - The other cases are unchanged on both compilers: lookup, set, the merges, check_pinned,
+    declared, the messages and frame.
+  - Parse's rule is the test at each array close: the frame kind, then for a brace its size,
+    parity and slot 1. On Clang it is about 7 instructions a close. The text holds no
+    operator call, so the rule itself never runs.
+  - `overload` is `{+ 1.5 2}`: one native with a typed rest, in place of main's set of two
+    overloads, which evaluated every argument into a buffer and tried each.
+  - `lookup_text`'s 8 instructions on GCC are all in glibc, every Baker function's count
+    unchanged, as D261's `set`.
+  - Not counted here: the prototype measured each operator with a driver of its own. A band
+    in one call was 775 instructions, against 1,755 for the `and` of two comparisons.
+- **Lines.** The library gains 478 lines and loses 49; the tests, 556 and 14.
+- **Tests.**
+  - `test_parse.cpp`: chains with their spans; the guard; quoting; macros; `#autorun`; each
+    error with its column.
+  - `test_write.cpp`: prefix quoting; a flagged tree prints infix and re-reads flagged; a
+    tool's flag; `/*`; wrapping.
+  - `test_cache.cpp`: the flag rides the cache.
+  - `test_eval.cpp`: folds; chains with a counting native evaluated once; `+=` and its
+    family; `=` and `&&` undefined; infix spellings evaluate as their prefix trees.
+  - `test_object.cpp`: a property argument of a one-overload function; `+=` and `-=`
+    through `[hp]`.
+  - `test_check.cpp`: literal types through a variadic operator in both spellings; heads no
+    call can have.
+  - `test_structure.cpp`: `infix` and the three errors, matching the parser's.
+  - The fuzz harness checks that the written-infix marks survive print and re-read, and the
+    dictionary gains `<=` and `+=`.
+- **Raw gate.** 464/464 files, 0 round-trip failures; the infix rule fires on 0 braces, the
+  guard holds back 0, and 0 files are refused as malformed infix. Baker's corpus reads 6
+  braces infix.
+- **Stacks.** Built as CI's stacks job (GCC, Debug, Ninja): 30 of 30 tests pass. Each of
+  the seven games' `sim --baker-seeds 1-5 --baker-json --baker-results DIR` and `check`, run
+  against a build of the base:
+  - every run exits 0;
+  - `sim.json`, the results and `check`'s JSON are identical byte for byte, values
+    included, once the two worktrees' paths are normalized.
+
+  So the rewritten objectives, unlocks and milestones evaluate as their prefix originals.
+- **Fuzzing.** libFuzzer under ASan and UBSan, built as CI's fuzz job, seeded with D261's
+  corpus, the fuzz regressions and the repository's infix files: 601,935 executions, past
+  the 100,000 the owner set for each step on 2026-10-30, with no crash, leak or sanitizer
+  report, and a corpus of 23,055 inputs at the end. The harness checks that the written-infix
+  marks survive print and re-read. The first 252,576 ran from a seed that lacked D261's
+  corpus (a copy that overflowed its argument list) and reached 2,509 edges; the rest, from
+  the full corpus, reached 3,202.
+- **Not done.**
+  - A comment-keeping reverse converter (infix to prefix by spans).
+  - The prototype's experiment and its proof scripts, which stay on that branch.
+
+## D263. Baker writes in the house layout; the indentation layout is declined
+
+*The indent-lines idea, prototyped on `claude/fervent-cray-l1kyf0-syntax-indent-lines` (its
+design note is that branch's `dev/syntax-indent-lines-design.md`), reviewed with the owner
+on 2026-10-30, who declined the layout and kept its printer half.*
+
+- **The layout is declined.** The idea: a line that begins with an atom is an array, and
+  the lines indented deeper are its children, so `player` over an indented `speed 4.5` is
+  `(player (speed 4.5))`. Two measurements decided it.
+  - The parse paid for it whether or not a file used it: +1.67% instructions with the rule
+    always on, and +1.53% for the opt-in as built, against D143's bar of +1.1%. Four
+    layouts of the test were tried.
+  - D101's raw gate read 76 of the 426 raw files that read alone to a different tree,
+    with no error. Those files write a bare macro alone on a line at the top level, which
+    the layout reads as an array: 16% of the corpus, silently.
+
+  What it bought was small: a third of the parentheses (1,650 of 4,654) and most of the
+  piles of closers (489 lines to 29), no lines, and 2.4% of the bytes. An outline view of
+  bracketed text is the editor integration's.
+- **The house layout.** `WriteOptions`' defaults are three spaces a level and a hundred
+  columns, the layout the repository's own files and the stacks are written in. They were
+  2 and 80, so an entry write-back inserted, or a file `write_dta` wrote, read unlike the
+  file around it.
+  - Changing the defaults broke no test, in Baker's suites or the stacks'.
+- **A Config writes in its layout.** `Config::set_layout(WriteOptions)` and `layout()` name
+  the layout of the text a Config writes:
+  - `layer_text`;
+  - the forms write-back and promote add to a layer's file.
+
+  `open_project` sets it from the project's `(format ...)`, which before told only the
+  formatter and the kit's `format` command. So the kit's promote, and every tool that opens
+  a project, writes as `format` would lay out. A Config not opened from a project writes
+  the house layout.
+- **For the next release's changelog** (written at the release, dev/releasing.md):
+  "`WriteOptions` defaults to the house layout, three spaces a level and a hundred columns
+  (it was 2 and 80); a Config opened from a project writes in the project's `(format ...)`
+  (`Config::set_layout`)."
+- **Costs.** None on a hot path: the layout is read when text is written.
+- **Tests.** `test_m3b.cpp`: a Config's default layout; an inserted entry wrapped by a set
+  layout; `layer_text` in it; `open_project` taking a project's `(format ...)`.
+- **Docs.** `docs/tools.md` names the house layout and the Config's; the cookbook's project
+  file says `(format ...)` lays out write-back too.
+- **Fuzzing.** libFuzzer under ASan and UBSan, built as CI's fuzz job, on the stack through
+  D265, seeded with D262's corpus: 100,000 executions, the bar the owner set for each step on
+  2026-10-30, with no crash, leak or sanitizer report.
+
+## D264. A layer's `(when COND)`; layer blocks inside a file are declined
+
+*The inline-layers idea, prototyped on `claude/fervent-cray-l1kyf0-syntax-inline-layers` (its
+design note is that branch's `dev/syntax-inline-layers-design.md`), reviewed with the owner
+on 2026-10-30, who declined the in-file blocks and took the condition on project layers.*
+
+- **Blocks are declined.** The idea was `(#layer (handheld (when HANDHELD)) ...)` inside a
+  file, a sub-layer of it. The prototype fit Config's layer machinery, but:
+  - it cost 221 core lines as adopted, over the 150 bar;
+  - no stack writes a platform variant or an A/B that feels the file count;
+  - its survey found that it would replace a sixth of a shipped game's conditionals with a
+    second conditional form, of another precedence.
+
+  D242's `set_defines` and `explain`'s `(chosen_by ... ifdef)` already cover the live
+  switch and the visibility of what `#ifdef` chose.
+- **`(when COND)` on a project file's layer entries**, beside `optional`, `disabled` and
+  `dev_only`: `(handheld "data/handheld.dta" (when (and HANDHELD (not PC))))`.
+  - COND is a define's name, `(not C)`, `(and C C...)` or `(or C C...)`, read unexpanded as
+    `#ifdef` reads a name. It is tested against the Config's session, the host's and the
+    project's defines.
+  - `LayerOptions::when` takes it as text for `push_layer` and `push_layer_dir`.
+  - A condition of another shape is a `Syntax` error at the push, naming the layer.
+- **What it does.** A layer is always pushed and read. While its condition does not hold, it
+  is skipped by the merge as a disabled layer is (`options.enabled` is the host's choice and
+  the condition together), so its position, its reads and `#autorun` follow the same rules.
+  - `set_defines` applies every condition again before its one merge.
+  - `set_layer_enabled` sets the host's choice, and the layer stays under its condition.
+  - `toggle_layer` returns the state that results, which a condition can keep off.
+  - A directory's layers take its condition.
+- **What shows it.**
+  - `Config::layer_condition(name)` gives the condition as read.
+  - `ExplainEntry::when` carries it, for a Disabled entry or a winning one, and the
+    console's explain reply adds `(when COND)`.
+  - The ImGui harness's Layers panel prints it beside the layer's name.
+- **For the next release's changelog** (written at the release, dev/releasing.md): "A
+  project's layer may carry `(when COND)` (a define, `not`, `and`, `or`): it is in the merge
+  only while the defines say so, and `set_defines` applies it again; `LayerOptions::when`,
+  `Config::layer_condition`, `ExplainEntry::when`."
+- **Costs.** None per merge or lookup: a condition is tested at a push, a toggle and
+  `set_defines`.
+- **Lines.** The library gains 107 lines and loses 17, comments and headers included.
+- **Tests.** `test_defines.cpp`: a project's conditions with a host's defines,
+  `set_defines` turning one off and another on, disabling and toggling under a condition,
+  `layer_condition`, and the malformed shapes. `test_explain.cpp`: `when` on held and
+  unheld entries. `test_layer_dir.cpp`: a directory's condition. `test_project.cpp`: the
+  entry's error message.
+- **Fuzzing.** libFuzzer under ASan and UBSan, built as CI's fuzz job, on the stack through
+  D265, seeded with D262's corpus: 100,000 executions, the bar the owner set for each step on
+  2026-10-30, with no crash, leak or sanitizer report.
+
+## D265. A shipped cache may leave out metadata: `baker_bake --drop-metadata`
+
+*The step D248 left for later, as the owner set the order on 2026-10-30: "a shipping bake
+option dropping `@` children".*
+
+- **The need.** Since D248 a tree knows its metadata by spelling: `(@range 0 10)`,
+  `(@desc "...")`, `(@note ...)`, the shapes' words, D251's `(@was ...)` pins. Only
+  development tools read it: panels, checks, explain, promote. A shipped build reads
+  values, so carrying the metadata costs it memory and load time for nothing, and ships the
+  designers' notes.
+- **`without_metadata(root)`** returns the tree with every data array's `@` children left
+  out, below it too.
+  - From the metadata boundary on, a field may follow metadata (D248), so only `@` tags go.
+  - Commands and properties keep their forms as written: a `{func ... (@doc ...)}` is a
+    command's argument, not data's metadata.
+  - An array with no metadata below it is shared, not copied, so a tree without metadata
+    costs one walk.
+- **Where a bake uses it.**
+  - `baker_bake --drop-metadata` writes the cache of that tree.
+  - `ConfigOptions::cache_drop_metadata` makes a Config's `cache_dir` caches leave it out,
+    for the build step's Config whose directory ships (the cookbook's binary-cache section).
+  - A development build that reads such a cache has no metadata either, so the shipped
+    caches are baked apart from the developers' own.
+- **For the next release's changelog** (written at the release, dev/releasing.md):
+  "`baker_bake --drop-metadata`, `ConfigOptions::cache_drop_metadata` and
+  `without_metadata(root)` bake caches without `(@...)` metadata, for shipped builds."
+- **Costs.** None on any path a game runs: the walk is at a bake.
+- **Lines.** 55 lines added and 7 removed, in the library and the tool, comments included.
+- **Tests.**
+  - `test_cache.cpp`: what goes and what stays (a field after metadata, a command's own
+    `(@doc)`), sharing, the original untouched, and the cache reads back.
+  - `test_config.cpp`: a bake Config's caches read by a game's Config, with the value and no
+    metadata.
+  - `baker_bake_drop_metadata` runs the tool with the flag.
+- **Fuzzing.** libFuzzer under ASan and UBSan, built as CI's fuzz job, on the stack through
+  D265, seeded with D262's corpus: 100,000 executions, the bar the owner set for each step on
+  2026-10-30, with no crash, leak or sanitizer report.

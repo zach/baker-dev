@@ -100,8 +100,10 @@ ConfigSnapshot& ConfigSnapshot::operator=(const ConfigSnapshot& other) noexcept 
     return *this;
 }
 ConfigSnapshot::~ConfigSnapshot() {
-    if (state_ && state_->refs.fetch_sub(1, std::memory_order_acq_rel) == 1)
-        detail::destroy(state_->alloc, state_);
+    if (state_ && state_->refs.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        const Allocator alloc = state_->alloc;  // a copy: the state goes first
+        detail::destroy(alloc, state_);
+    }
 }
 
 void Config::Impl::log_edit(ScratchEntry& owner, const Node* before, uint32_t before_count,
@@ -143,7 +145,8 @@ Expected<Ref<Array>> Config::Impl::read_through_cache(std::string_view path, con
         auto root = read_file(path, session);
         session.record_for_cache = false;
         Str bytes(alloc);
-        if (root && write_cache(**root, detail::str_out(bytes), &session))
+        if (root && write_cache(options.cache_drop_metadata ? *without_metadata(**root) : **root,
+                                detail::str_out(bytes), &session))
             (void)writer(cache, bytes);
         return root;
     }
@@ -384,6 +387,8 @@ Expected<size_t> Config::Impl::relist(Vec<LayerState>& ls, size_t at) const {
         l.path = f.path;
         l.group = marker.name;
         l.options.enabled = marker.options.enabled;
+        l.when = marker.when;  // the directory's condition is each layer's in it (D264)
+        l.wanted = marker.wanted;
         next.push_back(std::move(l));
     }
     const auto first = ls.begin() + static_cast<ptrdiff_t>(at + 1);
@@ -472,7 +477,7 @@ BAKER_INLINE void Config::Impl::retune(const ScratchEntry& e) const {
         if (n < 16) {
             few[n++] = &t;
         } else {
-            if (!more) more = Own<Vec<TweakBase*>>::make(default_allocator());
+            if (!more) more = Own<Vec<TweakBase*>>::make(default_allocator(MemoryKind::Tweaks));
             more->push_back(&t);
         }
     });
@@ -599,7 +604,8 @@ Expected<void> Config::Impl::may_change(const Config& c) const {
 // --- Construction ---
 
 Config::Config(ConfigOptions options, const Allocator& allocator)
-    : root_(Array::make(0)), impl_(detail::create<Impl>(allocator, allocator)) {
+    : root_(Array::make(0)),
+      impl_(detail::create<Impl>(with_kind(allocator, MemoryKind::Config), allocator)) {
     static std::atomic<uint64_t> configs{0};
     impl_->generation = configs.fetch_add(1, std::memory_order_relaxed) << 32;
     impl_->options = options;
@@ -711,13 +717,62 @@ Expected<void> Config::Impl::admit(const Config& c, const LayerOptions& opts, st
         check_candidate(c, name, tree, commands, session, *opts.policy, read_warnings));
 }
 
+namespace {
+// A layer's (when COND) (D264): a define, (not C), (and C C...) or (or C C...).
+bool condition(const Node& c) noexcept {
+    if (c.type() == Type::Symbol) return !c.try_sym()->empty();
+    const Array* a = c.type() == Type::Array ? c.try_array() : nullptr;
+    if (!a || a->size() < 2) return false;
+    const Symbol op = a->tag();
+    if (op != Symbol("not") && op != Symbol("and") && op != Symbol("or")) return false;
+    if (op == Symbol("not") && a->size() != 2) return false;
+    return std::all_of(a->begin() + 1, a->end(), condition);
+}
+bool condition_holds(const Node& c, const LoadSession& s) {
+    if (const auto name = c.try_sym()) return s.is_defined(*name);
+    const Array& a = *c.try_array();
+    if (a.tag() == Symbol("not")) return !condition_holds(a[1], s);
+    const bool all = a.tag() == Symbol("and");
+    for (size_t i = 1; i < a.size(); ++i)
+        if (condition_holds(a[i], s) != all) return !all;
+    return all;
+}
+}  // namespace
+
+Expected<void> Config::Impl::take_options(LayerState& layer, LayerOptions opts) const {
+    if (!opts.when.empty()) {
+        // Read unexpanded: a session of its own, which defines no macro.
+        LoadSession plain(alloc);
+        auto cond = read_string(opts.when, "when", plain);
+        if (!cond || (*cond)->size() != 1 || !condition((**cond)[0]))
+            return Unexpected(
+                make_error(ErrorCode::Syntax, "layer '" + layer.name +
+                                                  "': its condition is a define, "
+                                                  "(not C), (and C C...) or (or C C...), not '" +
+                                                  Str(opts.when) + "'"));
+        layer.when = std::move(*cond);
+    }
+    layer.wanted = opts.enabled;
+    opts.when = {};  // a view: read here, never kept
+    layer.options = opts;
+    apply_condition(layer);
+    return {};
+}
+
+bool Config::Impl::apply_condition(LayerState& l) const {
+    const bool on = l.wanted && (!l.when || condition_holds((*l.when)[0], base));
+    const bool changed = on != l.options.enabled;
+    l.options.enabled = on;
+    return changed;
+}
+
 Expected<void> Config::Impl::push_read(Config& c, LayerState&& layer, LayerOptions opts) {
     if (auto ok = may_change(c); !ok) return ok;
     if (layer.name == "scratch" || find_layer(layer.name))
         return Unexpected(refused("there is already a layer named '" + layer.name + "'"));
     const auto at = placement(opts);
     if (!at) return Unexpected(at.error());
-    layer.options = opts;
+    if (auto r = take_options(layer, opts); !r) return r;
     const Rc<LoadSession> below = session_below(layers, *at);
     Vec<Error> read_warnings(alloc);
     if (auto r = read(layer, *below, nullptr, &read_warnings); !r) return r;
@@ -823,7 +878,7 @@ Expected<void> Config::push_layer_dir(std::string_view name, std::string_view di
     LayerState marker(impl_->alloc);
     marker.name.assign(name);
     marker.dir.assign(dir);
-    marker.options = options;
+    if (auto r = impl_->take_options(marker, options); !r) return r;
     marker.root = Array::make(0);  // it holds nothing
     Vec<LayerState> placed = impl_->layers;
     placed.insert(placed.begin() + static_cast<ptrdiff_t>(*at), std::move(marker));
@@ -851,7 +906,7 @@ Expected<void> Config::push_layer(std::string_view name, Ref<Array> overlay, Lay
             return r;
     LayerState layer(impl_->alloc);
     layer.name.assign(name);
-    layer.options = options;
+    if (auto r = impl_->take_options(layer, options); !r) return r;
     layer.root = std::move(overlay);
     // An overlay adds no macros, so the layers above need no re-read.
     layer.after = impl_->session_below(impl_->layers, *at);
@@ -915,6 +970,7 @@ Expected<void> Config::set_defines(std::span<const std::string_view> names) {
         }
         l.after = patched;
     }
+    for (LayerState& l : fresh) impl_->apply_condition(l);  // conditions see the new defines
     impl_->layers = std::move(fresh);
     impl_->change(*this, trigger_name("defines"));
     return {};
@@ -973,16 +1029,15 @@ Expected<void> Config::set_layer_enabled(std::string_view name, bool enabled) {
     if constexpr (kShipping) return Unexpected(shipping("toggling a layer"));
     if (auto ok = impl_->may_change(*this); !ok) return ok;
     bool changed = false;
-    auto set = [&](bool& flag) {
-        changed = changed || flag != enabled;
-        flag = enabled;
-    };
     if (name == "scratch") {
-        set(impl_->scratch_enabled);
+        changed = impl_->scratch_enabled != enabled;
+        impl_->scratch_enabled = enabled;
     } else if (auto at = impl_->find_layer(name)) {
-        // A directory, and every layer found in it.
-        for (size_t i = *at; i <= *at + Impl::members(impl_->layers, *at); ++i)
-            set(impl_->layers[i].options.enabled);
+        // A directory, and every layer found in it; each still under its condition (D264).
+        for (size_t i = *at; i <= *at + Impl::members(impl_->layers, *at); ++i) {
+            impl_->layers[i].wanted = enabled;
+            changed = impl_->apply_condition(impl_->layers[i]) || changed;
+        }
     } else {
         return Unexpected(make_error(ErrorCode::NotFound, "no layer named '" + Str(name) + "'"));
     }
@@ -994,13 +1049,19 @@ Expected<void> Config::set_layer_enabled(std::string_view name, bool enabled) {
 Expected<bool> Config::toggle_layer(std::string_view name) {
     const bool next = !layer_enabled(name);
     if (auto r = set_layer_enabled(name, next); !r) return Unexpected(std::move(r).error());
-    return next;
+    return layer_enabled(name);  // a condition that does not hold keeps it out (D264)
 }
 
 bool Config::layer_enabled(std::string_view name) const {
     if (name == "scratch") return impl_->scratch_enabled;
     const auto at = impl_->find_layer(name);
     return at && impl_->layers[*at].options.enabled;
+}
+
+std::optional<Node> Config::layer_condition(std::string_view name) const {
+    const auto at = impl_->find_layer(name);
+    if (!at || !impl_->layers[*at].when) return std::nullopt;
+    return (*impl_->layers[*at].when)[0];
 }
 
 uint64_t Config::digest() const {
@@ -1026,6 +1087,13 @@ Ref<Array> Config::layer_root(std::string_view name) const {
     return at ? impl_->layers[*at].root : nullptr;
 }
 
+void Config::set_layout(const WriteOptions& layout) noexcept {
+    impl_->layout = layout;
+}
+const WriteOptions& Config::layout() const noexcept {
+    return impl_->layout;
+}
+
 Expected<void> Config::layer_text(std::string_view name, TextSink out) const {
     Ref<Array> tree;
     if (name == "scratch")
@@ -1034,7 +1102,7 @@ Expected<void> Config::layer_text(std::string_view name, TextSink out) const {
         tree = impl_->layers[*at].root;
     else
         return Unexpected(make_error(ErrorCode::NotFound, "no layer named '" + Str(name) + "'"));
-    if (tree) write_dta(*tree, out);  // empty scratch is an empty layer
+    if (tree) write_dta(*tree, out, impl_->layout);  // empty scratch is an empty layer
     return {};
 }
 
