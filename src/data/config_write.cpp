@@ -44,11 +44,12 @@ void collect_paths(const Array& a, size_t first, const Str& prefix, HashMap<Str,
     for (size_t i = first; i < a.size(); ++i) {
         if (!is_tagged(a[i])) continue;
         const Array& child = *a[i].try_array();
+        if (child.tag().is_meta() && child.tag() == detail::was_tag()) continue;  // the layer's own
         Str path = prefix;
         if (!path.empty()) path += '.';
         detail::append_path_name(path, child[0].try_sym()->str());
         if (has_values(child) && seen.emplace(path, 0).second) out.push_back({path, &child, {}});
-        collect_paths(child, 1, path, seen, out);
+        if (!detail::composes(child)) collect_paths(child, 1, path, seen, out);  // operands
     }
 }
 
@@ -141,6 +142,8 @@ Expected<Plan> plan_removal(const LayerState& layer, const Path& path,
     while (b > 0 && (out[b - 1] == ' ' || out[b - 1] == '\t')) --b;
     while (e < out.size() && (out[e] == ' ' || out[e] == '\t')) ++e;
     const bool line_start = b == 0 || out[b - 1] == '\n';
+    if (line_start && e < out.size() && out[e] == ';')  // its comment goes with it
+        e = std::min(out.find('\n', e), out.size());
     if (line_start && (e == out.size() || out[e] == '\n' || out[e] == '\r'))
         e = std::min(out.find('\n', e), out.size() - 1) + 1;  // the line, which held it alone
     else if (line_start)  // closers follow on its line: they join the line before
@@ -156,11 +159,61 @@ Expected<Plan> plan_removal(const LayerState& layer, const Path& path,
 }  // namespace
 
 namespace config_internal {
-Vec<Node> values_of(const Array& a) {
-    Vec<Node> out;
+void leaf_values(const Array& a, Vec<Node>& out) {
+    if (detail::composes(a)) {
+        const Values v = a.values();
+        for (size_t i = 1; i < v.size(); ++i) out.push_back(v[i]);
+        return;
+    }
     for (size_t i = 1; i < a.size(); ++i)
         if (!is_tagged(a[i])) out.push_back(a[i]);
+}
+Vec<Node> leaf_values(const Array& a) {
+    Vec<Node> out;
+    leaf_values(a, out);
     return out;
+}
+
+const Array* row_at(const Array& root, const Path& path) {
+    detail::Resolved r;
+    const bool ok = detail::resolve(root, last_is_index(path) ? parent_of(path) : path, r) ==
+                    detail::ResolveStatus::Ok;
+    return ok ? r.array : nullptr;
+}
+
+bool stale(const Array& row, const Vec<Node>* below) {
+    const Array* pin = row.has_marker() ? row.meta(detail::was_tag()) : nullptr;
+    if (!pin) return false;
+    const auto was = pin->values().nodes();
+    return below ? !same_nodes(was, *below) : !was.empty();
+}
+
+void row_warnings(const Array& row, std::string_view path, const Vec<Node>* below,
+                  const Array& stack, Vec<Error>& out) {
+    if (!row.has_marker()) return;
+    auto warn = [&](const Str& why) {
+        out.push_back(
+            make_error(ErrorCode::NotFound, "'" + Str(path) + "' " + why, row.file(), row.line()));
+    };
+    if (stale(row, below)) {
+        const auto was = row.meta(detail::was_tag())->values().nodes();
+        warn("was " + detail::text_of(pack(Vec<Node>(was.data(), was.data() + was.size()))) +
+             " when this row was written; the stack has " +
+             (below ? detail::text_of(pack(*below)) : Str("none")));
+    }
+    const detail::Marker verb = detail::verb_of(row);
+    if (verb != detail::Marker::Append && verb != detail::Marker::Drop) return;
+    // The run a verb applies to: every value below, a keyed tuple's included.
+    const Array* run = row_at(stack, Path(path));
+    const auto there = run ? run->values().nodes() : std::span<const Node>();
+    const Values operands = row.values();
+    for (const Node& v : operands.nodes().subspan(1)) {
+        const bool has = std::any_of(there.begin(), there.end(),
+                                     [&](const Node& n) { return structurally_equal(n, v); });
+        if (verb == detail::Marker::Append && has)
+            warn("already has " + detail::preview(v) + "; #append adds another");
+        if (verb == detail::Marker::Drop && !has) warn("has no " + detail::preview(v) + " to drop");
+    }
 }
 
 // Each tag's first child only, as lookup sees it: found by the tag run's scan in a small
@@ -169,16 +222,21 @@ static void collect_leaves(const Array& a, size_t first, const Str& prefix, Vec<
     constexpr size_t kIndexed = 32;
     HashMap<Symbol, char> seen;
     const bool indexed = a.size() > kIndexed;
+    const bool marked = a.has_marker();  // a verb or a pin below: one test for all children
     for (size_t i = first; i < a.size(); ++i) {
         if (!is_tagged(a[i])) continue;
         const Array& child = *a[i].try_array();
         const Symbol tag = *child[0].try_sym();
-        if (indexed ? !seen.emplace(tag, 0).second : a.try_find(tag) != &child) continue;
+        if (marked && tag.is_meta() && tag == detail::was_tag()) continue;  // the layer's own pin
+        // A key's later rows are leaves too when they compose: each applies, in order.
+        const bool first_row = indexed ? seen.emplace(tag, 0).second : a.try_find(tag) == &child;
+        const bool composes = marked && detail::composes(child);
+        if (!first_row && !composes) continue;
         Str path = prefix;
         if (!path.empty()) path += '.';
         detail::append_path_name(path, tag.str());
-        if (has_values(child)) out.push_back({path, &child, values_of(child)});
-        collect_leaves(child, 1, path, out);
+        if (has_values(child)) out.push_back({path, &child, leaf_values(child)});
+        if (!composes) collect_leaves(child, 1, path, out);  // operands are not keys
     }
 }
 
@@ -220,9 +278,11 @@ Node as_written(const Node& old, const Node& value) {
 // that hold the old value or, with `insert`, adding the entry as the last child of the
 // deepest ancestor written in that file (or creating an optional layer's absent file).
 // `read_file` gives the file as it is now; it must match what the layer was read from.
-Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
-                                  const Vec<Node>& values, bool insert,
-                                  const LoadSession::Reader& read_file) const {
+Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path, const Vec<Node>& given,
+                                  bool insert, const LoadSession::Reader& read_file,
+                                  const Node* pin) const {
+    Vec<Node> values = given;  // a new row's: the pin follows its values
+    if (pin) values.push_back(*pin);
     if (layer.path.empty())
         return Unexpected(refused(quoted(path) + " comes from layer '" + layer.name +
                                   "', which has no source file"));
@@ -310,6 +370,10 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
         if (!next) return Unexpected(detail::get_error(*layer.root, path, nullptr));
         cur = next;
         offset = seg.is_index ? 0 : 1;
+        if (last && detail::composes(*cur))
+            return Unexpected(refused(quoted(path) + " is composed in layer '" + layer.name +
+                                          "', so it has no value there to write over",
+                                      cur->file(), cur->line()));
         if (last)
             for (size_t j = 1; j < cur->size(); ++j)
                 if (!is_tagged((*cur)[j])) targets.push_back(j);
@@ -389,6 +453,19 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
             }
         }
     } else {
+        // The pin goes after the values, or in place of the one the row has; a row with no
+        // values gets it with them.
+        const Array* was = pin ? cur->meta(detail::was_tag()) : nullptr;
+        if (pin && (was || !targets.empty())) {
+            values.pop_back();
+            size_t k = targets.empty() ? 0 : targets.back();
+            for (size_t j = 0; was && j < cur->size(); ++j)
+                if ((*cur)[j].try_array() == was) k = j;
+            if (auto e = not_literal(*cur, k)) return Unexpected(*e);
+            const SourceSpan& sp = *map.span(*cur, k);
+            edits.push_back(
+                {was ? sp.begin : sp.end, sp.end, Str(was ? "" : " ") + detail::text_of(*pin)});
+        }
         Vec<Node> old;
         for (size_t k : targets) {
             if (auto e = not_literal(*cur, k)) return Unexpected(*e);  // e.g. (width kWidth)
@@ -439,8 +516,10 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
 // Writes one value into layer `li`, re-reads that layer and those above (trigger
 // write_back), and drops the scratch entry the file now holds.
 Expected<WriteReport> Config::Impl::write_into(Config& c, size_t li, const Path& path,
-                                               const Vec<Node>& values, bool insert) {
-    auto p = plan(layers[li], path, values, insert, base.reader());
+                                               const Vec<Node>& values, bool insert,
+                                               const Node* pin) {
+    if (auto e = composed(path, li)) return Unexpected(*e);
+    auto p = plan(layers[li], path, values, insert, base.reader(), pin);
     if (!p) return Unexpected(std::move(p).error());
     ReloadRecord rec = begin(trigger_name("write_back"));
     uint64_t t = rec.start_ns;
@@ -492,13 +571,14 @@ Expected<WriteReport> Config::write_back(const Path& path) {
     if (!impl_->current(*this, path, values))
         return Unexpected(detail::get_error(*root_, path, nullptr));
     const auto at = impl_->supplier(path, impl_->layers.size());
+    if (auto e = at ? std::nullopt : impl_->composed(path, 0)) return Unexpected(*e);
     if (!at)
         return Unexpected(refused(
             quoted(path) + " is not in any layer's file; use write_back_to to add it to one"));
     return impl_->write_into(*this, *at, path, values, false);
 }
 
-Expected<WriteReport> Config::write_back_to(const Path& path, std::string_view layer) {
+Expected<WriteReport> Config::write_back_to(const Path& path, std::string_view layer, bool pin) {
     if constexpr (kShipping) return Unexpected(shipping("write-back"));
     if (!path.valid()) return Unexpected(detail::get_error(*root_, path, nullptr));
     if (layer == "scratch") return Unexpected(refused("scratch is never written to disk"));
@@ -508,7 +588,18 @@ Expected<WriteReport> Config::write_back_to(const Path& path, std::string_view l
     const auto at = impl_->find_layer(layer);
     if (!at)
         return Unexpected(make_error(ErrorCode::NotFound, "no layer named '" + Str(layer) + "'"));
-    return impl_->write_into(*this, *at, path, values, true);
+    if (!pin) return impl_->write_into(*this, *at, path, values, true);
+    // The stack's value below the layer, which the row is written against (D251).
+    Ref<Array> below = Array::make(0);
+    for (size_t i = 0; i < *at; ++i)
+        if (impl_->layers[i].options.enabled)
+            below = detail::merge(*below, *impl_->layers[i].root, MergePolicy::Overwrite,
+                                  impl_->merge_scratch);
+    Vec<Node> was{Node(detail::was_tag())};
+    Vec<Node> v;
+    if (value_nodes(*below, path, v)) was.insert(was.end(), v.begin(), v.end());
+    const Node node(Array::make_from(was));
+    return impl_->write_into(*this, *at, path, values, true, &node);
 }
 
 Expected<WriteReport> Config::promote(std::string_view from, std::string_view to) {
@@ -526,10 +617,10 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
     // the enabled layers below, then the source, merged, so a repeated tag folds as a
     // merge folds it rather than as find() would see it alone (D134).
     Vec<Leaf> leaves;
+    Ref<Array> upto = Array::make(0);
     if (tree) {
         HashMap<Str, char> seen;
         collect_paths(*tree, 0, "", seen, leaves);
-        Ref<Array> upto = Array::make(0);
         const size_t below = fi ? *fi : impl_->layers.size();
         for (size_t i = 0; i < below; ++i)
             if (impl_->layers[i].options.enabled)
@@ -538,7 +629,7 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
         upto = detail::merge(*upto, *tree, MergePolicy::Overwrite, impl_->merge_scratch);
         for (Leaf& leaf : leaves)
             if (!value_nodes(*upto, Path(leaf.path), leaf.values))
-                leaf.values = values_of(*leaf.holder);
+                leaf.values = leaf_values(*leaf.holder);
     }
 
     // Plan every entry against the target as each earlier one leaves it, in memory.
@@ -558,10 +649,29 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
     before.set_reader(vread);
     Vec<Error> refusals;
     for (const Leaf& leaf : leaves) {
+        // A row a layer above the target composes would apply a second time over what is
+        // written. A composing row writes the value it makes: none, when it drops from a key
+        // the stack lacks; a keyed operand cannot be written as a value.
+        const Path path(leaf.path);
+        if (auto e = impl_->composed(path, *ti + 1, fi ? *fi : SIZE_MAX)) {
+            refusals.push_back(std::move(*e));
+            continue;
+        }
+        const bool composes = detail::composes(*leaf.holder);
+        if (composes && !row_at(*upto, path)) continue;
+        if (composes &&
+            std::any_of(leaf.holder->begin() + 2, leaf.holder->end(), [](const Node& n) {
+                return is_tagged(n) && !detail::tag_of(n).is_meta();
+            })) {
+            refusals.push_back(refused("promote cannot write " + quoted(path) +
+                                           ": its verb moves keyed tuples; write the list by hand",
+                                       leaf.holder->file(), leaf.holder->line()));
+            continue;
+        }
         // A removal deletes the key from the target: its array, with its line if alone there.
-        const bool removal = leaf.values.size() == 1 && leaf.values[0].is(detail::remove_marker());
-        auto p = removal ? plan_removal(target, Path(leaf.path), vread)
-                         : impl_->plan(target, Path(leaf.path), leaf.values, true, vread);
+        auto p = detail::is_removal(*leaf.holder)
+                     ? plan_removal(target, path, vread)
+                     : impl_->plan(target, path, leaf.values, true, vread);
         if (!p) {
             refusals.push_back(std::move(p).error());
             continue;

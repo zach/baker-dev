@@ -128,6 +128,14 @@ TEST_CASE("malformed declarations are located errors; unknown shapes are reporte
     }));
 }
 
+TEST_CASE("a shape is declared whole: a layer verb in (shapes ...) is an error (D251)") {
+    const auto r = check_text("(shapes (fighter (health int)) (move (cancels #append symbol)))");
+    const auto e = texts(r.errors);
+    REQUIRE(e.size() == 1);
+    CHECK(e[0].find("shape 'move' holds (cancels #append symbol): a shape is declared whole") !=
+          std::string::npos);
+}
+
 TEST_CASE("the grammar's words carry the sigil, so a field may have any name (D248)") {
     // A shape describing itself, and fields named at, kind, desc and rule.
     const auto good = check_text(R"((shapes (piece (@at pieces) (@keyed) (@desc "A part")

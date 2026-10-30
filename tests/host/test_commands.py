@@ -109,6 +109,21 @@ def diff_and_promote(s):
     code, out, _ = s.run("promote", "--baker-write")
     expect(code == 0 and "(speed 4.5)   ; how fast" in (s.dir / "data" / "default.dta").read_text(),
            "promote --baker-write writes the line")
+    # The layer verbs: diff names each, with a stale pin; the patch carries each row's note.
+    code, out, _ = s.run("diff", agent="(loot #append ruby (@note \"a rarer drop\"))\n"
+                                       "(player (lives 5 (@was 2)))\n")
+    expect(code == 0 and "loot  (coin gem) -> #append ruby" in out and
+           "player.lives  3 -> 5" in out and out.rstrip().endswith("stale"),
+           "diff: a verb and a stale pin")
+    code, out, _ = s.run("diff", "--baker-rows")
+    expect(code == 0 and '(/loot #append ruby (@note "a rarer drop"))  ; was (coin gem)\n' in out and
+           "(/player.lives 5 (@was 2))  ; was 3, stale\n" in out,
+           "diff --baker-rows: a verb in its slot, with its metadata")
+    code, out, _ = s.run("promote", "--baker-patch", "verbs.patch")
+    patch = (s.dir / "verbs.patch").read_text()
+    expect(code == 0 and patch.startswith("# loot: a rarer drop\n--- a/data/default.dta") and
+           "+(loot coin gem ruby)\n" in patch,
+           "promote --baker-patch: the note above the patch, the list resolved")
 
 
 def format_files(s):

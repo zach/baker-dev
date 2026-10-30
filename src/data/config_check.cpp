@@ -137,8 +137,8 @@ void find_code(const Array& a, Vec<Symbol>& tags, Vec<Error>& out) {
 
 // The metadata a data file's arrays carry, as Baker's readers spell them.
 bool known_metadata(Symbol tag) noexcept {
-    static const Symbol words[] = {"@range", "@step",  "@desc",  "@note",
-                                   "@kind",  "@group", "@one_of"};
+    static const Symbol words[] = {"@range", "@step",  "@desc",   "@note",
+                                   "@kind",  "@group", "@one_of", "@was"};
     return std::find(std::begin(words), std::end(words), tag) != std::end(words);
 }
 
@@ -229,7 +229,7 @@ LayerReport run_check(const Basis& b, std::string_view name, const Ref<Array>& c
         warnings.push_back(make_error(ErrorCode::Syntax,
                                       "unknown metadata (" + Str(m->tag().str()) +
                                           " ...): Baker reads @range, @step, @desc, @note, "
-                                          "@kind, @group and @one_of",
+                                          "@kind, @group, @one_of and @was",
                                       m->file(), m->line()));
     const Array& stack = b.root;
     Finder finder(alloc);
@@ -240,7 +240,8 @@ LayerReport run_check(const Basis& b, std::string_view name, const Ref<Array>& c
         for (size_t i = b.layers.size(); i-- > 0;) {
             detail::Resolved r;
             if (!finder.resolve(*b.layers[i], path, r)) continue;
-            if (!index && !(r.array && has_values(*r.array))) continue;
+            if (!index && !(r.array && has_values(*r.array) && !detail::composes(*r.array)))
+                continue;
             const Array& holder = *r.values.source();
             Source s{b.names[i], holder.file(), holder.line()};
             if (const Origin* o = b.session.origin_of(holder.file())) {
@@ -259,10 +260,15 @@ LayerReport run_check(const Basis& b, std::string_view name, const Ref<Array>& c
         LayerEffectEntry e{};
         e.path = Symbol(leaf.path);
         e.value = pack(leaf.values);
+        e.op = op_of(*leaf.holder);
         e.source = Source{layer, leaf.holder->file(), leaf.holder->line()};
         if (exists) {
             e.below = pack(below);
             e.below_source = below_source(path);
+        }
+        if (leaf.holder->has_marker()) {  // a verb or a pin
+            e.stale = stale(*leaf.holder, exists ? &below : nullptr);
+            row_warnings(*leaf.holder, leaf.path, exists ? &below : nullptr, stack, warnings);
         }
         effect.push_back(std::move(e));
 

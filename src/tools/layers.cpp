@@ -35,8 +35,11 @@ Expected<List<LayerEffectEntry>> layer_effect(const Config& cfg, std::string_vie
         const Path path(leaf.path);
         e.path = Symbol(leaf.path);
         e.value = pack(leaf.values);
+        e.op = op_of(*leaf.holder);
         e.source = li ? impl.located(impl.layers[*li], *leaf.holder) : in_scratch;
-        if (value_nodes(*without, path, below)) e.below = pack(below);
+        const bool has = value_nodes(*without, path, below);
+        if (has) e.below = pack(below);
+        e.stale = stale(*leaf.holder, has ? &below : nullptr);
         // The topmost other layer that supplies the path: it shadows this one if above it.
         const auto s = impl.supplier(path, impl.layers.size(), li ? *li : SIZE_MAX);
         const bool scratch_has = !is_scratch && impl.scratch_entry(path);
@@ -76,18 +79,20 @@ Expected<List<DiffEntry>> diff(const Config& cfg, std::string_view a, std::strin
         const auto it = in_b.find(x.path);
         const Leaf* y = it != in_b.end() ? &lb[it->second] : nullptr;
         if (y) matched[it->second] = true;
-        if (y && same_nodes(x.values, y->values)) continue;
-        DiffEntry d{Symbol(x.path), pack(x.values), std::nullopt, source(a, x), std::nullopt};
+        if (y && same_nodes(x.values, y->values) && op_of(*x.holder) == op_of(*y->holder)) continue;
+        DiffEntry d{Symbol(x.path), pack(x.values),   std::nullopt, source(a, x),
+                    std::nullopt,   op_of(*x.holder), Symbol()};
         if (y) {
             d.b = pack(y->values);
             d.source_b = source(b, *y);
+            d.op_b = op_of(*y->holder);
         }
         out.push_back(std::move(d));
     }
     for (size_t i = 0; i < lb.size(); ++i)
         if (!matched[i])
             out.push_back({Symbol(lb[i].path), std::nullopt, pack(lb[i].values), std::nullopt,
-                           source(b, lb[i])});
+                           source(b, lb[i]), Symbol(), op_of(*lb[i].holder)});
     return List<DiffEntry>(out);
 }
 
@@ -102,12 +107,22 @@ Expected<List<ExplainEntry>> explain(const Config& cfg, const Path& path) {
     // of arrays, or nothing.
     struct Held {
         Vec<Node> nodes;
-        const Array* marker = nullptr;
+        const Array* marker = nullptr;    // a removal of it or of an ancestor
+        const Array* composes = nullptr;  // (key #append v...) or (key #drop v...)
         bool value = false, subtree = false;
     };
     auto held = [&](const Array& tree) {
         Held h;
         detail::Resolved r;
+        // A row that composes the value, or the list an element is in: its operands, as
+        // layer_effect gives them.
+        if (const Array* row = tree.has_marker() ? row_at(tree, path) : nullptr;
+            row && detail::composes(*row)) {
+            h.composes = row;
+            h.nodes = leaf_values(*row);
+            h.value = true;
+            return h;
+        }
         for (size_t k = 1; k <= path.size(); ++k) {
             if (path[k - 1].is_index) continue;
             const Path prefix = k == path.size() ? path : Path(detail::text_of(path, k));
@@ -132,11 +147,16 @@ Expected<List<ExplainEntry>> explain(const Config& cfg, const Path& path) {
     auto add = [&](Symbol layer, const Held& h, const Source& source, bool enabled) {
         subtree = subtree || h.subtree;
         if (!h.value && !h.marker) return;
-        ExplainEntry e{layer, h.marker ? Node(detail::remove_marker()) : pack(h.nodes), source};
+        const Array* row = h.marker ? h.marker : h.composes;
+        ExplainEntry e{
+            layer, h.marker ? Node(detail::marker_symbol(detail::Marker::Remove)) : pack(h.nodes),
+            source, Standing::Wins, row ? op_of(*row) : Symbol()};
         if (!enabled) {
             e.standing = Standing::Disabled;
         } else if (decided) {
             e.standing = Standing::Shadowed;
+        } else if (h.composes) {
+            e.standing = Standing::Composes;  // the value below it still decides
         } else {
             e.standing = h.marker ? Standing::Removes : Standing::Wins;
             decided = true;
@@ -149,9 +169,10 @@ Expected<List<ExplainEntry>> explain(const Config& cfg, const Path& path) {
     for (size_t i = impl.layers.size(); i-- > 0;) {
         const LayerState& l = impl.layers[i];
         const Held h = held(*l.root);
-        const Source source = h.marker  ? impl.located(l, *h.marker)
-                              : h.value ? impl.source_in(l, path)
-                                        : Source{};
+        const Source source = h.marker     ? impl.located(l, *h.marker)
+                              : h.composes ? impl.located(l, *h.composes)
+                              : h.value    ? impl.source_in(l, path)
+                                           : Source{};
         add(Symbol(l.name), h, source, l.options.enabled);
         // The branch of an #ifdef its value was read in: the innermost around its line.
         if (!out.empty() && out.back().layer == Symbol(l.name) && l.after && !source.file.empty())

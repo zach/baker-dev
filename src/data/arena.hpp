@@ -43,7 +43,9 @@ public:
     static constexpr uint32_t kBlockHeader = 24;
 
     // An array of `nodes`, moved from; the Ref counts this arena.
-    [[nodiscard]] Ref<Array> make_array(std::span<Node> nodes, Symbol file, int32_t line);
+    // `verb`: as Array::finish takes it, whether slot 1 holds a layer verb (-1: test it).
+    [[nodiscard]] Ref<Array> make_array(std::span<Node> nodes, Symbol file, int32_t line,
+                                        int verb = -1);
     [[nodiscard]] Ref<String> make_string(std::string_view text);
     // Stores `n`, which is moved from, at `slot` (raw storage, or a node it overwrites
     // without destroying). `building`: the load is not yet returned, so no other thread

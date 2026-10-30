@@ -5,6 +5,18 @@
 
 namespace baker {
 namespace detail {
+
+Marker verb_in(const Array& a) noexcept {
+    if (a.size() < 2) return Marker::None;
+    const Marker m = marker_of(a[1]);
+    if (m == Marker::None) return m;
+    const auto tag = a[0].try_sym();
+    if (!tag || tag->empty()) return Marker::None;
+    const size_t values = a.meta_first() ? a.meta_first() : a.size();  // the tag's too
+    if (m == Marker::Remove ? values != 2 : values < 3) return Marker::None;
+    return m;
+}
+
 namespace {
 
 bool is_tagged(const Node& n) noexcept {
@@ -37,21 +49,73 @@ bool same_nodes(const Vec<Node>& merged, const Array& src) noexcept {
     return true;
 }
 
-// `a` without its (key #remove) children, at any depth: what a layer adds to the stack keeps
-// none (D143). Only an array with has_removal() needs it.
-Ref<Array> without_removals(const Array& a, Arena* arena) {
+// `a` without its verbs, at any depth: what a layer adds to the stack keeps none (D143). A
+// (key #remove) or (key #drop ...) is left out (null), and (key #append v...) becomes
+// (key v...); pins stay, as metadata. `a` itself when nothing changes. Only an array with
+// has_marker() needs it.
+Ref<Array> without_markers(const Array& a, Arena* arena) {
+    const Marker verb = verb_of(a);
+    if (verb == Marker::Remove || verb == Marker::Drop) return Ref<Array>();
     Vec<Node> kept;
     kept.reserve(a.size());
-    for (const Node& n : a) {
-        const Array* c = n.type() == Type::Array ? n.array() : nullptr;
-        if (c && is_removal(*c)) continue;
-        if (c && c->has_removal())
-            kept.emplace_back(without_removals(*c, arena));
-        else
-            kept.push_back(n);
+    bool changed = verb == Marker::Append;
+    for (size_t i = 0; i < a.size(); ++i) {
+        if (i == 1 && verb == Marker::Append) continue;
+        const Array* c = a[i].type() == Type::Array ? a[i].array() : nullptr;
+        if (c && c->has_marker()) {
+            Ref<Array> clean = without_markers(*c, arena);
+            changed = changed || clean.get() != c;
+            if (clean) kept.emplace_back(std::move(clean));
+            continue;
+        }
+        kept.push_back(a[i]);
     }
+    if (!changed) return Ref<Array>(const_cast<Array*>(&a));
     return arena ? arena->make_array(kept, a.file(), a.line())
                  : Array::make_from(kept, a.file(), a.line());
+}
+
+// Where `dst`'s metadata begins, from `first`: an appended value goes before it.
+size_t meta_start(const Vec<Node>& dst, size_t first) noexcept {
+    while (first < dst.size() && !tag_of(dst[first]).is_meta()) ++first;
+    return first;
+}
+
+// (key #append v...) or (key #drop v...) applied to dst's value run from `dst_first`: the
+// operands go after the run, before any metadata, or each removes the first node of the run
+// structurally equal to it (a tuple is restated as written). Spans move with their nodes.
+bool apply_verb(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const Array& src,
+                Marker verb, SourceMap* map, Arena* arena) {
+    bool changed = false;
+    const size_t end = src.meta_first() ? src.meta_first() : src.size();
+    for (size_t j = 2; j < end; ++j) {
+        const size_t run = meta_start(dst, dst_first);
+        if (verb == Marker::Append) {
+            Node n = src[j];
+            if (const Array* op = src[j].type() == Type::Array ? src[j].array() : nullptr;
+                op && op->has_marker()) {  // an operand holding a verb is resolved too
+                Ref<Array> clean = without_markers(*op, arena);
+                if (!clean) continue;
+                n = Node(std::move(clean));
+            }
+            dst.insert(dst.begin() + static_cast<ptrdiff_t>(run), std::move(n));
+            if (spans) {
+                const SourceSpan* sp = map->span(src, j);
+                spans->insert(spans->begin() + static_cast<ptrdiff_t>(run),
+                              sp ? *sp : SourceSpan{});
+            }
+            changed = true;
+            continue;
+        }
+        for (size_t i = dst_first; i < run; ++i)
+            if (structurally_equal(dst[i], src[j])) {
+                dst.erase(dst.begin() + static_cast<ptrdiff_t>(i));
+                if (spans) spans->erase(spans->begin() + static_cast<ptrdiff_t>(i));
+                changed = true;
+                break;
+            }
+    }
+    return changed;
 }
 
 // The index of a wide array's tags, in a level's tables: the first child with each tag.
@@ -118,7 +182,14 @@ bool merge_into(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const 
     } depth(scratch);
     MergeScratch::Level& level = scratch.level(scratch.depth_);
     bool changed = false;
-    if (policy == MergePolicy::Overwrite && has_values(src, src_first)) {
+    // A verb applies to the value run below in place of the Overwrite rule; its operands are
+    // not keys, so only its metadata merges key by key after it.
+    size_t from = src_first;
+    const Marker verb = src_first == 1 ? verb_of(src) : Marker::None;
+    if (policy == MergePolicy::Overwrite && (verb == Marker::Append || verb == Marker::Drop)) {
+        changed = apply_verb(dst, spans, dst_first, src, verb, map, arena);
+        from = src.meta_first() ? src.meta_first() : src.size();
+    } else if (policy == MergePolicy::Overwrite && has_values(src, src_first)) {
         // The incoming values replace the existing ones; tagged children stay to merge. In
         // place: the tagged children are set aside in the level, which `dst` may not share
         // an allocator with. Spans move with their nodes (D135).
@@ -153,24 +224,26 @@ bool merge_into(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const 
     // small arrays config is made of; past kIndexed incoming keys, an index of the first
     // child with each tag keeps a large flat layer linear (D75).
     constexpr size_t kIndexed = 32;
-    const bool indexed = src.size() - src_first > kIndexed;
+    const bool indexed = src.size() - from > kIndexed;
     Index index{level.keys, level.slots};
     if (indexed) {
-        index.reset(dst.size() - dst_first + src.size() - src_first);
+        index.reset(dst.size() - dst_first + src.size() - from);
         for (size_t i = dst_first; i < dst.size(); ++i)
             if (const Array* da = dst[i].try_array())
                 if (const Symbol t = da->tag(); !t.empty()) index.add(t, i);
     }
     bool removes = false;  // a (key #remove) child: applied after the merge, below (D143)
-    for (size_t j = src_first; j < src.size(); ++j) {
+    for (size_t j = from; j < src.size(); ++j) {
         const Array* sa = src[j].try_array();
         if (!sa) continue;
         const Symbol tag = sa->tag();
         if (tag.empty() && policy == MergePolicy::Overwrite) continue;  // a value, handled above
-        if (is_removal(*sa)) {  // #merge fills in; only a layer removes
+        const Marker v = verb_of(*sa);
+        if (v == Marker::Remove) {  // #merge fills in; only a layer removes or composes
             removes = removes || policy == MergePolicy::Overwrite;
             continue;
         }
+        if (v != Marker::None && policy == MergePolicy::FillMissing) continue;
         size_t found = dst.size();
         if (!tag.empty() && indexed) {
             found = index.find(tag, dst.size());
@@ -184,11 +257,16 @@ bool merge_into(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const 
             }
         }
         if (found == dst.size()) {
+            Node added = src[j];
+            if (policy == MergePolicy::Overwrite && sa->has_marker()) {
+                // A key new to the stack is resolved against nothing: #drop and #remove add
+                // nothing, #append adds its operands, and no verb reaches the tree (D143).
+                Ref<Array> clean = without_markers(*sa, arena);
+                if (!clean) continue;
+                added = Node(std::move(clean));
+            }
             if (!tag.empty() && indexed) index.add(tag, dst.size());
-            if (policy == MergePolicy::Overwrite && sa->has_removal())
-                dst.emplace_back(without_removals(*sa, arena));
-            else
-                dst.push_back(src[j]);
+            dst.push_back(std::move(added));
             if (spans) {
                 const SourceSpan* sp = map->span(src, j);
                 spans->push_back(sp ? *sp : SourceSpan{});
@@ -239,7 +317,7 @@ bool merge_into(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const 
             const Symbol t = da ? da->tag() : Symbol();
             bool gone = false;
             if (!t.empty())
-                for (size_t j = src_first; j < src.size() && !gone; ++j) {
+                for (size_t j = from; j < src.size() && !gone; ++j) {
                     const Array* sa = src[j].try_array();
                     gone = sa && is_removal(*sa) && sa->tag() == t;
                 }
