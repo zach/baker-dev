@@ -54,7 +54,7 @@ const char* const kDefault =
     "(audio\n"
     "   (master_volume kDefaultVolume)   ; from the macro\n"
     "   (channels 64))\n"
-    "(box (width 2 (range 0 10) (note \"good values are 2-3\")) (height 1))\n";
+    "(box (width 2 (@range 0 10) (@note \"good values are 2-3\")) (height 1))\n";
 
 const char* const kApp =
     "; app overrides\n"
@@ -68,8 +68,8 @@ TEST_CASE("overwrite merge: leaves win, tagged arrays recurse") {
     auto r = merge(*parse("(a (b 1))"), *parse("(a (b 2) (c 2))"));
     CHECK(str_of(*r) == "((a (b 2) (c 2)))");
     // Values replace values; children are kept and merged.
-    r = merge(*parse("(width 2 (range 0 10))"), *parse("(width 3)"));
-    CHECK(str_of(*r) == "((width 3 (range 0 10)))");
+    r = merge(*parse("(width 2 (@range 0 10))"), *parse("(width 3)"));
+    CHECK(str_of(*r) == "((width 3 (@range 0 10)))");
     r = merge(*parse("(clear_color 0.1 0.1 0.12)"), *parse("(clear_color 1 0)"));
     CHECK(str_of(*r) == "((clear_color 1 0))");
     r = merge(*parse("(points (1 2) (3 4))"), *parse("(points (5 6))"));
@@ -569,10 +569,11 @@ TEST_CASE("a tweak's value stops before the metadata written after it (D88)") {
     std::vector<Error> warnings;
     cfg.set_warning_handler([&](const Error& e) { warnings.push_back(e); });
     REQUIRE(cfg.push_layer(
-        "default", dir.write("default.dta",
-                             "(look\n"
-                             "   (tint 0.9 0.5 0.2 (range 0 1) (desc \"Tint\") (note \"warm\"))\n"
-                             "   (sizes 1 2 3 (step 1)))\n")));
+        "default",
+        dir.write("default.dta",
+                  "(look\n"
+                  "   (tint 0.9 0.5 0.2 (@range 0 1) (@desc \"Tint\") (@note \"warm\"))\n"
+                  "   (sizes 1 2 3 (@step 1)))\n")));
     CHECK(warnings.empty());
     REQUIRE(tint.bound());
     CHECK(tint.value()[0] == 0.9f);
@@ -585,7 +586,7 @@ TEST_CASE("a tweak's value stops before the metadata written after it (D88)") {
         // A live edit and its write-back change the numbers and keep the metadata.
         REQUIRE(tint.set({0.8f, 0.5f, 0.25f}));
         REQUIRE(tint.write_back());
-        CHECK(dir.read("default.dta").find("(tint 0.8 0.5 0.25 (range 0 1) (desc \"Tint\")") !=
+        CHECK(dir.read("default.dta").find("(tint 0.8 0.5 0.25 (@range 0 1) (@desc \"Tint\")") !=
               std::string::npos);
         CHECK(tint.value()[2] == 0.25f);
     }
@@ -593,7 +594,7 @@ TEST_CASE("a tweak's value stops before the metadata written after it (D88)") {
     // Only trailing arrays with a metadata tag are left out: other tagged elements are
     // the value's own.
     Tweak<std::vector<Node>> parts{"look.parts", {}, {}, reg};
-    REQUIRE(cfg.push_layer("parts", parse("(look (parts 1 (x 2) (range 0 1)))")));
+    REQUIRE(cfg.push_layer("parts", parse("(look (parts 1 (x 2) (@range 0 1)))")));
     CHECK(parts.get().size() == 2);
 }
 
@@ -629,8 +630,8 @@ TEST_CASE("live edits through tweaks, and write-back to the source line") {
     const std::string after = dir.read("default.dta");
     CHECK(diff_lines(before, after) ==
           std::vector<std::string>{
-              "-(box (width 2 (range 0 10) (note \"good values are 2-3\")) (height 1))",
-              "+(box (width 2.7 (range 0 10) (note \"good values are 2-3\")) (height 1))"});
+              "-(box (width 2 (@range 0 10) (@note \"good values are 2-3\")) (height 1))",
+              "+(box (width 2.7 (@range 0 10) (@note \"good values are 2-3\")) (height 1))"});
     CHECK(width.source()->layer == "default");  // saved: no longer live
     CHECK(width.source()->line == 10);
     CHECK(cfg.unsaved().empty());
@@ -696,7 +697,7 @@ TEST_CASE("write-back refuses what it cannot edit exactly") {
 
 TEST_CASE("write-back into an array assembled by #merge is refused") {
     TempDir dir;
-    dir.write("base.dta", "(s (w 1 (range 0 2)))\n");
+    dir.write("base.dta", "(s (w 1 (@range 0 2)))\n");
     Config cfg({.tweaks = nullptr});
     REQUIRE(cfg.push_layer("main", dir.write("main.dta", "(s (w 5))\n#merge base.dta\n")));
     // (w 5) gained (range 0 2) from base.dta, so it was rebuilt; its values are main.dta's

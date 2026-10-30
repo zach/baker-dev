@@ -117,7 +117,7 @@ A parameter in [brackets] is optional, `unevaluated` is passed as written, and
 
 - `{func values...}` → value
 
-*Native.* `{func name ($params...) body...}`: defines a script function. `(status stub)`, `(status provisional)`, `(status deprecated replacement)` and `(doc "...")` may follow the parameters.
+*Native.* `{func name ($params...) body...}`: defines a script function. `(@status stub)`, `(@status provisional)`, `(@status deprecated replacement)` and `(@doc "...")` may follow the parameters.
 
 ### `if`
 

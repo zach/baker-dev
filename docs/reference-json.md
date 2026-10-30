@@ -127,8 +127,8 @@ editor, a CI job) can register each function from its overloads with
 | `range` | `[min, max]`, or `null` |
 | `step`, `desc`, `kind`, `group` | metadata; the data's wins over the code's |
 | `dev_only` | the code's flag: a shipping build keeps the default |
-| `one_of` | the symbols, or a string tweak's strings, the value may be, in order: the data's `(one_of ...)`, else the code's; `[]`: any (added in 1.1; strings in 1.3) |
-| `choices` | the integers an integer tweak may be, each `{"value", "name"}`: the data's `(one_of (0 easy) (1 normal))`, else the code's `TweakMeta::choices`; `[]`: any (added in 1.3) |
+| `one_of` | the symbols, or a string tweak's strings, the value may be, in order: the data's `(@one_of ...)`, else the code's; `[]`: any (added in 1.1; strings in 1.3) |
+| `choices` | the integers an integer tweak may be, each `{"value", "name"}`: the data's `(@one_of (0 easy) (1 normal))`, else the code's `TweakMeta::choices`; `[]`: any (added in 1.3) |
 | `source` | while bound: `{layer, file, line}`; otherwise `null` |
 
 ### Checking data against tweaks without the game

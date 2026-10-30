@@ -5,11 +5,11 @@
 #include "economy.dta"
 
 (econ
-   (day_seconds 5 (range 0.05 600) (desc "Real seconds per in-game day: 720 days an hour"))
-   (start_money 1000 (range 0 1000000))
-   (recovery 0.25 (range 0.01 1) (desc "Share of a market's glut cleared each day"))
-   (resale 0.5 (range 0 1) (desc "A building's worth, as a share of its cost"))
-   (bankrupt_days 30 (range 1 3650) (desc "Days in debt before a company is bankrupt")))
+   (day_seconds 5 (@range 0.05 600) (@desc "Real seconds per in-game day: 720 days an hour"))
+   (start_money 1000 (@range 0 1000000))
+   (recovery 0.25 (@range 0.01 1) (@desc "Share of a market's glut cleared each day"))
+   (resale 0.5 (@range 0 1) (@desc "A building's worth, as a share of its cost"))
+   (bankrupt_days 30 (@range 1 3650) (@desc "Days in debt before a company is bankrupt")))
 
 ; The bot players. Each runs a company of its own, from the same start, in a market of its
 ; own with the same days (econ.compete).

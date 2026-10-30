@@ -27,7 +27,7 @@ from here, or locked), and buttons for the proof and the bots. In the console:
 |---|---|---|
 | `world.hpp`, `world.cpp` | L2: the world from data, navigation geometry, progress, the proof, the bots | Engineers |
 | `main.cpp` | L2: the character on Jolt, streaming, the director, the map, script words (`mission.`, `world.`) | Engineers |
-| `packs/game/wayfarer_core.dta` | L2: the shapes of a cell, a point, a mission, an objective (all `(keyed)`) | By pull request |
+| `packs/game/wayfarer_core.dta` | L2: the shapes of a cell, a point, a mission, an objective (all `(@keyed)`) | By pull request |
 | `data/default.dta` | L4: traversal limits, the cells, the points of interest | By pull request |
 | `data/regions/*.dta` | L4: each region's missions | By pull request |
 | `data/agent.dta` | The agent's layer | The agent |

@@ -13,6 +13,12 @@
 #include <cstring>
 #include <utility>
 
+#if defined(_MSC_VER)
+#define BAKER_COLD __declspec(noinline)
+#else
+#define BAKER_COLD [[gnu::noinline, gnu::cold]]
+#endif
+
 namespace baker {
 namespace detail {
 namespace {
@@ -391,6 +397,13 @@ private:
         record(arr, f.start, f.begin, t.end);
         truncate(f.start);
         if (arr->height() > s_.limits.max_depth) return too_deep(f.line, f.begin);
+        // Metadata comes after the value. Inline, so an array without metadata, and with no
+        // more children than the boundary can name (kMaxMetaFirst, 14 bits), pays one test; a
+        // command's and a property's forms are positional and keep their order.
+        static_assert(Array::kMaxMetaFirst == (1u << 14) - 1);
+        if ((arr->meta_first() | (arr->size() >> 14)) && f.kind == Frame::Array &&
+            !metadata_placed(*arr, f))
+            return false;
         const SourceSpan span{file_, f.begin, t.end, {}};
         switch (f.kind) {
             case Frame::DefineBody:
@@ -646,6 +659,28 @@ private:
     bool skipped_directive(const Token& t) {
         if (t.text == "ifdef" || t.text == "ifndef") return conditional(t, false);
         if (t.text == "else" || t.text == "endif") return else_or_endif(t);
+        return true;
+    }
+
+    // In the parenthesized array `a` just closed, every child after the first metadata
+    // child, (@tag ...), is a tagged array: a field or more metadata, never a value. Metadata
+    // past child kMaxMetaFirst, which the boundary cannot name, is refused. Located at the
+    // array: a child's own place is not known once macros have spliced theirs in.
+    BAKER_COLD bool metadata_placed(const Array& a, const FrameInfo& f) {
+        const uint32_t m = a.meta_first();
+        for (uint32_t i = m ? m + 1 : Array::kMaxMetaFirst + 1; i < a.size(); ++i) {
+            const Symbol tag = detail::tag_of(a[i]);
+            if (m ? !tag.empty() : !tag.is_meta()) continue;
+            if (!m)
+                return fail(ErrorCode::Limit,
+                            "metadata past child " + detail::decimal(Array::kMaxMetaFirst) + ": " +
+                                preview(a[i]),
+                            f.line, f.begin);
+            return fail(
+                ErrorCode::Syntax,
+                "metadata comes after the value: move " + preview(a[m]) + " after " + preview(a[i]),
+                f.line, f.begin);
+        }
         return true;
     }
 

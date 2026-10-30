@@ -69,7 +69,7 @@ TEST_CASE("types, lists, nested shapes, and what is not checked") {
     const auto r = check_text(R"(
         (shapes
           (vec (x float) (y float))
-          (unit (name string) (alive bool) (speed float (range 0 10)) (tags (list symbol))
+          (unit (name string) (alive bool) (speed float (@range 0 10)) (tags (list symbol))
                 (pos vec) (path (list vec)) (data any) (count int)))
         (unit (name "bob") (alive 1) (speed {compute}) (tags a b 3) (pos (x 1) (y "no"))
               (path ((x 1) (y 2)) (p2 (x 1))) (data whatever 1 2) (count 2.5) (extra 1) 7)
@@ -92,7 +92,7 @@ TEST_CASE("types, lists, nested shapes, and what is not checked") {
 
 TEST_CASE("a nested shape tagged with its own name is checked once") {
     const auto r = check_text(R"(
-        (shapes (attack (dmg int (range 0 10))) (boss (attacks (list attack)) (main attack)))
+        (shapes (attack (dmg int (@range 0 10))) (boss (attacks (list attack)) (main attack)))
         (boss (attacks (attack (dmg 50)) (attack (dmg 1))) (main (dmg 11)))
         (attack (dmg 12))
     )");
@@ -116,7 +116,7 @@ TEST_CASE("checking allocates the same for 10 instances as for 1,000 (gap 20)") 
 }
 
 TEST_CASE("malformed declarations are located errors; unknown shapes are reported") {
-    const auto r = check_text(R"((shapes (s (a) (b float (range 2 1)) (c (list)) 5) 7)
+    const auto r = check_text(R"((shapes (s (a) (b float (@range 2 1)) (c (list)) 5) 7)
                                   (s (c 1) (d 2)) (shapes (t (u nowhere))) (t (u 1)))");
     const auto e = texts(r.errors);
     CHECK(e.size() == 6);
@@ -125,6 +125,27 @@ TEST_CASE("malformed declarations are located errors; unknown shapes are reporte
           }) == 5);
     CHECK(std::any_of(e.begin(), e.end(), [](const std::string& s) {
         return s.find("'u' is of the unknown shape 'nowhere'") != std::string::npos;
+    }));
+}
+
+TEST_CASE("the grammar's words carry the sigil, so a field may have any name (D248)") {
+    // A shape describing itself, and fields named at, kind, desc and rule.
+    const auto good = check_text(R"((shapes (piece (@at pieces) (@keyed) (@desc "A part")
+                                       (@at symbol) (kind symbol (@one_of ramp turn))
+                                       (desc string (@optional)) (rule int (@range 0 9))))
+                                     (pieces (p1 (at a) (kind ramp) (rule 3))))");
+    CHECK(good.errors.empty());
+    const auto bad =
+        check_text(R"((shapes (s (@rnage 0 1) (a int (range 0 1)) (b int (@rnage 0 1)))))");
+    const auto e = texts(bad.errors);
+    CHECK(std::any_of(e.begin(), e.end(), [](const std::string& s) {
+        return s.find("shape 's' has unknown metadata '@rnage'") != std::string::npos;
+    }));
+    CHECK(std::any_of(e.begin(), e.end(), [](const std::string& s) {
+        return s.find("which is not metadata: write (@range ...)") != std::string::npos;
+    }));
+    CHECK(std::any_of(e.begin(), e.end(), [](const std::string& s) {
+        return s.find("field 'b' has unknown metadata '@rnage'") != std::string::npos;
     }));
 }
 
@@ -161,9 +182,9 @@ TEST_CASE("shapes are enumerable, with their metadata, for tuning panels") {
 TEST_CASE("a (keyed) shape governs every child at its path, whatever its tag (D108)") {
     const auto r = check_text(R"(
         (shapes
-          (move (at fighters * moves) (keyed)
-             (startup int (range 1 60))
-             (cancels (list symbol) (optional))))
+          (move (@at fighters * moves) (@keyed)
+             (startup int (@range 1 60))
+             (cancels (list symbol) (@optional))))
         (fighters
           (kestrel (moves
              (jab (startup 4) (cancels jab))
@@ -181,31 +202,31 @@ TEST_CASE("a (keyed) shape governs every child at its path, whatever its tag (D1
     REQUIRE(w.size() == 1);
     CHECK(w[0].find("'armor' is not a field of shape 'move'") != std::string::npos);
 
-    const auto bad = check_text("(shapes (move (keyed) (startup int)))");
+    const auto bad = check_text("(shapes (move (@keyed) (startup int)))");
     REQUIRE(bad.errors.size() == 1);
-    CHECK(texts(bad.errors)[0].find("no (at ...)") != std::string::npos);
+    CHECK(texts(bad.errors)[0].find("no (@at ...)") != std::string::npos);
 }
 
 TEST_CASE("a softer pack may narrow a harder pack's shape, not loosen it (D145)") {
     static const std::map<std::string, std::string> files = {
         {"base.dta",
          "(pack game_rules (level game))\n"
-         "(shapes (player (speed int (range 1 10)) (name symbol)))\n(player (speed 5) (name p))"},
+         "(shapes (player (speed int (@range 1 10)) (name symbol)))\n(player (speed 5) (name p))"},
         {"mod.dta",
          "(pack fast_mod (level mod))\n"
-         "(shapes (player (speed int (range 1 1000)) (name symbol (optional))))\n"
+         "(shapes (player (speed int (@range 1 1000)) (name symbol (@optional))))\n"
          "(player (speed 900))"},
         {"tight.dta",
-         "(pack tight_mod (level mod))\n(shapes (player (speed int (range 2 8))))\n"
+         "(pack tight_mod (level mod))\n(shapes (player (speed int (@range 2 8))))\n"
          "(player (speed 9))"},
         {"retype.dta", "(pack retype_mod (level mod))\n(shapes (player (speed float)))"},
-        {"loose_base.dta", "(shapes (player (speed int (range 1 10))))\n(player (speed 5))"},
-        {"loose_mod.dta", "(shapes (player (speed int (range 1 1000))))\n(player (speed 900))"},
+        {"loose_base.dta", "(shapes (player (speed int (@range 1 10))))\n(player (speed 5))"},
+        {"loose_mod.dta", "(shapes (player (speed int (@range 1 1000))))\n(player (speed 900))"},
         {"buttons.dta",
          "(pack game_rules (level game))\n"
-         "(shapes (move (button symbol (one_of light heavy))))\n(move (button light))"},
+         "(shapes (move (button symbol (@one_of light heavy))))\n(move (button light))"},
         {"more_buttons.dta",
-         "(pack more_mod (level mod))\n(shapes (move (button symbol (one_of kick))))\n"
+         "(pack more_mod (level mod))\n(shapes (move (button symbol (@one_of kick))))\n"
          "(move (button kick))"}};
     struct Run {
         Config cfg{{.tweaks = nullptr}};
@@ -252,8 +273,8 @@ TEST_CASE("a softer pack may narrow a harder pack's shape, not loosen it (D145)"
 
 TEST_CASE("a symbol field lists the symbols it allows, (one_of ...) (D203)") {
     const char* const kShapes =
-        "(shapes (move (button symbol (one_of light heavy kick special))"
-        " (combo (list symbol) (one_of light heavy)) (startup int (optional))))\n";
+        "(shapes (move (button symbol (@one_of light heavy kick special))"
+        " (combo (list symbol) (@one_of light heavy)) (startup int (@optional))))\n";
     const shape::Report bad =
         check_text(std::string(kShapes) + "(move (button lite) (combo light heavy kick))\n");
     CHECK(texts(bad.errors) ==
@@ -268,9 +289,9 @@ TEST_CASE("a symbol field lists the symbols it allows, (one_of ...) (D203)") {
     // Declared again, a field adds what the new list names, in the order written.
     shape::Set set;
     shape::Report report;
-    set.add(*ok(read_string("(shapes (move (button symbol (one_of light heavy))))", "a.dta")),
+    set.add(*ok(read_string("(shapes (move (button symbol (@one_of light heavy))))", "a.dta")),
             report);
-    set.add(*ok(read_string("(shapes (move (button symbol (one_of special light))))", "b.dta")),
+    set.add(*ok(read_string("(shapes (move (button symbol (@one_of special light))))", "b.dta")),
             report);
     CHECK(report.ok());
     const shape::Field* button = set.find(Symbol("move"))->field(Symbol("button"));
@@ -283,11 +304,11 @@ TEST_CASE("a symbol field lists the symbols it allows, (one_of ...) (D203)") {
     CHECK(json.find(R"j("one_of": ["light", "heavy", "special"])j") != std::string::npos);
 
     // A list on a field that is not a symbol, or holding something else, is an error.
-    CHECK(texts(check_text("(shapes (s (n int (one_of a b))))").errors) ==
+    CHECK(texts(check_text("(shapes (s (n int (@one_of a b))))").errors) ==
           std::vector<std::string>{
-              "baker: field 'n' lists (one_of ...) symbols, so its type is symbol or (list "
+              "baker: field 'n' lists (@one_of ...) symbols, so its type is symbol or (list "
               "symbol)  (t.dta:1)"});
-    CHECK_FALSE(check_text("(shapes (s (n symbol (one_of a 2))))").ok());
+    CHECK_FALSE(check_text("(shapes (s (n symbol (@one_of a 2))))").ok());
 }
 
 // --- As JSON, baker.shapes/1.4 (dev/tool-surface-plan.md §6, D203, D235, D245). ---
@@ -297,9 +318,9 @@ TEST_CASE("the shapes as JSON: each shape and its fields") {
     shape::Report report;
     shapes.add(
         *ok(read_string("(shapes\n"
-                        "   (boss_phase (at bosses * phases) (keyed)\n"
-                        "      (enter_at float (range 0 1) (step 0.05) (desc \"HP fraction\"))\n"
-                        "      (adds (list symbol) (optional))))\n",
+                        "   (boss_phase (@at bosses * phases) (@keyed)\n"
+                        "      (enter_at float (@range 0 1) (@step 0.05) (@desc \"HP fraction\"))\n"
+                        "      (adds (list symbol) (@optional))))\n",
                         "shapes.dta")),
         report);
     REQUIRE(report.errors.empty());
@@ -323,8 +344,8 @@ TEST_CASE("the shapes as JSON: each shape and its fields") {
 
 TEST_CASE("a key field names a record of its table; a typo is located, with the key meant") {
     static constexpr std::string_view kShapes =
-        "(shapes (unit (at units) (keyed) (weapon (key_of weapons))\n"
-        "   (spares (list (key_of weapons)) (optional)) (backup (key_of weapons) (optional))))\n"
+        "(shapes (unit (@at units) (@keyed) (weapon (key_of weapons))\n"
+        "   (spares (list (key_of weapons)) (@optional)) (backup (key_of weapons) (@optional))))\n"
         "(weapons (laser (damage 3)) (cannon (damage 9)))\n";
     CHECK(check_text(std::string(kShapes) +
                      "(units (scout (weapon laser) (spares cannon laser)) (tank (weapon cannon)))")
@@ -338,16 +359,16 @@ TEST_CASE("a key field names a record of its table; a typo is located, with the 
               "baker: 'rail' is not a key of weapons  (t.dta:4, at units/tank/spares)",
               "baker: 'backup' is int, not a key of weapons  (t.dta:4, at units/tank/backup)"});
     // A dotted path from the root, and a table that nothing encloses.
-    CHECK(check_text("(shapes (s (at uses) (keyed) (w (key_of items.weapons))))\n"
+    CHECK(check_text("(shapes (s (@at uses) (@keyed) (w (key_of items.weapons))))\n"
                      "(items (weapons (laser)))\n(uses (a (w laser)))")
               .ok());
-    CHECK(texts(check_text("(shapes (s (at uses) (keyed) (w (key_of gear))))\n(uses (a (w x)))")
+    CHECK(texts(check_text("(shapes (s (@at uses) (@keyed) (w (key_of gear))))\n(uses (a (w x)))")
                     .errors) ==
           std::vector<std::string>{"baker: 'w' names a key of gear, and no table gear encloses it  "
                                    "(t.dta:2, at uses/a/w)"});
     // A path resolves by its first segment: the nearest `items` is the shop's, which has no
     // weapons, so the root's items.weapons is not reached.
-    CHECK(texts(check_text("(shapes (s (at shop uses) (keyed) (w (key_of items.weapons))))\n"
+    CHECK(texts(check_text("(shapes (s (@at shop uses) (@keyed) (w (key_of items.weapons))))\n"
                            "(items (weapons (laser)))\n(shop (items (food)) (uses (a (w laser))))")
                     .errors) ==
           std::vector<std::string>{"baker: 'w' names a key of items.weapons, and no table "
@@ -358,8 +379,8 @@ TEST_CASE("a key field names a record of its table; a typo is located, with the 
 
 TEST_CASE("a key resolves in the nearest enclosing table: each fighter's own moves") {
     static constexpr std::string_view kShapes =
-        "(shapes (move (at fighters * moves) (keyed) (cancel_into (list (key_of moves)) "
-        "(optional))))\n";
+        "(shapes (move (@at fighters * moves) (@keyed) (cancel_into (list (key_of moves)) "
+        "(@optional))))\n";
     CHECK(check_text(std::string(kShapes) +
                      "(fighters (ryu (moves (jab) (hadoken (cancel_into jab))))\n"
                      "   (ken (moves (kick) (shoryu (cancel_into kick)))))")
@@ -377,7 +398,7 @@ TEST_CASE("keys follow the layers; a key across the one-way pack rule is a warni
     static const std::map<std::string, std::string> files = {
         {"base.dta",
          "(pack game_rules (level game))\n"
-         "(shapes (unit (at units) (keyed) (weapon (key_of weapons))))\n"
+         "(shapes (unit (@at units) (@keyed) (weapon (key_of weapons))))\n"
          "(weapons (laser) (cannon))\n(units (scout (weapon laser)))"},
         {"add.dta", "(weapons (rail))\n(units (tank (weapon rail)))"},
         {"remove.dta", "(weapons (laser #remove))"},
@@ -439,9 +460,9 @@ TEST_CASE("a shape's rules are read, replaced by message, and malformed ones loc
     shape::Set shapes;
     shape::Report report;
     shapes.add(
-        *ok(read_string("(shapes (unit (at units) (keyed) (max_hp int) (start_hp int)\n"
-                        "   (rule \"starts at or below its maximum\" {<= $start_hp $max_hp})\n"
-                        "   (rule \"has some health\" {> $max_hp 0} (warn))))\n",
+        *ok(read_string("(shapes (unit (@at units) (@keyed) (max_hp int) (start_hp int)\n"
+                        "   (@rule \"starts at or below its maximum\" {<= $start_hp $max_hp})\n"
+                        "   (@rule \"has some health\" {> $max_hp 0} (@warn))))\n",
                         "base.dta")),
         report);
     REQUIRE(report.errors.empty());
@@ -454,9 +475,9 @@ TEST_CASE("a shape's rules are read, replaced by message, and malformed ones loc
     CHECK(unit->rules[0].line == 2);
     // A later layer softens the first and adds a third.
     shapes.add(*ok(read_string("(shapes (unit\n"
-                               "   (rule \"starts at or below its maximum\" {<= $start_hp "
-                               "$max_hp} (warn))\n"
-                               "   (rule \"is named\" {!= $name 0})))\n",
+                               "   (@rule \"starts at or below its maximum\" {<= $start_hp "
+                               "$max_hp} (@warn))\n"
+                               "   (@rule \"is named\" {!= $name 0})))\n",
                                "mod.dta")),
                report);
     unit = shapes.find(Symbol("unit"));
@@ -464,29 +485,29 @@ TEST_CASE("a shape's rules are read, replaced by message, and malformed ones loc
     CHECK(unit->rules[0].warn);
     CHECK(unit->rules[0].file == Symbol("mod.dta"));
 
-    CHECK(texts(check_text("(shapes (s (rule) (rule \"m\") (rule \"m\" 3) (rule \"m\" {f} x)))")
+    CHECK(texts(check_text("(shapes (s (@rule) (@rule \"m\") (@rule \"m\" 3) (@rule \"m\" {f} x)))")
                     .errors) ==
           std::vector<std::string>{
-              "baker: a rule is declared as (rule \"message\" {expression}), optionally (warn)  "
+              "baker: a rule is declared as (@rule \"message\" {expression}), optionally (@warn)  "
               "(t.dta:1)",
-              "baker: a rule is declared as (rule \"message\" {expression}), optionally (warn)  "
+              "baker: a rule is declared as (@rule \"message\" {expression}), optionally (@warn)  "
               "(t.dta:1)",
               "baker: rule \"m\" holds 3, not an {expression}  (t.dta:1)",
-              "baker: rule \"m\" has x after its expression; only (warn) may follow  (t.dta:1)"});
+              "baker: rule \"m\" has x after its expression; only (@warn) may follow  (t.dta:1)"});
 }
 
 TEST_CASE("a softer pack may make a harder pack's rule an error, not soften or change it") {
     static const std::map<std::string, std::string> files = {
         {"base.dta",
          "(pack game_rules (level game))\n"
-         "(shapes (unit (rule \"positive\" {> $hp 0})))\n"},
+         "(shapes (unit (@rule \"positive\" {> $hp 0})))\n"},
         {"soften.dta",
-         "(pack mod (level mod))\n(shapes (unit (rule \"positive\" {> $hp 0} (warn))))\n"},
-        {"change.dta", "(pack mod (level mod))\n(shapes (unit (rule \"positive\" {> $hp -5})))\n"},
+         "(pack mod (level mod))\n(shapes (unit (@rule \"positive\" {> $hp 0} (@warn))))\n"},
+        {"change.dta", "(pack mod (level mod))\n(shapes (unit (@rule \"positive\" {> $hp -5})))\n"},
         {"warned.dta",
          "(pack game_rules (level game))\n"
-         "(shapes (unit (rule \"positive\" {> $hp 0} (warn))))\n"},
-        {"harden.dta", "(pack mod (level mod))\n(shapes (unit (rule \"positive\" {> $hp 0})))\n"}};
+         "(shapes (unit (@rule \"positive\" {> $hp 0} (@warn))))\n"},
+        {"harden.dta", "(pack mod (level mod))\n(shapes (unit (@rule \"positive\" {> $hp 0})))\n"}};
     LoadSession session;
     session.set_reader([](std::string_view p, TextSink out) {
         const auto it = files.find(std::string(p));
@@ -515,8 +536,8 @@ TEST_CASE("a softer pack may make a harder pack's rule an error, not soften or c
 
 TEST_CASE("each_ruled visits the records a shape with rules governs, with their paths") {
     const auto tree =
-        ok(read_string("(shapes (unit (at units) (keyed) (rule \"r\" {f}))\n"
-                       "        (boss_phase (rule \"p\" {g}))\n"
+        ok(read_string("(shapes (unit (@at units) (@keyed) (@rule \"r\" {f}))\n"
+                       "        (boss_phase (@rule \"p\" {g}))\n"
                        "        (plain (n int)))\n"
                        "(units (grunt (hp 1)) (tank (hp 2)))\n"
                        "(bosses (dragon (phases (boss_phase (at 1)) (boss_phase (at 2)))))\n"
@@ -540,7 +561,7 @@ TEST_CASE("the shapes JSON lists each shape's rules") {
     shape::Set shapes;
     shape::Report report;
     shapes.add(*ok(read_string("(shapes (unit (hp int)\n"
-                               "   (rule \"positive\" {> $hp 0} (warn))))\n",
+                               "   (@rule \"positive\" {> $hp 0} (@warn))))\n",
                                "shapes.dta")),
                report);
     std::string json;
@@ -556,7 +577,8 @@ TEST_CASE("a build without baker::script says once that rules went unchecked") {
     std::vector<std::string> reported;
     cfg.set_warning_handler([&](const Error& e) { reported.emplace_back(to_string(e)); });
     cfg.add_validator(shape::validator(), {.any_thread = true});
-    REQUIRE(cfg.push_layer("base", ok(read_string("(shapes (unit (rule \"r\" {f})))\n", "t.dta"))));
+    REQUIRE(
+        cfg.push_layer("base", ok(read_string("(shapes (unit (@rule \"r\" {f})))\n", "t.dta"))));
     REQUIRE(cfg.push_layer("more", ok(read_string("(x 1)\n", "u.dta"))));
     const auto told = std::count_if(reported.begin(), reported.end(), [](const std::string& r) {
         return r.find("has no baker::script to check them") != std::string::npos;
@@ -566,8 +588,8 @@ TEST_CASE("a build without baker::script says once that rules went unchecked") {
 
 TEST_CASE("a curve field holds a curve, and its range each point's y") {
     const char* const shapes =
-        "(shapes (enemy (at enemies) (keyed)\n"
-        "   (falloff curve (range 0 1))\n"
+        "(shapes (enemy (@at enemies) (@keyed)\n"
+        "   (falloff curve (@range 0 1))\n"
         "   (pace curve)))\n";
     CHECK(check_text(std::string(shapes) + "(enemies (grunt (falloff (0 1) (10 0.5) (20 0)) "
                                            "(pace catmull-rom loop (0 1) (60 3 0 0))))\n")

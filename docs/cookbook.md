@@ -40,10 +40,10 @@ static baker::Tweak<float> kJumpHeight{"player.jump.height", 1.2f,
 - **The default is the old constant.** A path the data does not set keeps it, and that
   is never an error: a tweak can go in before anyone writes its data.
 - **Metadata belongs in the data once someone tunes it.** The code's `TweakMeta` is a
-  starting point; `(height 1.4 (range 0.5 4) (note "4 breaks the level 3 ceiling"))` in
-  the data wins, and `note` exists only there: a remark from whoever tuned the value for
+  starting point; `(height 1.4 (@range 0.5 4) (@note "4 breaks the level 3 ceiling"))` in
+  the data wins, and `@note` exists only there: a remark from whoever tuned the value for
   whoever tunes it next. A value of several numbers takes metadata the same way:
-  `(tint 0.9 0.5 0.2 (range 0 1))` is three numbers, which a tool shows as a color (D88).
+  `(tint 0.9 0.5 0.2 (@range 0 1))` is three numbers, which a tool shows as a color (D88).
 - **Types.** Any `T` with a `Convert<T>` works. One whose `std::atomic` is lock-free reads
   with a load; another (`std::string`, `std::vector<float>`) reads through `get()`, whose
   reference stays valid until the next reload.
@@ -306,7 +306,7 @@ setting only its own values) so that removing one never needs another removed fi
 ### Tests before an overlay ships
 
 - **Shapes.** Declare, in the shipped data, the shapes of everything an overlay may set,
-  with ranges: `(event (drop_rate float (range 0 1)))`. With
+  with ranges: `(event (drop_rate float (@range 0 1)))`. With
   `cfg.add_validator(baker::shape::validator(), {.any_thread = true})`, the shapes judge
   every push and every check of an overlay before it is pushed: `examples/live-ops` refuses
   an overlay that sets a 15% drop rate as `15`.
@@ -655,7 +655,7 @@ people. Two calls give it what it needs:
 
 ```
 > (1 {config.explain player.speed})
-{"schema":"baker.reply/1.1","id":1,"ok":true,"text":"...","value":[
+{"schema":"baker.reply/1.2","id":1,"ok":true,"text":"...","value":[
   {"layer":"default","value":4.5,"standing":"shadowed","file":"default.dta","line":3},
   {"layer":"local","value":6,"standing":"wins","file":"local/me.dta","line":1}]}
 ```

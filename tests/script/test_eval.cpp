@@ -174,10 +174,10 @@ TEST_CASE("a script stub replaced by a native function runs unchanged call sites
             static_cast<std::vector<std::string>*>(user)->emplace_back(e.message());
         },
         &notices);
-    auto tree =
-        ok(read_string("{func boss.find_cover ($p) (status stub) (doc \"placeholder\") {+ $p 1}}\n"
-                       "(encounter (cover {boss.find_cover 10}))\n",
-                       "boss.dta"));
+    auto tree = ok(
+        read_string("{func boss.find_cover ($p) (@status stub) (@doc \"placeholder\") {+ $p 1}}\n"
+                    "(encounter (cover {boss.find_cover 10}))\n",
+                    "boss.dta"));
     REQUIRE(ctx.run(tree->nodes()));
     const Array& encounter = *tree->try_find("encounter");
     CHECK(encounter.find_int("cover") == 11);  // the stub
@@ -190,6 +190,12 @@ TEST_CASE("a script stub replaced by a native function runs unchanged call sites
     CHECK(reference(ctx).find(
               "### `boss.find_cover`\n\n- `{boss.find_cover int}` → int\n\n*Native.*") !=
           std::string::npos);
+
+    // The metadata is spelled with the sigil: (status 1) as the first form is the body, and
+    // an unknown @word is an error (D248).
+    eval_ok(ctx, "{func first () (@doc \"d\") (status 1)}");
+    CHECK(eval_ok(ctx, "{first}").type() == Type::Array);
+    CHECK(!ctx.eval("{func typo () (@stauts stub) 1}", "test.dta"));
 
     // An arity mismatch is noted.
     eval_ok(ctx, "{func two ($a $b) $a}");

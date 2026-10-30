@@ -47,7 +47,7 @@ struct FakeClock {
 const char* const kBase =
     "; shared defaults\n"
     "(box\n"
-    "   (width 2 (note \"2-3 reads well\"))   ; tuned in playtest 4\n"
+    "   (width 2 (@note \"2-3 reads well\"))   ; tuned in playtest 4\n"
     "   (height 1))\n"
     "(audio (volume 0.8) (channels 64))\n";
 
@@ -525,8 +525,8 @@ TEST_CASE("set then write_back: one line, comments and note kept, scratch emptie
     REQUIRE(report);
     CHECK(diff_lines(before, dir.read("default.dta")) ==
           std::vector<std::string>{
-              "-   (width 2 (note \"2-3 reads well\"))   ; tuned in playtest 4",
-              "+   (width 2.4 (note \"2-3 reads well\"))   ; tuned in playtest 4"});
+              "-   (width 2 (@note \"2-3 reads well\"))   ; tuned in playtest 4",
+              "+   (width 2.4 (@note \"2-3 reads well\"))   ; tuned in playtest 4"});
     REQUIRE(report->written.size() == 1);
     CHECK(report->written[0].file.str().ends_with("default.dta"));
     CHECK(report->written[0].line == 3);
