@@ -88,7 +88,7 @@ TEST_CASE("comments stay: trailing, on their own line, and block; a ; comment br
     CHECK(formatted("(a /* x */ 1)\n") == "(a /* x */ 1)\n");
 }
 
-TEST_CASE("directives keep their arguments on their line; #remove is a value") {
+TEST_CASE("directives keep their arguments on their line; a layer verb is a value") {
     CHECK(
         formatted("#include   \"common.dta\"\n#define   FAST\n(speed\n#ifdef FAST\n 9\n#else\n 3\n"
                   "#endif\n)\n") ==
@@ -97,6 +97,8 @@ TEST_CASE("directives keep their arguments on their line; #remove is a value") {
     CHECK(formatted("#define RED (1\n 0   0)\n(a (b #remove))\n") ==
           "#define RED (1 0 0)\n(a (b #remove))\n");
     CHECK(formatted("#autorun   {print\n hi}\n") == "#autorun {print hi}\n");
+    CHECK(formatted("(items  #append rope\n torch)\n(t #drop (phone 1))\n") ==
+          "(items #append rope torch)\n(t #drop (phone 1))\n");
 }
 
 TEST_CASE("what was written aligned stays aligned; nothing else is aligned") {

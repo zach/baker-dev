@@ -8607,7 +8607,11 @@ removal was built once, with rows (D249).*
 - **Raw gate.** 464/464 files, 0 round-trip failures.
 - **Fuzzing.** libFuzzer under ASan and UBSan, built as CI's fuzz job, seeded with D249's
   corpus, the fuzz regressions and files of verbs, pins and verb rows, toward the 1 million
-  executions of each adoption step; the run's total follows.
+  executions of each adoption step: 1,000,003 executions, with no crash, leak or
+  sanitizer report, and a corpus of 13,450 inputs at the end.
+- **The formatter.** `baker_format` read a verb as a directive, which keeps one argument on
+  its line, so `(items #append rope\n torch)` kept `torch` on a line of its own; a verb is now
+  a value, laid out with the operands after it (`test_format.cpp`).
 - **Not done.** `#scale`, `#add` and `#prepend` are not built (the review held them), nor
   several verbs in one row. A reload does not repeat the push-time pin warnings. The stacks'
   agent skill still asks for a `;` comment; it can move to `(@note ...)` and `(@was ...)` in
