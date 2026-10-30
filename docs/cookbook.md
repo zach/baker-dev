@@ -616,6 +616,26 @@ metadata that decides its value (`range`, `one_of`, `choices`, `dev_only`): its 
 the copy, and a `Tweak<float>` is 128 bytes, not 184. Metadata in the data still applies
 (D256).
 
+Baker's memory comes from the allocators you give it: one to each `Config` and `Context`,
+and the default (`set_default_allocator`, before Baker first allocates) for what has no
+owner. Each call says what the memory is for, so a game can hold Baker to a budget per
+kind:
+
+```cpp
+void* game_alloc(void* user, size_t size, size_t align, baker::MemoryKind kind) {
+    budgets[size_t(kind)] += size;  // symbols, trees, config, script, tasks, tweaks, errors...
+    return engine_heap_alloc(size, align);
+}
+void game_free(void* user, void* p, size_t size, baker::MemoryKind kind) {
+    budgets[size_t(kind)] -= size;  // the same kind its allocation named
+    engine_heap_free(p);
+}
+```
+
+Every owner tags the copy it keeps (a Context allocates as `Script`, its Schedulers as
+`Tasks`, what a load builds as `Trees`), and a free names the kind its allocation did.
+`memory_kind_name` gives each a name for a report (D258).
+
 ## Harness packs
 
 A harness is the set of data, macros, and functions a team builds to make one kind of work

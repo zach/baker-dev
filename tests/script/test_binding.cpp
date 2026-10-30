@@ -193,7 +193,7 @@ struct Counted {
     std::unique_ptr<std::byte[]> block{new std::byte[kBytes]};
     size_t used = 0;
     size_t allocations = 0;
-    Allocator allocator{[](void* user, size_t size, size_t align) -> void* {
+    Allocator allocator{[](void* user, size_t size, size_t align, baker::MemoryKind) -> void* {
                             auto& c = *static_cast<Counted*>(user);
                             c.used = (c.used + align - 1) & ~(align - 1);
                             REQUIRE(c.used + size <= kBytes);
@@ -202,7 +202,7 @@ struct Counted {
                             ++c.allocations;
                             return p;
                         },
-                        [](void*, void*, size_t) {}, this};
+                        [](void*, void*, size_t, baker::MemoryKind) {}, this};
 };
 
 }  // namespace

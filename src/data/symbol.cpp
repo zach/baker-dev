@@ -90,8 +90,10 @@ private:
     };
 
     static Table* new_table(size_t n) {
-        auto* t = static_cast<Table*>(detail::default_alloc(sizeof(Table), alignof(Table)));
-        auto* s = static_cast<Slot*>(detail::default_alloc(n * sizeof(Slot), alignof(Slot)));
+        auto* t = static_cast<Table*>(
+            detail::default_alloc(sizeof(Table), alignof(Table), MemoryKind::Symbols));
+        auto* s = static_cast<Slot*>(
+            detail::default_alloc(n * sizeof(Slot), alignof(Slot), MemoryKind::Symbols));
         for (size_t i = 0; i < n; ++i) new (s + i) Slot(nullptr);
         t->slots = s;
         t->capacity = n;
@@ -188,9 +190,11 @@ private:
     char* alloc(size_t n) {
         n = (n + alignof(detail::SymbolEntry) - 1) & ~(alignof(detail::SymbolEntry) - 1);
         constexpr size_t align = alignof(detail::SymbolEntry);
-        if (n > kBlockSize / 4) return static_cast<char*>(detail::default_alloc(n, align));
+        if (n > kBlockSize / 4)
+            return static_cast<char*>(detail::default_alloc(n, align, MemoryKind::Symbols));
         if (!cur_ || used_ + n > kBlockSize) {
-            cur_ = static_cast<char*>(detail::default_alloc(kBlockSize, align));
+            cur_ =
+                static_cast<char*>(detail::default_alloc(kBlockSize, align, MemoryKind::Symbols));
             used_ = 0;
         }
         char* p = cur_ + used_;
@@ -207,7 +211,8 @@ private:
 
 // Inlined into the constructor, as the probe it guards is.
 BAKER_INLINE SymbolTable& table() {
-    static SymbolTable* t = detail::create<SymbolTable>(default_allocator());  // leaked; see above
+    static SymbolTable* t =
+        detail::create<SymbolTable>(default_allocator(MemoryKind::Symbols));  // leaked; see above
     return *t;
 }
 

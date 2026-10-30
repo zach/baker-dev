@@ -451,7 +451,7 @@ Expected<LayerReport> Config::check_layer_text(std::string_view name, std::strin
 // --- LayerChecker (D167) ---
 
 struct LayerChecker::State {
-    explicit State(const Allocator& a) : alloc(a) {}
+    explicit State(const Allocator& a) : alloc(with_kind(a, MemoryKind::Config)) {}
     const Allocator alloc;  // the host's: this, and each check's temporaries
     const void* config = nullptr;
     uint64_t generation = 0;
@@ -536,7 +536,8 @@ Expected<LayerReport> LayerChecker::check_text(std::string_view name, std::strin
 
 LayerChecker Config::checker(const Allocator& allocator) const {
     LayerChecker out;
-    out.state_ = detail::create<LayerChecker::State>(allocator, allocator);
+    out.state_ =
+        detail::create<LayerChecker::State>(with_kind(allocator, MemoryKind::Config), allocator);
     LayerChecker::State& st = *out.state_;
     st.config = this;
     st.generation = impl_->generation;

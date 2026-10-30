@@ -81,12 +81,12 @@ void TweakBase::detach() noexcept {
     }
     prev_ = next_ = nullptr;
     registry_->unlock();
-    detail::destroy(default_allocator(), extra_);
+    detail::destroy(default_allocator(MemoryKind::Tweaks), extra_);
     extra_ = nullptr;
 }
 
 const Path& TweakBase::parsed() {
-    if (!extra_) extra_ = detail::create<Extra>(default_allocator());
+    if (!extra_) extra_ = detail::create<Extra>(default_allocator(MemoryKind::Tweaks));
     if (!extra_->parsed) extra_->parsed.emplace(path_);
     return *extra_->parsed;
 }
@@ -141,7 +141,7 @@ void TweakBase::notify() {
 }
 
 void TweakBase::on_change(Callback<void()> callback) {
-    if (!extra_) extra_ = detail::create<Extra>(default_allocator());
+    if (!extra_) extra_ = detail::create<Extra>(default_allocator(MemoryKind::Tweaks));
     extra_->on_change.push_back(std::move(callback));
 }
 

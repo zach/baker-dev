@@ -342,8 +342,10 @@ private:
         return true;
     }
 
+    // Shrinks only. pop_back, not resize: once allocation took a kind, GCC 13 called resize's
+    // erase out of line here, and parse took about 5% longer (D258).
     void truncate(size_t size) {
-        scratch_.resize(size);
+        while (scratch_.size() > size) scratch_.pop_back();
         if (map_) spans_.resize(size);
     }
     // Records `arr` (made from the nodes from `start`) and its span, for edit mode.
@@ -1214,7 +1216,7 @@ private:
 
 // Sessions belong to whoever made them: from the default allocator unless an owner passes
 // its own (D61, D129).
-LoadSession::LoadSession() : LoadSession(default_allocator()) {}
+LoadSession::LoadSession() : LoadSession(default_allocator(MemoryKind::Config)) {}
 LoadSession::LoadSession(const Allocator& alloc) : st_(detail::create<State>(alloc, alloc)) {}
 void LoadSession::copy_options(const LoadSession& o) noexcept {
     limits = o.limits;

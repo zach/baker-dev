@@ -67,8 +67,8 @@ void report_and_return(std::string_view message) {
 }
 
 // An allocator that has nothing to give.
-const Allocator kEmpty{[](void*, size_t, size_t) -> void* { return nullptr; },
-                       [](void*, void*, size_t) {}, nullptr};
+const Allocator kEmpty{[](void*, size_t, size_t, baker::MemoryKind) -> void* { return nullptr; },
+                       [](void*, void*, size_t, baker::MemoryKind) {}, nullptr};
 
 }  // namespace
 
