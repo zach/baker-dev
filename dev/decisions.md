@@ -8472,5 +8472,8 @@ sigil-free dotted form declined.*
   `tests/data/test_m3b.cpp`, the ImGui harness's panel test and the config example's
   expected output.
 - **Fuzzing.** libFuzzer under ASan and UBSan, built as CI's fuzz job, seeded with the
-  corpus, the fuzz regressions, every `.dta` of the stacks and examples, and files of rows;
-  the run's total follows.
+  corpus, the fuzz regressions, every `.dta` of the stacks and examples, and files of rows:
+  1,000,003 executions, no failure. After 206,443 the run went on as four processes of
+  198,390 on the shared corpus, because inputs whose nested macros expand into trees of tens
+  of thousands of nodes cost the harness up to 400 ms each (it re-reads, caches and prints
+  every tree); the cost is the harness's and main's macro expansion, not the rows'.
