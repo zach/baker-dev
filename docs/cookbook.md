@@ -744,7 +744,8 @@ frames. Other threads may read, on these terms:
   `set_step_hook(fn, user)`, is asked first and may grant more, for a time limit (grant
   10,000 steps and check the clock each time it is asked) or a sampling profiler (read
   `top_frame()` in it). The default budget is unlimited; the check costs five
-  instructions a call (D257).
+  instructions a call (D257). A game that runs only its own script can build with
+  `-DBAKER_STEP_BUDGET=OFF`, which compiles the check out (D259).
 
 ## Agreeing on the data: lockstep, replays, saves
 

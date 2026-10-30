@@ -21,7 +21,7 @@ declare -A cfg=(
   [asan]="-DBAKER_SANITIZE=address,undefined"
   [clang]="-DCMAKE_CXX_COMPILER=clang++-18 -DCMAKE_BUILD_TYPE=Release"
   [data]="-DBAKER_BUILD_SCRIPT=OFF"
-  [plain]="-DBAKER_ATOMIC_REFCOUNT=OFF"
+  [plain]="-DBAKER_ATOMIC_REFCOUNT=OFF -DBAKER_STEP_BUDGET=OFF"
   [eastl]="-DBAKER_USE_EASTL=ON -DBAKER_RTTI=OFF"  # fetches EASTL; no RTTI (D250)
   [harness]="-DBAKER_BUILD_HARNESS=ON"  # fetches Dear ImGui and GLFW; needs X11 and GL headers
 )

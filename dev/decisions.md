@@ -8855,3 +8855,19 @@ doubly recursive `{func}` from a mod or a live overlay stays shallow and can han
   until the budget is reset, and a hook granting 100 steps three times lets `{fib 8}`
   finish and then ends `{fib 20}`, asked once more than it granted.
 
+## D259. `BAKER_STEP_BUDGET`: the step count can be compiled out
+
+*The owner's call, after D257:* a game that knows it runs no script it did not write should
+be able to drop the budget's cost, as `BAKER_RTTI` lets a game drop RTTI (D250).
+
+- **The option.** `BAKER_STEP_BUDGET`, on by default. Off, the libraries and their users
+  see `BAKER_STEP_BUDGET=0`, `baker::kStepBudget` is false, and `call_body`'s check is
+  under `if constexpr`. `set_step_budget` and `set_step_hook` stay, so a host compiles
+  either way; they do nothing, and `steps_left()` is `kUnlimitedSteps`.
+- **Measured** (`tools/count`, GCC 13 Release): call 312 on, 307 off; overload 789 on, 784
+  off. Off is D256's count to the instruction.
+- **Tested** both ways: the budget test checks, under `!kStepBudget`, that a budget of 10
+  stops nothing and `steps_left()` stays unlimited. The local matrix's and CI's plain
+  refcounts configuration builds with it off, as a game that wants every instruction
+  would.
+

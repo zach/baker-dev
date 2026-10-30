@@ -356,6 +356,12 @@ TEST_CASE("run_autorun restores what the last run's commands defined (D146)") {
 TEST_CASE("the step budget: a call a step, the same on every run, refilled by a hook (D257)") {
     Context ctx;
     ok(ctx.eval("{func fib ($n) {if {< $n 2} $n {+ {fib {- $n 1}} {fib {- $n 2}}}}}"));
+    if constexpr (!kStepBudget) {  // BAKER_STEP_BUDGET off: nothing is counted (D259)
+        ctx.set_step_budget(10);
+        CHECK(ok(ctx.eval("{fib 15}")).try_int() == 610);
+        CHECK(ctx.steps_left() == Context::kUnlimitedSteps);
+        return;
+    }
     int64_t native_calls = 0;
     ok(ctx.func("tick", [&native_calls] { return ++native_calls; }));
 
