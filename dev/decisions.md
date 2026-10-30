@@ -8747,7 +8747,7 @@ includes it.
 - **The header** declares the types a game's headers name: data (`Symbol`, `Node`,
   `Array`, `Path`, `Error`, `ErrorCode`, `Type`, `Ref`, `List`, `Callback`, `Convert`,
   `LoadSession`, `ParseLimits`, `Config` and its options, `Tweak`, `TweakBase`,
-  `TweakRegistry`, `Curve`, `Project`, ...), script (`Context`, `Args`, `Shared`,
+  `TweakRegistry`, `Curve`, `Project`, ...), script (`Context`, `Args`,
   `FuncRef`, `ObjectBase`, `Object`, `MethodRef`, `Task`, `Scheduler`) and `shape::Set`.
   It includes `<cstdint>` alone, for the enums' underlying types; `check_headers.py`
   holds it to that.

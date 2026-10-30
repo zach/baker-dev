@@ -52,7 +52,6 @@ struct Project;  // project.hpp
 
 // Script (baker::script)
 class Args;  // script.hpp
-class Shared;
 class FuncRef;
 class Context;
 class ObjectBase;  // object.hpp
