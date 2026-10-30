@@ -36,6 +36,10 @@ struct TextBracket {
     // The directive whose one form it is, as a token's index, at the top level: #pack,
     // #origin or #shape (NAME ...), a declaration the tree does not hold. -1 for data.
     int32_t declares = -1;
+    // A brace that reads infix, `{0.3 <= $value <= 0.7}`: its first operator's token, as an
+    // index, which is the command's head; -1 otherwise. A brace with a macro use in it is
+    // left as written, since a macro's body is not known here.
+    int32_t infix = -1;
     bool closed = false;
 };
 struct TextComment {

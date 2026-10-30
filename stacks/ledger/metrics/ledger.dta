@@ -5,36 +5,36 @@
 (objective ledger.pace_mill
    (desc "The first mill between day 20 and day 90: earned, but soon")
    (measure {econ.milestone_day greedy first_mill})
-   (pass {and {>= $value 20} {<= $value 90}}))
+   (pass {20 <= $value <= 90}))
 (objective ledger.pace_bakery
    (desc "The first bakery between day 60 and day 240: not trivial, not a wall")
    (measure {econ.milestone_day greedy first_bakery})
-   (pass {and {>= $value 60} {<= $value 240}}))
+   (pass {60 <= $value <= 240}))
 (objective ledger.pace_tailor
    (desc "The first tailor, the top of the ladder, between day 120 and the end of the first hour")
    (measure {econ.milestone_day greedy first_tailor})
-   (pass {and {>= $value 120} {<= $value 720}}))
+   (pass {120 <= $value <= 720}))
 (objective ledger.fortune
    (desc "100,000 coins in hand within two hours (1,440 days)")
    (measure {econ.milestone_day greedy fortune})
-   (pass {and {>= $value 0} {<= $value 1440}}))
+   (pass {0 <= $value <= 1440}))
 
 ; Interesting decisions: no strategy runs away from the rest, and nothing goes unused.
 (objective ledger.no_runaway
    (desc "After ten hours the leader is worth under three times the runner-up")
    (measure {econ.lead_ratio})
-   (pass {< $value 3}))
+   (pass {$value < 3}))
 (objective ledger.no_dead_buildings
    (desc "Every kind of building is worth owning to some strategy")
    (measure {econ.unused_buildings})
-   (pass {== $value 0}))
+   (pass {$value == 0}))
 (objective ledger.no_dead_ends
    (desc "No strategy that plays with sense goes bankrupt")
    (measure {econ.bankruptcies})
-   (pass {== $value 0}))
+   (pass {$value == 0}))
 
 ; Sinks and faucets: the greedy player's worth grows over the last hour, but not explosively.
 (objective ledger.money_growth
    (desc "Over the tenth hour, net worth grows by 0% to 100%")
    (measure {econ.growth greedy 720})
-   (pass {and {>= $value 1} {<= $value 2}}))
+   (pass {1 <= $value <= 2}))

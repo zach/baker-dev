@@ -185,6 +185,8 @@ public:
     [[nodiscard]] Expected<void> store(Node v) const;
     // The variable's value (Int 0 if unset); for a property, its value or Int 0.
     [[nodiscard]] Node load() const;
+    // Whether the variable is set; a property counts as set.
+    [[nodiscard]] bool is_set() const noexcept;
 
 private:
     Node* cell_ = nullptr;
@@ -1044,12 +1046,29 @@ void eval_request(Context& ctx, std::string_view line, TextSink reply);
 
 // --- Template definitions. ---
 
+namespace detail {
+// Whether argument `n` is read as written, not evaluated first: a literal, or anything once
+// the arguments are evaluated. A command, a [property] or a $variable is evaluated (D262). A
+// number reads only from an int or a float, so for one the test is left to the read.
+[[nodiscard]] constexpr bool evaluated_first(Type t) noexcept {
+    return t == Type::Command || t == Type::Property || t == Type::Var;
+}
+template <class T>
+[[nodiscard]] constexpr bool read_as_written(const Node& n, bool evaluated) noexcept {
+    if constexpr (std::is_arithmetic_v<T> && !std::is_same_v<T, bool>) {
+        return true;
+    } else {
+        return evaluated || !evaluated_first(n.type());
+    }
+}
+}  // namespace detail
+
 template <class T>
 Expected<T> Args::get(size_t i) const {
     // The common case: a literal that converts.
     if (i < size_) {
         const Node& n = base_[i];
-        if (evaluated_ || (n.type() != Type::Command && n.type() != Type::Var)) {
+        if (detail::read_as_written<T>(n, evaluated_)) {
             T out{};
             if (Values(std::span<const Node>(&n, 1), command_).read(0, out)) return out;
         }
@@ -1061,7 +1080,7 @@ template <class T>
 bool Args::read_into(size_t i, T& out, Expected<Node>& error) const {
     if (i < size_) {
         const Node& n = base_[i];
-        if (evaluated_ || (n.type() != Type::Command && n.type() != Type::Var))
+        if (detail::read_as_written<T>(n, evaluated_))
             if (Values(std::span<const Node>(&n, 1), command_).read(0, out)) return true;
     }
     return read_slow(i, out, error);
@@ -1084,7 +1103,7 @@ Expected<T> Args::get_slow(size_t i) const {
     if (i >= size_) return Unexpected(type_error(i, Node(), kInfo.name));
     const Node* n = base_ + i;
     Node value;
-    if (!evaluated_ && (n->type() == Type::Command || n->type() == Type::Var)) {
+    if (!evaluated_ && detail::evaluated_first(n->type())) {
         auto r = eval_node(*n);
         if (!r) return Unexpected(std::move(r).error());
         value = std::move(*r);

@@ -41,7 +41,7 @@ panels.
   `base_price × demand / (demand + saturation)`, selling adds to the saturation (revenue
   is the integral of the price curve), and each day `econ.recovery` of it clears. So a
   tenth farm earns less than the first, and moving up the chain pays.
-- **Commands are data.** An unlock (`{>= {econ.total_earned} 10000}`) and a milestone's
+- **Commands are data.** An unlock (`{{econ.total_earned} >= 10000}`) and a milestone's
   `when` are commands, evaluated each day about the company being judged; the economy
   itself never sees script.
 - **Strategies** (`(strategies ...)`): greedy buys the best payback within its horizon and

@@ -4,20 +4,20 @@
 (objective puzzle.intended_solves
    (desc "The intended solution solves the level")
    (measure {puzzle.solves_intended})
-   (pass {== $value 1}))
+   (pass {$value == 1}))
 (objective puzzle.not_cheesed
    (desc "No solution found with fewer pieces than intended (100 tries for each count)")
    (measure {puzzle.fewest_pieces 100})
-   (pass {>= $value {puzzle.intended_pieces}}))
+   (pass {$value >= {puzzle.intended_pieces}}))
 (objective puzzle.robust
    (desc "Not fiddly: the intended solution still solves in 80% of tries moved +-5 mm, turned +-2 degrees")
    (measure {puzzle.robustness 30 0.005 2})
-   (pass {>= $value 0.8}))
+   (pass {$value >= 0.8}))
 (objective puzzle.brisk
    (desc "The machine solves the level within eight seconds of starting")
    (measure {puzzle.intended_seconds})
-   (pass {and {>= $value 0} {<= $value 8}}))
+   (pass {0 <= $value <= 8}))
 (objective puzzle.played_solves
    (desc "Run on the game's own steps, the placed solution solves")
    (measure {puzzle.solved})
-   (pass {== $value 1}))
+   (pass {$value == 1}))

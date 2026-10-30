@@ -16,6 +16,8 @@
 "0x"
 "1e"
 "-"
+"<="
+"+="
 "."
 "#include"
 "#include_opt"

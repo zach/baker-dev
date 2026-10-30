@@ -126,3 +126,38 @@ TEST_CASE("a declaration's form is marked with its directive (D261)") {
     CHECK(s.brackets[4].declares < 0);  // (unit (hp 1)) is data
     for (size_t i = 5; i < s.brackets.size(); ++i) CHECK(s.brackets[i].declares < 0);
 }
+
+TEST_CASE("a brace that reads infix names its operator, and malformed infix is an error (D262)") {
+    const std::string text =
+        "(pass {0.3 <= $value <= 0.7})\n{wheat -> flour}\n{+ '-' 1}\n{f + 1 2}\n"
+        "{{econ.count mill} >= 1}\n";
+    const TextStructure s = read_structure(text);
+    CHECK(s.errors.empty());
+    auto op = [&](size_t i) {
+        const int32_t t = s.brackets[i].infix;
+        return t < 0 ? std::string() : std::string(span(text, s.tokens[t].begin, s.tokens[t].end));
+    };
+    REQUIRE(s.brackets.size() == 7);
+    CHECK(op(0).empty());  // (pass ...)
+    CHECK(op(1) == "<=");  // {0.3 <= $value <= 0.7}
+    CHECK(op(2).empty());  // bare symbols: the guard
+    CHECK(op(3).empty());  // a quoted operator: a prefix call
+    CHECK(op(4).empty());  // a call's head before an operator argument
+    CHECK(op(5) == ">=");  // a command operand
+    CHECK(op(6).empty());  // {econ.count mill}
+    // The parser's errors for malformed infix, at the brace, beside the rest.
+    for (const auto& [bad, message] : std::vector<std::pair<std::string, std::string>>{
+             {"(pass\n   {0 < $value <= 10})",
+              "mixed operators in {...}: nest braces to say which applies first"},
+             {"{0.3 <= $value 0.7}", "infix {...} needs '<=' between every two operands"},
+             {"{$value <=}", "infix {...} ends with '<=': write an operand after it"}}) {
+        const TextStructure m = read_structure(bad);
+        REQUIRE(m.errors.size() == 1);
+        CHECK(m.errors[0].message() == message);
+        auto parsed = read_string(bad, "t.dta");
+        REQUIRE_FALSE(parsed);
+        CHECK(parsed.error().message() == message);
+        CHECK(m.errors[0].line() == parsed.error().line());
+        CHECK(m.errors[0].column() == parsed.error().column());
+    }
+}
