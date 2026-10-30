@@ -52,6 +52,12 @@ inline constexpr std::array<bool, 256> kAtomEnd = [] {
     return kAtomEnd[c];
 }
 
+// Whether an atom (not empty) is a directive: `#` and an ASCII letter. `#`, `#1` and `#00aa00`
+// are symbols, which the reader takes and the printer writes bare.
+[[nodiscard]] constexpr bool is_directive(std::string_view atom) noexcept {
+    return atom[0] == '#' && atom.size() > 1 && (atom[1] | 0x20) >= 'a' && (atom[1] | 0x20) <= 'z';
+}
+
 enum class NumberKind : uint8_t { NotNumber, Int, Float, IntOutOfRange, FloatOutOfRange };
 
 struct Number {

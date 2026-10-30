@@ -130,8 +130,10 @@ struct ConfigOptions {
 // What a layer may change (Config::check_layer, LayerOptions::policy). Each rule is off by
 // default; a refusal names the rule's reason, the path, and the file and line.
 struct LayerPolicy {
-    bool data_only = false;         // no {commands}, [properties], $variables, or #autorun
-    bool scalars_only = false;      // every value an int, float, symbol, or string; no removals
+    // no {commands}, [properties], $variables, #autorun, or (shapes ...)
+    bool data_only = false;
+    // every value an int, float, symbol, or string; no removals, no (shapes ...)
+    bool scalars_only = false;
     bool existing_only = false;     // change only values the stack already has: no new keys, no
                                     // removals
     bool warnings_refuse = false;   // a validator's or the read's warning refuses too

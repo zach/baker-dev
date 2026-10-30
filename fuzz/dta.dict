@@ -31,6 +31,8 @@
 "#append"
 "#drop"
 "@was"
+"#0"
+"#-"
 "\x0a"
 "\x0d\x0a"
 "\xef\xbb\xbf"

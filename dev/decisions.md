@@ -8909,3 +8909,57 @@ be able to drop the budget's cost, as `BAKER_RTTI` lets a game drop RTTI (D250).
   stops nothing and `steps_left()` stays unlimited. The local matrix's and CI's plain
   refcounts configuration builds with it off, as a game that wants every instruction
   would.
+
+
+## D260. Shapes count a list, name a shape that governs nothing, and stay out of received data; `#` opens a directive only before a letter
+
+*The first half of the hash-declarations idea, prototyped on
+`claude/fervent-cray-l1kyf0-syntax-hash-declarations` (its design note is that branch's
+`dev/syntax-hash-declarations-design.md`), reviewed with the owner on 2026-10-30, who chose
+the parts that need no new syntax first, then the directives with the tools that see them.*
+
+- **A list's count.** `(list T N)` holds exactly N values and `(list T N M)` N to M, for any
+  element type, a key's included: `(pos (list float 3))`, `(spares (list (key_of weapons) 0
+  1))`. Any other count is a located `Range` error at the field ("'pos' holds 2 values, not
+  3"), checked before the elements; a malformed count is an error of the declaration. A
+  softer pack that widens the count loosens the field (D145): the harder count holds, with
+  D145's warning. `Field::min_count` and `max_count` hold it, and `baker.shapes` gains `count`
+  (`[min, max]`, or `null`), version 1.5. Text that wrote `(list T)` reads as before; `(list T
+  N)` was an error before.
+- **A shape that governs nothing.** `shape::unused(tree, shapes, report)` warns of each shape
+  that governed no array, located at its declaration: D108's silent wrong depth, `(@at
+  fighters moves)` for `(@at fighters * moves)`, now reads "shape 'move' governs nothing: no
+  array is a child of fighters/moves". It runs the checker with a vector of the shapes that
+  governed an instance (one test of a null pointer for each instance when it does not), so
+  `check()` and the validator are unchanged. The kit's `check` runs it, as a shape warning,
+  which passes. The validator does not, since a stack may lack some content for now. Over the
+  seven stacks' data it says nothing.
+- **Shapes in received data.** Under `data_only` or `scalars_only`, a candidate layer whose top
+  level holds `(shapes ...)` is refused, located at it: "(shapes ...) declares shapes; the
+  layer may change data only". The prototype found the hole: an overlay could send
+  `(shapes (item (price int (@range 0 99999))))` beside `(shop (sword (price 5000)))`, and the
+  policy, seeing scalars retuned, let the overlay widen the range its own value is checked
+  against. `existing_only` and `allow` are unchanged.
+- **`#` before a letter.** `#` opens a directive only before an ASCII letter
+  (`detail::is_directive`, which the lexer and `is_bare_symbol` share): a lone `#`, `#1`,
+  `#00aa00` and `#-` are symbols, which the printer now writes bare where it quoted a lone
+  `#` (D101's mismatch, closed). `#x1` is still a directive, an unknown one, and a symbol so
+  spelled prints quoted. Text that read before reads the same, except a `#`-led token not
+  followed by a letter, which was an unknown directive's error.
+- **Costs.** `tools/count_instructions.py --base e318731` (GCC 13, Release): `parse`
+  1,886,372 → 1,886,372 (0), `lookup` 208 → 208, `check` 3,834,250 → 3,832,628 (−0.04%). A
+  shape check adds one compare a list field; it was not counted, since `tools/count` has no
+  shape case.
+- **Lines.** The core is 15,878 counted lines (15,844 before): `baker::data` +34. `baker::shape`
+  941 (+61), the host kit 2,610 (+1).
+- **Tests.** The shape tests: counts checked, malformed, as JSON, and widened by a softer pack;
+  a keyed shape one level off and a shape whose tag nothing carries, named. The kit's `check`:
+  a shape at a place the data lacks is a warning. `test_received_layers.cpp`: the overlay's
+  shapes refused under each data rule, admitted under `existing_only`. `test_preprocessor.cpp`:
+  `#` tokens read and print back as written. Fuzz regression `hash_symbols.bin`; the
+  dictionary gains `#0` and `#-`.
+- **Raw gate.** 464/464 files, 0 round-trip failures.
+- **Fuzzing.** libFuzzer under ASan and UBSan, built as CI's fuzz job, seeded with D251's
+  corpus and the fuzz regressions, toward the 1 million executions of each adoption step:
+  1,000,000 executions in runs each resumed from the last one's corpus, with no crash, leak
+  or sanitizer report, and a corpus of 17,509 inputs at the end.

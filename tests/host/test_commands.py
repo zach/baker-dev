@@ -48,6 +48,11 @@ def check(s):
     code, out, _ = s.run("check", agent="(player (speed 42))\n")
     r = json.loads(out)
     expect(code == 1 and len(r["shape_errors"]) == 1, "a value out of its shape's range fails")
+    code, out, _ = s.run("check", agent="(shapes (enemy (@at foes) (@keyed) (hp int)))\n")
+    r = json.loads(out)
+    expect(code == 0 and any("shape 'enemy' governs nothing: no array is a child of foes"
+                             in w["message"] for w in r["shape_warnings"]),
+           "a shape that governs no array is a shape warning, and passes")
     code, out, _ = s.run("check", agent="(player (speed 3\n")
     r = json.loads(out)
     expect(code == 2 and len(r["load"]) == 1 and r["load"][0]["file"].endswith("agent.dta"),
@@ -73,7 +78,7 @@ def reference(s):
     names = [f["name"] for f in r["reference"]["functions"]]
     expect(code == 0 and r["reference"]["schema"] == "baker.reference/1.5" and "spawn" in names,
            "reference --baker-json: the game's functions")
-    expect(r["shapes"]["schema"] == "baker.shapes/1.4" and r["tweaks"]["schema"] == "baker.tweaks/1.5",
+    expect(r["shapes"]["schema"] == "baker.shapes/1.5" and r["tweaks"]["schema"] == "baker.tweaks/1.5",
            "reference --baker-json: tweaks and shapes")
     code, out, _ = s.run("reference")
     expect(code == 0 and "spawn" in out, "reference: Markdown")
