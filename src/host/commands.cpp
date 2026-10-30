@@ -240,8 +240,37 @@ int eval(const CommandLine& line, const CommandHooks& hooks) {
     return status;
 }
 
-// One line per value the layer sets: path, the value below it, its value, where.
-int print_effect(const Config& cfg, std::string_view layer, std::string_view heading) {
+// Each value the layer sets as a row, (/player.speed 4.5), its value below in a comment:
+// text a layer file can hold (D249). A key no row can spell is a comment.
+void print_rows(const Config& cfg, std::string_view layer, const List<LayerEffectEntry>& effect,
+                std::string_view heading) {
+    out("; " + Str(heading) + "\n");
+    const Ref<Array> root = cfg.layer_root(layer);
+    for (const LayerEffectEntry& e : effect) {
+        const std::string_view key = e.path.str();
+        const Array* a = root ? root->try_get(key) : nullptr;
+        bool spelled = a && !key.empty() && key[0] != '*';
+        for (const char c : key)
+            spelled = spelled && !detail::is_atom_end(static_cast<unsigned char>(c));
+        if (!spelled) {
+            out("; " + Str(key) + " cannot be written as a row\n");
+            continue;
+        }
+        Str row = "(/" + Str(key);
+        static const Symbol marker("#remove");  // a removal's, which reads bare there (D143)
+        for (const Node& v : a->values())
+            row += " " + (v.is(marker) ? Str("#remove") : detail::text_of(v));
+        row += ")  ; ";
+        row += e.below ? "was " + detail::text_of(*e.below) : Str("new");
+        if (e.shadowed) row += ", shadowed";
+        out(row + "\n");
+    }
+}
+
+// One line per value the layer sets: path, the value below it, its value, where; or, with
+// `rows`, each as a row.
+int print_effect(const Config& cfg, std::string_view layer, std::string_view heading,
+                 bool rows = false) {
     auto effect = tools::layer_effect(cfg, layer);
     if (!effect) {
         err(to_string(effect.error()));
@@ -250,6 +279,10 @@ int print_effect(const Config& cfg, std::string_view layer, std::string_view hea
     }
     if (effect->empty()) {
         out("layer '" + Str(layer) + "' changes nothing\n");
+        return 0;
+    }
+    if (rows) {
+        print_rows(cfg, layer, *effect, heading);
         return 0;
     }
     out(Str(heading) + "\n");
@@ -264,7 +297,8 @@ int print_effect(const Config& cfg, std::string_view layer, std::string_view hea
 int diff(const CommandLine& line, const CommandHooks& hooks) {
     Loaded l(hooks);
     if (!load(l, line)) return kCommandError;
-    return print_effect(l.live.config(), line.layer, "layer '" + Str(line.layer) + "' changes:");
+    return print_effect(l.live.config(), line.layer,
+                        "layer '" + Str(line.layer) + "' changes:", line.rows);
 }
 
 // A file's lines, each with its newline; the last may have none.
@@ -424,7 +458,8 @@ int promote(const CommandLine& line, const CommandHooks& hooks) {
     if (!line.write)
         return print_effect(
             cfg, line.layer,
-            "would write into " + Str(line.to) + " (rerun with --baker-write to write):");
+            "would write into " + Str(line.to) + " (rerun with --baker-write to write):",
+            line.rows);
     auto report = cfg.promote(line.layer, line.to);
     if (!report) {
         err(describe(report.error()));
@@ -792,6 +827,8 @@ Expected<CommandLine> parse_command_line(int argc, const char* const* argv) {
             line.json = true;
         } else if (a == "write") {
             line.write = true;
+        } else if (a == "rows") {
+            line.rows = true;
         } else if (a == "check") {
             line.check = true;
         } else if (std::string_view* into = text_option(line, a)) {
@@ -870,11 +907,13 @@ std::string_view command_help() noexcept {
            "                                 problem, a shape error, or an undefined function\n"
            "  reference [--baker-json]       the script vocabulary, as Markdown; --baker-json:\n"
            "                                 {reference, tweaks, shapes} as Baker's JSON\n"
-           "  diff [--baker-layer L]         what layer L (default agent) changes\n"
+           "  diff [--baker-layer L] [--baker-rows]\n"
+           "                                 what layer L (default agent) changes; --baker-rows:\n"
+           "                                 as rows a layer file can hold\n"
            "  promote [--baker-from L] [--baker-to T] [--baker-write | --baker-patch FILE]\n"
-           "                                 layer L into T (default default); --baker-write\n"
+           "          [--baker-rows]         layer L into T (default default); --baker-write\n"
            "                                 writes; --baker-patch writes the change as a\n"
-           "                                 unified diff\n"
+           "                                 unified diff; --baker-rows: the change as rows\n"
            "  eval [--baker-seed N] [--baker-json] \"{command}\"...\n"
            "                                 each command's result, one a line, on the game\n"
            "                                 reset with the seed (default 1); --baker-json: one\n"

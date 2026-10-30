@@ -12,11 +12,14 @@
 //                                  function
 //   reference [--baker-json]       the script vocabulary, as Markdown; --baker-json:
 //                                  {"reference", "tweaks", "shapes"}, Baker's three documents
-//   diff [--baker-layer L]         what layer L (default agent) changes, value by value
+//   diff [--baker-layer L] [--baker-rows]
+//                                  what layer L (default agent) changes, value by value;
+//                                  --baker-rows: each as a row, (/a.b 1), a layer file holds
 //   promote [--baker-from L] [--baker-to T] [--baker-write | --baker-patch FILE]
-//                                  layer L into T (default default): what it would write;
+//           [--baker-rows]         layer L into T (default default): what it would write;
 //                                  --baker-write writes; --baker-patch writes the change as a
-//                                  unified diff against the files, and nothing else
+//                                  unified diff against the files, and nothing else;
+//                                  --baker-rows: what it would write, as rows
 //   eval [--baker-seed N] [--baker-json] "{command}"...
 //                                  each command's result on the game reset with seed N
 //                                  (default 1); --baker-json: one baker.reply/1.2 line each
@@ -89,6 +92,7 @@ struct CommandLine {
     std::string_view before, after;    // compare --baker-before DIR --baker-after DIR
     bool json = false;                 // --baker-json
     bool write = false;                // promote --baker-write
+    bool rows = false;                 // diff and promote --baker-rows: the change as rows
     bool check = false;                // format --baker-check: change nothing, list what would
     List<std::string_view> commands;   // eval's {commands}
     List<std::string_view> rest;       // every argument the kit does not read, in order

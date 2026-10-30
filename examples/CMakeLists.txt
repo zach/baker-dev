@@ -62,7 +62,7 @@ endif()
 add_executable(baker_example_config config/main.cpp)
 target_link_libraries(baker_example_config PRIVATE baker::data)
 if(baker_test_dev)
-  baker_example_test(baker_example_config baker_example_config "shadows 0, volume 0[.]8.*renderer[.]shadows +layer handheld handheld[.]dta:3.*audio rebuilt: volume 0[.]6${nl}reload: .*audio[.]volume +layer scratch +[(]unsaved[)].*audio[.]volume +layer default +default[.]dta:6${nl}default[.]dta: +[(]volume 0[.]45 [(]@range 0 1[)].*audio[.]channels +layer local +sam[.]dta:1${nl}local/sam[.]dta: [(]audio [(]channels 8[)][)]"
+  baker_example_test(baker_example_config baker_example_config "shadows 0, volume 0[.]8.*renderer[.]shadows +layer handheld handheld[.]dta:3.*audio rebuilt: volume 0[.]6${nl}reload: .*audio[.]volume +layer scratch +[(]unsaved[)].*audio[.]volume +layer default +default[.]dta:6${nl}default[.]dta: +[(]volume 0[.]45 [(]@range 0 1[)].*audio[.]channels +layer local +sam[.]dta:1${nl}local/sam[.]dta: [(]/audio[.]channels 8[)]"
     ${CMAKE_CURRENT_SOURCE_DIR}/config/data)
 endif()
 

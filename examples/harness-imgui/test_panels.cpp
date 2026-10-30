@@ -112,7 +112,8 @@ TEST_CASE("the panels draw, and their requests do what their buttons say") {
         // "Keep for me" writes it into the personal layer, creating local/tester.dta.
         h.tweaks.request = {harness::TweaksState::Request::KeepLocal, "ball.radius", {}};
         h.frame();
-        CHECK(read(h.dir / "local" / "tester.dta") == "(ball (radius 30))\n");
+        CHECK(read(h.dir / "local" / "tester.dta") ==
+              "(/ball.radius 30)\n");  // a created layer is rows (D249)
         CHECK(harness::provenance(h.cfg, "ball.radius") == "tester.dta:1 (layer local)");
         // "Save" writes back where the value came from: one number changes.
         h.tweaks.request = {harness::TweaksState::Request::Set, "ball.bounce", {0.75}};

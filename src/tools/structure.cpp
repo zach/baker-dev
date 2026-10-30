@@ -73,6 +73,9 @@ TextStructure read_structure(std::string_view text, Symbol file) {
             case Tok::Directive: out.kind = TextTokenKind::Directive; break;
             case Tok::Symbol: {
                 out.kind = t.quoted ? TextTokenKind::QuotedSymbol : TextTokenKind::Symbol;
+                if (!t.quoted && fresh >= 0 && brackets[fresh].open == '(' &&
+                    brackets[fresh].parent < 0 && t.text.size() > 1 && t.text[0] == '/')
+                    out.kind = TextTokenKind::PathKey;
                 const Symbol name(t.text);
                 if (!t.quoted && naming && fresh >= 0) {
                     macros.push_back(name);

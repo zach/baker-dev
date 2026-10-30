@@ -14,7 +14,8 @@ struct SourceMap::Tables {
         Ref<Array> keep;  // keeps the address from being reused while it is a key
         SourceSpan extent;
         uint32_t first = 0;  // its spans: run[first, first + count)
-        uint32_t count = 0;
+        uint32_t count : 31 = 0;
+        uint32_t row_made : 1 = 0;  // SourceMap::row_made
     };
     const Allocator alloc;
     Vec<Entry> entries;
@@ -70,6 +71,11 @@ const SourceSpan* SourceMap::span(const Array& a, size_t i) const {
     return s && i < s->size() ? &(*s)[i] : nullptr;
 }
 
+bool SourceMap::row_made(const Array& a) const {
+    const Tables::Entry* e = t_->find(a);
+    return e && e->row_made;
+}
+
 const SourceSpan* SourceMap::extent(const Array& a) const {
     const Tables::Entry* e = t_->find(a);
     return e ? &e->extent : nullptr;
@@ -86,13 +92,15 @@ bool SourceMap::empty() const noexcept {
 }
 
 void SourceMap::record(const Ref<Array>& a, const SourceSpan& extent,
-                       std::span<const SourceSpan> spans) {
+                       std::span<const SourceSpan> spans, bool row_made) {
     Tables& t = *t_;
     if ((t.entries.size() + 1) * 2 > t.keys.size()) t.grow();
     const auto first = static_cast<uint32_t>(t.run.size());
     t.run.insert(t.run.end(), spans.data(), spans.data() + spans.size());
     const size_t i = t.probe(a.get());
-    Tables::Entry e{a, extent, first, static_cast<uint32_t>(spans.size())};
+    Tables::Entry e{a, extent, first};
+    e.count = static_cast<uint32_t>(spans.size()) & 0x7FFFFFFFu;  // the node limit is far below
+    e.row_made = row_made ? 1U : 0U;
     if (t.keys[i]) {
         t.entries[t.slots[i]] = std::move(e);  // recorded again (a #merge rebuild): replaced
         return;
