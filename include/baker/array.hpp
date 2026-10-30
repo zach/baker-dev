@@ -220,7 +220,7 @@ private:
 // every integer and floating-point type (range-checked), bool (any integral number),
 // Symbol, std::string_view and std::string (String nodes), Node (the first value, raw),
 // std::vector<T>, and std::array<T, N>. Scalars read the first value and ignore the rest,
-// so (width 2 (range 0 10)) reads as 2. T must be default-constructible. to() is needed
+// so (width 2 (@range 0 10)) reads as 2. T must be default-constructible. to() is needed
 // only to write a T (Config::set, Tweak::set); every built-in converter has one, and a
 // float is written as its shortest decimal (0.7f as 0.7, not 0.699999988).
 //
@@ -467,6 +467,55 @@ private:
     const Node* end_ = nullptr;
 };
 
+// An array's metadata children, (@range 0 10) (@desc "..."), in the order written: the
+// children from the first metadata child on whose tag begins with '@'. A field written
+// after the metadata, (move (@at moves) (@keyed) (button symbol)), is not one of them.
+class MetadataIterator {
+public:
+    using iterator_category = std::forward_iterator_tag;
+    using value_type = Array;
+    using reference = const Array&;
+    using pointer = const Array*;
+    using difference_type = std::ptrdiff_t;
+
+    MetadataIterator() = default;
+    MetadataIterator(const Node* p, const Node* end) noexcept : p_(p), end_(end) { skip(); }
+
+    reference operator*() const noexcept { return *p_->try_array(); }
+    pointer operator->() const noexcept { return p_->try_array(); }
+    MetadataIterator& operator++() noexcept {
+        ++p_;
+        skip();
+        return *this;
+    }
+    MetadataIterator operator++(int) noexcept {
+        MetadataIterator old = *this;
+        ++*this;
+        return old;
+    }
+    friend bool operator==(const MetadataIterator& a, const MetadataIterator& b) noexcept {
+        return a.p_ == b.p_;
+    }
+
+private:
+    inline void skip() noexcept;  // after Array
+    const Node* p_ = nullptr;
+    const Node* end_ = nullptr;
+};
+
+class Metadata {
+public:
+    Metadata() = default;
+    Metadata(const Node* begin, const Node* end) noexcept : begin_(begin), end_(end) {}
+    [[nodiscard]] MetadataIterator begin() const noexcept { return {begin_, end_}; }
+    [[nodiscard]] MetadataIterator end() const noexcept { return {end_, end_}; }
+    [[nodiscard]] bool empty() const noexcept { return begin_ == end_; }
+
+private:
+    const Node* begin_ = nullptr;
+    const Node* end_ = nullptr;
+};
+
 class Array {
 public:
     // An array of `size` nodes, each Int 0.
@@ -496,10 +545,38 @@ public:
     [[nodiscard]] std::span<const Node> nodes() const noexcept { return {data(), size_}; }
     [[nodiscard]] Subarrays subarrays() const noexcept { return {begin(), end()}; }
 
-    // The nodes after the first: a tagged array's values.
+    // The nodes after the first, up to the first metadata child: a tagged array's values.
+    // (color 0.9 0.5 0.2 (@range 0 1)) is three numbers to every reader; the boundary is
+    // kept in flags_ by finish(), set() and sort_for_lookup(), so this is a compare and a
+    // subspan.
     [[nodiscard]] Values values() const noexcept {
+        if (const uint32_t m = meta_first())
+            return {std::span<const Node>(data() + 1, m - 1), this};
         return {size_ ? nodes().subspan(1) : std::span<const Node>(), this};
     }
+    // The metadata children, (@range 0 1) (@desc "..."): each child from the first metadata
+    // child on whose tag begins with '@'. Empty for an array with none.
+    [[nodiscard]] Metadata metadata() const noexcept {
+        const uint32_t m = meta_first();
+        return m ? Metadata(data() + m, end()) : Metadata();
+    }
+    // The metadata child tagged `tag` ("@range"), or null: a scan of the tag run from the
+    // first metadata child, as try_find scans from the start.
+    [[nodiscard]] const Array* meta(Symbol tag) const noexcept {
+        const uint32_t want = key_of(tag);
+        const uint32_t* tags = tag_run();
+        for (uint32_t i = meta_first(); i != 0 && i < size_; ++i)
+            if (tags[i] == want) {
+                const auto* a = static_cast<const Array*>(data()[i].array());
+                if (a->data()[0].is(tag)) return a;
+            }
+        return nullptr;
+    }
+    // The index of the first metadata child, or 0 for none (slot 0 is the tag's and is never
+    // metadata). The parser refuses metadata past child kMaxMetaFirst, which the 14 bits it
+    // is kept in cannot name.
+    [[nodiscard]] uint32_t meta_first() const noexcept { return flags_ >> kMetaShift; }
+    static constexpr uint32_t kMaxMetaFirst = 0x3FFF;
 
     // Replaces the node at `i` (must be in range). Arrays may be shared, e.g. by macro
     // expansion, so the change is visible through every reference. Clears sorted mode.
@@ -578,9 +655,10 @@ public:
     // Reorders the children so find() can binary-search: children that are not tagged
     // arrays move to the front in their original order (so a tag in slot 0 stays there),
     // and tagged arrays follow, sorted by tag hash and then text (an order that does not
-    // depend on the run). Duplicate tags keep their order, so find() still returns the
-    // first. Opt-in and never automatic: it changes at(i) and printing order, and every
-    // array sharing this one (through a macro) sees the change. set() turns it off;
+    // depend on the run); the metadata children follow those, sorted alike, so the values
+    // and the metadata boundary survive the sort (D28). Duplicate tags keep their order, so find()
+    // still returns the first. Opt-in and never automatic: it changes at(i) and printing order, and
+    // every array sharing this one (through a macro) sees the change. set() turns it off;
     // re-tagging a child in place is not detected, so sort again after doing that.
     void sort_for_lookup();
     [[nodiscard]] bool sorted_for_lookup() const noexcept {
@@ -622,6 +700,8 @@ public:
 private:
     static constexpr uint16_t kSortedForLookup = 1;
     static constexpr uint16_t kHasRemoval = 2;
+    static constexpr uint16_t kMetaShift = 2;  // above them, the metadata boundary
+    static constexpr uint16_t kFlagBits = kSortedForLookup | kHasRemoval;
 
     Array(uint32_t block, uint32_t size, Symbol file, int32_t line) noexcept
         : block_(block), size_(size), file_(file), line_(line) {}
@@ -676,7 +756,7 @@ private:
     Symbol file_;
     int32_t line_;
     uint16_t height_ = 1;
-    uint16_t flags_ = 0;  // kSortedForLookup, kHasRemoval
+    uint16_t flags_ = 0;  // kSortedForLookup, kHasRemoval; above them, the metadata boundary
     // uint32_t tags[size_], padded to 8, follows (D77), then Node nodes[size_].
 };
 
@@ -687,6 +767,10 @@ namespace detail {
     return a ? a->tag() : Symbol();
 }
 }  // namespace detail
+
+inline void MetadataIterator::skip() noexcept {
+    while (p_ != end_ && !detail::tag_of(*p_).is_meta()) ++p_;
+}
 
 static_assert(sizeof(Array) == 24, "Array header must stay 24 bytes");
 

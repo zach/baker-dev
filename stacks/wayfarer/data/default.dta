@@ -7,16 +7,16 @@
 #require "regions/interior.dta"
 
 (wayfarer
-   (run_speed 6 (range 1 20) (desc "Metres a second on foot"))
-   (jump_speed 6 (range 0 20) (desc "Metres a second up, leaving the ground"))
-   (climb_max 8 (range 0 50) (desc "Metres a climb goes up without a ledge to rest on"))
-   (climb_speed 2.5 (range 0.5 10) (desc "Metres a second, climbing"))
-   (glide_speed 10 (range 1 40) (desc "Metres a second forward, gliding"))
-   (glide_sink 2 (range 0.2 10) (desc "Metres a second down, gliding"))
-   (step 0.5 (range 0 2) (desc "A step walked up without climbing"))
-   (poi_radius 4 (range 1 20) (desc "Metres from a point of interest that count as at it"))
-   (discover_radius 20 (range 1 200) (desc "Metres at which a point of interest is found"))
-   (stream_radius 1 (range 0 4) (desc "Cells around the player's that are built")))
+   (run_speed 6 (@range 1 20) (@desc "Metres a second on foot"))
+   (jump_speed 6 (@range 0 20) (@desc "Metres a second up, leaving the ground"))
+   (climb_max 8 (@range 0 50) (@desc "Metres a climb goes up without a ledge to rest on"))
+   (climb_speed 2.5 (@range 0.5 10) (@desc "Metres a second, climbing"))
+   (glide_speed 10 (@range 1 40) (@desc "Metres a second forward, gliding"))
+   (glide_sink 2 (@range 0.2 10) (@desc "Metres a second down, gliding"))
+   (step 0.5 (@range 0 2) (@desc "A step walked up without climbing"))
+   (poi_radius 4 (@range 1 20) (@desc "Metres from a point of interest that count as at it"))
+   (discover_radius 20 (@range 1 200) (@desc "Metres at which a point of interest is found"))
+   (stream_radius 1 (@range 0 4) (@desc "Cells around the player's that are built")))
 
 (world
    (cell_size 64)

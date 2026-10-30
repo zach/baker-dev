@@ -47,7 +47,7 @@ def check_gate(s):
         return code, json.loads(out)
 
     code, r = check("")
-    expect(code == 0 and r["passed"] and r["schema"] == "baker.check/1.4", "clean data passes")
+    expect(code == 0 and r["passed"] and r["schema"] == "baker.check/1.5", "clean data passes")
 
     code, r = check("#autorun {spawnn 1}\n")
     expect(code == 1 and not r["passed"], "a failing #autorun command fails the check")
@@ -75,7 +75,7 @@ def eval_json(s):
     lines = [json.loads(l) for l in out.splitlines()]
     expect(code == 1 and len(lines) == 2, "eval --baker-json: one reply a command; exit 1 on an error")
     first = lines[0]
-    expect(first["schema"] == "baker.reply/1.1" and first["id"] == 1 and first["ok"],
+    expect(first["schema"] == "baker.reply/1.2" and first["id"] == 1 and first["ok"],
            "eval --baker-json: the reply form, with its id")
     expect(first["value"][-1]["standing"] == "wins" and first["value"][-1]["layer"] == "default",
            "eval --baker-json: explain's layer chain as JSON")

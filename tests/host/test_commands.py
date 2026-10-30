@@ -40,7 +40,7 @@ class Stack:
 def check(s):
     code, out, _ = s.run("check")
     r = json.loads(out)
-    expect(code == 0 and r["passed"] and r["schema"] == "baker.check/1.4", "clean data passes")
+    expect(code == 0 and r["passed"] and r["schema"] == "baker.check/1.5", "clean data passes")
     code, out, err = s.run("check", agent="(waves {spawnn grunt 3})\n")
     r = json.loads(out)
     expect(code == 1 and [d["name"] for d in r["demand"]] == ["spawnn"] and "spawnn" in err,

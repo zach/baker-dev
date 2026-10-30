@@ -43,10 +43,15 @@ namespace detail {
 
 struct SymbolEntry {
     const char* text;  // NUL-terminated
-    uint32_t size;
-    uint32_t index;  // dense, in interning order; 0 is the empty symbol
+    uint32_t size;     // the high bit: kSymbolMetaBit, set when interned
+    uint32_t index;    // dense, in interning order; 0 is the empty symbol
     uint64_t hash;
 };
+
+// In SymbolEntry::size: the text is '@' and at least one more character, the metadata
+// sigil. A lone '@' is a symbol like any other.
+inline constexpr uint32_t kSymbolMetaBit = 0x80000000u;
+inline constexpr uint32_t kSymbolSizeMask = ~kSymbolMetaBit;
 
 inline constexpr SymbolEntry kEmptySymbolEntry{"", 0, 0, symbol_hash("")};
 
@@ -64,10 +69,15 @@ public:
     Symbol(std::string_view text);  // NOLINT(google-explicit-constructor)
     Symbol(const char* text) : Symbol(std::string_view(text)) {}  // NOLINT
 
-    [[nodiscard]] std::string_view str() const noexcept { return {e_->text, e_->size}; }
+    [[nodiscard]] std::string_view str() const noexcept {
+        return {e_->text, e_->size & detail::kSymbolSizeMask};
+    }
     [[nodiscard]] const char* c_str() const noexcept { return e_->text; }
     [[nodiscard]] uint64_t hash() const noexcept { return e_->hash; }
     [[nodiscard]] bool empty() const noexcept { return e_->size == 0; }
+    // Whether the text is '@' and more, (@range 0 10)'s tag: an array tagged so is metadata.
+    // One load of the size word, its bit set when the symbol was interned.
+    [[nodiscard]] bool is_meta() const noexcept { return (e_->size & detail::kSymbolMetaBit) != 0; }
     // Dense index, in interning order (the empty symbol is 0), for tables indexed by
     // symbol: baker::script keeps its functions and variables this way.
     [[nodiscard]] uint32_t index() const noexcept { return e_->index; }

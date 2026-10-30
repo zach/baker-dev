@@ -41,8 +41,9 @@ static_assert(sizeof(String) == 8 && sizeof(Symbol) == 8);
 constexpr char kMagic[10] = {'M', 'O', 'I', 'R', 'A', '.', 'D', 'A', 'T', 'B'};
 // 2: packs' harness metadata, origins (D91); 3: the header hashed (D119); 4: '' keys no tag
 // in the tag run (D125); 5: packs' versions, and the versions they require (D147); 6: the
-// source-order layout, for delta patches (D148).
-constexpr uint16_t kVersion = 6;
+// source-order layout, for delta patches (D148); 7: the metadata boundary in an array's
+// flags (D248), which an older build's image of the same text lacks.
+constexpr uint16_t kVersion = 7;
 constexpr uint32_t kEndian = 0x01020304;
 
 // The layout is made for delta patches (D148): an edit to the text changes the bytes of the

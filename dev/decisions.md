@@ -8240,3 +8240,138 @@ compares text and stays correct.
   data file at its line, through an `#include` at the included file's line and the
   includer's after it; four threads interning while one plants a collision, reported once,
   which TSan in CI runs.
+
+## D248. Metadata by spelling: an `@` tag is never a value
+
+*The at-metadata syntax idea, prototyped on `claude/fervent-cray-l1kyf0-syntax-at-metadata`
+(its design note is that branch's `dev/syntax-at-metadata-design.md`), reviewed with the
+owner on 2026-10-30, who chose the full change as built: the boundary in the tree and the
+parse-time rule, not the lighter spelling-only pass. Revisits D88, D218 and spec §4.*
+
+- **The need.** Metadata was told from data by its place and a word list: a tweak's value
+  stopped before a trailing run of children tagged `range`, `step`, `desc`, `note`, `kind`,
+  `group` or `one_of` (D88), a rule D218 had to export because tools repeated it and
+  differed, and the shape grammar reserved its own eleven words. So `get<std::array<float,
+  3>>` of `(tint 0.9 0.5 0.2 (range 0 1))` failed (D88's "Not changed"); a record's field
+  named `kind`, `desc`, `step` or `at` read as metadata when it came last (133 such fields
+  in the corpus, held apart by position); `(rnage 0 1)` was a field, silently; a shape
+  could not describe itself; and a `{func}` body whose first form was `(status 1)` lost it.
+- **The rule.** A child array whose tag is `@` and at least one more character is
+  metadata, and nothing else is. A lone `@` is an ordinary symbol: the raw gate's corpus
+  binds a cheat to the `@` key, `('@' "..." {fake_win 2})`, which the prototype refused.
+  Metadata comes after the value: in a parenthesized array, every child after the first
+  metadata child is a tagged array (a field or more metadata). A value there is a `Syntax`
+  error at the array, "metadata comes after the value: move (@range 0 1) after 5". The
+  prototype located the child by lexing again, which a macro's spliced nodes make wrong; the
+  array's own place is always right, and the message names both children. A command's and
+  a property's forms are positional and not checked.
+- **The tree.** Nothing new in `Node`, `Array` or the arena.
+  - `SymbolEntry::size`'s high bit is set at intern time for such text;
+    `Symbol::is_meta()` reads it, and `str()` and the table's probes mask it.
+  - The index of the first metadata child is kept in `Array::flags_`' 14 spare bits, by
+    `finish()` (from the word the tag run's empty-tag test already loads, D125), `set()`
+    and `sort_for_lookup()`, which sorts metadata after the other tagged children so the
+    values and the boundary survive (D28). `find_sorted` searches the whole array in that
+    order; it began at the boundary at first, and CI's lookup fuzzer found the miss: in an
+    untagged array, `((@range 0 10) (@ssmall 1))`, slot 0 holds metadata's tag, which no
+    boundary names. Metadata past child 16,383 is refused (`Limit`).
+  - `values()` ends at the boundary, for every reader. `metadata()` lists the metadata
+    children, skipping a field that follows them; `meta(tag)` finds one by the tag run.
+    `split_metadata` and `ValueMetadata` (D218) are deleted: `values()` and `metadata()`
+    are the same split, for any array.
+  - The binary cache keeps the boundary in each array's image, so the format is 7: an
+    older build's image of a text with `@` children has none.
+- **The readers.**
+  - Tweaks read `@range`, `@step`, `@desc`, `@note`, `@kind`, `@group`, `@one_of`; the
+    trailing-run scan (`without_metadata`) is gone, its value is `values()`.
+  - Shapes: `@at`, `@keyed`, `@optional`, `@range`, `@step`, `@kind`, `@desc`, `@note`,
+    `@one_of`, and `(@rule "message" {expression} (@warn))`. `(key_of TABLE)` and
+    `(list T)` are types, written where the type goes, and keep their spelling (the review
+    had listed `key_of` among the words to change; it is not metadata). A word without the
+    sigil after a field's type is an error naming the spelling to use; an unknown `@` word
+    on a shape or a field is an error, where other words were ignored. A shape's own
+    `(@desc ...)` and `(@note ...)` are accepted, not yet stored. A field may be named
+    `at`, `kind`, `desc` or `rule`.
+  - `{func}` and `{override}`: the leading `(@status ...)` and `(@doc ...)`; another `@`
+    word there is an error, and a form without the sigil is the body's first.
+  - `check`'s demand report reads `(@status stub)`; the harness's tooltip reads
+    `path.@note`.
+  - Scenarios' and objectives' `(desc ...)` and a scenario's `(at ...)` are fields of
+    records with no value and stay as they are.
+- **`check` warns**, once of each per layer, at the first: an array holding a value and a
+  child tagged with one of the seven old words, anywhere among its children ("(range ...)
+  beside a value reads as a field; if it is metadata, write (@range ...)"), and an unknown
+  `@` word in data ("unknown metadata (@rnage ...)"). Shapes are left to their reader.
+- **JSON.** No field changed; paths to metadata are spelled `box.width.@note`, so
+  `baker.check/1.5` and `baker.reply/1.2`, minor versions, with no alias. `baker.tweaks`
+  and `baker.shapes` print metadata as fields, unchanged.
+- **The migration, in this change.** `tools/migrate_metadata.cpp`
+  (`baker_migrate_metadata`, built with the tools) inserts the `@` and changes nothing
+  else, over `read_structure`'s spans, so Baker's own lexer decides the tokens: D218's
+  trailing run after a value, a shape's words, a field's words after its type, a `{func}`'s
+  leading forms. `--cpp` migrates DTA in C++ string literals, `--md` in Markdown; `--report`
+  lists the renames and the records it leaves for a person (an array with no value whose
+  last child is tagged with an old word). Run over the repository: 379 renames in 23 of
+  the 68 `.dta` files, 143 in C++ literals, and the user docs. Settled by hand:
+  `tests/corpus/game_tuning.dta`'s phase note, written `(@note ...)`; the examples' and
+  docs' prose; three expected texts (an example's output regex, two shape messages); the
+  test fixtures of malformed rules. The bench drivers' `(limits (min 0) (max 100) (step
+  0.5))` and a test's `(p (kind nope))` are fields and stay.
+- **Cost.**
+  - `tools/count_instructions.py` against main (`c5539ba`), Release, GCC 13:
+
+    | case | main | D248 | change |
+    |---|---:|---:|---:|
+    | parse | 1,840,836 | 1,862,133 | +1.16% |
+    | lookup | 205 | 210 | +2.44% |
+    | lookup_text | 366 | 372 | +1.64% |
+    | set | 634 | 636 | +0.32% |
+    | call, overload, declared, message, message_loose, handle_all, frame | | | 0 |
+
+  - The parse's cost, by callgrind over 400 parses: `finish()` about 10,600 instructions a
+    parse (the sigil test per tagged child, and the boundary), the parser loop the rest
+    (the test of each closed array). The first cut cost +1.43%: the placement check, which
+    runs only for an array with metadata, had been inlined into the loop; made cold and out
+    of line, +1.24%; testing the boundary and the child count in one branch, +1.16%. The
+    prototype measured +1.01% against an older parser. D143's bar is +1.1%; the owner took
+    the prototype's cost knowing it.
+  - A typed read pays `values()`'s compare: five instructions on `find_float`.
+  - `tools/bench_compare.py` against main, Release, 7 runs a side interleaved, pinned, with
+    a niced fuzzer on the other cores; medians:
+    - Typed reads pay the compare: `find_float` 9.47 → 9.86 ns (+4.1%), `find<float>` 9.48
+      → 9.94 (+4.9%), `find_float("key19")` 20.6 → 21.6, `"key19"_sym` 12.0 → 13.4,
+      `get<int>(Path)` of 4 segments 21.7 → 24.3, sorted `find_float` 18.2 → 19.2. Each is
+      0.4 to 2.6 ns; `try_find` of an array, which reads no values, 6.40 → 6.39.
+    - The parse of 4.2 MB, 31.1 → 29.8 ms (−4.4%), and the cache rows (−12% to +3%, their
+      ranges overlapping) move inside this machine's noise; the instruction count (+1.16%)
+      is the parse's number. `mark_visible` (−51%) and cold symbols (+25%, ranges 6 to 36
+      ms on both sides) run no changed code: layout and load.
+  - The core is 15,282 counted lines (15,149 before): data +129, script +4; `baker::shape`
+    847 → 862. The prototype estimated +104; the two `check` warnings and the `metadata()`
+    range are the rest.
+- **The raw gate (D101).** 464 of 464 files parse and round-trip (the prototype: 456, the
+  lone `'@'`); no raw file tags an array with an `@` word, so none reads differently.
+- **Tests.** `tests/data/test_metadata.cpp`: the three-number color through `get<T>` and a
+  path to its `@desc`; fields named like metadata in both orders, and fields between and
+  after metadata kept out of `metadata()`; the placement error at its line and column, a
+  tuple after metadata refused, a field after it accepted, a command unchecked; the lone
+  `'@'`; the boundary through `sort_for_lookup`, `set()` in each direction, a layer
+  restating the value, `(@step #remove)`, and the cache; the 16,383 limit, at and past;
+  write-back growing a value before its metadata and inserting after it, the file
+  reparsing; `check`'s two warnings, and a record with no value kept quiet. The shape
+  tests: a shape describing itself with fields named `at`, `kind`, `desc` and `rule`, and
+  the three located errors. The script tests: `(status 1)` as a body's first form, and an
+  unknown `@` word refused.
+- **Fuzzing.** libFuzzer under ASan and UBSan, built as CI's fuzz job is, seeded with the
+  corpus, the fuzz regressions and every `.dta` of the stacks and examples. The first run
+  stopped after 349,913 executions on a defect of main's harness, a second `(origin "...")`
+  held as data (D91), which the syntax branches had skipped; the harness's three fixes are
+  the commit before this one. Resumed from its grown corpus on the same parser, it ran
+  1,305,353 more executions with no failure: 1,655,266 in all. The owner set the bar for
+  these adoption steps at one million executions, not spec §8's ten million. CI's lookup
+  fuzzer found the one bug, in `find_sorted` (above), fixed in the commit after this
+  one; the lookup fuzzer then ran 5.66 million inputs with no failure.
+- **Not done here.** A bake that drops `@` children from shipped data is its own step,
+  which the owner chose to follow this one. Storing and printing a shape's own description.
+  Layer-markers' `(@was ...)` pin and promote's `(@note ...)` build on this rule in their
+  own steps (dev/syntax-ideas.md).

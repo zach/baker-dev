@@ -378,9 +378,9 @@ Requirements:
 - A tweak may be marked `.dev_only = true`. Under `BAKER_SHIPPING` (below), dev-only
   tweaks ignore all data overrides and always return their code default — the equivalent
   of Unreal's `ECVF_Cheat`.
-- Metadata may equivalently live in the data file, matching the slide syntax:
-  `(width 2 (range 0 10) (step 1) (desc "Box width"))`. Data-side metadata wins over
-  code-side.
+- Metadata may equivalently live in the data file, after the slide syntax with each tag
+  marked by `@` (D248): `(width 2 (@range 0 10) (@step 1) (@desc "Box width"))`. Data-side
+  metadata wins over code-side.
 
 ### Hot reload
 

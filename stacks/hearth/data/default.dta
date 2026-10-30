@@ -4,16 +4,16 @@
 #require "../packs/game/hearth_core.dta"
 
 (hearth
-   (speed 60 (range 1 3600) (desc "Game seconds per real second while playing"))
-   (walk_speed 1.4 (range 0.2 5) (desc "Metres a second"))
-   (choice_top 3 (range 1 10) (desc "A villager picks among this many best options"))
-   (choice_within 0.7 (range 0 1) (desc "...that score at least this share of the best"))
-   (distance_scale 25 (range 1 200) (desc "Metres at which a thing's appeal halves"))
-   (off_hours 0.2 (range 0 1) (desc "A thing's appeal outside its hours, as a share"))
-   (idle_minutes 10 (range 1 120) (desc "How long a villager waits when nothing appeals"))
-   (stuck_minutes 60 (range 5 600) (desc "No progress this long counts as stuck"))
-   (starve_minutes 120 (range 5 1440) (desc "A need at zero this long counts as starving"))
-   (oscillation_switches 6 (range 2 50) (desc "Interrupted back and forth this often oscillates")))
+   (speed 60 (@range 1 3600) (@desc "Game seconds per real second while playing"))
+   (walk_speed 1.4 (@range 0.2 5) (@desc "Metres a second"))
+   (choice_top 3 (@range 1 10) (@desc "A villager picks among this many best options"))
+   (choice_within 0.7 (@range 0 1) (@desc "...that score at least this share of the best"))
+   (distance_scale 25 (@range 1 200) (@desc "Metres at which a thing's appeal halves"))
+   (off_hours 0.2 (@range 0 1) (@desc "A thing's appeal outside its hours, as a share"))
+   (idle_minutes 10 (@range 1 120) (@desc "How long a villager waits when nothing appeals"))
+   (stuck_minutes 60 (@range 5 600) (@desc "No progress this long counts as stuck"))
+   (starve_minutes 120 (@range 5 1440) (@desc "A need at zero this long counts as starving"))
+   (oscillation_switches 6 (@range 2 50) (@desc "Interrupted back and forth this often oscillates")))
 
 (needs
    (hunger  (decay_per_hour 6) (critical 20) (curve quadratic))

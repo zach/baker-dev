@@ -14,8 +14,8 @@
 //
 // Layers merge bottom to top. For each tagged array of a layer, the array with the same
 // tag below is merged into recursively; the layer's values (everything that is not a tagged
-// array) replace the ones below, so (width 3) over (width 2 (range 0 10)) gives
-// (width 3 (range 0 10)). Each layer is read in its own pass, but macros and defines carry
+// array) replace the ones below, so (width 3) over (width 2 (@range 0 10)) gives
+// (width 3 (@range 0 10)). Each layer is read in its own pass, but macros and defines carry
 // upward from the layers below, as from earlier files in one load. load() and merge() are
 // shorthands that push a layer named after the file. A layer pushed with
 // {.optional = true} whose file is missing is an empty layer, and reload() picks the file

@@ -22,7 +22,7 @@ window also runs the robustness check and the cheese search for the open level.
 |---|---|---|
 | `puzzle.hpp`, `puzzle.cpp` | L2: kinds and levels from data, a run as a Jolt world, attempts, robustness, the cheese search | Engineers |
 | `main.cpp` | L2: placement with the mouse, the play loop, script words (`puzzle.`), the window, drawing | Engineers |
-| `packs/game/contraption_core.dta` | L2: the shapes of a kind, a level, a piece, a placement (all `(keyed)`) | By pull request |
+| `packs/game/contraption_core.dta` | L2: the shapes of a kind, a level, a piece, a placement (all `(@keyed)`) | By pull request |
 | `data/default.dta` | L4: the kinds and the levels | By pull request |
 | `data/agent.dta` | The agent's layer | The agent |
 | `sim/levels.dta` | Scenarios: each level judged; the intended solution played on the game's own steps | The agent |

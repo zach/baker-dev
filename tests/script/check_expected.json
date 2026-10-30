@@ -1,5 +1,5 @@
 {
-  "schema": "baker.check/1.4",
+  "schema": "baker.check/1.5",
   "passed": false,
   "errors": [
     {"code": "type", "file": "game.dta", "line": 5, "column": 0, "path": "", "message": "no overload of '+' takes 1 argument"}

@@ -4,23 +4,23 @@
 // declared in data, by whichever layer owns the vocabulary.
 //
 //   (shapes
-//     (boss_phase (at bosses * phases)
-//       (enter_at float (range 0 1) (kind percent) (desc "HP fraction that starts it"))
+//     (boss_phase (@at bosses * phases)
+//       (enter_at float (@range 0 1) (@kind percent) (@desc "HP fraction that starts it"))
 //       (attacks  (list symbol))
-//       (cadence  float (range 0.2 5) (optional))))
+//       (cadence  float (@range 0.2 5) (@optional))))
 //
-// A shape governs every array tagged with its name, or, given (at ...), those whose
+// A shape governs every array tagged with its name, or, given (@at ...), those whose
 // ancestors' tags from the root are the ones listed (`*` matches any). A shape declared
-// (keyed) governs every child of the arrays at its (at ...) path, whatever the child's tag:
+// (@keyed) governs every child of the arrays at its (@at ...) path, whatever the child's tag:
 // keyed data, as (fighters (kestrel (moves (jab ...) (kick ...)))), which layers merge by
 // name (D108).
 //
-//   (shapes (move (at fighters * moves) (keyed) (startup int (range 1 60))))
+//   (shapes (move (@at fighters * moves) (@keyed) (startup int (@range 1 60))))
 //
 // A field has a type (int, float, bool, symbol, string, any, curve, (list T), another shape's
-// name, or (key_of TABLE)) and the tweak metadata (spec §4); a symbol field may list the
-// symbols it allows, (button symbol (one_of light heavy kick special)). A curve field's values
-// are a curve (<baker/curve.hpp>), and its (range lo hi) holds every point's y.
+// name, or (key_of TABLE)) and the tweak metadata, each with its sigil (spec §4, D248); a symbol
+// field may list the symbols it allows, (button symbol (@one_of light heavy kick special)). A curve
+// field's values are a curve (<baker/curve.hpp>), and its (@range lo hi) holds every point's y.
 //
 // (key_of TABLE) holds a symbol to the keys of a keyed table: (weapon (key_of weapons)) in
 // a unit names a child of (weapons (laser ...) (rifle ...)). TABLE is a dotted path, looked
@@ -65,14 +65,14 @@ struct Field {
     double step = 0;  // 0: none
     baker::Symbol kind;
     std::string_view desc, note;  // in the declaration, which the Set keeps
-    // (one_of light heavy kick): the symbols a symbol field's value may be, in the order
+    // (@one_of light heavy kick): the symbols a symbol field's value may be, in the order
     // written; a field declared again adds to it. Empty: any symbol.
     List<baker::Symbol> one_of;
     baker::Symbol file;
     int32_t line = 0;
 };
 
-// (rule "message" {expression} (warn)): what must hold between a record's values. The
+// (@rule "message" {expression} (@warn)): what must hold between a record's values. The
 // shape library reads rules; baker::tools evaluates them (tools::check_rules), since this
 // library cannot run script.
 struct Rule {

@@ -24,7 +24,7 @@ next villager; N spawns the next household. In the console: `{hearth.why ada}`,
 |---|---|---|
 | `household.hpp`, `household.cpp` | L2: needs, things, villagers as Baker objects, scoring, the soak on worker threads, its measures | Engineers |
 | `main.cpp` | L2: the workbench window, script words (`hearth.`), drawing | Engineers |
-| `packs/game/hearth_core.dta` | L2: the shapes of a need, an object, a household (all `(keyed)`) | By pull request |
+| `packs/game/hearth_core.dta` | L2: the shapes of a need, an object, a household (all `(@keyed)`) | By pull request |
 | `data/default.dta` | L4: needs, objects, households, and the actions (`{class villager ...}`) | By pull request |
 | `data/agent.dta` | The agent's layer | The agent |
 | `sim/households.dta` | Scenarios: the soak; a day of the cottage on the game's own steps | The agent |

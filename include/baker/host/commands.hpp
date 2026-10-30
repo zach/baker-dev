@@ -7,7 +7,7 @@
 // The kit's flags begin --baker-, so they never take a name the game's own flags use; any
 // other flag is the game's.
 //
-//   check                          baker.check/1.4 JSON; exit 1 on an error, a load
+//   check                          baker.check/1.5 JSON; exit 1 on an error, a load
 //                                  problem, a shape error, or a call to an undefined
 //                                  function
 //   reference [--baker-json]       the script vocabulary, as Markdown; --baker-json:
@@ -19,7 +19,7 @@
 //                                  unified diff against the files, and nothing else
 //   eval [--baker-seed N] [--baker-json] "{command}"...
 //                                  each command's result on the game reset with seed N
-//                                  (default 1); --baker-json: one baker.reply/1.1 line each
+//                                  (default 1); --baker-json: one baker.reply/1.2 line each
 //   sim [--baker-scenario NAME]... [--baker-seed N | --baker-seeds A-B]
 //       [--baker-step-hz N] [--baker-json] [--baker-results DIR]
 //                                  runs the project's scenarios (all, or those named, by

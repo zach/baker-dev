@@ -82,8 +82,8 @@ struct Checker {
         bool stub = false;
         for (size_t i = 3; i < a.size(); ++i) {
             const Array* m = a[i].try_array();
-            if (!m || m->size() < 2) break;
-            if ((*m)[0].is("status")) stub = (*m)[1].is("stub");
+            if (!m || m->size() < 2 || !m->tag().is_meta()) break;  // as define() reads it
+            if ((*m)[0].is("@status")) stub = (*m)[1].is("stub");
         }
         defined[*name] = {params->size(), stub, a.file()};
     }

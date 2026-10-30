@@ -4,13 +4,13 @@
 #require "../packs/game/duel_core.dta"
 
 (duel
-   (hit_pause 6 (range 0 30) (desc "Frames both fighters freeze on contact: the weight of a hit"))
-   (buffer 5 (range 1 20) (desc "Frames a press waits for its fighter to be able to act"))
-   (stun_decay 1 (range 0 10) (desc "Hitstun each hit of a combo loses, in frames"))
-   (stage_half_width 4 (range 2 20) (desc "Metres from the center to a wall"))
-   (start_gap 2 (range 0.5 10) (desc "Metres between the fighters at a round's start"))
-   (round_seconds 60 (range 5 600))
-   (ko_frames 90 (range 1 600) (desc "Frames from a knockout to the next round"))
+   (hit_pause 6 (@range 0 30) (@desc "Frames both fighters freeze on contact: the weight of a hit"))
+   (buffer 5 (@range 1 20) (@desc "Frames a press waits for its fighter to be able to act"))
+   (stun_decay 1 (@range 0 10) (@desc "Hitstun each hit of a combo loses, in frames"))
+   (stage_half_width 4 (@range 2 20) (@desc "Metres from the center to a wall"))
+   (start_gap 2 (@range 0.5 10) (@desc "Metres between the fighters at a round's start"))
+   (round_seconds 60 (@range 5 600))
+   (ko_frames 90 (@range 1 600) (@desc "Frames from a knockout to the next round"))
    (show_boxes 1))
 
 (fighters

@@ -38,6 +38,8 @@ bool spans_hold(const Node& n, const SourceMap& map, std::string_view text, uint
             if (!sp.literal() || (*a)[i].array()) continue;
             // A leading space, so a token starting with BOM bytes is not read as a BOM.
             const std::string token = " " + std::string(text.substr(sp.begin, sp.end - sp.begin));
+            // The marker reads only as a key's one value (D143), never alone.
+            if (token == " #remove") continue;
             auto alone = read_string(token, "token.dta");
             if (!alone || (*alone)->size() != 1 || !structurally_equal((**alone)[0], (*a)[i]))
                 return false;
@@ -67,7 +69,9 @@ bool check_parse(std::string_view data) {
         return !e.message().empty() && e.file() == Symbol("fuzz.dta") && e.line() >= 1 &&
                e.line() <= lines;
     }
-    uint64_t budget = 100000;
+    // A tree that macro sharing made larger than the reader's node limit is skipped: its
+    // print cannot be read back under the limits the text was read with.
+    uint64_t budget = s.limits.max_nodes;
     for (const Node& n : **first)
         if (!fits(n, budget)) return true;
 
@@ -85,6 +89,12 @@ bool check_parse(std::string_view data) {
     if (!write_cache(**first, string_out(bytes))) return false;
     auto cached = read_cache_bytes(bytes);
     if (!cached || !structurally_equal(**first, **cached)) return false;
+
+    // A tree whose first form is (origin "...") prints as a declaration the reader consumes
+    // (D91): a tree today's text cannot spell (D13). The fuzzer found it.
+    if (const Array* a = (*first)->size() > 0 ? (**first)[0].try_array() : nullptr;
+        a && a->tag() == Symbol("origin") && a->size() > 1 && (*a)[1].type() == Type::String)
+        return true;
 
     const std::string printed = to_dta(**first);
     LoadSession s2 = make_session();
