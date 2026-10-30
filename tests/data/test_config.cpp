@@ -535,8 +535,9 @@ TEST_CASE("tweaks bind, rebind, and fall back to their defaults") {
 
     // Metadata: the data file's wins over the code's, and note exists only in data.
     CHECK(width.range().max == 10);
-    CHECK(width.step() == 1);
-    CHECK(width.desc() == "Box width");
+    // A shipping build keeps none of the code's tool text (D256).
+    CHECK(width.step() == (kShipping ? 0 : 1));
+    CHECK(width.desc() == (kShipping ? "" : "Box width"));
     CHECK(width.note() == "good values are 2-3");
     CHECK(width.group() == "box");
 
@@ -1033,7 +1034,7 @@ TEST_CASE("a tweak's path made at runtime is kept by the symbol (D171)") {
     }
     CHECK(tunables[0]->path() == "enemy.speed");
     CHECK(tunables[1]->path() == "enemy");
-    CHECK(tunables[1]->desc() == "Enemy speed");
+    CHECK(tunables[1]->desc() == (kShipping ? "" : "Enemy speed"));
     TempDir dir;
     Config cfg({.tweaks = &reg});
     REQUIRE(cfg.push_layer("default", dir.write("default.dta", "(enemy (speed 4.5))\n")));

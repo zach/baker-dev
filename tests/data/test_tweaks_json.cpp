@@ -61,10 +61,13 @@ TEST_CASE("the tweaks as JSON: type, default, value, metadata, and source") {
         "\n"
         R"j(    {"path": "player.speed", "type": "float32", "values": ["float32"], "count": "exact", )j"
         R"j("element": null, "length": null, "default": "4.0", "value": "6.0", )j"
-        R"j("bound": true, "range": [0.0, 10.0], "step": 0.5, "desc": "Run speed", )j"
-        R"j("kind": "", "group": "player", "dev_only": false, "one_of": [], "choices": [], )j"
-        R"j("source": {"layer": "default", "file": "d.dta", "line": 1}})j"
-        "\n  ]\n}\n");
+        R"j("bound": true, "range": [0.0, 10.0], )j" +
+            std::string(kShipping ? R"j("step": 0.0, "desc": "", )j"
+                                  : R"j("step": 0.5, "desc": "Run speed", )j") +
+            R"j()j"
+            R"j("kind": "", "group": "player", "dev_only": false, "one_of": [], "choices": [], )j"
+            R"j("source": {"layer": "default", "file": "d.dta", "line": 1}})j"
+            "\n  ]\n}\n");
 }
 
 TEST_CASE("a symbol tweak's allowed symbols, from the code or the data (D203)") {
