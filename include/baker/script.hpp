@@ -905,6 +905,22 @@ public:
     // thread with a larger stack.
     void set_stack_budget(size_t bytes) noexcept;
 
+    // The execution budget: every call (of a native or script function, or a message to an
+    // object) spends one step, so the count is the same on every run of the same script, as
+    // a replay or a headless simulation needs. Script has no loop that is not a call, so a
+    // runaway {func} from a mod or a live overlay spends it too. When the last step is
+    // spent, the hook, if set, is asked for more: it returns how many it grants (it may check
+    // the time, or sample the call stack, as a profiler would), and 0 ends the call that ran
+    // out with a Limit error, which unwinds as any error does. Without a hook the call fails
+    // at once. The steps left stay at 0 until set again, so the scripts that follow fail
+    // too: set them once a frame, or before each command a console runs. The default,
+    // kUnlimitedSteps, is never spent in practice. Costs one decrement a call.
+    static constexpr uint64_t kUnlimitedSteps = UINT64_MAX;
+    using StepHook = uint64_t (*)(void* user, Context& ctx);
+    void set_step_budget(uint64_t steps) noexcept;
+    [[nodiscard]] uint64_t steps_left() const noexcept;
+    void set_step_hook(StepHook hook, void* user = nullptr) noexcept;
+
     // --- Debugging. ---
 
     // The innermost call in progress; null when nothing is running. Follow `parent` out.

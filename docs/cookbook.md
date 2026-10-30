@@ -735,6 +735,16 @@ frames. Other threads may read, on these terms:
   may nest before it gets a Limit error instead of a stack overflow. The default, 256 KB,
   suits a desktop or console thread; on a thread with a smaller stack (a handheld's worker,
   a fiber of a job system) set it to well under that thread's stack size.
+- **A budget for script you did not write.** Depth bounds recursion, not work: a doubly
+  recursive `{func}` in a mod or a live overlay can stay shallow and still hang a frame.
+  `Context::set_step_budget(n)` gives the Context n steps; every call spends one, so a
+  script spends the same on every run, as a replay or a headless simulation needs. When
+  they run out the call fails with a Limit error, and so does every call after it until
+  the budget is set again: set it once a frame, or before each console command. A hook,
+  `set_step_hook(fn, user)`, is asked first and may grant more, for a time limit (grant
+  10,000 steps and check the clock each time it is asked) or a sampling profiler (read
+  `top_frame()` in it). The default budget is unlimited; the check costs five
+  instructions a call (D257).
 
 ## Agreeing on the data: lockstep, replays, saves
 

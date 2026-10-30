@@ -352,3 +352,52 @@ TEST_CASE("run_autorun restores what the last run's commands defined (D146)") {
     REQUIRE(failed.size() == 1);
     CHECK(ok(ctx.eval("{after}")).try_int() == 1);
 }
+
+TEST_CASE("the step budget: a call a step, the same on every run, refilled by a hook (D257)") {
+    Context ctx;
+    ok(ctx.eval("{func fib ($n) {if {< $n 2} $n {+ {fib {- $n 1}} {fib {- $n 2}}}}}"));
+    int64_t native_calls = 0;
+    ok(ctx.func("tick", [&native_calls] { return ++native_calls; }));
+
+    // Every call spends one, natives too, and the same script spends the same.
+    ctx.set_step_budget(1'000'000);
+    CHECK(ok(ctx.eval("{fib 10}")).try_int() == 55);
+    const uint64_t spent = 1'000'000 - ctx.steps_left();
+    CHECK(spent > 177);  // fib itself is called 177 times
+    ctx.set_step_budget(1'000'000);
+    (void)ok(ctx.eval("{fib 10}"));
+    CHECK(1'000'000 - ctx.steps_left() == spent);
+    ctx.set_step_budget(10);
+    (void)ok(ctx.eval("{tick}"));
+    CHECK(ctx.steps_left() == 9);
+
+    // A runaway recursion ends with a Limit error, and later scripts fail until refilled.
+    ctx.set_step_budget(1000);
+    const auto r = ctx.eval("{fib 30}");
+    REQUIRE_FALSE(r);
+    CHECK(r.error().code() == ErrorCode::Limit);
+    CHECK(r.error().message() == "the step budget ran out (Context::set_step_budget)");
+    CHECK(ctx.steps_left() == 0);
+    CHECK_FALSE(ctx.eval("{tick}"));
+    ctx.set_step_budget(Context::kUnlimitedSteps);
+    CHECK(ok(ctx.eval("{tick}")).try_int() == 2);
+
+    // A hook grants more, as a time check would; 0 ends the call.
+    struct Grants {
+        int asked = 0;
+        int allowed = 3;
+    } grants;
+    ctx.set_step_hook(
+        [](void* user, Context&) -> uint64_t {
+            auto& g = *static_cast<Grants*>(user);
+            return ++g.asked <= g.allowed ? 100 : 0;
+        },
+        &grants);
+    ctx.set_step_budget(100);
+    CHECK(ok(ctx.eval("{fib 8}")).try_int() == 21);  // a few hundred steps, within the grants
+    CHECK(grants.asked >= 1);
+    CHECK_FALSE(ctx.eval("{fib 20}"));
+    CHECK(grants.asked == grants.allowed + 1);
+    ctx.set_step_hook(nullptr);
+    ctx.set_step_budget(Context::kUnlimitedSteps);
+}

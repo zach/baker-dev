@@ -66,6 +66,10 @@ BAKER_COLD Expected<Node> too_deep(const Array& command, uint32_t depth, uintptr
                     detail::decimal(static_cast<int64_t>(used / 1024)) + " KB of stack)");
 }
 
+BAKER_COLD Expected<Node> out_of_steps(const Array& command) {
+    return fail(command, ErrorCode::Limit, "the step budget ran out (Context::set_step_budget)");
+}
+
 BAKER_COLD Expected<Node> bad_arity(const Array& command, Symbol name, const detail::Overload& o,
                                     size_t n) {
     return fail(command, ErrorCode::Type, arity_message(name, o.min_args, o.max_args, n));
@@ -236,6 +240,10 @@ Expected<Node> Context::Impl::eval(const Node& n) {
 
 BAKER_INLINE Expected<Node> Context::Impl::call_body(const Array& command, Counters** counted) {
     if (command.empty()) return bad_head(command);
+    // A step a call (Context::set_step_budget). At 0, the hook may grant more.
+    if (steps-- == 0) [[unlikely]] {
+        if (!more_steps()) return out_of_steps(command);
+    }
     // The head names a function, or is an object: named, an Object node, or a command or
     // variable that evaluates to one (spec §5, "Object commands evaluate slot 0").
     const Node& head = command[0];
@@ -485,6 +493,27 @@ VarRef Context::global(Symbol name, Node initial, std::string_view doc) {
 
 void Context::set_stack_budget(size_t bytes) noexcept {
     impl_->stack_budget = bytes;
+}
+
+void Context::set_step_budget(uint64_t steps) noexcept {
+    impl_->steps = steps;
+}
+
+uint64_t Context::steps_left() const noexcept {
+    return impl_->steps;
+}
+
+void Context::set_step_hook(StepHook hook, void* user) noexcept {
+    impl_->step_hook = hook;
+    impl_->step_user = user;
+}
+
+// The decrement that found 0 wrapped: put it back, and spend one of what the hook grants.
+BAKER_COLD bool Context::Impl::more_steps() {
+    steps = step_hook ? step_hook(step_user, self) : 0;
+    if (steps == 0) return false;
+    --steps;
+    return true;
 }
 
 // --- Debugging ---

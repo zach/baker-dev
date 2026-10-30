@@ -237,6 +237,8 @@ struct Context::Impl {
 
     [[nodiscard]] Expected<Node> eval(const Node& n);
     [[nodiscard]] Expected<Node> call(const Array& command);
+    // The step budget is spent: true if the hook granted more (Context::set_step_hook).
+    bool more_steps();
     // The call itself. `counted`, if given, receives the counters of what was called.
     [[nodiscard]] Expected<Node> call_body(const Array& command, Counters** counted);
     // A call while profiling or tracing: times it, and reports it to the trace sink.
@@ -343,6 +345,9 @@ struct Context::Impl {
     }
     const CallFrame* top = nullptr;  // the innermost call in progress
     uint32_t depth = 0;
+    uint64_t steps = Context::kUnlimitedSteps;  // Context::set_step_budget
+    Context::StepHook step_hook = nullptr;
+    void* step_user = nullptr;
     uintptr_t stack_base = 0;                        // the outermost call's stack address
     uintptr_t stack_budget = uintptr_t{256} * 1024;  // see Context::set_stack_budget
     NoticeSink sink = nullptr;
