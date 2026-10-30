@@ -11,7 +11,7 @@ note at `dev/syntax-<slug>-design.md` in ten sections (thesis, syntax, what it k
 changes, cost, payoff, objections, migration, what the prototype proved, open questions,
 recommendation). Nothing is merged to main. This note ranks them, records what an
 independent verifier reproduced, what two reviewers found (the technical director's lens,
-`.claude/skills/acton-review/`, and the tool author's), what D101's raw gate says, and what
+`.claude/skills/gamedev-td/`, and the tool author's), what D101's raw gate says, and what
 the owner has to decide.
 
 ## At a glance
@@ -333,7 +333,7 @@ corrected three things: the infix-reading row was measured on the first 999,700 
 earlier commit and was not reproduced; and wall-clock ratios differ within noise.
 
 The technical director's review, under the data-oriented lens of
-`.claude/skills/acton-review/`, scored it 3 of 5 and recommended adopting in part. Its
+`.claude/skills/gamedev-td/`, scored it 3 of 5 and recommended adopting in part. Its
 central point is that the infix tree is the prefix chain's tree: `{0.3 <= $value <= 0.7}`
 and `{<= 0.3 $value 0.7}` read to the same array. So every saving in evaluation cost and in
 brackets belongs to the vocabulary, not the reader. Over the 76 rewritten commands, chains
@@ -606,7 +606,7 @@ to 5.
   4. `write_back_to` appends a new row at the file's end, away from the rows that share its
      prefix.
 - **The technical director: 2 of 5, explore further.** This is the data-oriented lens of a
-  console-engine technical director (`.claude/skills/acton-review/`), which asks what a
+  console-engine technical director (`.claude/skills/gamedev-td/`), which asks what a
   change costs and whether the problem is real. The cost is measured but the benefit is
   not: the repository's layer files are a few lines (the four overlays hold 22 lines,
   `agent.dta` one), and no bug from a misplaced bracket is on record. The +0.47% is
@@ -844,7 +844,7 @@ so it can never fail and proves nothing. Third, the experiment's `bench <file>` 
 every stacks file that holds a `#require`.
 
 Two reviewers each scored the idea 3 of 5. The technical director, reviewing through the
-data-oriented lens of `.claude/skills/acton-review/`, recommended exploring further, for
+data-oriented lens of `.claude/skills/gamedev-td/`, recommended exploring further, for
 three reasons:
 
 - **An invariant hole the note misses.** The marker flag is set by the parser, `make_from`
@@ -1177,7 +1177,7 @@ not the core estimate. And `write_json` does not emit the new `count`, so the re
 drops the arity.
 
 The technical director's review, under the data-oriented lens of
-`.claude/skills/acton-review/`, scored it 3 of 5 and recommended adopting in part. Its point
+`.claude/skills/gamedev-td/`, scored it 3 of 5 and recommended adopting in part. Its point
 is that most of the payoff does not need the new syntax. The list arity is built on today's
 `(shapes ...)`. D108's wrong-depth failure is closed by the governs-nothing finding, which
 needs no directive. The received-layer gap can be closed by a policy rule over today's
@@ -1472,7 +1472,7 @@ problems:
   breaks their alignment.
 
 The technical director (the data-oriented console-engine lens of
-`.claude/skills/acton-review/`) gave **2, explore further**: no misread exists in the corpus
+`.claude/skills/gamedev-td/`) gave **2, explore further**: no misread exists in the corpus
 to fix; the boundary costs about 1% on the parse and the reproduced `find_float` row; and
 the variant the note recommends, the spelling-only pass, is not the one built. Both
 reviewers made that last point. The technical director also added an argument the note does
@@ -1723,7 +1723,7 @@ cells, #columns declares 10". And nothing warns on a second `#columns` in a tabl
 Ledger exporter was not changed to write headers.
 
 Two reviewers then scored the idea, each out of 5. The technical director, reviewing with
-the data-oriented lens of `.claude/skills/acton-review/` (Mike Acton's school of console
+the data-oriented lens of `.claude/skills/gamedev-td/` (Mike Acton's school of console
 engine practice), scored it 2 and agreed with declining. The corpus's keyed tables are
 small, averaging 4.6 rows of 3.5 fields, so there is little repetition for a header to
 remove. A header must be repeated for each sibling table of one schema, which is why
@@ -1976,7 +1976,7 @@ with careful stripping, against 489 and 106); and the default build runs none of
 layout tests. It also ran the raw gate, which the prototype had not, and found the 76
 silently changed files. Both reviewers then scored the idea 2 out of 5.
 
-- **The technical director (the data-oriented lens of `.claude/skills/acton-review/`), 2,
+- **The technical director (the data-oriented lens of `.claude/skills/gamedev-td/`), 2,
   decline.** The reviewer ran the raw gate as well, found the same 76 files and called them fatal: a
   syntax change that silently changes 16% of a real corpus cannot be on by default. The
   reviewer objected that the per-token test costs every parse whether or not the file uses the form,
@@ -2249,7 +2249,7 @@ committed, so that run cannot be repeated from the branch; and the experiment's
 Two reviewers each scored the idea 2 of 5 and would decline.
 
 - **The technical director** (the data-oriented console-engine lens of
-  `.claude/skills/acton-review/`) refuted the note's defence that blocks are "build time,
+  `.claude/skills/gamedev-td/`) refuted the note's defence that blocks are "build time,
   not run time". A platform condition is exactly what a bake (the offline step that turns
   data into the binary cache a shipped game loads) could settle once; with blocks it
   becomes a file the bake refuses to cache. And a shipping build refuses

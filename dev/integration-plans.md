@@ -642,7 +642,7 @@ Each Baker feature follows the usual rules:
 - a short design note before code that changes the API;
 - a D-entry with measurements;
 - `tools/local_matrix.sh` green before each commit;
-- the Acton review (`.claude/skills/acton-review`).
+- the Acton review (`.claude/skills/gamedev-td`).
 
 Each integration repository starts from `tools/integration-template/`. Needs found there
 come back as requirement notes, not code.

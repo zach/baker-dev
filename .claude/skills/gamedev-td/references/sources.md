@@ -1,4 +1,4 @@
-# Sources for the acton-review skill
+# Sources for the gamedev-td skill
 
 Gathered 2026-10-11 in two passes.
 1. **Web search from this repository's sandbox.** Its network policy blocks fetching pages,
