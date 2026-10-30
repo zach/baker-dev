@@ -38,7 +38,7 @@ like `player.speed` walks tags from the top.
 ```dta
 ; The values the game reads, by path: player.speed is 4.5 here.
 (player
-   (speed 4.5 (range 0 10) (desc "Run speed, in m/s")))
+   (speed 4.5 (@range 0 10) (@desc "Run speed, in m/s")))
 ```
 
 **3. Replace the constant.** `examples/quickstart/main.cpp` is the whole program. A
@@ -132,7 +132,7 @@ save, see it.
 - **Packs and levels.** `#require` reads a shared file once per session; a pack declares
   its level (`engine`, `game`, `task`), and a harder pack using a softer one's macro or
   function is warned about. [Language guide](docs/language.md#packs-and-levels).
-- **Shapes.** `(shapes (boss_phase (enter_at float (range 0 1)) ...))` declares what data
+- **Shapes.** `(shapes (boss_phase (enter_at float (@range 0 1)) ...))` declares what data
   should look like; a Config validator reports violations at load, located.
   [Language guide](docs/language.md#shapes).
 - **The host kit.** `baker::host` gives a game the loop every host writes the same way:

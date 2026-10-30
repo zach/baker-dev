@@ -962,7 +962,7 @@ void check(const Config& cfg, const Context& ctx, CheckReport& report,
 [[nodiscard]] Callback<void(const ValidatorStack& stack, const Callback<void(const Error&)>& warn)>
 check_validator(const Context& ctx, const CheckOptions& options = {});
 
-// Evaluates one line from a tool and writes one line of JSON (schema baker.reply/1.1,
+// Evaluates one line from a tool and writes one line of JSON (schema baker.reply/1.2,
 // docs/reply-json.md). A request is (ID {command}), its ID an int, symbol or string that
 // the reply echoes; any other line is evaluated whole, with a null id, as eval(text) would.
 // The reply holds the result's printed form ("text", the authority) and a JSON projection

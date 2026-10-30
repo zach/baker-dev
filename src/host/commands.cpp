@@ -211,7 +211,7 @@ int eval(const CommandLine& line, const CommandHooks& hooks) {
     if (hooks.reset) hooks.reset(l.ctx, line.seed);
     int status = 0;
     if (line.json) {
-        // One baker.reply/1.1 line per command, as a running game's console answers a
+        // One baker.reply/1.2 line per command, as a running game's console answers a
         // request: a tool reads a headless game and a live one the same way.
         int64_t id = 0;
         for (const std::string_view command : line.commands) {
@@ -866,7 +866,7 @@ int run_command(const CommandLine& line, const CommandHooks& hooks) {
 
 std::string_view command_help() noexcept {
     return "The kit's flags begin --baker-; any other flag is the game's.\n"
-           "  check                          baker.check/1.4 JSON; exit 1 on an error, a load\n"
+           "  check                          baker.check/1.5 JSON; exit 1 on an error, a load\n"
            "                                 problem, a shape error, or an undefined function\n"
            "  reference [--baker-json]       the script vocabulary, as Markdown; --baker-json:\n"
            "                                 {reference, tweaks, shapes} as Baker's JSON\n"
@@ -878,7 +878,7 @@ std::string_view command_help() noexcept {
            "  eval [--baker-seed N] [--baker-json] \"{command}\"...\n"
            "                                 each command's result, one a line, on the game\n"
            "                                 reset with the seed (default 1); --baker-json: one\n"
-           "                                 baker.reply/1.1 line each, as the console answers\n"
+           "                                 baker.reply/1.2 line each, as the console answers\n"
            "  sim [--baker-scenario NAME]... [--baker-seed N | --baker-seeds A-B]\n"
            "      [--baker-step-hz N] [--baker-json] [--baker-results DIR]\n"
            "                                 the project's scenarios, judged by its objectives;\n"

@@ -135,6 +135,41 @@ void find_code(const Array& a, Vec<Symbol>& tags, Vec<Error>& out) {
     }
 }
 
+// The metadata a data file's arrays carry, as Baker's readers spell them.
+bool known_metadata(Symbol tag) noexcept {
+    static const Symbol words[] = {"@range", "@step",  "@desc",  "@note",
+                                   "@kind",  "@group", "@one_of"};
+    return std::find(std::begin(words), std::end(words), tag) != std::end(words);
+}
+
+// The first array in `a`, in reading order, that holds a value and a child tagged with
+// one of the words metadata had before the sigil, (range 0 10): a field now. Shapes are
+// left to their own reader, which refuses the old words.
+const Array* bare_metadata(const Array& a) {
+    static const Symbol words[] = {"range", "step", "desc", "note", "kind", "group", "one_of"};
+    if (a.tag() == Symbol("shapes")) return nullptr;
+    const bool valued = !a.tag().empty() && has_values(a);
+    for (size_t i = 0; i < a.size(); ++i) {  // from 0: a file's root has no tag
+        const Array* c = a[i].try_array();
+        if (!c) continue;
+        if (valued && std::find(std::begin(words), std::end(words), c->tag()) != std::end(words))
+            return c;
+        if (const Array* found = bare_metadata(*c)) return found;
+    }
+    return nullptr;
+}
+
+// The first metadata child in `a` whose word Baker does not read, (@rnage 0 10).
+const Array* unknown_metadata(const Array& a) {
+    if (a.tag() == Symbol("shapes")) return nullptr;
+    for (const Array& m : a.metadata())
+        if (!known_metadata(m.tag())) return &m;
+    for (size_t i = 0; i < a.size(); ++i)
+        if (const Array* c = a[i].try_array())
+            if (const Array* found = unknown_metadata(*c)) return found;
+    return nullptr;
+}
+
 bool under(const Path& path, const Path& prefix) noexcept {
     if (prefix.size() > path.size()) return false;
     for (size_t i = 0; i < prefix.size(); ++i)
@@ -181,6 +216,21 @@ LayerReport run_check(const Basis& b, std::string_view name, const Ref<Array>& c
                 at ? at->file() : Symbol(), at ? at->line() : 0));
         }
     }
+    // One warning of each per layer, at the first: an unmigrated or misspelt file is
+    // noticed at its first check.
+    if (const Array* m = bare_metadata(tree))
+        warnings.push_back(make_error(ErrorCode::Syntax,
+                                      "(" + Str(m->tag().str()) +
+                                          " ...) beside a value reads as a field; if it is "
+                                          "metadata, write (@" +
+                                          Str(m->tag().str()) + " ...)",
+                                      m->file(), m->line()));
+    if (const Array* m = unknown_metadata(tree))
+        warnings.push_back(make_error(ErrorCode::Syntax,
+                                      "unknown metadata (" + Str(m->tag().str()) +
+                                          " ...): Baker reads @range, @step, @desc, @note, "
+                                          "@kind, @group and @one_of",
+                                      m->file(), m->line()));
     const Array& stack = b.root;
     Finder finder(alloc);
     // supplier() and source_in(), through the finder: the enabled layer, from the top, whose

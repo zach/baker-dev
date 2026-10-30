@@ -73,10 +73,10 @@ An editor works on text that rarely parses, and checks it on every pause:
   editor applies them without moving the cursor through unchanged text; `.begin` and
   `.end` lay out only the forms a selection touches. Formatting twice changes nothing. 2 MB
   takes about 60 ms.
-- **Values as Baker presents them.** `split_metadata(values)` separates a value from the
-  metadata after it, `(width 2 (range 0 10))`, and `presented_kind(values)` gives the kind a
-  value is shown as (its `(kind ...)`, or "color" for 3 or 4 numbers ranged 0 to 1). These
-  are the rules tweaks follow.
+- **Values as Baker presents them.** An array's `values()` end before its metadata,
+  `(width 2 (@range 0 10))`, and `metadata()` lists it; `presented_kind(values)` gives the
+  kind a value is shown as (its `(@kind ...)`, or "color" for 3 or 4 numbers ranged 0 to 1).
+  These are the rules tweaks follow.
 - **Checking again after an edit.** Keep one Config, reading through a reader that serves
   the open editors' text, and call `reload()` after each edit. It compares each layer's text
   by hash and reads again only from the first layer whose text changed, upward, so an edit

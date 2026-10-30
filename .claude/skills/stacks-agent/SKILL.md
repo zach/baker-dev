@@ -100,7 +100,7 @@ and seed give the same result, so a failing seed is a reproduction.
 - When you need a word the game does not have (a function, an object), do not fake it in
   script. Write it as a stub in `agent.dta` (or a task pack), so the game runs and `check`
   lists it as demand for an engineer:
-  `#autorun {func duel.armor_frames ($move) (status stub) (doc "What it should do") 0}`.
+  `#autorun {func duel.armor_frames ($move) (@status stub) (@doc "What it should do") 0}`.
   A data file defines script functions only through `#autorun`; the game runs those commands
   after every load and reload.
 - Passing objectives is not the goal; a game that feels right is. Say what the objectives

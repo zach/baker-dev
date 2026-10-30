@@ -20,7 +20,7 @@ stacks_cube compare --baker-before DIR --baker-after DIR
                                               --baker-results directories, baker.compare/1;
                                               exit 1 if one broke
 stacks_cube check                             baker::check over data, its #autorun script,
-                                              scenarios, metrics; baker.check/1.4 JSON with
+                                              scenarios, metrics; baker.check/1.5 JSON with
                                               passed, load and shape problems; exit 1 on any,
                                               or an undefined, unstubbed call; 2 if no load
 stacks_cube reference [--baker-json]          the vocabulary: functions, shapes, packs
@@ -34,7 +34,7 @@ stacks_cube promote --baker-patch FILE        the same change as a unified diff;
 stacks_cube eval [--baker-seed N] "{command}"...
                                               commands on the data and the reset game: a frame
                                               table, a search, a report; --baker-json: one
-                                              baker.reply/1.1 line each, as the console answers
+                                              baker.reply/1.2 line each, as the console answers
 stacks_cube dev-files                         the files of the layers the project marks
                                               dev_only (local.dta, agent.dta): what a
                                               package leaves out
@@ -124,7 +124,7 @@ after any change to the stack (a reload, a toggle from a panel), so a redefiniti
 `check` also runs the shapes (`baker::shape`) over the merged data: a value out of range or
 of the wrong type fails it, and a field no shape declares is printed as a warning, which
 is how a designer's request for a word the game lacks shows up. Stacks keep data keyed, as
-`(moves (jab ...))`, so a layer can retune one entry; their shapes are `(keyed)` (D108).
+`(moves (jab ...))`, so a layer can retune one entry; their shapes are `(@keyed)` (D108).
 
 ## Who may write what (design §9)
 

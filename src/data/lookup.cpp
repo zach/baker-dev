@@ -242,11 +242,13 @@ Expected<const Array*> Array::find_array(Symbol tag) const {
 }
 
 void Array::sort_for_lookup() {
-    // A stable merge sort. std::stable_sort would take its buffer from operator new.
+    // A stable merge sort. std::stable_sort would take its buffer from operator new. The
+    // metadata follow the other tagged children, so the values and the boundary survive.
     const auto less = [](const Node& a, const Node& b) {
         const Symbol tb = detail::tag_of(b);
         if (tb.empty()) return false;
         const Symbol ta = detail::tag_of(a);
+        if (!ta.empty() && ta.is_meta() != tb.is_meta()) return tb.is_meta();
         return ta.empty() || tag_less(ta, tb);
     };
     Node* d = data();
@@ -267,11 +269,15 @@ void Array::sort_for_lookup() {
 
 const Array* Array::find_sorted(Symbol tag) const noexcept {
     if (tag.empty()) return nullptr;  // '' is no tag (D125)
-    const Node* it = std::partition_point(begin(), end(), [tag](const Node& n) {
+    // The run to search: the metadata from the boundary, or the tagged children before it.
+    const Node* first = begin();
+    const Node* last = end();
+    if (const uint32_t m = meta_first()) (tag.is_meta() ? first : last) = begin() + m;
+    const Node* it = std::partition_point(first, last, [tag](const Node& n) {
         const Symbol t = detail::tag_of(n);
         return t.empty() || tag_less(t, tag);
     });
-    return it != end() && detail::tag_of(*it) == tag ? it->try_array() : nullptr;
+    return it != last && detail::tag_of(*it) == tag ? it->try_array() : nullptr;
 }
 
 namespace detail {

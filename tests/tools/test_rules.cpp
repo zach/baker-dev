@@ -36,13 +36,13 @@ shape::Report ruled(Context& ctx, std::string_view text) {
 }
 
 const char* const kUnits =
-    "(shapes (unit (at units) (keyed) (max_hp int) (start_hp int)\n"
-    "   (rule \"starts at or below its maximum\" {<= $start_hp $max_hp})\n"
-    "   (rule \"has a name\" {!= $name \"\"} (warn))))\n";
+    "(shapes (unit (@at units) (@keyed) (max_hp int) (start_hp int)\n"
+    "   (@rule \"starts at or below its maximum\" {<= $start_hp $max_hp})\n"
+    "   (@rule \"has a name\" {!= $name \"\"} (@warn))))\n";
 
 }  // namespace
 
-TEST_CASE("a rule that fails is an error with the values it read; (warn) is a warning") {
+TEST_CASE("a rule that fails is an error with the values it read; (@warn) is a warning") {
     Context ctx;
     const shape::Report good = ruled(ctx, std::string(kUnits) +
                                               "(units (grunt (max_hp 10) (start_hp 10) "
@@ -61,9 +61,9 @@ TEST_CASE("a rule that fails is an error with the values it read; (warn) is a wa
 TEST_CASE("a rule that does not evaluate is an error naming it and why") {
     Context ctx;
     const shape::Report r = ruled(ctx,
-                                  "(shapes (unit (at units) (keyed)\n"
-                                  "   (rule \"is balanced\" {balance_of $cost})\n"
-                                  "   (rule \"is a number\" {* $cost 1.5})))\n"
+                                  "(shapes (unit (@at units) (@keyed)\n"
+                                  "   (@rule \"is balanced\" {balance_of $cost})\n"
+                                  "   (@rule \"is a number\" {* $cost 1.5})))\n"
                                   "(units (grunt (cost 3)))\n");
     REQUIRE(r.errors.size() == 2);
     CHECK(texts(r.errors)[0].find("rule \"is balanced\" does not evaluate: ") != std::string::npos);
@@ -74,8 +74,8 @@ TEST_CASE("a rule that does not evaluate is an error naming it and why") {
           std::string::npos);
     // A field the record lacks leaves its variable unset, and reading it fails.
     const shape::Report missing = ruled(ctx,
-                                        "(shapes (unit (at units) (keyed)\n"
-                                        "   (rule \"is cheap\" {< $cost 5})))\n"
+                                        "(shapes (unit (@at units) (@keyed)\n"
+                                        "   (@rule \"is cheap\" {< $cost 5})))\n"
                                         "(units (grunt (hp 3)))\n");
     REQUIRE(missing.errors.size() == 1);
     CHECK(texts(missing.errors)[0].find("rule \"is cheap\" does not evaluate") !=
@@ -86,11 +86,11 @@ TEST_CASE("a rule reads another table by a key field, and sums a table") {
     Context ctx;
     const char* const shapes =
         "(shapes\n"
-        "   (card (at cards) (keyed) (tier (key_of tiers)) (power float)\n"
-        "      (rule \"within 10% of its tier's ideal\"\n"
+        "   (card (@at cards) (@keyed) (tier (key_of tiers)) (power float)\n"
+        "      (@rule \"within 10% of its tier's ideal\"\n"
         "            {and {>= $power {* 0.9 {data tiers $tier ideal}}}\n"
         "                 {<= $power {* 1.1 {data tiers $tier ideal}}}}))\n"
-        "   (loot (rule \"weights sum to 100\" {== {data.sum loot weight} 100})))\n";
+        "   (loot (@rule \"weights sum to 100\" {== {data.sum loot weight} 100})))\n";
     const shape::Report good = ruled(ctx, std::string(shapes) +
                                               "(tiers (basic (ideal 10)) (epic (ideal 50)))\n"
                                               "(cards (spark (tier basic) (power 10.5)) "
@@ -146,9 +146,9 @@ BAKER_DEV_TEST_CASE("a layer adds or softens a rule, and a live edit that breaks
     reported.clear();
     REQUIRE(cfg.push_layer(
         "mod", ok(read_string("(shapes (unit\n"
-                              "   (rule \"starts at or below its maximum\" {<= $start_hp "
-                              "$max_hp} (warn))\n"
-                              "   (rule \"is modest\" {< $max_hp 5})))\n",
+                              "   (@rule \"starts at or below its maximum\" {<= $start_hp "
+                              "$max_hp} (@warn))\n"
+                              "   (@rule \"is modest\" {< $max_hp 5})))\n",
                               "mod.dta"))));
     CHECK(reported.size() == 2);
 }
@@ -157,8 +157,8 @@ TEST_CASE("without the game, check() reports a rule's game functions as demand")
     Context tool;
     tools::declare_rule_functions(tool);
     const auto tree =
-        ok(read_string("(shapes (card (at cards) (keyed)\n"
-                       "   (rule \"fair\" {< {power_of $name} {data caps power}})))\n"
+        ok(read_string("(shapes (card (@at cards) (@keyed)\n"
+                       "   (@rule \"fair\" {< {power_of $name} {data caps power}})))\n"
                        "(caps (power 10))\n(cards (spark (name spark)))\n",
                        "t.dta"));
     const CheckReport report = check(*tree, tool);

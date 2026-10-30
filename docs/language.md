@@ -86,12 +86,41 @@ children with the same tag, lookup finds the first; `subarrays()` visits them al
 
 Every array remembers its file and line, so a value can always say where it came from.
 
+### Metadata
+
+A child tagged with `@` and a word is metadata: it says something about the value it
+follows, and is never part of it.
+
+```dta
+(player
+   (speed 4.5 (@range 0 10) (@step 0.5) (@desc "Run speed, in m/s"))
+   (tint 1 0.5 0 (@range 0 1) (@kind color) (@note "try 0.8 on handheld")))
+```
+
+`player.speed` is `4.5` to every reader, and `player.tint` three numbers, so
+`get<std::array<float, 3>>("player.tint")` reads them; `values()` ends at the first
+metadata child, and `metadata()` lists the metadata. Baker's own readers use `@range`,
+`@step`, `@desc`, `@note`, `@kind`, `@group` and `@one_of` (tweaks and tuning panels, D88)
+and the shape words below; `check` warns on any other `@` word, so a misspelt
+`(@rnage 0 10)` is found. A path reaches metadata like any child: `player.speed.@desc`.
+
+- **Metadata comes after the value.** `(x (@range 0 1) 5)` is an error at the array.
+  Fields may come before, between and after metadata, so a record can carry its own
+  description: `(cottage (desc "Two rooms") (size 14 10) (@note "why"))`.
+- **A field may have any name.** Without the `@`, `(kind ball)` is a field, wherever it
+  sits: `(ball (kind ball) (pos -6 6.5))` is two fields.
+- **A lone `@`** is an ordinary symbol, so `('@' ...)` keys a record by the `@` key.
+- **Before the sigil**, metadata was told apart by its words and its place. `check` warns
+  where an array holds a value and a child tagged `range`, `step`, `desc`, `note`, `kind`,
+  `group` or `one_of`, which now reads as a field; `baker_migrate_metadata` (in `tools/`)
+  rewrites such files, inserting the `@` and changing nothing else.
+
 ### Merging
 
 Two trees merge by tag, which is how a Config stacks layers and how `#merge` works. For
 each tagged array of the upper tree, the array with the same tag below is merged into
 recursively; everything else (the values) replaces what was below. So
-`(width 3)` over `(width 2 (range 0 10))` gives `(width 3 (range 0 10))`: a layer changes
+`(width 3)` over `(width 2 (@range 0 10))` gives `(width 3 (@range 0 10))`: a layer changes
 a value without restating its metadata. A tag the lower tree lacks is added.
 
 **Removing a key.** In a Config layer, `(key #remove)` removes `key`, and everything under it,
@@ -331,31 +360,34 @@ Shapes are declared in data, in one `(shapes ...)` container, each tagged by its
 
 ```dta
 (shapes
-   (boss_phase (at bosses * phases)
-      (enter_at float (range 0 1) (kind percent) (desc "HP fraction that starts it"))
+   (boss_phase (@at bosses * phases)
+      (enter_at float (@range 0 1) (@kind percent) (@desc "HP fraction that starts it"))
       (attacks  (list symbol))
-      (cadence  float (range 0.2 5) (optional))))
+      (cadence  float (@range 0.2 5) (@optional))))
 ```
 
 - **Types:** `int`, `float`, `bool`, `symbol`, `string`, `any`, `curve`, `(list T)`,
   `(key_of TABLE)`, or another shape's name. A `curve` field's values are a curve (see
-  Curves, above), and its `(range lo hi)` holds every point's y.
-- **Metadata:** `range`, `step`, `kind`, `desc`, `note` (as a tweak's), and `optional`.
-  A field without `optional` is required. A `symbol` or `(list symbol)` field may list the
-  symbols it allows, `(button symbol (one_of light heavy kick special))`, in the order a tool
+  Curves, above), and its `(@range lo hi)` holds every point's y.
+- **Metadata:** `@range`, `@step`, `@kind`, `@desc`, `@note` (as a tweak's), and
+  `@optional`. A field without `@optional` is required. A word without the `@` after a
+  field's type, or a `@` word the grammar lacks, is an error. A shape may describe itself
+  with its own `(@desc ...)` and `(@note ...)`, and its fields may be named anything,
+  `at` and `desc` included. A `symbol` or `(list symbol)` field may list the
+  symbols it allows, `(button symbol (@one_of light heavy kick special))`, in the order a tool
   should offer them; a later layer declaring the field again may add to the list.
 - **What a shape governs:** every array tagged with its name, anywhere in the tree. `(at
   ...)` narrows it to arrays whose ancestors' tags, from the root, are the ones listed;
   `*` matches any one tag. The example above governs each `(boss_phase ...)` in
   `(bosses (dragon (phases (boss_phase ...) (boss_phase ...))))`.
 - **Keyed children** are tagged by their own names, as in `(bosses (dragon ...) (golem
-  ...))`, so no shape is named after them. Declare the shape `(keyed)`, with an `(at ...)`
+  ...))`, so no shape is named after them. Declare the shape `(@keyed)`, with an `(@at ...)`
   naming their parent, and it governs every child there, whatever its tag (D108):
 
   ```dta
   (shapes
-     (move (at fighters * moves) (keyed)
-        (startup int (range 1 60) (kind frames))))
+     (move (@at fighters * moves) (@keyed)
+        (startup int (@range 1 60) (@kind frames))))
   (fighters (kestrel (moves (jab (startup 4)) (heavy (startup 9)))))
   ```
 
@@ -369,8 +401,8 @@ Shapes are declared in data, in one `(shapes ...)` container, each tagged by its
 
   ```dta
   (shapes
-     (unit (at units) (keyed) (weapon (key_of weapons)))
-     (move (at fighters * moves) (keyed) (cancel_into (list (key_of moves)) (optional))))
+     (unit (@at units) (@keyed) (weapon (key_of weapons)))
+     (move (@at fighters * moves) (@keyed) (cancel_into (list (key_of moves)) (@optional))))
   (weapons (laser (damage 3)) (cannon (damage 9)))
   (units (scout (weapon laser)))
   (fighters (kestrel (moves (jab) (heavy (cancel_into jab)))))
@@ -408,18 +440,18 @@ governs:
 
 ```dta
 (shapes
-   (unit (at units) (keyed)
-      (max_hp int (range 1 9999))
+   (unit (@at units) (@keyed)
+      (max_hp int (@range 1 9999))
       (start_hp int)
-      (rule "starts at or below its maximum" {<= $start_hp $max_hp}))
-   (card (at cards) (keyed)
+      (@rule "starts at or below its maximum" {<= $start_hp $max_hp}))
+   (card (@at cards) (@keyed)
       (tier (key_of tiers))
       (power float)
-      (rule "within 10% of its tier's ideal"
+      (@rule "within 10% of its tier's ideal"
             {and {>= $power {* 0.9 {data tiers $tier ideal}}}
                  {<= $power {* 1.1 {data tiers $tier ideal}}}}
-            (warn)))
-   (loot (rule "weights sum to 100" {== {data.sum loot weight} 100})))
+            (@warn)))
+   (loot (@rule "weights sum to 100" {== {data.sum loot weight} 100})))
 ```
 
 - **What a rule reads.**
@@ -433,11 +465,11 @@ governs:
     candidate.
   - The game's own functions, when the game checks.
 - **What a failure says.** A rule whose expression is false is an error, or a warning with
-  `(warn)`, located at the record and carrying each value its expression read:
+  `(@warn)`, located at the record and carrying each value its expression read:
   `starts at or below its maximum ($start_hp 12, $max_hp 10)`. A rule that does not
   evaluate, or gives something other than true or false, is an error naming the rule.
 - **Layers** replace a rule by its message, so a later layer may add a rule or soften one
-  with `(warn)`. With packs, a softer pack may make a harder pack's rule an error, but not
+  with `(@warn)`. With packs, a softer pack may make a harder pack's rule an error, but not
   soften or change it.
 - **Where they run.** `baker::shape` reads rules; it cannot run script, so
   `baker::tools` evaluates them:
@@ -508,13 +540,14 @@ it as lexical scope. `{set $a value}` stores; the host reads and writes the same
 ### Functions
 
 ```dta
-{func scaled ($base) (doc "Scales by difficulty.") {* $base $difficulty}}
-{func old_spawn ($kind) (status deprecated spawn) {spawn $kind 1}}
+{func scaled ($base) (@doc "Scales by difficulty.") {* $base $difficulty}}
+{func old_spawn ($kind) (@status deprecated spawn) {spawn $kind 1}}
 ```
 
 A script function binds its arguments like `do`, runs its body, and returns the last
-value. `(status stub)`, `(status provisional)`, `(status deprecated replacement)`, and
-`(doc "...")` may follow the parameters; status shows in the reference and in `check`'s
+value. `(@status stub)`, `(@status provisional)`, `(@status deprecated replacement)`, and
+`(@doc "...")` may follow the parameters (another `@` word there is an error, and a form
+without the `@` is the body's first); status shows in the reference and in `check`'s
 demand report. A script function may not replace a native one unless written
 `{override name ...}`, which logs it.
 

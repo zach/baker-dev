@@ -4,7 +4,7 @@
 {func add1 ($a) {+ $a 1}}
 
 {func boss.find_cover ($player)
-   (status stub)
+   (@status stub)
    {nearest_marker {boss position} cover}}
 
 {class Person

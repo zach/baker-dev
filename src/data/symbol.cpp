@@ -48,11 +48,12 @@ void report_collision(const detail::SymbolEntry& first, const detail::SymbolEntr
     char hex[19] = "0x";
     for (int i = 0; i < 16; ++i) hex[2 + i] = kDigits[(first.hash >> (60 - 4 * i)) & 15];
     hex[18] = '\0';
-    const Str message = "the names '" + Str(std::string_view(first.text, first.size)) + "' and '" +
-                        Str(std::string_view(second.text, second.size)) + "' share the hash " +
-                        hex +
-                        ": code that keys on Symbol::hash() cannot tell them apart; as Symbols "
-                        "they stay distinct";
+    const Str message =
+        "the names '" + Str(std::string_view(first.text, first.size & detail::kSymbolSizeMask)) +
+        "' and '" + Str(std::string_view(second.text, second.size & detail::kSymbolSizeMask)) +
+        "' share the hash " + hex +
+        ": code that keys on Symbol::hash() cannot tell them apart; as Symbols "
+        "they stay distinct";
     const Error report = make_error(ErrorCode::Collision, message, this_site.file,
                                     this_site.line ? *this_site.line : 0);
     collision_handler.load(std::memory_order_acquire)(report);
@@ -106,7 +107,7 @@ private:
         for (size_t i = static_cast<size_t>(hash) & mask;; i = (i + 1) & mask) {
             const detail::SymbolEntry* e = t.slots[i].load(std::memory_order_acquire);
             if (!e) return nullptr;
-            if (e->hash == hash && e->size == text.size() &&
+            if (e->hash == hash && (e->size & detail::kSymbolSizeMask) == text.size() &&
                 std::memcmp(e->text, text.data(), text.size()) == 0)
                 return e;
         }
@@ -147,7 +148,8 @@ private:
             const detail::SymbolEntry* e = t.slots[i].load(std::memory_order_relaxed);
             if (!e) return nullptr;
             if (e->hash != hash) continue;
-            if (e->size == text.size() && std::memcmp(e->text, text.data(), text.size()) == 0)
+            if ((e->size & detail::kSymbolSizeMask) == text.size() &&
+                std::memcmp(e->text, text.data(), text.size()) == 0)
                 return e;
             if (!clash) clash = e;
         }
@@ -177,8 +179,9 @@ private:
         auto* chars = mem + sizeof(detail::SymbolEntry);
         if (!text.empty()) std::memcpy(chars, text.data(), text.size());
         chars[text.size()] = '\0';
-        return new (mem) detail::SymbolEntry{chars, static_cast<uint32_t>(text.size()),
-                                             static_cast<uint32_t>(count_ + 1), hash};
+        uint32_t size = static_cast<uint32_t>(text.size());
+        if (size > 1 && text[0] == '@') size |= detail::kSymbolMetaBit;  // the metadata sigil
+        return new (mem) detail::SymbolEntry{chars, size, static_cast<uint32_t>(count_ + 1), hash};
     }
 
     char* alloc(size_t n) {

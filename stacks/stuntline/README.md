@@ -22,7 +22,7 @@ driver's run over the track.
 |---|---|---|
 | `race.hpp`, `race.cpp` | L2: the kit and tracks from data, the layout, the car on Jolt's wheeled vehicle, AI drivers, crashes, airtime, jump margins | Engineers |
 | `main.cpp` | L2: input, chase camera, script words (`track.`), the window, drawing | Engineers |
-| `packs/game/stuntline_core.dta` | L2: the shapes of a piece, a track, a driver (all `(keyed)`) | By pull request |
+| `packs/game/stuntline_core.dta` | L2: the shapes of a piece, a track, a driver (all `(@keyed)`) | By pull request |
 | `data/default.dta` | L4: the car, the kit, the tracks, the drivers | By pull request |
 | `data/agent.dta` | The agent's layer | The agent |
 | `sim/tracks.dta` | Scenarios: each track judged; the pro driving on the game's own steps | The agent |

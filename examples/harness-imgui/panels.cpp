@@ -104,7 +104,7 @@ std::string provenance(const baker::Config& cfg, std::string_view path) {
         text = file_name(s->file) + ":" + std::to_string(s->line) + " (layer " +
                std::string(s->layer.str()) + ")";
     // The data's note, if it has one: (speed 4 (note "..."))
-    const std::string note_path = std::string(path) + ".note";
+    const std::string note_path = std::string(path) + ".@note";
     if (auto note = cfg.root()->get<std::string_view>(path_of(note_path), std::string_view());
         note && !note->empty())
         text += "\nnote: " + std::string(*note);
