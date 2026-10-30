@@ -1,4 +1,55 @@
-# Baker under the data-oriented lens: known gaps
+# Baker under the data-oriented lens: project notes and known gaps
+
+SKILL.md is general. This file is what it means for Baker: Baker's equivalents of the
+skill's rules, the questions to ask of each of its subsystems, and the status of every gap
+found against the lens. Read it before reviewing a change to Baker.
+
+## Baker's equivalents of the skill's rules
+
+- **The posture.** Baker is built for a project whose technical director is Mike Acton,
+  and it sits at the heart of a game engine, so the full lens applies. Its answer is in its
+  build: zero external runtime dependencies (spec §6), every costly feature off or
+  removable by a switch.
+- **Public headers** reach only D55's allowed standard headers: the language-support
+  headers plus `string_view`, `span` and `optional`. `tools/check_headers.py` enforces the
+  list.
+- **Allocation tests:** `tests/support/alloc_counter`. `baker_alloc_tests` fails if a
+  Context or Config reaches `operator new`.
+- **Switches:**
+  - `BAKER_SHIPPING` (`if constexpr (kShipping)`);
+  - `BAKER_USE_EASTL` (D55);
+  - `BAKER_ATOMIC_REFCOUNT`;
+  - per-Context allocators and an arena per load (D56, D61, D64).
+- **No exceptions** (D54, D59), and no RTTI needed (D49's `TypeRecord`).
+- **Evidence:** `bench/` rows with before/after numbers from the same machine (D47, D51,
+  D52), `tools/bench_compare.py` and `tools/count_instructions.py`. Spec §7 states the
+  targets.
+- **Decisions:** deviations go into `dev/decisions.md` as a D-entry (spec §11).
+- **Templates:** the binding layer is templates, deliberately. Spec §5 deduces signatures
+  so that binding needs no macro tables.
+
+## Baker's subsystems
+
+| Area | The question a data-oriented TD asks |
+|---|---|
+| Parser, preprocessor | Is this a load-time transform whose output (the tree) is shaped for the runtime's reads, and could the bake do it instead? |
+| `Node` / `Array` | 16-byte nodes, contiguous children, one arena and one count per load (D64), a tag run beside the nodes (D77). Does a change keep arrays in their load's arena, and keep the tag run current? |
+| Lookup (`find*`) | Is the linear scan right for the real child counts (mostly < 20)? Sorted mode exists for the rest; is it used where the data is big? |
+| Symbols | One process-wide table, lock-free to read (D197), with immortal entries and FNV-1a 64 as a format promise. Does a change intern on a hot path, or let content grow the table without a bound? |
+| Tweaks | Is the read one load (it is: §7 codegen test)? Is it read once per frame, not inside a per-entity loop? Are tweaks updated in a batch on reload rather than chased one by one? Does reload run at a point the host chooses (a frame boundary), never in the middle of evaluation? |
+| Evaluator | Lazy evaluation means no temporary argument lists, which is good. Per-call cost is recorded (about 31 ns, D78). Count the loads on the dispatch path. Heads resolve per call through `Symbol::index()` (D44), which keeps `{func}`, `{override}`, `{class}`, layer removal (D146) and reload safe. |
+| Objects and handles | Salted handles beat pointers (D4, D19). The slot table is a flat array. Do per-object loose parameters (vectors) belong on a hot path? |
+| Typed messages | "Where there is one there are many": `handle_all` broadcasts over a span, one lookup per run of a type, with no `Node` built (D66). Does a new message path keep that? |
+| Call statistics | Counters next to the function record (one cache line), with no clock read unless asked, and compiled out in shipping. |
+| Tasks | Frames come from a per-Scheduler pool with a frame budget, and removals wait for the sync point (D58, D67, D68). Does a change keep a task's frame in the pool and structural changes at the sync point? |
+| Binary cache | Load in place: one read, fixups, ≤ 2 allocations, with the expensive work done at bake time. Never trusted from outside (D142's `text_only`). |
+| Tooling (`check`, reference, write-back) | Tool path: ordinary C++ is fine. Judge it on iteration time and clarity. |
+
+The 2026-10-30 research and experiments that produced `recipes.md` also found 19 Baker
+findings. They were handed to the Baker development session to record and implement under
+its own D-entries.
+
+## Gap status
 
 **Status, 2026-10-15: gaps 1–32 are closed; 33–43, from the content-update research
 (`dev/background/content-updates.md`), are decided (D138) and built in its order: D139 closed 33, D140 40, D141 41, D142 36 and 43, D143 35, D144 37, D145 38, D146 39, D147 42, D148 34. Every gap is closed.** D132 closed the
