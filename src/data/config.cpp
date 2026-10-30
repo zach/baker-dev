@@ -100,8 +100,10 @@ ConfigSnapshot& ConfigSnapshot::operator=(const ConfigSnapshot& other) noexcept 
     return *this;
 }
 ConfigSnapshot::~ConfigSnapshot() {
-    if (state_ && state_->refs.fetch_sub(1, std::memory_order_acq_rel) == 1)
-        detail::destroy(state_->alloc, state_);
+    if (state_ && state_->refs.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        const Allocator alloc = state_->alloc;  // a copy: the state goes first
+        detail::destroy(alloc, state_);
+    }
 }
 
 void Config::Impl::log_edit(ScratchEntry& owner, const Node* before, uint32_t before_count,
@@ -472,7 +474,7 @@ BAKER_INLINE void Config::Impl::retune(const ScratchEntry& e) const {
         if (n < 16) {
             few[n++] = &t;
         } else {
-            if (!more) more = Own<Vec<TweakBase*>>::make(default_allocator());
+            if (!more) more = Own<Vec<TweakBase*>>::make(default_allocator(MemoryKind::Tweaks));
             more->push_back(&t);
         }
     });
@@ -599,7 +601,8 @@ Expected<void> Config::Impl::may_change(const Config& c) const {
 // --- Construction ---
 
 Config::Config(ConfigOptions options, const Allocator& allocator)
-    : root_(Array::make(0)), impl_(detail::create<Impl>(allocator, allocator)) {
+    : root_(Array::make(0)),
+      impl_(detail::create<Impl>(with_kind(allocator, MemoryKind::Config), allocator)) {
     static std::atomic<uint64_t> configs{0};
     impl_->generation = configs.fetch_add(1, std::memory_order_relaxed) << 32;
     impl_->options = options;
