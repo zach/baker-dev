@@ -217,7 +217,7 @@ std::atomic<detail::FatalStack> fatal_stack{nullptr};
 
 // A message on the stack: what failed may be the allocator.
 struct FatalText {
-    char text[4096];
+    char text[4096] = {};
     size_t size = 0;
     void append(std::string_view s) noexcept {
         const size_t n = std::min(s.size(), sizeof text - size);
