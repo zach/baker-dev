@@ -305,3 +305,13 @@ TEST_CASE("symbols intern the same text to one entry from several threads") {
     const Symbol again("shared_1");
     CHECK(again == per_thread[2][1]);
 }
+
+TEST_CASE("a ValueList of more values than it holds inline keeps them all") {
+    ValueList list;  // eight inline, then the heap
+    for (int64_t i = 0; i < 9; ++i) list.add(i);
+    REQUIRE(list.nodes().size() == 9);
+    for (int64_t i = 0; i < 9; ++i) CHECK(list.nodes()[static_cast<size_t>(i)].try_int() == i);
+    const ValueList copy = list;
+    CHECK(copy.nodes().size() == 9);
+    CHECK(copy.nodes()[8].try_int() == 8);
+}

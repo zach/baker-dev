@@ -5,8 +5,11 @@
 #include <baker/std_script.hpp>
 #include <baker/tools/std_tools.hpp>
 
+#include <cstddef>
+#include <memory>
 #include <string>
 #include <vector>
+#include "alloc_counter.hpp"
 #include "ok.hpp"
 
 using namespace baker;
@@ -179,4 +182,61 @@ TEST_CASE("documentation and status appear in the reference") {
           std::string::npos);
     CHECK(ref.find("## Globals\n\n### `$game_time`\n\nTicks since the level started.\n") !=
           std::string::npos);
+}
+
+namespace {
+
+// A Context's own memory, counted apart from the default allocator's (operator new): a bump
+// arena from one block, freed with it.
+struct Counted {
+    static constexpr size_t kBytes = size_t{16} << 20;
+    std::unique_ptr<std::byte[]> block{new std::byte[kBytes]};
+    size_t used = 0;
+    size_t allocations = 0;
+    Allocator allocator{[](void* user, size_t size, size_t align) -> void* {
+                            auto& c = *static_cast<Counted*>(user);
+                            c.used = (c.used + align - 1) & ~(align - 1);
+                            REQUIRE(c.used + size <= kBytes);
+                            void* p = c.block.get() + c.used;
+                            c.used += size;
+                            ++c.allocations;
+                            return p;
+                        },
+                        [](void*, void*, size_t) {}, this};
+};
+
+}  // namespace
+
+TEST_CASE("a call of more arguments than fit on the stack spills into the Context's memory") {
+    Counted counted;
+    Context ctx(counted.allocator);
+    // An overload set evaluates every argument first; a declared function holds each.
+    using I = int64_t;
+    ok(ctx.func("s9", [](I a, I b, I c, I d, I e, I f, I g, I h, I i) {
+        return a + b + c + d + e + f + g + h + i;
+    }));
+    ok(ctx.func("s9", [](double a, I b, I c, I d, I e, I f, I g, I h, I i) {
+        return a + static_cast<double>(b + c + d + e + f + g + h + i);
+    }));
+    static constexpr ParamDescription kInt[] = {{.type = "int"}};
+    static const ParamDescription kNine[] = {kInt[0], kInt[0], kInt[0], kInt[0], kInt[0],
+                                             kInt[0], kInt[0], kInt[0], kInt[0]};
+    static const OverloadDescription kDeclared[] = {{.params = kNine}};
+    ok(ctx.declare("d9", kDeclared, [](Args& args) -> Expected<Node> {
+        int64_t sum = 0;
+        for (size_t i = 0; i < args.size(); ++i) sum += ok(args.eval(i)).try_int().value_or(0);
+        return Node(sum);
+    }));
+    const auto set = ok(read_string("{s9 1 2 3 4 5 6 7 8 9}", "t"));
+    const auto declared = ok(read_string("{d9 1 2 3 4 5 6 7 8 9}", "t"));
+    CHECK(ok(ctx.eval((*set)[0])).try_int() == 45);  // the first call may set up the Context
+    CHECK(ok(ctx.eval((*declared)[0])).try_int() == 45);
+    const size_t before = counted.allocations;
+    const test::AllocationScope scope;
+    for (int k = 0; k < 1000; ++k) {
+        (void)ctx.eval((*set)[0]);
+        (void)ctx.eval((*declared)[0]);
+    }
+    if (test::counting_allocations()) CHECK(scope.count() == 0);  // none from the default
+    CHECK(counted.allocations - before == 2000);                  // one spill a call
 }

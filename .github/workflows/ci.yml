@@ -22,8 +22,11 @@ jobs:
           - { name: tsan,               os: ubuntu-24.04,  cc: clang-18, cxx: clang++-18, std: 20, flags: "-DBAKER_SANITIZE=thread" }
           - { name: plain refcounts,    os: ubuntu-24.04,  cc: gcc-13,   cxx: g++-13,     std: 20, flags: "-DBAKER_ATOMIC_REFCOUNT=OFF" }
           - { name: shipping,           os: ubuntu-24.04,  cc: gcc-13,   cxx: g++-13,     std: 20, flags: "-DBAKER_SHIPPING=ON" }
-          - { name: eastl,              os: ubuntu-24.04,  cc: gcc-13,   cxx: g++-13,     std: 20, flags: "-DBAKER_USE_EASTL=ON" }
+          - { name: eastl,              os: ubuntu-24.04,  cc: gcc-13,   cxx: g++-13,     std: 20, flags: "-DBAKER_USE_EASTL=ON -DBAKER_RTTI=OFF" }
           - { name: harness,            os: ubuntu-24.04,  cc: gcc-13,   cxx: g++-13,     std: 20, flags: "-DBAKER_BUILD_HARNESS=ON", packages: "libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgl-dev" }
+          # Weak memory: the symbol table's lock-free reads and read_consistent's seqlock
+          # cannot fail on x86; their stress tests run here too (D250).
+          - { name: gcc-13 arm64,       os: ubuntu-24.04-arm, cc: gcc-13, cxx: g++-13,  std: 20, flags: "" }
           - { name: msvc C++20,         os: windows-2022,  cc: cl,       cxx: cl,         std: 20, flags: "-DBAKER_BUILD_HARNESS=ON" }
           - { name: msvc C++latest,     os: windows-2022,  cc: cl,       cxx: cl,         std: 23, flags: "" }
     env:
@@ -31,7 +34,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y ninja-build ${{ matrix.packages }}
+        run: sudo apt-get update && sudo apt-get install -y ninja-build locales ${{ matrix.packages }}
+      # A comma-decimal locale, so the tests that write numbers under one run, not skip (D250).
+      - if: runner.os == 'Linux'
+        run: sudo locale-gen de_DE.UTF-8
       - if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
       - name: Configure

@@ -174,7 +174,7 @@ void register_builtins(Context& ctx) {
                 from = 1;
                 for (const Node& b : a.raw(0).try_array()->nodes()) {
                     if (b.type() == Type::Var) {
-                        impl.bind(b.var_name(), kUnset);
+                        impl.bind(b.var_name(), unset_node());
                         continue;
                     }
                     const Array* pair = b.try_array();

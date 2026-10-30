@@ -195,7 +195,7 @@ Node* Context::Impl::cell(Symbol name) {
     if (!pages[page]) {
         constexpr size_t cells = size_t{1} << kPageBits;
         auto* p = static_cast<Node*>(detail::allocate(alloc, cells * sizeof(Node), alignof(Node)));
-        for (size_t k = 0; k < cells; ++k) ::new (p + k) Node(kUnset);
+        for (size_t k = 0; k < cells; ++k) ::new (p + k) Node(unset_node());
         pages[page] = p;
     }
     return &pages[page][i & ((1u << kPageBits) - 1)];
@@ -343,23 +343,8 @@ Expected<Node> Context::Impl::invoke_set(Symbol name, const Vec<detail::Overload
         Args args(self, command, command.begin() + first, n, 0, false, first, object);
         return invoke(o, args, command);
     }
-    // Eight on the stack, more from the default allocator. Not a Vec: an empty std::vector
-    // allocates in MSVC's debug library. Not a NodeBuffer: it costs 70 instructions a call.
-    struct Spill {
-        Node* p = nullptr;
-        size_t n = 0;
-        ~Spill() {
-            for (size_t i = 0; i < n; ++i) p[i].~Node();
-            if (p) detail::default_free(p, n * sizeof(Node));
-        }
-    } spill;
-    Node small[8];
-    Node* values = small;
-    if (n > 8) {
-        spill.p = static_cast<Node*>(detail::default_alloc(n * sizeof(Node), alignof(Node)));
-        for (; spill.n < n; ++spill.n) ::new (spill.p + spill.n) Node();
-        values = spill.p;
-    }
+    ArgValues held(alloc, n);
+    Node* values = held.data();
     for (size_t i = 0; i < n; ++i) {
         auto r = eval(command[i + first]);
         if (!r) {
@@ -723,24 +708,10 @@ Expected<Node> call_declared(const void* callable, Args& args) {
                                                              " was declared from a description, "
                                                              "and has no body to run"));
     if (d.raw) return d.body(args);
-    // Each argument evaluated once and held to its parameter, as a native's: eight on the
-    // stack, more from the default allocator (not a Vec: see Impl::call).
+    // Each argument evaluated once and held to its parameter, as a native's.
     const size_t n = args.size();
-    struct Spill {
-        Node* p = nullptr;
-        size_t n = 0;
-        ~Spill() {
-            for (size_t i = 0; i < n; ++i) p[i].~Node();
-            if (p) detail::default_free(p, n * sizeof(Node));
-        }
-    } spill;
-    Node small[8];
-    Node* values = small;
-    if (n > 8) {
-        spill.p = static_cast<Node*>(detail::default_alloc(n * sizeof(Node), alignof(Node)));
-        for (; spill.n < n; ++spill.n) ::new (spill.p + spill.n) Node();
-        values = spill.p;
-    }
+    ArgValues held(args.context().allocator(), n);
+    Node* values = held.data();
     for (size_t i = 0; i < n; ++i) {
         auto v = args.eval(i);
         if (!v) return v;
@@ -989,13 +960,23 @@ bool VarRef::is_set() const noexcept {
     return !is_unset(*cell_);
 }
 
+namespace {
+// An unset variable's value: constant-initialized and never destroyed, so reading it needs no
+// guard (D250). Its destructor is empty; Clang registers nothing for it, GCC an empty one.
+union Zero {
+    constexpr Zero() noexcept : node(detail::ConstantZero{}) {}
+    ~Zero() {}
+    Node node;
+};
+constinit const Zero kZero;
+}  // namespace
+
 const Node& VarRef::value() const noexcept {
-    static const Node kZero;
-    return is_unset(*cell_) ? kZero : *cell_;
+    return is_unset(*cell_) ? kZero.node : *cell_;
 }
 
 void VarRef::unset() noexcept {
-    *cell_ = kUnset;
+    *cell_ = unset_node();
 }
 
 }  // namespace baker

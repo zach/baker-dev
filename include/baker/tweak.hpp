@@ -302,6 +302,9 @@ template <class T>
 }
 }  // namespace detail
 
+// A read is one load. It is an atomic one, which no compiler hoists out of a loop: read a
+// tweak once into a local before a hot loop (`const float s = speed;`), so the loop can
+// vectorize and sees one value.
 template <class T>
 class Tweak final : public TweakBase {
     static constexpr bool kAtomic = detail::atomic_tweak<T>();

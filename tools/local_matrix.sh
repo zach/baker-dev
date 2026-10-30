@@ -22,7 +22,7 @@ declare -A cfg=(
   [clang]="-DCMAKE_CXX_COMPILER=clang++-18 -DCMAKE_BUILD_TYPE=Release"
   [data]="-DBAKER_BUILD_SCRIPT=OFF"
   [plain]="-DBAKER_ATOMIC_REFCOUNT=OFF"
-  [eastl]="-DBAKER_USE_EASTL=ON"  # fetches EASTL at configure time
+  [eastl]="-DBAKER_USE_EASTL=ON -DBAKER_RTTI=OFF"  # fetches EASTL; no RTTI (D250)
   [harness]="-DBAKER_BUILD_HARNESS=ON"  # fetches Dear ImGui and GLFW; needs X11 and GL headers
 )
 quick=0

@@ -37,6 +37,15 @@ static baker::Tweak<float> kJumpHeight{"player.jump.height", 1.2f,
 - **Declare tweaks at namespace scope.** A function-local static adds a guard check to
   every read. At namespace scope, reading a `Tweak<float>` is one relaxed atomic load,
   checked in the generated assembly by a test.
+- **Read a tweak once into a local before a hot loop.** A read is an atomic load, which no
+  compiler hoists out of a loop, so `for (...) v[i] *= speed;` multiplies one float at a
+  time where `const float s = speed;` first lets the loop use SIMD (GCC and Clang, -O3).
+  Reading once also gives the loop one value even if a reload lands meanwhile.
+
+  ```cpp
+  const float s = speed;                 // one read a frame
+  for (float& v : velocities) v *= s;    // vectorized
+  ```
 - **The default is the old constant.** A path the data does not set keeps it, and that
   is never an error: a tweak can go in before anyone writes its data.
 - **Metadata belongs in the data once someone tunes it.** The code's `TweakMeta` is a
@@ -691,6 +700,12 @@ frames. Other threads may read, on these terms:
 - **Checks off the game's thread** take `cfg.checker()` (see
   [Live ops](#tests-before-an-overlay-ships)).
 - **Symbols** may be made from any thread; the symbol table's reads take no lock.
+- **No fiber switch inside a Baker call.** A Context's current call, the symbol table's
+  intern site and a few tools keep thread-local state, which a compiler may read once and
+  keep across a call. A native function bound into script that waits on a job counter
+  must not switch fibers, or resume on another thread, before it returns to Baker. A
+  fiber-based job system waits outside the call: the native starts the job and returns,
+  and the script picks up the result later (a task, or the next frame).
 - **Script on a small stack.** `Context::set_stack_budget(bytes)` bounds how deep a script
   may nest before it gets a Limit error instead of a stack overflow. The default, 256 KB,
   suits a desktop or console thread; on a thread with a smaller stack (a handheld's worker,

@@ -114,11 +114,9 @@ void append_path_name(Str& out, std::string_view name) {
     if (!bare) out += '\'';
 }
 
-namespace {
-
 // `v` printed as "%.*g" at `precision` into `out`, with '.' for the C locale's decimal
 // point, which %g follows; its length, or 0 if it did not fit. The two %g searches below
-// print through it (D136).
+// print through it (D136), and so does the host kit's sim (D250).
 size_t print_g(double v, int precision, char (&out)[64]) noexcept {
     char buf[64];
     const int n = std::snprintf(buf, sizeof buf, "%.*g", precision, v);
@@ -137,8 +135,6 @@ size_t print_g(double v, int precision, char (&out)[64]) noexcept {
     }
     return len;
 }
-
-}  // namespace
 
 namespace {
 
