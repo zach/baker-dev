@@ -8659,3 +8659,26 @@ once per binding, and it was about 400 of the 900 bytes a binding cost.
   counter of live copies), a move-only lambda binds, the Context destroys what it kept,
   and a stateless lambda costs one allocation fewer than a capturing one.
 
+## D255. A shipping build keeps no tweak tool text
+
+*From the review of D250 (finding 5); the owner chose to build it.* A `Tweak` copied its
+112-byte `TweakMeta` into itself in every build, so a shipping `Tweak<float>` was 184 bytes
+with its value at offset 180, and `strings` on a shipping object found every `desc` and
+`group` written: text for tools, and sometimes text a team would not publish.
+
+- **Now** `TweakBase` keeps a `detail::KeptTweakMeta`: `TweakMeta` itself, or under
+  `BAKER_SHIPPING` a `ShippedTweakMeta` of what decides the value (`range`, `one_of`,
+  `choices`, `dev_only`), with `step`, `desc`, `kind` and `group` as empty static members,
+  so `tweak.cpp` reads it the same way. The conversion is inline where the Tweak is made,
+  so the optimizer drops the text with the copy that no longer happens. The data's
+  metadata still applies in shipping.
+- **`code_meta()` is gone;** its one reader wanted `dev_only()`, which replaces it.
+- **Measured** (GCC 13, -O2): a shipping `Tweak<float>` is 128 bytes (`TweakBase` 120),
+  from 184 (176); development builds are unchanged. Of a tweak's three tool-text literals, a
+  shipping unit's assembly held 3 and now holds none.
+- **Kept honest.** `baker_tweak_shipping_text` compiles `tests/codegen/tweak_text.cpp` at
+  -O2 with and without `BAKER_SHIPPING` and counts the literals: all three in development,
+  none shipped (it failed against D254's header: 3). An unoptimized build still emits the
+  literals the source writes; the claim is for optimized ones. The tests of `step()` and
+  `desc()` expect the code's text only outside shipping.
+

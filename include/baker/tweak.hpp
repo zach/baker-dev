@@ -72,6 +72,8 @@ struct TweakChoice {
 
 // Every member has its own initializer, so that clang's -Wmissing-field-initializers
 // accepts a designated initializer naming only some: {.range = {0, 10}, .step = 1}.
+// Under BAKER_SHIPPING a Tweak keeps only range, one_of, choices and dev_only; desc, kind,
+// group and step are for tools, and an optimized shipping build carries none of their text.
 struct TweakMeta {
     TweakRange range{};
     double step = 0;  // 0: none
@@ -94,6 +96,25 @@ struct TweakMeta {
 };
 
 class TweakRegistry;
+
+namespace detail {
+// What a shipping build keeps of a TweakMeta: what decides the value. The text a tool shows
+// (desc, kind, group, step) is not copied, so in an optimized build its literals, written
+// where the Tweak is made, are dropped with the copy that no longer happens (D255).
+struct ShippedTweakMeta {
+    explicit ShippedTweakMeta(const TweakMeta& meta) noexcept
+        : range(meta.range), one_of(meta.one_of), choices(meta.choices), dev_only(meta.dev_only) {}
+    TweakRange range;
+    std::span<const std::string_view> one_of;
+    std::span<const TweakChoice> choices;
+    bool dev_only;
+    static constexpr double step = 0;
+    static constexpr std::string_view desc{};
+    static constexpr std::string_view kind{};
+    static constexpr std::string_view group{};
+};
+using KeptTweakMeta = std::conditional_t<kShipping, ShippedTweakMeta, TweakMeta>;
+}  // namespace detail
 
 // What check_tweaks found: values the tweaks cannot take (errors), and data the tweaks do not
 // match (warnings), each located where the data has a place.
@@ -124,7 +145,8 @@ public:
     TweakBase& operator=(const TweakBase&) = delete;
 
     [[nodiscard]] std::string_view path() const noexcept { return path_; }
-    [[nodiscard]] const TweakMeta& code_meta() const noexcept { return meta_; }
+    // The code's dev_only (TweakMeta): under BAKER_SHIPPING, the data is ignored.
+    [[nodiscard]] bool dev_only() const noexcept { return meta_.dev_only; }
     // True while the config supplies the value; false while the default stands.
     [[nodiscard]] bool bound() const noexcept { return bound_ != nullptr; }
     [[nodiscard]] TweakRegistry& registry() const noexcept { return *registry_; }
@@ -138,7 +160,8 @@ public:
     // A list's element and length (Convert<T>::element); an empty type for any other value.
     [[nodiscard]] ListElement list_element() const noexcept { return element(); }
 
-    // Metadata, the data file's winning over the code's.
+    // Metadata, the data file's winning over the code's. A shipping build keeps none of the
+    // code's step, desc, kind or group: only the data's.
     [[nodiscard]] TweakRange range() const;
     [[nodiscard]] double step() const;
     [[nodiscard]] std::string_view desc() const;
@@ -204,7 +227,7 @@ private:
     [[nodiscard]] const Array* meta_array(Symbol key) const;
 
     const char* path_;
-    TweakMeta meta_;
+    detail::KeptTweakMeta meta_;
     TweakRegistry* registry_;
     TweakBase* prev_ = nullptr;
     TweakBase* next_ = nullptr;

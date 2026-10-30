@@ -598,6 +598,12 @@ A minimal game (load, read, a tweak, a function, an object, `eval`) built with
 `BAKER_SHIPPING` links 580 KB of Baker code, 41.5 KB of it tooling; with sections, 407
 KB, 4.8 KB of it tooling (the source maps that loading reaches).
 
+A tweak's tool text stays out too. Under `BAKER_SHIPPING` a `Tweak` keeps only the
+metadata that decides its value (`range`, `one_of`, `choices`, `dev_only`): its `desc`,
+`kind`, `group` and `step` are not copied, so an optimized build drops their literals with
+the copy, and a `Tweak<float>` is 128 bytes, not 184. Metadata in the data still applies
+(D255).
+
 ## Harness packs
 
 A harness is the set of data, macros, and functions a team builds to make one kind of work
