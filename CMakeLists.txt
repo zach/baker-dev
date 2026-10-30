@@ -243,6 +243,10 @@ if(BAKER_BUILD_TOOLS)
   target_link_libraries(baker_parse_corpus PRIVATE baker::data)
   add_executable(baker_bake tools/baker_bake.cpp)
   target_link_libraries(baker_bake PRIVATE baker::data)
+  if(BAKER_BUILD_SCRIPT)  # the tolerant read of text is in baker::tools
+    add_executable(baker_migrate_metadata tools/migrate_metadata.cpp)
+    target_link_libraries(baker_migrate_metadata PRIVATE baker::tools baker::data)
+  endif()
   if(BAKER_BUILD_TESTS)
     add_test(NAME baker_bake COMMAND baker_bake -D DEBUG
       ${PROJECT_SOURCE_DIR}/tests/corpus/config_app.dta ${CMAKE_CURRENT_BINARY_DIR}/config_app.datb)
