@@ -229,7 +229,7 @@ private:
 template <>
 struct Hash<Str> {
     size_t operator()(const Str& s) const noexcept {
-        return static_cast<size_t>(hash_symbol_text(s.view()));
+        return static_cast<size_t>(symbol_hash(s.view()));
     }
 };
 

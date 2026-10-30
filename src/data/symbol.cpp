@@ -1,12 +1,62 @@
 #include <baker/allocator.hpp>
+#include <baker/error.hpp>
 #include <baker/symbol.hpp>
 
+#include "intern_site.hpp"
+#include "text.hpp"
+
 #include <atomic>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 
+#if defined(_MSC_VER)
+#define BAKER_NOINLINE __declspec(noinline)
+#define BAKER_INLINE __forceinline
+#else
+#define BAKER_NOINLINE [[gnu::noinline]]
+#define BAKER_INLINE [[gnu::always_inline]] inline
+#endif
+
 namespace baker {
+
+// The hash is a promise (symbol_hash): these golden values are FNV-1a 64's, and a change of the
+// algorithm fails the library's own build.
+static_assert(symbol_hash("") == 0xcbf29ce484222325ull);
+static_assert(symbol_hash("a") == 0xaf63dc4c8601ec8cull);  // FNV-1a 64's own test vector
+static_assert(symbol_hash("jump") == 0xeb1776ddf832a4cdull);
+static_assert(symbol_hash("\xC3\xA9p\xC3\xA9"
+                          "e") == 0x3ae05f984f97964aull);  // "épée", UTF-8
+
 namespace {
+
+thread_local detail::InternSite this_site;
+
+void report_by_default(const Error& report) {
+    std::fprintf(stderr, "%.*s\n", static_cast<int>(to_string(report).size()),
+                 to_string(report).data());
+    std::abort();
+}
+
+std::atomic<SymbolCollisionHandler> collision_handler{report_by_default};
+
+// A name whose hash an earlier name has: reported outside the table's lock, so a handler may
+// intern. Cold: it needs two names among 2^64 hashes.
+void report_collision(const detail::SymbolEntry& first, const detail::SymbolEntry& second) {
+    static constexpr char kDigits[] = "0123456789abcdef";
+    char hex[19] = "0x";
+    for (int i = 0; i < 16; ++i) hex[2 + i] = kDigits[(first.hash >> (60 - 4 * i)) & 15];
+    hex[18] = '\0';
+    const Str message = "the names '" + Str(std::string_view(first.text, first.size)) + "' and '" +
+                        Str(std::string_view(second.text, second.size)) + "' share the hash " +
+                        hex +
+                        ": code that keys on Symbol::hash() cannot tell them apart; as Symbols "
+                        "they stay distinct";
+    const Error report = make_error(ErrorCode::Collision, message, this_site.file,
+                                    this_site.line ? *this_site.line : 0);
+    collision_handler.load(std::memory_order_acquire)(report);
+}
 
 // Append-only arena + open-addressed hash table of entry pointers, from the default
 // allocator. Never destroyed: symbols are immortal, and leaking the table keeps them valid
@@ -19,17 +69,9 @@ namespace {
 // it replaced: a reader may still be probing it, and geometric growth bounds the total.
 class SymbolTable {
 public:
-    const detail::SymbolEntry* intern(std::string_view text) {
-        const uint64_t hash = detail::hash_symbol_text(text);
+    const detail::SymbolEntry* intern(std::string_view text, uint64_t hash) {
         if (const auto* e = find(*table_.load(std::memory_order_acquire), text, hash)) return e;
-        std::lock_guard lock(mutex_);
-        Table* t = table_.load(std::memory_order_relaxed);
-        if (const auto* e = find(*t, text, hash)) return e;  // interned since the probe
-        if ((count_ + 1) * 2 > t->capacity) t = grow(*t);
-        const detail::SymbolEntry* e = make_entry(text, hash);
-        insert(*t, e);
-        ++count_;
-        return e;
+        return add(text, hash);
     }
 
     size_t size() {
@@ -67,6 +109,47 @@ private:
             if (e->hash == hash && e->size == text.size() &&
                 std::memcmp(e->text, text.data(), text.size()) == 0)
                 return e;
+        }
+    }
+
+    // A name the lock-free probe did not find: out of line, so the probe compiles as it would
+    // alone.
+    BAKER_NOINLINE const detail::SymbolEntry* add(std::string_view text, uint64_t hash) {
+        const detail::SymbolEntry* e = nullptr;
+        const detail::SymbolEntry* clash = nullptr;  // an earlier name with this hash
+        {
+            std::lock_guard lock(mutex_);
+            Table* t = table_.load(std::memory_order_relaxed);
+            // Interned since the probe? A build that is not shipping also notes, on this probe
+            // alone, a name it passes with the same hash: every new name passes them all.
+            if constexpr (kShipping) {
+                if (const auto* found = find(*t, text, hash)) return found;
+            } else {
+                if (const auto* found = find_noting(*t, text, hash, clash)) return found;
+            }
+            if ((count_ + 1) * 2 > t->capacity) t = grow(*t);
+            e = make_entry(text, hash);
+            insert(*t, e);
+            ++count_;
+        }
+        if constexpr (!kShipping)
+            if (clash) report_collision(*clash, *e);
+        return e;
+    }
+
+    // find(), noting in `clash` the first entry it passes with the same hash and other text.
+    // Under the lock, and only to insert: the lock-free probe above stays as it is.
+    static const detail::SymbolEntry* find_noting(const Table& t, std::string_view text,
+                                                  uint64_t hash,
+                                                  const detail::SymbolEntry*& clash) noexcept {
+        const size_t mask = t.capacity - 1;
+        for (size_t i = static_cast<size_t>(hash) & mask;; i = (i + 1) & mask) {
+            const detail::SymbolEntry* e = t.slots[i].load(std::memory_order_relaxed);
+            if (!e) return nullptr;
+            if (e->hash != hash) continue;
+            if (e->size == text.size() && std::memcmp(e->text, text.data(), text.size()) == 0)
+                return e;
+            if (!clash) clash = e;
         }
     }
 
@@ -118,7 +201,8 @@ private:
     size_t used_ = 0;
 };
 
-SymbolTable& table() {
+// Inlined into the constructor, as the probe it guards is.
+BAKER_INLINE SymbolTable& table() {
     static SymbolTable* t = detail::create<SymbolTable>(default_allocator());  // leaked; see above
     return *t;
 }
@@ -126,10 +210,25 @@ SymbolTable& table() {
 }  // namespace
 
 Symbol::Symbol(std::string_view text)
-    : e_(text.empty() ? &detail::kEmptySymbolEntry : table().intern(text)) {}
+    : e_(text.empty() ? &detail::kEmptySymbolEntry : table().intern(text, symbol_hash(text))) {}
+
+const detail::SymbolEntry* detail::intern_hashed(std::string_view text, uint64_t hash) {
+    return text.empty() ? &kEmptySymbolEntry : table().intern(text, hash);
+}
 
 size_t Symbol::table_size() noexcept {
     return table().size();
+}
+
+SymbolCollisionHandler set_symbol_collision_handler(SymbolCollisionHandler handler) noexcept {
+    return collision_handler.exchange(handler ? handler : report_by_default,
+                                      std::memory_order_acq_rel);
+}
+
+detail::InternSite detail::set_intern_site(InternSite site) noexcept {
+    const InternSite was = this_site;
+    this_site = site;
+    return was;
 }
 
 }  // namespace baker

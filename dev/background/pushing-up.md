@@ -173,7 +173,7 @@ debug-global escape hatch, generalized from values to verbs.
 | **L4 → L3** | "I keep setting up the same phase transition" | Designer → gardener | Macro or script function in the task pack | Minutes to hours; no rebuild |
 | **L3 → L2** | "The workbench needs to know which players are in cover" | Gardener → gameplay engineer or technical designer | Script function in the game pack, or a new native game verb | Hours to days; maybe a rebuild |
 | **L2 → L1** | "The game needs line-of-sight queries" | Gameplay engineer → engine/tools engineer | Native binding of an engine capability | Days; rebuild; review |
-| **L1 → L0** | "The engine harness needs write-back" | Tools engineer → Baker | Change to the substrate | Rare; versioned; size-budget gate |
+| **L1 → L0** | "The engine harness needs write-back" | Tools engineer → Baker | Change to the substrate | Rare; versioned |
 
 Patterns that apply at every boundary:
 

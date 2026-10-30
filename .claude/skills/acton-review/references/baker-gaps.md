@@ -84,11 +84,12 @@ before fixing (SKILL.md, step 5), and do not fix one without a cost that justifi
 - Object references are salted handles into a flat slot table (D4, D19), not pointers.
 - Every performance decision carries before/after numbers from the same machine (D47,
   D51, D52, D77, D78).
-- Tools share the core's libraries, and cost a game nothing it does not call: no tool adds
-  a field to a hot structure, runtime state for tools compiles out under
-  `BAKER_SHIPPING`, and a shipped game links 0 bytes of `check`, JSON, the reference, or
-  `find_repeats`, and 4.8 KB of tooling with `--gc-sections` (D100). Flag a hot struct
-  that gains a field only tools use, or a tool the runtime starts to reference.
+- What only tools call is its own library, `baker::tools`, which a game links only with
+  the host kit (D231); what stays in the core for tools costs a game nothing it does not
+  call: no tool adds a field to a hot structure, runtime state for tools compiles out under
+  `BAKER_SHIPPING`, and a shipped game links 0 bytes of `check` or `find_repeats`, and 4.8
+  KB of tooling with `--gc-sections` (D100). Flag a hot struct that gains a field only
+  tools use, a tool the runtime starts to reference, or tool-only code added to the core.
 
 ## Closed gaps
 
@@ -127,7 +128,7 @@ One line each; the D-entries hold the measurements.
    about 26 instructions and 5 ns; removing it changes how every game object is declared
    and destroyed, so accepted (D100). `handle_all` takes the caller's span: Baker never
    iterates objects itself.
-10. **Tooling in the core (tool).** Accepted as a standing rule, now under "Already
-   aligned": a minimal shipping game links 41.5 KB of tooling with default flags and 4.8
-   KB with `--gc-sections`, which the cookbook documents (D100).
+10. **Tooling in the core (tool).** Accepted as a standing rule (D100), then moved out:
+   `baker::tools` holds what only tools call, and a minimal shipping game is 24.2 KB
+   smaller with default flags, unchanged with `--gc-sections` (D231).
 

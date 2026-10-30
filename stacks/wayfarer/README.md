@@ -6,7 +6,7 @@ reachable, paced, and impossible to break?
 
 ```sh
 build-stacks/bin/stacks_wayfarer                                  # play
-build-stacks/bin/stacks_wayfarer sim --seeds 1-5                  # the proof, three bots, two played routes
+build-stacks/bin/stacks_wayfarer sim --baker-seeds 1-5            # the proof, three bots, two played routes
 build-stacks/bin/stacks_wayfarer eval "{world.prove}" "{world.proof_report}"
 build-stacks/bin/stacks_wayfarer eval "{world.pacing curious 1800}" "{world.pacing_report}"
 ```

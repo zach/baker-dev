@@ -121,10 +121,12 @@ and the game and every tool read it.
    (reference "build/reference.json") ; for tools: where the build writes the reference
    (tool "build/bin/my_game")         ; for tools: the binary that answers the commands
    (console 4555)                     ; for tools: the port the game's console listens on
+   (format (indent 3) (width 100))    ; for tools: how its files are laid out (format)
    (scenarios "sim")                  ; for sim: scenarios and objectives (docs/sim-json.md)
    (objectives "metrics")
    (layers                            ; bottom to top
       (default "data/default.dta")
+      (mods (dir "mods") optional)    ; a layer for each mod in mods/
       (local "data/local.dta" optional dev_only)
       (agent "data/agent.dta" optional dev_only)))
 ```
@@ -144,7 +146,9 @@ if (auto r = baker::open_project(cfg, *project); !r) return report(r.error());
 - **Layer flags:** `optional` makes a missing file an empty layer; `disabled` keeps a layer
   in the stack, skipped by the merge, for a panel to toggle; `dev_only` marks a layer for
   development only (one person's tuning, an agent's proposal awaiting review), which a
-  shipping build never pushes even when its file is present.
+  shipping build never pushes even when its file is present. A `(dir "path")` entry is a
+  directory of layers, one for each file or folder in it (see Content packages below); its
+  flags apply to every layer it finds.
 - **Packaging:** a build step that copies the data directory whole would ship those files
   too. It reads the project instead and leaves out each layer whose `dev_only` is set, by
   the path the project names; a file such a layer only `#include`s is the step's to know.
@@ -160,7 +164,7 @@ if (auto r = baker::open_project(cfg, *project); !r) return report(r.error());
   layer that reads and returns a `ProjectProblem` (the layer's name and its error) for each
   one that does not. A layer that does not read is left out, and the layers above it read
   over the ones below. Without `go_on`, as a game opens it, the first error stops it.
-- **The reference** names where the game's build writes `write_reference_json`, for tools
+- **The reference** names where the game's build writes `tools::write_reference_json`, for tools
   that check data without the game. `read_project` returns the path in `Project::reference`
   and does not ask that it exist; a game ignores it.
 - **Finding the project:** `find_project(path)` returns the nearest `baker-project.dta`
@@ -214,15 +218,15 @@ Put a variant in its own layer and flip it:
 cfg.push_layer("boss-faster", "config/experiments/boss-faster.dta");
 cfg.toggle_layer("boss-faster");               // A
 cfg.toggle_layer("boss-faster");               // B
-auto changes = cfg.layer_effect("boss-faster"); // what it actually changes
-auto ab = cfg.diff("boss-slower", "boss-faster");
+auto changes = baker::tools::layer_effect(cfg, "boss-faster"); // what it actually changes
+auto ab = baker::tools::diff(cfg, "boss-slower", "boss-faster");
 ```
 
 A disabled layer keeps its place and is skipped by merging, provenance, and write-back.
 Live tuning goes to the `scratch` layer, so "my tuning versus the files" is also a toggle:
 `cfg.toggle_layer("scratch")`.
 
-`source()` names the layer a value comes from; `cfg.explain(path)` names every layer that
+`source()` names the layer a value comes from; `tools::explain(cfg, path)` names every layer that
 has a say, bottom to top. Each entry gives the layer, its value, its file and line, and how
 it stands:
 
@@ -413,6 +417,43 @@ reviewed change, one line per value. Then stop publishing the overlay for builds
 contain it. Otherwise the next patch silently drops values players have been playing
 with.
 
+### A layer a server sends its clients
+
+A server can hold a match's settings as a layer, and a lobby's host can tune them live
+before the match starts. Every client must then hold the same layer.
+
+- **Send it.** `cfg.layer_text(name, sink)` writes the layer's own tree as text, as it was
+  read: includes spliced in, macros expanded, removals (`#remove`) kept. Comments and
+  layout are not kept. `layer_text(cfg, name)` in `<baker/std_interop.hpp>` returns a
+  `std::string`.
+  - `"scratch"` writes the live edits as a layer: each edited path with its value, and
+    nothing for an edit cleared since. A lobby host sends its edits and can go on editing.
+  - The same tree always writes the same bytes, and floats are written exactly.
+- **Receive it.** The first time, push it with `push_layer_text` under the client's own
+  `LayerPolicy`, which decides what it accepts. A layer holding commands is refused by a
+  `data_only` client, located in the text received.
+- **Receive it again.** `cfg.set_layer_text(name, text, &policy)` replaces the layer's text
+  in place: it keeps its place and options, and the layers above it are read again.
+  - Text identical to what the layer holds changes nothing, so a server may resend its
+    settings freely.
+  - Under a policy, the new text is checked against the layers below it, without the
+    version it replaces, and refused, changing nothing, if the policy refuses it.
+
+```cpp
+// Server, when the lobby's settings change:
+std::string text = baker::layer_text(cfg, "scratch").value();
+send_to_clients("lobby", text);
+
+// Client, on each message (`have_lobby` is the client's: whether a push has succeeded):
+const baker::LayerPolicy settings{.data_only = true, .existing_only = true};
+auto taken = have_lobby ? cfg.set_layer_text("received/lobby", text, &settings)
+                        : cfg.push_layer_text("received/lobby", text, {.policy = &settings});
+have_lobby = have_lobby || taken.has_value();
+```
+
+The text is the layer's tree, not its file: promotion and write-back are how a change goes
+back into source.
+
 ### Personal and experiment layers
 
 Developers tune in their own [`local` layer](#personal-layers-local), and variants live in
@@ -465,6 +506,18 @@ How a game delivers content after it ships (dev/background/content-updates.md):
   (D144). A DLC that may be absent is pushed with `LayerOptions::optional`. Code that reads
   its content takes a fallback (`get(path, fallback)`), so a save that names an
   uninstalled DLC's content still loads.
+- **A directory of mods needs no list of them.** `push_layer_dir("mods", "mods")`, or
+  `(mods (dir "mods"))` in the project's layers, makes a layer of each `*.dta` file in
+  `mods/` and of each folder there that holds a `layer.dta` (a mod of several files, whose
+  `layer.dta` `#include`s the rest). They stand in the order `mods/order.dta` lists,
+  `(order base_fixes hard_mode)`, then the rest by name; a listed name that is missing is
+  a located warning. Every `reload()` lists the directory again, so a mod dropped in, or
+  deleted, or reordered in `order.dta` takes effect, and the kit's `Live` watches the
+  directory. A mod menu turns one off with `set_layer_enabled`, which holds across a
+  rescan, and `set_layer_enabled("mods", false)` turns them all off. A mod that does not
+  parse is an empty layer, its error located and passed to the warning handler, until it is
+  fixed; the rest stand. A host with an archive or a virtual root lists the directory with
+  `LoadSession::set_lister`, as it reads with `set_reader` (D243).
 - **Anything packages extend is a keyed table.** Two layers that set one value list leave
   the top one's list, because Overwrite replaces values. Keyed children merge, so every
   package's entries survive. This is how Rock Band's `songs.dta` scaled to thousands of
@@ -508,11 +561,13 @@ How a game delivers content after it ships (dev/background/content-updates.md):
 Baker's libraries are static, and the tools share them with the runtime (D100). A game
 pays only for what it links:
 
-- **Tools in their own files cost nothing.** `check`, its JSON, the reference, and
-  `find_repeats` are in object files a game never references, so the linker leaves them
-  out: 0 bytes.
-- **`Config`'s tools come with `Config`.** Write-back, `promote`, `diff`, and
-  `layer_effect` share an object file with the loader. With GCC or Clang, compile with
+- **Tools are a library of their own.** The reference, the check report's JSON, the layer
+  tools (`explain`, `layer_effect`, `diff`), the console's `config.*` commands and the
+  other functions only tools call are `baker::tools`, which a game links only with the host
+  kit. `check` and `find_repeats` are in object files a game never references, so the
+  linker leaves them out: 0 bytes.
+- **Write-back comes with `Config`.** Write-back and `promote` share an object file with
+  the loader. With GCC or Clang, compile with
   `-ffunction-sections -fdata-sections` and link with `-Wl,--gc-sections`, and the linker
   drops the ones the game never calls. MSVC's release defaults (`/O2` implies `/Gy`, and
   the linker uses `/OPT:REF` unless given `/DEBUG`) already do.
@@ -582,12 +637,12 @@ people. Two calls give it what it needs:
   or the error with its script stack (`docs/reply-json.md`). `baker::host::Console`
   answers lines that begin with `(` this way and every other line as before. Every reply,
   JSON or not, is its lines, then an empty line.
-- **`baker::bind_config_tools(ctx, cfg)`** registers the Config's tooling as script
+- **`baker::tools::bind_config_tools(ctx, cfg)`** registers the Config's tooling as script
   functions, so a console, an editor or an agent can ask the running game directly:
   - `{config.explain player.speed}`: every layer that sets the value, and which one wins;
   - `{config.set player.speed 6}`, `{config.toggle experiment}` and
     `{config.snapshot a}`: live edits and A/B;
-  - `{config.clear player.speed}`: drops that one live edit, so the value is the files'
+  - `{config.clear_scratch player.speed}`: drops that one live edit, so the value is the files'
     again. It returns 1 if there was an edit, 0 if not;
   - `{config.journal}` and `{config.unsaved}`: what was tuned, and what was not kept;
   - `{config.epoch}`: a number that moves on every reload, layer change and live edit. A
@@ -620,8 +675,19 @@ frames. Other threads may read, on these terms:
 - **A reload is the frame's swap point.** It replaces the trees, on the game's thread. A
   thread holding a raw `const Array&` across it reads a tree that has been freed; one
   holding the `Ref<Array>` from `cfg.root()` keeps the old tree alive and reads it whole.
-  Each tweak is read atomically, but several tweaks read while a reload runs may mix old
-  values and new, so read a set of tweaks that must agree on the game's thread.
+  Each tweak is read atomically, but several tweaks read while a reload, a live edit or a
+  layer change runs may mix old values and new. A worker reads a set that must agree inside
+  `read_consistent`, which runs its reader again if the tweaks changed meanwhile:
+
+  ```cpp
+  float g, j;
+  baker::TweakRegistry::global().read_consistent([&] { g = gravity; j = jump_speed; });
+  ```
+
+  It covers atomic tweaks (trivially copyable and lock-free: numbers, bools, symbols, small
+  structs); a `std::string` or `std::vector` tweak is read on the game's thread only. The
+  reader must only read, since it may run twice. It costs two loads and a fence when nothing
+  changed, and a change costs the game's thread nothing it measurably did not before.
 - **Checks off the game's thread** take `cfg.checker()` (see
   [Live ops](#tests-before-an-overlay-ships)).
 - **Symbols** may be made from any thread; the symbol table's reads take no lock.
@@ -649,6 +715,45 @@ stacks apart that merge to the same values. `baker::digest(tree)` digests any tr
 and value, not by file, layout or comments; the encoding is fixed and documented in
 `array.hpp`. It finds a difference and is no defence against tampering: it is not a
 cryptographic hash.
+
+## Stable IDs for names
+
+A `Symbol` is a name's text and its identity in this process: comparing two is comparing
+pointers, and its `index()` follows the order names were interned. Neither means anything to
+another process, so a save file, a network message, a replay or a crash dump that names a
+move, an item or an event writes its hash instead, and a `switch` dispatches on it:
+
+```cpp
+using namespace baker::literals;
+switch (event.hash()) {            // the Symbol's hash, or symbol_hash(text) of a string
+    case "jump"_hash: start_jump(); break;
+    case "land"_hash: land(); break;
+    default: break;
+}
+save.write_u64(player.weapon.hash());
+```
+
+- **What it is.** `baker::symbol_hash(text)`, `"name"_hash` and `Symbol::hash()` give one
+  value: FNV-1a 64 over the name's bytes as written (UTF-8 for a non-ASCII name), with no
+  normalisation. It is the same on every platform, compiler and build mode, and it is
+  computed at compile time for a literal. Baker promises it: changing the algorithm would be
+  a breaking change, announced in the changelog, and the library's build checks golden
+  values.
+- **What it is for.** Keys that must survive the process. Inside it, hold a `Symbol`, which
+  is cheaper to compare and cannot collide.
+- **What it is not.** A hash is an extra key for the game, never the name's replacement:
+  data files and the binary cache keep the text, and reading them never depends on a hash.
+- **Two names that share a hash.** It is very unlikely, about 3 in a million among ten
+  million names, but a `switch` or a save keyed by hash would take one name for the other
+  without an error. A build that is not shipping checks every name the first time it is
+  interned, whether from code, a data file or a binary cache, and reports a pair that
+  shares a hash: an `Error` with `ErrorCode::Collision`, naming both names and the hash, at
+  the data file and line being read. The default writes it to stderr and aborts;
+  `baker::set_symbol_collision_handler(fn)` takes it instead, to log it or fail a build
+  step. Both names stay interned, distinct Symbols: only code keyed on the hash is at risk.
+  A shipping build does not check, and pays nothing for it. A game that ships hash-keyed
+  data runs that data through a build that is not shipping, in CI for example, so a
+  collision is found before it ships.
 
 ## Repro scripts
 

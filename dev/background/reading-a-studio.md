@@ -301,7 +301,7 @@ Baker sits under every harness in the tree, so it is the cheapest place in a stu
 
 The demand report, repetition report, and pack metadata should share one stable, documented, machine-readable output format, so a studio can diff them milestone to milestone. A harness audit then becomes partly a build artifact: steps 1, 5, and 6 of §7 are generated, and steps 2 and 4 are pre-filled.
 
-**Size.** Items 3–5 live in `baker::check` and the parser's pack handling and should fit in a few hundred lines. Items 1–2 add counters and a ring buffer to `Config`. None touches the node layout or the evaluation path. If any pushes the core past its 4,000-line budget, item 4 is the one to move into a separate tool.
+**Size.** Items 3–5 live in `baker::check` and the parser's pack handling and should fit in a few hundred lines. Items 1–2 add counters and a ring buffer to `Config`. None touches the node layout or the evaluation path.
 
 **Considered and not adopted.** Built-in survey prompts, user identity, and any network reporting. Measuring perceived experience matters — DevEx and SPACE both insist on it — but it belongs to the studio's tooling, not to a configuration library. Baker should make the system data trivially available and stop there.
 

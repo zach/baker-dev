@@ -6,6 +6,7 @@
 
 #include "arena.hpp"
 #include "common/containers.hpp"
+#include "intern_site.hpp"
 #include "session.hpp"
 #include "text.hpp"
 
@@ -70,7 +71,8 @@ constexpr uint32_t kEndian = 0x01020304;
 //
 // A cache written from a recorded load has a second tree, `meta`, after the first (D72):
 // the files the load read, the defines it began with, and its effects on the session.
-//   (files ("path" size hash) ...)     size -1: looked for and absent
+//   (files ("path" size hash) ...)     size -1: looked for and absent; -2: a directory
+//                                      listed, hash its listing's; -3: one not listed
 //   (before NAME hash ...)             0 for a flag, else the hash of the macro's text
 //   (define NAME body-or-0 ...) (undefine NAME ...) (autorun {command} ...)
 //   (required "path" ...)              files #require had read when the load began
@@ -441,7 +443,8 @@ Expected<Ref<Array>> load(char* file, size_t bytes, std::string_view name, const
         cipher->decrypt(cipher->user,
                         {reinterpret_cast<std::byte*>(file) + sizeof h, bytes - sizeof h});
 
-    // Intern the symbols into their slots.
+    // Intern the symbols into their slots: a name that shares a hash is reported at the cache.
+    const detail::InternSiteScope site(name);
     char* slots = file + h.symbols;
     const char* slots_end = slots + size_t{h.symbol_slots} * 16;
     size_t p = h.symbols + size_t{h.symbol_slots} * 16;
@@ -724,13 +727,21 @@ bool fresh(const Array& meta, LoadSession& s) {
     const Array* files = meta.try_find("files");
     if (!files || !begins_alike(meta, s)) return false;
     Str text;
+    Vec<Str> entries;
     for (const Node& n : files->values()) {
         const Array* f = n.array();
         if (!f || f->size() != 3 || !f->nodes()[0].string()) return false;
-        text.clear();
-        const bool read = s.reader()(f->nodes()[0].string()->view(), str_out(text));
         const int64_t size = f->nodes()[1].try_int().value_or(-1);
         const auto hash = static_cast<uint64_t>(f->nodes()[2].try_int().value_or(0));
+        if (size == kListedDirectory || size == kUnlistedDirectory) {
+            // A directory #include_dir listed: a file added, removed or renamed.
+            if (list_with(s.lister(), f->nodes()[0].string()->view(), entries) !=
+                (size == kListedDirectory ? hash : 0))
+                return false;
+            continue;
+        }
+        text.clear();
+        const bool read = s.reader()(f->nodes()[0].string()->view(), str_out(text));
         if (size < 0
                 ? read
                 : !read || static_cast<int64_t>(text.size()) != size || content_hash(text) != hash)

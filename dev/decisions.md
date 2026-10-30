@@ -27,18 +27,6 @@ So we have both, explicitly:
 One merge routine with a policy flag, not two implementations. The source carries a
 comment pointing here so the next person who checks the slide knows why.
 
-## D2. The line budget is a soft target
-
-*Spec §0, M10.*
-
-*Raised to 8,000 by D40.*
-
-4,000 non-test, non-comment lines is tracked and reported (`tools/count_lines.py`,
-printed in CI per target), not enforced. The full scope — edit-mode write-back, layers,
-telemetry, `check` and its reports, coroutine tasks, binary cache — is expected to exceed
-it. Smallness still matters: every milestone records its line count here, and growth that
-looks disproportionate gets called out rather than absorbed.
-
 ## D3. No Harmonix files in the repository or CI
 
 *Spec §8, M1.*
@@ -217,11 +205,8 @@ well above the 40 MB/s target, so there is no reason yet for a lock-free table.
   CI fuzzes for two minutes per push.
 - **No-exceptions build** compiles with `-fno-exceptions` and runs the full suite; CI has
   a job for it.
-- **Size.** `baker::data` is about 1,920 counted lines after M1, roughly half of the
-  4,000 soft budget (D2). The parser and preprocessor are about 640 of those, `Node` about
-  260. As D2 predicted, the full scope will pass 4,000; candidates for trimming later are
-  the `expected` shim (about 100 lines, gone once C++23 is the floor) and the error-message
-  strings in the parser.
+- **Size.** `baker::data` is about 1,920 counted lines after M1. The parser and
+  preprocessor are about 640 of those, `Node` about 260.
 
 ## D18. Numbers are stored at 64 bits
 
@@ -325,7 +310,7 @@ Re-verified on 2026-10-11 with every configuration passing locally:
 
 The fuzzer ran 2M execs clean on the new number handling, reaching 1,325 edges.
 `baker::data` is now 2,063 counted lines; vendored fast_float is third-party and not
-counted (D2).
+counted.
 
 ## D25. Lookup API shape
 
@@ -611,26 +596,9 @@ it lets layers change after `freeze()`, for live-ops overlays in a shipped game.
   each a macro (`TRUE`, `kDefaultVolume`, `kMaxPlayers`) named with file and line.
 - **Fuzzing.** The parse fuzzer, now also checking edit-mode spans, ran 1.5M execs clean
   under ASan+UBSan.
-- **Size: over budget.** `baker::data` is 4,002 counted lines, up 1,284 in M3, which crosses
-  the spec's 4,000 (soft, D2). The largest parts are `config.cpp` 571 (write-back about
-  200; layers, reload, provenance, live edits the rest), `tweak.hpp`/`tweak.cpp` 347,
-  `config.hpp` 125, and `merge.cpp` 82. Flagged here and to the project owner, as §0 asks.
-  Six milestones remain. Resolved by D40: the budget is raised to 8,000.
-
-## D40. The line budget is 8,000
-
-*Deviates from spec §0 (4,000) and M10 ("core stays within the 4,000-line budget").
-Decided by the project owner, 2026-10-11, after M3 crossed 4,000 (D39).*
-
-The goal has moved from the original's minimal core to a more capable library: layers,
-provenance, write-back, and the harness instrumentation of M10 are all beyond what the
-70 KB original did. The soft budget for the core (`baker::data` plus `baker::script`,
-counted by `tools/count_lines.py`) is now 8,000 non-test, non-comment lines. Everything
-else in D2 stands: it is reported in CI, not enforced; each milestone records its count;
-and disproportionate growth is still called out. M10's fallback (move the repetition
-report into a separate tool if the core is over budget) now applies at 8,000. Edit mode and
-write-back stay in the core.
-
+- **Size.** `baker::data` is 4,002 counted lines, up 1,284 in M3. The largest parts are
+  `config.cpp` 571 (write-back about 200; layers, reload, provenance, live edits the rest),
+  `tweak.hpp`/`tweak.cpp` 347, `config.hpp` 125, and `merge.cpp` 82.
 
 ## D41. Spec amendment: telemetry stamps, personal and experiment layers, snapshots, readiness
 
@@ -717,10 +685,8 @@ The brief's decisions, recorded as asked:
    loaded.** M3 compares the full text held for edit mode, which is exact; M3b keeps that
    and records a content hash for snapshots, which do not hold the text.
 
-Two reconciliations with decisions already made:
+A reconciliation with a decision already made:
 
-- **Line budget.** The brief asks for counts against 4,000; the budget is 8,000 since D40,
-  and M3b reports against that.
 - **Shipping and layer pushes.** "Layer mutation is inert under `BAKER_SHIPPING`" is read
   as D38 already defines it: layers can be pushed during the initial load (before
   `freeze()`), and `ConfigOptions::live_layers` remains the explicit live-ops path.
@@ -801,8 +767,7 @@ Results:
   gcc's unused-function warning in the shipping build. MSVC is covered by CI. Its debug STL
   allocates more per container copy, so the snapshot test compares a 2-entry and a
   500-entry config instead of bounding the count.
-- **Size.** `baker::data` is 4,747 counted lines (core 4,759), up 745 in M3b. That is over
-  the 4,000 the brief cites and under the 8,000 budget of D40.
+- **Size.** `baker::data` is 4,747 counted lines (core 4,759), up 745 in M3b.
 
 ## D44. Functions and variables live in per-Context tables (supersedes D5)
 
@@ -967,20 +932,6 @@ Results:
   instrumentation. As the plan said, this is likely to run out around M8, and each
   milestone will flag it.
 
-## D48. The line budget is 10,000
-
-*Deviates from spec §0 and M10 again; supersedes D40's number. Decided by the project
-owner, 2026-10-11, in the M5 plan (Q4).*
-
-M4 brought the core to 6,203 lines. The M5 estimate (~780) and rough ones for M6–M8 and
-M10's core instrumentation (~1,500) would have exhausted 8,000 during M7. The soft budget
-for the core is now 10,000 non-test, non-comment lines. The rest of D2 and D40 stands:
-- the budget is reported, not enforced;
-- each milestone records its count;
-- disproportionate growth is still called out;
-- M10's fallback (move the repetition report into a separate tool) applies at the new
-  number.
-
 ## D49. Objects: table, handles, binding, and lifetime
 
 *Spec §5 ("Objects"); M5 plan, Q1 answered 2026-10-11.*
@@ -1092,7 +1043,7 @@ for the core is now 10,000 non-test, non-comment lines. The rest of D2 and D40 s
   tests: its fake stack keeps address-taken locals on the heap, so measuring the stack
   budget (D47) from a local's address saw nonsense. The budget now reads the frame
   address (`__builtin_frame_address`, `_AddressOfReturnAddress` on MSVC).
-- **Size.** The core is 7,142 of 10,000 lines (D48), up 939 in M5: `baker::script`
+- **Size.** The core is 7,142 lines, up 939 in M5: `baker::script`
   +917, `baker::data` +22. That is about 160 lines over the plan's estimate of 780. The
   overrun is mostly property paths, `{new}` for native types, and the reference and
   `check` additions.
@@ -1871,20 +1822,6 @@ done, and `dev/m7-plan.md` is deleted.*
   for M8 (~400) and M10's core instrumentation; M8's plan must say what M10 gives up if it
   overruns, or ask to raise the budget.
 
-## D69. The line budget is 15,000
-
-*Deviates from spec §0 again; supersedes D48's number. Decided by the project owner
-2026-10-12, after M7.*
-
-M7 brought the core to 9,126 lines (D68), leaving 874 of 10,000 for M8 (~400) and M10's
-core instrumentation. The soft budget for the core is now 15,000 non-test, non-comment
-lines. The spec and `tools/count_lines.py` say so. The rest of D2, D40, and D48 stands:
-- the budget is reported, not enforced;
-- each milestone records its count;
-- disproportionate growth is still called out: M7 ran 30% over its estimate;
-- M10's fallback (move the repetition report into a separate tool) applies at the new
-  number.
-
 ## D70. M8: the binary cache, answers
 
 *M8 plan (`dev/m8-plan.md`) Q1–Q4, answered by the project owner 2026-10-12, each as
@@ -2235,7 +2172,7 @@ structurally equal trees.*
 - **Found on the way:** Config's merge was quadratic on flat layers (D75, fixed: an 18 MB
   layer from text in 45 ms, not 450), and the arena's empty `Vec` allocated under MSVC
   (D71).
-- **The core** is 9,850 lines of the 15,000 budget (D69), against the plan's ~9,690.
+- **The core** is 9,850 lines, against the plan's ~9,690.
   `baker_bake` is in `tools/`, outside the core.
 - `dev/m8-plan.md` is deleted; its answers are D70 and D72.
 - **Naming.** Commits called M8's steps M8a–M8d; this file calls them M8.1–M8.4, because
@@ -2365,8 +2302,8 @@ structurally equal trees.*
 *Results of `dev/m8b-plan.md` §3 (D80, D84).*
 
 - **The library** is `baker_shape` (`include/baker/shape.hpp`, `src/shape/shape.cpp`):
-  400 lines of spec §6's 600, outside the core, which `tools/count_lines.py` now reports
-  separately. It links baker::data only; the data-only build builds it too.
+  400 lines, outside the core, which `tools/count_lines.py` now reports separately. It links
+  baker::data only; the data-only build builds it too.
 - **What D84 described, built**, with two settlements:
   - A field declared again (by `Set::add` of another tree) keeps the metadata the new
     declaration does not restate, as Config's merge of two layers would.
@@ -2406,8 +2343,8 @@ enumeration API) and `#require`.*
 - **Deviations:** *level* for the spec's pack *layer* (D80), and `(shapes (name ...))`
   for the spec's `(shape name ...)` (D84). Matching by tag does not reach keyed children
   (D85).
-- **Sizes:** the core is 10,103 lines (of 15,000; the plan estimated about 10,060), and
-  `baker::shape` 400 (of 600, outside the core).
+- **Sizes:** the core is 10,103 lines (the plan estimated about 10,060), and
+  `baker::shape` 400 (outside the core).
 - `dev/m8b-plan.md` is deleted; its answers are D80 and D84.
 
 ## D87. M9: the docs and examples, answers
@@ -2496,8 +2433,8 @@ personal `local` layer by the convention in spec §4.*
   metadata in the data. The owner chose to fix it in M9; it is the milestone's only core
   change.
 - **Not changed:** no benchmark row; the core changed only in `TweakBase::bind`, which
-  runs per tweak on each merge. The core is 10,116 lines of 15,000 (10,103 before; D88),
-  and `baker::shape` 400 of 600.
+  runs per tweak on each merge. The core is 10,116 lines (10,103 before; D88),
+  and `baker::shape` 400.
 - `dev/m9-plan.md` is deleted; its answers are D87.
 
 ## D90. M10: harness instrumentation, answers
@@ -2732,9 +2669,8 @@ check output.*
   shipping build. The tools (`check`, `find_repeats`, JSON, the reference) stay in every
   build (D90 Q5) and cost nothing unless called. One cost is recorded rather than hidden:
   the journal's time stamp makes a fast-path `set` 51–65 ns against 18–24 (D93).
-- **8. The core stays within the 15,000-line budget: met.** 10,955 lines (10,116 before
-  M10; the plan estimated about 11,000), so the repetition report did not need to move into
-  a tool. `baker::shape` is 400 of 600, unchanged.
+- **Size.** The core is 10,955 lines (10,116 before M10; the plan estimated about 11,000).
+  `baker::shape` is 400, unchanged.
 - **Deviations and settlements:** `origin` only as a file's leading declaration (D91);
   `check` takes a span of trees and `CheckOptions` (D94); `restore` reverts journal
   entries (D93); the repetition report in baker::data (D90 Q3).
@@ -3312,7 +3248,7 @@ merge.*
   reloaded file had deleted.
 - **`check`** reads `{extend}` as it reads `{class}`: the handlers an extension adds are
   not demand. The reference lists the word.
-- **Cost.** Definition time only: dispatch is unchanged. The core is 11,068 lines of 15,000
+- **Cost.** Definition time only: dispatch is unchanged. The core is 11,068 lines
   (`baker::script` 3,896). Hearth's test of a stuck action now adds that action with
   `{extend villager ...}`, as a task pack would.
 
@@ -3364,7 +3300,7 @@ in `src/` changed.*
 - **`Array::tag()`** in Baker: an array's first node if a symbol, else the empty Symbol.
   Six stacks had written it. Reading a value by position needed nothing new: a path indexes
   values (`get<double>("pos.1", 0)`), and a test now says so beside `tag()`; that no stack
-  found it is a finding about the docs, not the API. The core is 11,073 lines of 15,000.
+  found it is a finding about the docs, not the API. The core is 11,073 lines.
 - **The base** gained `rng.hpp` (`base::Rng`, xorshift64*, seeded per stream: each stack
   keeps its own stream constant, so every result stays the same), `words.hpp`
   (`base::name`, `base::number` by path or by position, `base::not_found`, `base::truthy`),
@@ -6036,7 +5972,7 @@ repository, for the host code that every game rewrites.*
 - **Where it lives.** `baker::host`, in `src/host/` and `include/baker/host/`, beside
   `baker::shape`.
   - It is under the core's rules, and its public headers pass the same gate.
-  - It has a 1,500-line budget of its own, and ships in every release.
+  - It ships in every release.
   - `baker::baker` does not link it.
 - **The plan** is `dev/host-kit-plan.md`: six steps, from the watcher to moving the stacks
   onto the kit, with tests, measurements and acceptance criteria. The stacks' JSON is kept
@@ -6052,8 +5988,8 @@ repository, for the host code that every game rewrites.*
   - `tests/host/` and `baker_host_tests`.
   - Its headers are under the header gate: `check_headers.py` now walks subdirectories,
     and the header-alone test compiles `host/*.hpp` too.
-  - `tools/count_lines.py` reports its budget, 1,500 lines, outside the core's. The core
-    count does not change.
+  - `tools/count_lines.py` reports its size apart from the core's. The core count does not
+    change.
 - **`baker::host::Watcher`** watches exactly what it is given: `watch(cfg.stack_files(),
   more)`, where `more` is the project file, say.
   - **Notifications on directories.** It watches each file's directory through the
@@ -6902,8 +6838,7 @@ the stacks move onto it, `compare` included.*
 - **Size.** The runner is about 790 lines, not the note's 450: located errors, compare's
   median verdicts and the results data it reads back. After trimming (a JSON error and
   bool helper, one way to note a change in compare, a table of text options in the
-  parser), `baker::host` is 2,106 lines. The owner raised its budget to 2,200
-  (`tools/count_lines.py`).
+  parser), `baker::host` is 2,106 lines.
 - **Tests.** `tests/host/test_scenarios.cpp` ports the stacks' runner tests onto a counter
   game: steps and judging, start and `at` times, repeatability, located errors, a measure
   that gives no number, a path that does not exist, results that read back located, and
@@ -6946,7 +6881,7 @@ the stacks move onto it, `compare` included.*
   runs not started are left out; status 2. `baker.sim/1.1` adds `finished` to each run and
   `"stopped"` as a status; `results.dta` writes `(finished 0)` and `read_results` reads it.
 - **Cost.** A step with nothing due is a scheduler tick, a count and a compare; a test holds
-  it to no allocation. The kit is 2,299 lines; the owner raised its budget to 2,400.
+  it to no allocation. The kit is 2,299 lines.
 - **Output.** `run_command` and `SimRun` share one `send` for `--output`, the host's sink or
   stdout. A `SimRun` call gathers what it prints while it runs, so calls spread over frames
   write one output.
@@ -6978,7 +6913,7 @@ the stacks move onto it, `compare` included.*
   `values` and cannot be described yet.
 - **Cost.** Nothing on a tweak's read path: `value_types()` is a virtual used by the JSON
   and tools. A game that does not use `DescribedTweaks` gains one vtable entry per tweak
-  type. The core is 14,492 lines of its 15,000.
+  type. The core is 14,492 lines.
 
 ## D211. A tool declares the game's types, objects and value types from the reference
 
@@ -7135,10 +7070,9 @@ An argument that is not a string is an error at its line.
 - **Paths.** Every `check_tweaks` finding carries its subject as its path: the tweak's, or
   for a stray key the key's own, group then key. The messages are unchanged.
 
-## D220. A tolerant read of text, for tools; the core's budget is 15,500
+## D220. A tolerant read of text, for tools
 
-*Requirement note 0021, from the editor integration. The owner raised the core's soft
-budget from 15,000 to 15,500 for this note and 0024.*
+*Requirement note 0021, from the editor integration.*
 
 - **The need.** An editor needs the structure of text that rarely parses: `(kestrel (hea`.
   Each tool wrote its own lexer, a second copy of Baker's syntax that no test held to it.
@@ -7224,7 +7158,7 @@ presentation, the owner's choice.*
   the top; `results.dta` keeps `(until 1)`.
 - **Cost.** A step with no `(until ...)` is as before (the quiet-step allocation test still
   holds); with one, one command a step.
-- **Size.** The core is 15,080 lines of its 15,500; the host kit 2,360 of 2,400.
+- **Size.** The core is 15,080 lines; the host kit 2,360.
 
 ## D224. A read of a record or table sees the live edits beneath it
 
@@ -7253,6 +7187,32 @@ the owner's choice.*
 - **Tests.** A record above an edit holds it and its other fields; a record with no edit
   beneath is read from `root()`; `root()` is the last merge until `apply_edits()`; a clear
   reverts it everywhere; `Live` applies before `changed`.
+
+## D225. A test of development alone says so, and a gate finds one that does not
+
+*Step 1 of `dev/tools-library-plan.md`.*
+
+- **The need.** A test of what shipping refuses (a live edit, a reload, toggling a layer,
+  write-back, promotion) passed in development and failed only in the shipping leg, after a
+  full matrix run. D221's test was one.
+- **`BAKER_DEV_TEST_CASE(name)`** (`tests/support/dev_only.hpp`): a `TEST_CASE` with
+  `doctest::skip(baker::kShipping)`. It compiles in every build, and shipping reports it
+  skipped. The eleven tests that began `if constexpr (kShipping) return;` use it (the plan
+  counted ten; `test_stats` was the eleventh).
+- **`tools/check_tests.py`**, run by `ctest` as `baker_tests_handle_shipping`. It fails a
+  plain `TEST_CASE` that calls `set`, `set_layer_enabled`, `toggle_layer`, `reload`,
+  `clear_scratch`, `write_back`, `write_back_to` or `promote` without handling shipping:
+  inside an `if constexpr` or `#if` on shipping, of either sense, or after an early return
+  on it.
+  - It is lexical. A `set(` whose first argument is not a literal or a path is taken for an
+    `Array`'s, and a helper's calls are not followed, so it misses some; a fixed test file
+    of the bad and good forms is caught as expected.
+  - On the tree it found one test that guarded a lambda's use and not its definition,
+    which now sits inside the guard, and one false positive (a `reload()` expected to
+    return false in both builds), marked `check_tests: ok`.
+- **`tools/local_matrix.sh --quick`** builds and tests shipping, and runs clang-tidy, alone.
+  Those two failed after the rest passed in most of this period's extra runs. It does not
+  replace the whole matrix before a commit.
 
 ## D226. A number is written as the same text on every platform
 
@@ -7287,3 +7247,996 @@ the owner's choice.*
 - **Cost.** Up to 17 `snprintf` and parse rounds a number, as before, plus one `%.0f` for
   a large whole number. It is used only where `to_chars` is missing, and only for writing,
   never on a read path.
+
+## D227. Tweak findings in one order
+
+*Step 2 of `dev/tools-library-plan.md`.*
+
+- **The need.** `check_tweaks`, and so a `CheckReport`'s `tweak_errors` and
+  `tweak_warnings`, listed findings in the order the tweaks were registered, which two
+  builds of one game need not share. An editor showing them, and a test comparing more than
+  one, saw them move; tests sorted them first.
+- **What the plan had wrong.** It said `check --json` would diff cleanly after this. It
+  already did: its writer sorts every list of problems by file, line, column, then message
+  (`docs/check-json.md`). The gap was only in the C++ lists.
+- **The change.** Both lists are sorted in that same order, so a host reading them and a
+  tool reading the JSON see one order. A finding with no place (a tweak whose path the data
+  lacks) comes first. It is a cold call over a handful of entries.
+- **Tests.** Five tweaks registered in one order and in its reverse give the same errors and
+  warnings, in that order. The two tests that sorted findings no longer do.
+
+## D228. `and_then` on `Expected`
+
+*Step 3 of `dev/tools-library-plan.md`.*
+
+- **The need.** Two `push_layer` calls in a row, or a read and then a push, took an early
+  return or a lambda for each step, because Baker's own `Expected` (C++20, where the
+  standard library has no `std::expected`) had no `and_then`. A C++23 build had it, so code
+  that used it built in one and not the other.
+- **The change.** `and_then(f)` on `Expected<T>` (`&`, `const&`, `&&`) and `Expected<void>`
+  (`const&`, `&&`), as `std::expected` gives it: `f` runs on the value, or with none for
+  `void`, and returns an `Expected` with the same error type; an error passes through and
+  `f` does not run. A different error type is a compile error, as in the standard. Header
+  only. `transform` and `or_else` wait for a caller.
+- **Tests.** One test runs in both builds (C++20's own, C++23's `std::expected`): a chain of
+  `void` steps that stops at the first error, an `int` chain that halves until odd, a
+  `const&` call to another value type, and a value to `void`.
+
+## D229. Clearing a live edit has one name: `clear_scratch`
+
+*Step 4 of `dev/tools-library-plan.md`; the name is the owner's choice.*
+
+- **The need.** C++ has `Config::clear_scratch(path)`; the console had `{config.clear
+  PATH}`. Every other console command takes its C++ name, so a person moving between them
+  reached for the one that did not exist.
+- **The change.** The console's command is `{config.clear_scratch PATH}`; `config.clear` is
+  gone, with no alias (breaking changes are allowed). "Scratch" is the live-edit layer's
+  name in `explain` and `layer_effect` already. Its tests, the cookbook and the header's
+  list of commands follow. A tool that sent `config.clear` (an editor, an agent's server)
+  sends the new name from the release that carries this.
+
+## D230. Instruction counts for script calls and messages
+
+*Step 5 of `dev/tools-library-plan.md`.*
+
+- **The need.** `tools/count` counted parse, lookup, set and a quiet frame, nothing of the
+  script path. D211's promoted-overload slowdown (8.9% by wall clock) was settled only by
+  repeating the benchmark, and its faster message rows were recorded as unexplained.
+- **New cases.** `call` (`{add 1 2}`, a native of two ints), `overload` (`{+ 1.5 2}`, the
+  built-in set, promoted), `declared` (`{add 1 2}` declared from a description with a body,
+  D213), `message` (a typed message from C++ to an object in a Context, its handler two
+  types up the chain), `message_loose` (the same in no Context) and `handle_all` (one call
+  to 64 objects).
+- **Counts stay put as cases are added.** Each case's loop is a function of its own, never
+  inlined: with the loops in `main()`, adding two cases moved `message` from 154 to 167
+  instructions on the same commit, as the compiler inlined differently. A comparison was
+  still fair (both sides build the same driver), but a count should not depend on its
+  neighbours.
+- **The tool.** `--head REV` counts a commit in place of the working tree, so two old
+  commits compare; a case one side's tree cannot build (`declared` before D213) shows as —.
+- **D211, settled.** Against its parent 3270a23:
+
+  | case | 3270a23 | d30389d (D211) | change |
+  |---|---:|---:|---:|
+  | call | 307 | 307 | 0 |
+  | overload | 784 | 788 | +0.51% |
+  | message | 135 | 135 | 0 |
+  | message_loose | 114 | 114 | 0 |
+  | handle_all | 4,772 | 4,772 | 0 |
+
+  The overload's final cost is four instructions (the `ParamText` indirection of D211 put
+  the rest back). The message rows run the same instructions on both commits, so D211's
+  faster `handle_all` and no-Context `handle` were code layout, not a change to their path.
+  From D211 to 28fe7c7 none of these cases moves. Instructions per operation, cachegrind,
+  Release, GCC 13.
+
+## D231. `baker::tools`: what only tools call is a library of its own
+
+*Step 6 of `dev/tools-library-plan.md`; the owner's choice of a separate library (§12 Q2),
+its design note §6, held to acton-review there.*
+
+- **The need.** Much of the core's recent growth was code a game never runs: the
+  reference, the layer tools, the console's commands, the vocabulary a tool declares from a
+  reference, the tolerant read of text. D100 had accepted tooling in the core, and costed
+  this library as its option C.
+- **The rule.** `baker::tools` holds what only a tool, or the host kit on a tool's behalf,
+  calls. A game links it only with the kit; a tool links it directly.
+- **What moved,** into `src/tools/`, `<baker/tools/...>` and `namespace baker::tools`:
+  - `reference`, `write_reference`, `write_reference_json`, `write_json(const
+    CheckReport&)` and `script_functions` (`reference.hpp`), from `reference.cpp`, whose
+    `check` stays in the script library as `check.cpp`;
+  - `explain`, `layer_effect`, `diff` and `ExplainEntry`, `Standing`, `DiffEntry`
+    (`layers.hpp`), Config methods before, free functions now (`LayerEffectEntry` stays in
+    the core, which `check_layer`'s report uses);
+  - `bind_config_tools` (`console.hpp`);
+  - `DescribedTweaks`, `TweakDescription`, `MethodDescription`, `declare_type`,
+    `declare_object`, `has_type` (`described.hpp`), Context methods before;
+  - `read_structure` and its `Text*` types (`structure.hpp`);
+  - `to_json(report)` and `reference(ctx)` as strings (`std_tools.hpp`).
+- **What stayed,** and why: the tweaks' JSON, which a data-only program writes and cannot
+  link the tools for (the docs promise it); `split_metadata` and `presented_kind`, which
+  share their rule with `TweakBase::kind()`; `value_type_known` and `reads_as`, which a
+  declared function's call uses; `check` and its text report, which a game runs on what it
+  loads.
+- **The internals.** `detail::ToolsAccess` (`src/tools/access.hpp`) is the one friend of
+  `Config`, `Context` and `TweakBase`, as `SessionAccess` is `LoadSession`'s: inline
+  functions returning what the methods reached through the same pointer. `build_described`
+  is declared in `script/internal.hpp` for `Context::declare` and `declare_type` both.
+- **The lexer** moved to `src/data/lexer.hpp` for `parse.cpp` and `read_structure`. With
+  external linkage the parse ran 1.52% more instructions (1,845,498 to 1,873,501); inside an
+  anonymous namespace in the private header it keeps the internal linkage it had, and the
+  count is equal again (plan B of the review). The comment spans it records are its own
+  `LexComment`, so the core names no tools type.
+- **Counts.** Core 15,146 → 13,783 (data 10,011 → 9,590, script 5,135 → 4,193);
+  `baker::tools` 1,477; the kit 2,361 → 2,365 (includes).
+- **Instructions** (`count_instructions.py --base HEAD`): parse, lookup, set, call,
+  overload, declared, message, message_loose, handle_all and frame equal. `lookup_text` ran
+  8 fewer (374 → 366, −2.1%); its loop is in the driver's `main()`, not isolated as the
+  script cases are, and nothing on its path changed: the driver's code generation.
+- **Size.** D100's minimal shipping game (load, read, a tweak, a function, an object,
+  `eval`; GCC 13, static libraries), the program's text:
+
+  | flags | before | after | change |
+  |---|---:|---:|---:|
+  | `-O2` (D100's) | 801,568 | 776,828 | −24.2 KB |
+  | `-O2`, function sections, `--gc-sections` | 522,365 | 521,733 | −0.6 KB |
+  | `-O3` (CMake's Release) | 907,486 | 889,306 | −17.8 KB |
+  | `-O3`, function sections, `--gc-sections` | 578,850 | 586,042 | +7.0 KB |
+
+  As D100 expected: smaller with default flags, about the same with sections. At `-O3`
+  with sections it grew: `context.cpp`'s and `parse.cpp`'s error paths (`type_error`
+  +1,587 bytes, `arity_message` +1,020, `add_overload` +1,011, `too_deep` +896) inline
+  more of the file-local helpers that now have fewer callers. Recorded, not chased: error
+  paths only, and the instruction counts are equal.
+- **No `BAKER_BUILD_TOOLS` option:** the name already switches the command-line utilities.
+  The library builds with `baker::script`, as the kit does.
+- **Tests.** `baker_tools_tests` holds the tests of what moved (the reference JSON, the
+  console's commands, `explain`, the layer tools, the described vocabulary, the text read,
+  the readiness loop). The data tests link no tools and still pass in the data-only build;
+  the script and allocation tests link `baker::tools`, since they read the reference. The
+  header gates cover `include/baker/tools/`. `docs/script-reference.md` is regenerated
+  (its header names `baker::tools::reference()`).
+- **Also fixed:** the release manifest did not ship `tools/check_tests.py` (D225), which
+  `ctest` runs, so the published repository's tests would have failed; it does now.
+- **For hosts and tools,** every caller changes: `tools::explain(cfg, path)`,
+  `tools::declare_type(ctx, ...)`, `tools::write_reference_json(...)`,
+  `#include <baker/tools/...>`, and link `baker::tools` (the kit brings it).
+
+## D232. The kit's flags begin `--baker-`
+
+*Step 7 of `dev/tools-library-plan.md`; the prefix is the owner's choice, and command names
+keep theirs (§12 Q3).*
+
+- **The need.** The kit read `--project`, `--seed`, `--seeds`, `--step-hz`, `--scenario`,
+  `--results`, `--before`, `--after`, `--json`, `--layer`, `--from`, `--to`, `--patch`,
+  `--write` and `--output` wherever they appeared on a game's command line, so a game could
+  not use those names for its own flags: the test game and the stacks renamed theirs when
+  `sim` arrived, and the stacks' own `--step-hz` (the game's fixed rate) shared a name with
+  the kit's.
+- **The change.** Each is now `--baker-NAME`. `parse_command_line` hands every argument
+  that does not begin `--baker-` to the host in `rest` (or, `{...}`, to `commands`), and
+  refuses a `--baker-` flag it does not know: `unknown flag --baker-sede`, so a misspelling
+  is an error rather than a flag the game silently ignores. Command names (`check`, `sim`,
+  ...) are unchanged; a command the kit does not know already falls through to the game.
+- **Everything that wrote a flag follows:** the kit's help text and header, the test game
+  and its Python test, `SimRun`'s test, the host example, the stacks' CTest commands,
+  `write_reference.cmake`, `test_commands.py`, their READMEs and `agent.md`, the
+  stacks-agent skill, and `docs/tools.md` and `docs/sim-json.md`. The stacks' own flags
+  (`--data`, `--step-hz`, `--frames`, ...) keep their names.
+- **Tests.** `test_command_line.cpp`: the kit's flags read and the game's (`--seed`,
+  `--step-hz`, `--json` unprefixed) left in `rest`, in order; an unknown `--baker-` flag, a
+  missing value and a bad seed range are errors naming the flag. The stacks' 30 tests and
+  the kit's command tests pass with the new names.
+- **For tools.** An editor, a CI job or an agent's server that runs a game's commands passes
+  `--baker-json`, `--baker-seeds` and the rest from the release that carries this.
+
+## D233. How many values a described value takes: exact, at least, or any
+
+*Step 8 of `dev/tools-library-plan.md` (its items 5 and 6).*
+
+- **The need.** A converter's `values` named one type per value, and a tool read that as
+  "at least these": `std::array<float, 3>` takes exactly three, so `(color 0.9 0.5 0.2
+  0.1)` passed a tool's check and failed in the game (D212). And `std::vector<T>` had no
+  `values`, so a list tweak or parameter could not be described or checked at all (D210).
+- **`baker::ValueCount { Exact, AtLeast, Any }`**, beside `Convert<T>::values`: a converter
+  says `static constexpr ValueCount count = ...;`, and one that gives `values` and no count
+  takes exactly them. `Any` is any number of the one value type (or of groups of the
+  types), zero included.
+  - `Convert<std::vector<T>>` declares its element's value type, for an element of one
+    value of Baker's, with `Any`: `{"symbol"}` for `std::vector<Symbol>`. An element of
+    several values still gives none: they nest in each element and cannot be listed flat.
+  - `std::array<T, N>` keeps its N types and is now held to exactly N.
+- **Where the count goes.** `detail::reads_as(types, count, values)` takes it, and so does
+  every caller: `check`'s literal-argument check, a declared function's call, and
+  `DescribedTweaks`. `ParamText` (what the reference and check read, never the call) gains
+  `count`, so `ParamInfo`, the table a call reads, stays at 32 bytes. `TweakBase` gains
+  `value_count()` (one virtual beside `types()`; no tweak read calls it).
+  `ParamDescription` and `TweakDescription` take `.count`.
+- **The JSON.** Each parameter (`baker.reference/1.3`) and each tweak (`baker.tweaks/1.4`)
+  has `"count"`: `"exact"`, `"at_least"` or `"any"`, `null` with no `values`. New fields,
+  so new minor versions.
+- **Behaviour that changes.** A game's own converter that declares `values` and reads more
+  than them must now say `AtLeast` (or `Any`), or a tool calls the extra values wrong; the
+  game itself is unchanged, since only tools read the count. `check` now holds a literal
+  list passed to a native `std::vector` parameter to its element's type. The stacks' 30
+  tests pass unchanged.
+- **Tests.** D212's fixed-size list now includes the four-value case it had to leave out,
+  and tool and game agree on it; a `std::vector<int>` tweak is described, written and
+  checked as the game's, a non-integer inside the list included, with the same JSON; a
+  declared parameter with `Any` takes `(1 2 3)` and `()` and refuses `(1 x)` in `check` and
+  at a call, and an exact `vec2` refuses three values.
+- **Instructions.** Every case of `count_instructions.py` equal against 36b2bb8.
+
+## D234. The tool's path may name the build directory: `$build`
+
+*Step 9 of `dev/tools-library-plan.md`; the design is the owner's choice (§12 Q4).*
+
+- **The need.** A project file's `(tool ...)` names the binary that answers `check`, `sim`
+  and the rest, but the binary is inside a build directory the project file does not know:
+  each developer, CI job and editor builds somewhere else. The stacks left `(tool ...)` out
+  (D208), so every tool had to be told each stack's binary.
+- **The change.** A tool path may begin `$build`: `(tool "$build/bin/my_game")`. The project
+  keeps it as written (`Project::tool`), and `Project::tool_path(build_dir)` resolves it:
+  the caller's directory if it passes one (a tool's flag or setting), else the project's
+  `(build "dir")`, joined with its directory, else `build` beside the project file. A path
+  without `$build` is joined as before and returned as it is. `(build ...)` is a new entry
+  (`Project::build`, `build_at`); `(build)` without a path is an error naming the form.
+- **The stacks** fill in `(build "../../build-stacks")` (the README's build) and `(tool
+  "$build/bin/stacks_<name>")`. Their command test checks that the binary it runs ends in
+  the project's `$build` path, whatever the build directory is called. (The plan had the
+  test find the binary through the project file; the Python test cannot call
+  `tool_path`, so it checks the agreement instead.)
+- **Not done:** `$build` in `(reference ...)` and in the tool's arguments. The stacks write
+  the reference under the project's own directory, so nothing needs it yet.
+- **Tests.** `(build ...)` resolved, a tool's own directory winning, the default beside the
+  project file, a path without `$build` unchanged whatever the directory, and the error.
+- **Also:** `tools/local_matrix.sh` (and `--quick`) runs `clang-format --dry-run --Werror`
+  over every source file first, as CI's format job does: step 7's commit failed CI on
+  formatting alone, which no build of the matrix sees.
+
+## D235. A shape field may name a key of a table: `(key_of TABLE)`
+
+*The design is `dev/key-references-note.md`, agreed with the owner.*
+
+- **The need.** Game data refers from one record to another by key: a unit's weapon, a
+  card the card adds, a move a move cancels into. A mistyped key passed `check` and failed
+  only when the game looked it up. A `(one_of ...)` list does not follow the table, so a
+  layer adding a weapon had to edit every list of weapons too.
+- **The field.** `(weapon (key_of weapons))` holds a symbol that must be a key of the table
+  `weapons`; `(list (key_of weapons))` holds several. `Type::Key` is a new field type, and
+  `Field::table` keeps the path as written. `(key_of)` with no path or with a segment that
+  is not a symbol is a declaration error. A softer pack declaring the field again with
+  another table loosens it (D145).
+- **The table.** A dotted path, resolved by its first segment outward from the record that
+  refers to it, the root last: the innermost record (or the root) that holds the first
+  segment is where the rest of the path is followed. So each fighter's move names that
+  fighter's own moves, and another fighter's key is an error. A table that nothing encloses
+  is an error naming the field: `'w' names a key of gear, and no table gear encloses it`.
+- **Checked on the merged tree,** so a key a layer adds may be named, and one a layer
+  removes (`#remove`) is an error at each record that still names it. The message names the
+  table and, within two edits, the key most likely meant: `'lazer' is not a key of weapons
+  (laser?)`. A non-symbol is a type error: `'backup' is int, not a key of weapons`.
+- **Packs.** `check()` takes the `LoadSession`, and the shape validator passes it. A harder
+  pack's field naming a softer pack's key is a warning (`ErrorCode::Refused`), naming both
+  packs and levels, as a call across the one-way rule is (D80).
+- **The JSON: `baker.shapes/1.2`.** A key field's `type` is `"key"`, a list of keys has
+  `element` `"key"`, and every field has a new `"table"`: the path, dotted, or `""`. The
+  note had the type as an object, `{"key_of": "weapons"}`. A string `type` keeps every 1.1
+  reader working, so the table is a field of its own beside `shape`.
+- **Cost.**
+  - Each table a check names is indexed the first time (a hash map of its keys), so N
+    lookups into a table of M keys cost M + N, not M × N.
+  - The ancestors a lookup walks are kept only when some shape has a key field. `walk` is a
+    template on that, a field's own array is never pushed (its children are its values), and
+    a nested shape's instance is entered through one out-of-line function, so a set without
+    keys pays nothing per array. The type test for a key sits in the failure branch of the
+    existing type switch, and the lookup is out of line.
+  - **How it got there.** On `bench_layers_shape`, which declares no keys, the first version
+    (ancestors kept for every array and field, a key test on every value) ran 4.2% more
+    instructions than main. A runtime flag brought that to +1.8%. Templating `instance` and
+    `value` as well made GCC stop inlining `Array::tag()` (+5.9%), so only `walk` is a
+    template. With instructions then 0.18% under main, the wall clock was still 8 to 11% up
+    on `push_layer (tree), no policy`: guarding the ancestor pushes in `value()`, on a path
+    this benchmark never takes, changed how GCC laid out the inlined field loop (21 pinned
+    runs: 192.2 us, at least 187.0, against main's 175.0). Entering a nested shape out of
+    line removed it. Cachegrind's branch simulation still counts 15%
+    more mispredicts than main, and the timings below do not show them; its predictor is
+    not this machine's.
+  - **Instructions:** the whole benchmark binary under cachegrind runs 18,353,710,733
+    against main's 18,466,445,141 (−0.61%).
+  - **Wall clock:** `bench_layers_shape` 21 times a side against main (7244485),
+    alternating, pinned to one CPU, medians with (min–max). The machine is bimodal, which
+    is why 7 runs (`bench_compare.py`) had read 3 to 9% slower before the last change:
+
+| row | main (7244485) | key-references | change |
+|---|---:|---:|---:|
+| read_string | 62.9 us (61.7–71.0) | 61.2 us (60.3–70.8) | −2.7% |
+| check_layer (tree) | 402.3 us (396.0–456.4) | 401.3 us (395.7–445.3) | −0.2% |
+| check_layer_text | 474.5 us (464.6–530.1) | 473.8 us (465.2–521.0) | −0.1% |
+| push_layer (tree), no policy | 176.8 us (171.1–200.9) | 174.5 us (171.8–201.1) | −1.3% |
+| push_layer (tree), policy | 592.5 us (583.0–645.8) | 591.1 us (582.2–612.8) | −0.2% |
+| push_layer_text, no policy | 240.5 us (237.1–263.9) | 242.7 us (237.7–263.5) | +0.9% |
+| push_layer_text, policy | 669.8 us (661.8–679.6) | 673.5 us (665.6–690.3) | +0.6% |
+| push_layer (tree), policy, report held | 176.6 us (173.1–181.9) | 177.9 us (173.8–200.3) | +0.7% |
+| push_layer_text, policy, report held | 243.2 us (239.8–266.9) | 244.2 us (239.6–268.3) | +0.4% |
+| checker() | 0.2 us (0.2–0.3) | 0.2 us (0.2–0.3) | 0.0% |
+| LayerChecker::check_text | 470.2 us (462.4–524.2) | 467.4 us (463.3–516.1) | −0.6% |
+| push_layer_text, policy, checker's report | 244.2 us (241.3–248.8) | 245.4 us (242.3–269.2) | +0.5% |
+
+  Every range overlaps main's. `bench_layers`, without the shape validator, does not run
+  this code.
+
+- **Tests.** A typo with its suggestion, a value outside the table, a non-symbol, a list of
+  keys, an `(optional)` key; a dotted path from the root, a path whose first segment
+  resolves to a nearer record without the rest, a table nothing encloses, and malformed
+  declarations; a fighter's move naming its own fighter's move, and another fighter's key
+  refused; through a Config, a key a layer adds accepted and one a layer removes an error at
+  its referrer; a harder pack naming a softer pack's key warned; and the JSON for a key and a
+  list of keys.
+
+## D236. A layer as text for a peer: `layer_text` and `set_layer_text`
+
+*The design is `dev/layer-text-note.md`, agreed with the owner; `set_layer_text` is the
+owner's choice, made while building it.*
+
+- **The need.** A server holds a match's settings as a layer, and a lobby's host may edit
+  them live before the match starts; every client must hold the same layer.
+- **`Config::layer_text(name, sink)`** writes the layer's own tree with `write_dta`: as
+  read (includes spliced in, macros expanded, `#remove` kept), without comments or layout.
+  `"scratch"` writes the live edits as a layer, from the tree the stack digest already
+  builds of them (`scratch_root`); empty scratch writes nothing. Commands are written as
+  they are, and the receiver's policy decides. `NotFound` for an unknown layer.
+  `<baker/std_interop.hpp>` gains `layer_text(cfg, name)`, returning a `std::string`, and
+  includes `<baker/config.hpp>` for it.
+- **Deviation: receiving again.** The note said a receiver's reload of the same text is a
+  no-op "as D221 makes it". D221 is about `reload()`, which never reads a text layer again,
+  and `push_layer_text` refuses a name that is taken, so a client could only
+  `remove_layer` and push: the layers above read twice and two changes for every resend.
+  Asked, the owner chose a new call:
+  - `Config::set_layer_text(name, text, policy)` replaces a text layer's text in place.
+    The layer keeps its place and options, and the layers above are read again with its
+    macros, as `remove_layer` reads them.
+  - Text identical to what the layer holds returns at once: no read, no merge, no reload
+    record, the same root.
+  - With a policy, the new text is checked against the layers below it without the version
+    it replaces (`check_candidate` takes a count of layers, merging those anew when it is
+    not the whole stack), and refused, changing nothing, if the policy refuses. It takes
+    no held report: a `check_layer_text` report was made against the whole stack.
+  - `NotFound` for an unknown layer; `Refused` for a file layer (`reload()` reads one) and
+    for scratch.
+  - `push_layer_text` still refuses a taken name, so a name clash that is a mistake fails.
+- **Located in the text received.** A refusal on the client names the line of the text it
+  received, which keeps none of the server file's layout: one line for a short layer.
+- **Cost.** Nothing until called: `layer_text` is one walk of the tree, allocating only the
+  text (and scratch's tree, built from the edits as a merge is). The candidate check's new
+  count leaves the common path as it was: `bench_layers` under cachegrind runs
+  9,169,444,926 instructions against main's (7244485) 9,170,571,961 (−0.01%).
+- **Tests.** A file layer with a macro, a removal, `1e-300` and `0.1` sent and pushed by a
+  peer: the same tree, digest and values, and the same bytes written twice; scratch after
+  three `set`s and a `clear_scratch` carries exactly the other two, a tuned `0.7f`
+  exactly; a layer with a command refused by a `data_only` receiver at the received line;
+  `set_layer_text` with the same bytes keeping the root and the reload record, new text in
+  place re-reading the layer above that tested its define, a policy judging against the
+  layers below without the old version and its refusal changing nothing, and the errors.
+
+## D237. A list describes its elements
+
+*Requirement note 0025, from the editor integration. The design is
+`dev/list-elements-note.md`; the JSON's shape, the name `length`, and covering parameters too
+are the owner's choices.*
+
+- **The need.** D233 described a list of one-value elements (`std::vector<float>`: `values`
+  `["float32"]`, `count` `"any"`). A list of the game's own type, `std::vector<vec2>` or
+  `std::array<vec2, 4>`, nests each element in parentheses, so its values cannot be listed
+  flat and the reference wrote `values: null`: a tool could not make the tweak, and a point
+  given one number passed every tool and failed in the game.
+- **The converter says what its element is.**
+  - A list converter declares `using element = T;`, and a fixed-size one also
+    `static constexpr size_t length = N;`. `Convert<std::vector<T>>` and
+    `Convert<std::array<T, N>>` do, and a game's own list converter may.
+  - `detail::list_element<T>()` reads them at compile time into a `baker::ListElement`:
+    `type`, `values`, `count` and `length` (0: any number).
+  - `TweakBase::list_element()` gives a tweak's, through one more virtual that no read
+    calls. A parameter's is in its `ParamText`, which only the reference and `check` read.
+- **The JSON.**
+  - `baker.tweaks/1.5` and `baker.reference/1.4` give each tweak and parameter
+    `"element": {"type", "values", "count"}` (or `null`) and `"length"` (or `null`), beside
+    the value's own `values` and `count`, which are unchanged.
+  - `json_list_element` writes both, for tweaks and parameters alike.
+- **Behaviour that changes.** A list tweak's `default` and `value` are written in
+  parentheses however many elements the list has: `((0.0 0.0))` for one `vec2`, `(3)` for
+  one int. Before, one element was written bare, and `(0.0 0.0)` read back as two numbers.
+  A 1.4 reader already unwraps parenthesized text for a list (its `count` is not
+  `"exact"`).
+- **Without the game.**
+  - `TweakDescription` and `ParamDescription` take `.element`.
+  - `DescribedTweaks::add` makes a tweak that reads a list by its elements
+    (`detail::reads_list`): a fixed-size list needs `length` of them; an element of one of
+    Baker's types is read bare; one of the game's own is read from its parentheses, as
+    `Values::read` reads it.
+  - An element type that is neither Baker's nor given its values is refused, naming the
+    tweak.
+  - `check` holds a literal list argument to a parameter's element, for a native's
+    parameter too, unless one of the list's elements is evaluated (left to the call).
+  - A declared function's call holds it in `has_type`.
+- **Range and `one_of` apply to each element.** `check_tweaks` judges every number and
+  symbol inside each element of a list of the game's own type, one level down.
+- **Found while building:** an untagged element, `(40 0)`, must be read with `nodes()`.
+  `values()` skips the first node as a tag, which hid the 40 from the range.
+- **Cost.**
+  - `tools/count_instructions.py` against main (7244485): `lookup` 205, `set` 624, `call`
+    307 and `frame` 197, all unchanged.
+  - `declared` went from 520 to 524 (+0.77%). The first version reached through each
+    parameter's text for its element and fetched the argument's array first: 538, then
+    526 with the list check moved out of line (`BAKER_COLD`).
+  - `ParamInfo` now carries `listed`, a byte in what was padding beside `raw`, so it stays
+    32 bytes and the test is one byte load from the line the call already reads.
+- **Tests.**
+  - The JSON of `std::vector<vec2>`, `std::array<vec2, 4>`, `std::vector<float>` and a plain
+    `vec2`, with a list bound to one element written `(1.0)`. (Constructing a one-element
+    `std::vector` from a braced list in a test trips GCC 13's `-Warray-bounds` false
+    positive at `-O2`, so the one element comes from the data.)
+  - Tweaks described from the JSON's fields alone, judged as the game's against: good data,
+    a point given one number, a point outside the range, three points of four, an element of
+    the wrong type, and a symbol outside `one_of`.
+  - The refusal of an element type with no values.
+  - A native and a declared `std::vector<vec2>` parameter, both refusing a bad point in
+    `check` and passing a list with an evaluated element, the reference describing the
+    native's element, and a declared call refusing the bad point.
+
+## D238. Rules between values, declared in shapes
+
+*The design is `dev/data-rules-note.md`, agreed with the owner. Where rules are evaluated,
+how a rule reads another table, what a failure shows, and the table-wide form are the
+owner's choices, made while building it.*
+
+- **The need.** Some rules span several values: a unit starts at or below its maximum
+  health, loot weights sum to 100, a card's power is near its tier's ideal. Games kept them
+  as assertions in code or a spreadsheet, and shapes checked one field at a time.
+- **The declaration.** A shape may hold `(rule "message" {expression} (warn))`.
+  - `shape::Rule` keeps the message (a view into the declaration, which the Set keeps),
+    the expression as written, `warn`, and where it is declared. `Shape::rules` lists them.
+  - Malformed rules are located errors: no message, no expression, a value that is not an
+    `{expression}`, or anything but `(warn)` after it.
+  - `rule` is now a reserved word in a shape, as `at` and `keyed` are, so no field may be
+    named `rule`.
+  - Layers replace a rule by its message. With packs, a softer pack may make a harder
+    pack's rule an error, but softening it to `(warn)` or changing its expression is refused
+    with a warning, and the harder declaration holds (as D145 does for fields).
+  - The shapes JSON is `baker.shapes/1.3`: each shape has `rules`, each with `message`,
+    `expression` (as Baker text), `warn`, `file` and `line`.
+- **Deviation: where rules are evaluated.** The note put the evaluation in `check()` and
+  `check_validator`, in `baker::script`. Those take a `const Context&`, script does not
+  link shape, and a rule binds `$variables` and calls functions. Asked, the owner chose
+  `baker::tools`, which now links `baker::shape` when it is built:
+  - `tools::check_rules(tree, shapes, ctx, report)` evaluates every rule over the records
+    its shape governs.
+  - `tools::rules_validator(ctx)` is the same for `Config::add_validator`, on the game's
+    thread. It reads the stack's shapes as `shape::validator()` does and leaves their
+    declaration errors to that validator.
+  - The host kit's `Live` adds it beside `shape::validator()`, and its `check` command
+    reports a broken rule as a shape error, failing the check.
+  - `shape::each_ruled(tree, shapes, visit)` finds the governed records, as `check()` finds
+    instances: by tag, or at a keyed shape's path. It has its own walk, so that
+    `Checker::walk` compiles as it did (see D235's layout cost). A list of nested shapes'
+    untagged elements is not visited.
+- **What a rule reads.**
+  - Its record's fields as `$variables`: one value is itself, several an array. A field the
+    record lacks is unset, so reading it fails to evaluate.
+  - Every `$variable` the expression mentions is saved first and restored after, so the
+    Context's own are untouched.
+  - **Deviation:** `{data SEGMENT ...}` takes its path as arguments, each evaluated, so
+    `{data tiers $tier ideal}` follows a key. A dotted symbol is one or more segments. The
+    note had `{data tiers.$tier.ideal}`, expanding `$tier` inside a symbol, which script does
+    nowhere else; the owner chose segments.
+  - `{data.sum PATH [FIELD]}`, the owner's choice for a rule over a whole table, sums each
+    child's FIELD, or each child's first number. It is an int when every addend is.
+  - Both read the tree under check (a thread-local set by `check_rules`), never a live
+    Config, and fail outside a check. `tools::declare_rule_functions(ctx)` registers them,
+    so a tool's `check()` knows `data`, and a game function in a rule is demand.
+- **A failure.**
+  - A false rule is an error, or a warning with `(warn)`, located at the record with its
+    path. Its message lists each `$variable` the expression mentions that the record set,
+    with its value: `starts at or below its maximum ($start_hp 12, $max_hp 10)`. The owner
+    chose that over a rule naming them.
+  - A rule that fails to evaluate, or gives something other than true or false (an
+    integral number reads as a bool, as `if` reads it), is an error naming the rule and why.
+- **A build without baker::script.** `baker_shape` gets `BAKER_SHAPE_NO_SCRIPT`, and
+  `shape::validator()` says once per process that the shapes hold rules it cannot check.
+- **Cost.** A scratch program pushed the shape benchmark's 2,000-record layer with
+  validators (Release, best of 30, pinned):
+  - with no validator, 1.7 us;
+  - with `shape::validator()`, 173.1 us;
+  - with it and `rules_validator`, no rules: 169.9 us, the same within noise;
+  - with one rule (`{< $damage $price}`) on each record: 1110.5 us, about 470 ns a rule.
+  - The first version took 665 ns: it re-scanned the expression, looked its variables up
+    and built the message text on every record. Now the scan and the variable cells are
+    found once per check, and the text is built only for a failure.
+  - 3,000 records with two rules each is under 3 ms a reload. Nothing runs on a read or a
+    frame.
+- **Tests.**
+  - In the shape library: rules read with their lines; one replaced and softened by a later
+    layer, and one added; malformed rules located; a softer pack's softening and change
+    refused and its hardening taken; `each_ruled` visiting keyed records and tagged nested
+    ones with their paths; the JSON; and the no-script warning, in the data-only build
+    only.
+  - In tools: a rule holding, failing with its values, and `(warn)`; one calling an unknown
+    function, one giving 4.5, and one reading a missing field; a key followed with
+    `{data tiers $tier ideal}` and a table summed with `{data.sum}`; `{data}` failing
+    outside a check; the Context's variables restored; a live edit to a file breaking a rule
+    and warning at the reload; a layer softening a rule and adding one; and `check()`
+    reporting a rule's game function as demand, `data` known.
+
+## D239. Laying out text as Baker writes it, keeping its comments
+
+*Requirement note 0026, from the editor integration. The design is `dev/format-note.md`; the
+layout rule, alignment, blank lines and the kit's command are the owner's choices.*
+
+- **The need.** Nothing laid out Baker text. People aligned brackets by hand, an agent's
+  edit left whatever indentation it wrote, and each tool that writes a file wrote as it
+  could. A formatter in each tool would be another copy of Baker's syntax and of its
+  writer's rules.
+- **`tools::format_text(text, out, options)`** reads the text with `read_structure` and
+  changes only the gaps between its tokens and comments, so every token, comment, directive,
+  macro and spelling is kept and the text reads as the same tree.
+  - **The layout is `write_dta`'s:** a form on one line if its flat width fits the width
+    less its indent; else its first item on the opening line and each later one a line
+    deeper, the close after the last.
+  - A form holding a `;` comment or a directive (but `#remove`, a value) is never put on one
+    line.
+  - A directive keeps its arguments on its line, and `#define N (` and `#autorun {` keep
+    their bodies' openings there, as the parser requires.
+  - A `;` comment that followed code stays on that line, and one on its own line stays so;
+    a block comment stays inline or on its own line, as written.
+  - One blank line stays where any was written, at the top level or between children of a
+    broken form; none at the start or the end.
+  - Text that does not parse is written unchanged, with the read's errors.
+- **Alignment as written.**
+  - A block of consecutive one-line sibling forms is aligned if two members' second items
+    were at one column, one of them padded. Every member is then padded to the block's
+    widest first item.
+  - The note had each run join only lines at the run's column. That broke on the case
+    alignment exists for: a longer key typed with one space in an aligned table split the
+    run, and the table collapsed. The block rule re-aligns it.
+  - Trailing comments on consecutive lines at one column, as written and in the output, are
+    put one space past the longest line. The output condition was added after a narrow
+    width broke forms between such comments, and the second pass then undid the first.
+- **Edits.** Each edit is a gap `{begin, end}` replaced by `newlines` line ends and `spaces`
+  spaces, so it needs no string. The text's line end (`Formatted::line_end`) is the one
+  written: CRLF text stays CRLF.
+  - A `;` comment's span excludes a CRLF's `\r`, or the formatter doubled it.
+  - A byte order mark at the start stays.
+- **A range:** only the top-level forms that `[begin, end]` touches are laid out; every
+  other gap is kept as written.
+- **The project file:** `(format (indent N) (width N))` fills `Project::format`, a
+  `WriteOptions`, defaulting to `WriteOptions`' own. The stacks' project files say `(format
+  (indent 3) (width 100))`. Their data files are not reformatted here: 62 of the 68 `.dta`
+  files in the repository would change, mostly forms that fit the width joining onto one
+  line, and that is a change of its own.
+- **The kit's `format` command.**
+  - `format [FILE...]` rewrites the files with the project's layout. With no file it takes
+    the files the stack reads under the project file's directory.
+  - `--baker-check` writes nothing and exits 1, listing each file that would change.
+  - `--baker-json` gives `baker.format/1`: each file's `changed`, `line_end` and edits as
+    `[begin, end, newlines, spaces]`.
+- **Cost.** A 2 MB file in Release: `read_structure` 16.2 ms, `format_text` 57.8 ms in all,
+  best of seven, pinned. That is within the note's 100 ms; the Debug test run takes about
+  480 ms. It allocates a vector of children per form beside the lists and the output.
+- **Tests.**
+  - The writer's layout, wide and narrow, and agreement with `write_dta` on text a tree
+    keeps whole.
+  - Trailing, own-line and block comments, and a `;` comment breaking a form.
+  - Directives with their arguments, `#define N (` joined, `#autorun`, `#remove` inline.
+  - An aligned table kept, re-aligned after a longer key, and an unaligned one left
+    unaligned; trailing comments re-aligned.
+  - Blank lines kept once, collapsed and trimmed.
+  - Text that does not parse unchanged; a range.
+  - The edits applied give the text, with CRLF and a byte order mark.
+  - Every `.dta` under tests, examples and stacks at three layouts: the same tokens and
+    comments, and a second pass changing nothing.
+  - Linear time as a ratio: 2 MB against 0.5 MB, under 8 times (a layout that looked back
+    would take 16). The first version held a Debug run to 2 s, and TSan in CI took 2.4 s: a
+    wall-clock bar is no test under a sanitizer, so the 100 ms is a Release measurement
+    here, not an assertion.
+  - The project's `(format ...)` and its error.
+  - The `format` command's `--baker-check`, `--baker-json`, rewrite, and no-file form.
+- **Found at the 0.6.0 release.** The corpus test walked `stacks/`, which the released tree
+  lacks, and the directory iterator threw: every verify job failed and nothing was
+  published. It skips a root the tree lacks and requires more than 20 files, which the
+  released tree's 29 meet; the development tree adds the stacks' 39.
+
+## D240. Tweaks that agree across a change: `read_consistent`
+
+*The design is `dev/tweak-generation-note.md`, agreed with the owner.*
+
+- **The need.** A reload, a live edit or a layer change updates tweaks one at a time on the
+  game's thread. Each read is atomic, but a worker reading several mid-update could see the
+  new gravity with the old jump speed, and an engine whose workers run across the frame's
+  swap point cannot keep those reads on the game's thread.
+- **A seqlock per registry.** `TweakRegistry` holds a `std::atomic<uint64_t>` generation,
+  odd while its tweaks change.
+  - The writer: `begin_change()` stores generation + 1 (relaxed) then fences (release); the
+    tweaks' own relaxed stores follow; `end_change()` stores + 1 again (release).
+  - **Where:** the commit's bind pass (every reload, merge, layer push, removal, toggle,
+    restore), `retune` (`Config::set`'s fast path and `clear_scratch`), `Config::bind` (a
+    tweak made while a Config is up), and `set_values` without a Config. In each, `on_change`
+    callbacks run after `end_change()`, so changes never nest.
+  - The reader: `read_consistent(fn)` loads (acquire), waits while odd, runs `fn`, fences
+    (acquire), and loads again (relaxed); it returns when the two are equal.
+  - It spins 64 tries, then yields (`detail::wait_a_moment`, out of line so the header needs
+    no `<thread>`).
+- **Which tweaks.** Atomic ones only: a T trivially copyable and lock-free. `fn` is opaque,
+  so a non-atomic tweak read inside it cannot be refused at compile time, which the note left
+  open. The header and the cookbook say a `std::string` or `std::vector` tweak is read on the
+  game's thread only.
+- **Deviation: the `Config::set` test.** The note asked for a worker to see two tweaks
+  agree through `Config::set` on both. Two `set` calls are two changes, and a reader between
+  them rightly sees one. The test instead sets one value, `(span k k)`, whose two elements
+  two tweaks read (`span.0`, `span.1`): one change that moves two tweaks, seen whole.
+- **The tests show what they guard.** A worker reading two tweaks that 400 replacements of a
+  text layer keep equal, and two that 2,000 `set`s keep equal, never saw them differ. The
+  same workers reading without `read_consistent` saw them differ 456 times in 126,656 reads
+  and 44 in 2,163 (Release). TSan in CI runs them.
+- **Cost.** `tools/count_instructions.py` against main (12df7e2): `lookup` 205, `set` 624 to
+  623, `frame` 197, `call` 307. On x86 a release fence is a compiler barrier, and the two
+  stores the set path gained were absorbed by its code layout. A tweak's read is unchanged:
+  one relaxed load.
+
+## D241. Scenarios: named endings and repeated commands
+
+*The design is `dev/scenario-outcomes-note.md`, agreed with the owner; it follows D223.*
+
+- **Named endings.** `(until {command})` gives 0 to go on, a symbol to end the run with
+  that name, or any other nonzero value to end it named `until`.
+  - `sim::Run::ended` is a symbol, `until`, or `length`. It replaces the `bool until`,
+    which went with every reader of it: the kit's text line, the results' JSON and `.dta`,
+    and `read_results`.
+  - `$ended` is set before the objectives are measured, beside `$steps`.
+  - `sim`'s text names it: `siege seed 1: passed (victory at turn 15)`; `until` reads as
+    before, `(ended at turn 12)`.
+- **The results: `baker.sim/1.3`.** A run's `ended` may be any name, so a 1.2 reader that
+  knew only `until` and `length` must allow others: a new minor version. The `.dta` results
+  write `(ended NAME)` where they wrote `(until 1)`.
+- **Deviation: where the tally goes.** The note put the tally of endings in `summary`, as
+  `"endings": {"victory": 7}`. `summary` is a list of per-objective tallies, and a
+  per-scenario entry in it would mix two kinds. The tally is a top-level list instead:
+  `"endings": [{"scenario": "siege", "endings": {"victory": 7, "defeat": 3}}]`, in scenario
+  order.
+- **Repeated commands.** `(every SECONDS {...})` and `(every step N {...})` run at each
+  multiple of their period, from step 0.
+  - A period in seconds is due at each multiple by the half-step rule, as `(at ...)` is,
+    each multiple worked out on its own so the steps never drift.
+  - At one step, the `(at ...)`s due run first, then the `(every ...)`s, each in the order
+    written.
+  - A period of zero or less is an error at the form, from the scenario's read, which
+    `check` reports.
+  - Each `(every ...)` keeps its next due step and multiple in the `Stepper`, set when it
+    is made, so a step with nothing due still allocates nothing. The quiet-step test now
+    steps before an `(every 0.5 ...)` is due.
+- **Tests.**
+  - A run ended `victory`, its `$ended` read by an objective, and the results' `ended`,
+    their `endings` tally and the `.dta` round trip. A nonzero number still ends a run as
+    `until`, and the ceiling as `length`.
+  - `(every step 5 ...)` over 20 steps running at 0, 5, 10 and 15, after the `(at step 5
+    ...)` at step 5.
+  - `(every 0.25 ...)` at 10 Hz due at steps 0, 2, 5 and 7.
+  - Zero and negative periods refused.
+  - The `SimRun` stack gained an `(every ...)`: the frame-driven run's output is still
+    `run_command`'s, and its quiet steps still allocate nothing.
+
+## D242. Defines a host supplies, who made each, and changing them live
+
+*The design is `dev/host-defines-note.md`, agreed with the owner.*
+
+- **Who made each define.**
+  - `LoadSession::define(name, DefineFrom)` records the origin: `Host` by default,
+    `Project` for a project file's `(defines ...)`, `File` for a `#define` (with its file
+    and line).
+  - `active_defines()` lists the flags that stand, in the order made, less those
+    `#undef`'d.
+  - Macros stay in `macro_definitions()`, and a flag redefined as a macro leaves the list.
+- **`ProjectOptions::defines`**, a span of names, are defined by `open_project` as the
+  host's, beside the project's own.
+- **`Config::set_defines(names)`** replaces the host's flags on an open stack.
+  - Each read now records the names its `#ifdef`, `#ifndef`, `#define` and `#undef` named
+    (`LayerState::tested`).
+  - A layer that touched a changed name is read again in place, with the sessions below it.
+  - Every other layer keeps its tree. Its session takes each changed name as the session
+    below now has it, so a lower file's own `#define` of the name still stands when the
+    host drops it.
+  - A cache's replay parses nothing and records no tests. A session counts the files it
+    parses, and a layer whose read parsed none is read again.
+  - One merge follows, recorded with the trigger `defines`. The same set changes nothing.
+    If a layer does not read, the host's defines are put back and nothing changes.
+  - It needs no development build: a shipping game decides a mode too.
+- **Deviation: what "keeps the rest" costs.** The note said the rest are kept. Layers
+  above a re-read one keep their trees, but their sessions are copied to carry the change,
+  so the layers above them read with the right defines. That copy is per layer, per
+  `set_defines`, and nothing on a read.
+- **The JSON.**
+  - `baker.check/1.4` and `baker.reference/1.5` gain `defines`: each flag's `name`,
+    `origin` (`"host"`, `"project"`, `"file"`), `file` and `line`.
+  - A field added, so a new minor version of each. The kit's example, the stacks' agent
+    guide and every test that pins a version follow.
+- **`explain`.**
+  - Each session records the `#ifdef` or `#ifndef` branches its reads took
+    (`conditional_sections()`): name, `#ifndef` or not, the `#else` or not, and the lines.
+  - `ExplainEntry::section` is the innermost one around the line a layer's value was read
+    at, and `config.explain` writes it as `(chosen_by server ifdef)`.
+- **Tests.**
+  - The host's, the project's and a file's defines listed with their origins, the host's
+    seen by `#ifdef`.
+  - `set_defines` re-reading only the layer that tested the name: the others keep the same
+    tree objects, and the value moves.
+  - The same set changing nothing, and a second set bringing the first back.
+  - A file's own `#define` standing when the host drops the name.
+  - A layer that does not read under the new set leaving defines and value as they were.
+  - `explain` naming the `#ifdef` and then its `#else` after a change.
+  - Check's JSON listing the host's define. The data tests run in the shipping build too.
+
+## D243. A directory of layers: mods, DLC, plugin packs
+
+*Built 2026-10-23, from `dev/layer-directory-note.md`.* A host with mods, plugin packs or
+DLC names a directory, not each file: `Config::push_layer_dir(name, dir, options)`, or
+`(mods (dir "mods"))` in a project's layers.
+
+- **What it finds.** A layer for each `*.dta` file directly in the directory, named by its
+  file name, and for each subdirectory that holds a `layer.dta`, named by the subdirectory.
+  They stand in the order `order.dta` lists, then the rest in name order. A name it lists
+  that the directory lacks is a warning located in `order.dta`. An `order.dta` that does
+  not parse, or holds anything but `(order NAME ...)`, fails the push or the reload, which
+  then changes nothing. A found name already taken (by another layer, `scratch`, or a
+  file and a folder of one name) is left out with a warning naming its file.
+- **Listing.** `LoadSession::set_lister` replaces the disk's listing as `set_reader`
+  replaces reading; the default lists with `opendir` or `FindFirstFileA`, in
+  `src/data/list_dir.cpp` so the system headers stay out of the parser, and still without
+  `std::filesystem` (D22). The lister gives paths, not kinds: an entry with no extension
+  that is not hidden is looked into for a `layer.dta`. A folder named with a dot is not.
+  The kit passes `CommandHooks::list` to Live's new `LiveOptions::lister`, falling back
+  to the disk as its scenario directories do.
+- **Deviations from the note.**
+  - *The entry is a layer.* `name` is a layer that holds nothing, with the found layers
+    directly above it. It anchors placement (`.above = "mods"` goes above all of them; a
+    found layer cannot be an anchor), `remove_layer("mods")` and `pop_layer` take the
+    whole directory, and `set_layer_enabled("mods", b)` sets every found layer. A found
+    layer cannot be removed alone: removing its file removes it. The note left the entry's
+    own identity open; a layer was the least new machinery, since placement, snapshots and
+    `stack_files` already work in layers.
+  - *A found layer that does not read stands empty*, rather than being refused. Its error
+    goes to the warning handler, located, and it is read again when its files change, as
+    `changed()` already notices for any layer, so a modder's fix takes effect at the next
+    reload without a listing change. It stays in `layers()`, so a mod menu still shows it.
+    Its `#autorun` is skipped.
+  - *The reference does not list layers.* It lists none today, so there is no place for
+    the directory; `stack_files()` names it.
+- **Reload.** Each reload asks every directory whether its listing (a hash of its sorted
+  entries) or its `order.dta` changed, and lists a changed one again into a copy of the
+  stack that replaces it only if every layer reads. A layer that stays keeps its state,
+  its enabled flag among it; a new one takes the directory's. In shipping, reload is off,
+  so the directory is listed only at the push.
+- **Watching.** `StackFile::directory` marks the directory's own entry in `stack_files()`,
+  followed by its `order.dta` and each subdirectory's absent `layer.dta`. The watcher
+  watches such an entry whole: any name reported in it changes it. It now also reports a
+  directory created in a watched one (inotify `IN_CREATE` with `IN_ISDIR`; on Windows,
+  `FILE_NOTIFY_CHANGE_DIR_NAME`), so a mod dropped in as a folder is seen.
+- **Cost.** A scratch program, Release, pinned, best of 31, three runs:
+  - an unchanged reload of 100 file layers, 137 to 168 us; of a directory of 100 layers,
+    162 to 205 us. The difference, 25 to 40 us, is the listing, its hash and the read of
+    `order.dta`.
+  - pushing 100 file layers one by one, 3.9 to 4.7 ms (a merge each); pushing the
+    directory, 0.65 to 0.78 ms (one merge).
+  - A stack without a directory adds one test of an empty string per layer to a reload's
+    scan. Nothing runs on a read or a frame.
+- **Tests.** Discovery and order, with a folder that includes beside itself, a hidden
+  folder and a text file ignored, and the missing name located; name order without an
+  `order.dta`; `stack_files()`; a layer that does not parse, names taken, a bad
+  `order.dta`, a missing and an optional directory; placement, removal and popping, and a
+  policy refused; reloads that add, remove and reorder, a folder that gains a `layer.dta`,
+  a broken `order.dta` that changes nothing, and a broken layer fixed; a layer turned off
+  across a rescan and the whole directory turned off; a host's reader and lister; the
+  project entry, `dev_only` in shipping and `skip_dev_only`, and a malformed entry
+  located; and Live noticing a file added, a folder added, and a file removed.
+
+## D244. A directory as the children of one array: `#include_dir`
+
+*Built 2026-10-23, from `dev/include-dir-note.md`.* A game with a record per file names the
+directory instead of each file:
+
+```dta
+(cards
+   #include_dir "cards"
+   (starter_deck fireball fireball shield))
+```
+
+- **What it reads.** Each `.dta` file of the directory becomes a child named by its file
+  and holding the file's nodes, `(fireball (cost 3) (damage 6))`, and each subdirectory a
+  child named by it and holding its own, `(fire (ember ...))`. Hidden entries and
+  entries with any other extension are skipped. A name that `is_bare_symbol` refuses, or
+  that holds `.` or `/`, is an error at the directive, as are a file and a folder of one
+  name. The order is D243's: `order.dta`'s names, then the rest in name order, a missing
+  name warned in the session's warnings. D243's ordering and listing moved into
+  `detail::directory_order` and `detail::list_with`, which both use.
+- **Where.** The path resolves as `#include`'s does: beside the file, then each include
+  directory, the first that lists. Each file counts as an include toward
+  `max_includes`, and reads as an included file, so it may declare a pack or an origin.
+- **Provenance and write-back.** A record is an array whose file is the record's file, at
+  line 1, and its nodes keep their own lines, so `source()` names `cards/fireball.dta:2`.
+  In edit mode the record's span is its whole file, so `write_back` edits a value in place
+  in the record's file. A subdirectory's table is written in no file: `write_back_to`
+  refuses a value added under it, in it or in one of its records, located at the
+  directive, and writes nothing. The refusals that named `#merge` alone now name
+  `#include_dir` too.
+- **Change.**
+  - *The cache* records each directory listed, as a file entry with size -2 and its
+    listing's hash, or -3 for a candidate that did not list; `cache_fresh` lists it again
+    through the session's lister.
+  - *A Config* records a load's listings as deps marked `directory`, through a lister it
+    wraps around the session's as it wraps the reader. `changed()` lists such a dep again,
+    and `stack_files()` reports it with `StackFile::directory`, so the kit's watcher
+    watches it whole (D243). D243's directory of layers now records its directory the same
+    way, instead of a hash of its own. A poll lists each directory a stack depends on, into
+    a kept buffer; the listing's strings still allocate, so a stack with a directory no
+    longer polls without allocating.
+- **Deviation: packs.** The note put each file in the pack of the file holding the
+  directive. A file `#include`d is in no pack unless it declares one, and a file read by
+  `#include_dir` is read the same way; changing what a pack covers for both is a change of
+  its own, if a host needs it.
+- **Cost.** Load time only. A scratch program, Release, pinned, best of 21: 500 records of
+  three values, by `#include_dir`, 1.53 to 1.69 ms; by 500 written `(cardN #include ...)`
+  lines, 1.51 to 1.62 ms. Under callgrind, five loads take 44.6 M instructions by
+  `#include_dir` and 50.0 M by the written list. The first version took 2.04 ms: its check
+  for two records of one name compared each with every other, a quarter of the time; it
+  now compares neighbours after the sort. `tools/count_instructions.py` against D243's
+  commit: parse +0.02% (one more directive name to compare), lookup unchanged.
+- **Tests.** Files wrapped by name beside other children, with their own files and lines;
+  a subfolder as a nested table, `order.dta`'s order with a missing name warned, a text
+  file and a hidden folder skipped; a layer above retuning a record and adding one, and
+  `source()` at the record's file and line; `stack_files()` naming the directory; a host's
+  reader and lister; the cache stale after a file is added, removed or edited, or
+  `order.dta` is written; errors for a name with a space, a file and a folder of one name,
+  a file that does not parse, a missing directory, and text that may include nothing; the
+  include directories searched; a Config's reload adding and removing a record;
+  write-back into a record's file, and a value added under a folder's table refused;
+  and Live noticing a new record's file.
+
+## D245. A curve as a value
+
+*Built 2026-10-23, from `dev/curve-note.md`.* A curve is a function designers tune, such as
+reward by stage or falloff by distance: `(falloff (0 1) (5 3) (10 8))`.
+
+- **Deviation: the syntax.** The note wrote `(falloff (curve (0 1) ...))`. An array whose
+  first node is a symbol is a key in Baker, so `(curve ...)` would be the key
+  `falloff.curve`, with `falloff` holding no values: explain, write-back and
+  `layer_effect` would name the inner path, and a layer that left out `(extend ...)` would
+  keep the one below it. The owner chose to make the curve the key's own values: the
+  points, after up to two bare symbols, the interpolation and the extension, in either
+  order. The extension's names are `clamp`, `extrapolate` and `loop`; the note's
+  `(extend linear)` became `extrapolate`, so no name is both an interpolation and an
+  extension. A layer then replaces the whole curve as it replaces any key's values.
+- **Interpolation.** `monotone` (the default) is Fritsch and Butland's: flat at a key that
+  is a peak or a valley, else a weighted harmonic mean of the two secants, which keeps each
+  segment within its keys. `catmull-rom` takes the secant across the two neighbours. Both
+  take the one-sided secant at the ends. A point's own slopes, `(x y in out)`, replace the
+  computed one on each side; a `linear` segment with one becomes a cubic Hermite through
+  it, and `constant` ignores them. `extrapolate` goes on along the end key's slope.
+- **C++.** `baker::Curve` (`<baker/curve.hpp>`, baker::data) views the tree's nodes, or
+  points a host keeps, which is how a host builds one to set a tweak. `read_curve` says why
+  values are not a curve without allocating, and `Convert<Curve>` makes `get<Curve>` and
+  `Tweak<Curve>` work; the tweak keeps its tree, so its curve stays valid until the next
+  reload. Writing one leaves out the defaults, and a whole number is written as an int.
+- **Script.** `{curve.sample path x}`, bound with `config.get` by `bind_config_tools`, in
+  every build.
+- **Checking.** A shape field type `curve`, its `(range lo hi)` on every y. A tweak's range
+  holds a curve's y alone in `check_tweaks`, and `DescribedTweaks` takes the type `curve`
+  with no value types. The tweaks JSON names the type `"curve"`; the shapes JSON is
+  `baker.shapes/1.4` for the new field type. The reference lists no tweaks, so it has
+  nothing to name.
+- **A fix found on the way.** A described tweak whose default did not read was destroyed
+  unattached, and `TweakBase::detach` took a tweak with no previous one for the head and
+  emptied the registry: every tweak a tool had described before it was lost. `detach` now
+  unlinks only a tweak that is in the list.
+- **Cost.** A scratch program, Release, pinned, best of 15; a curve's x spread over its
+  span:
+
+  | points | read | monotone | catmull-rom | linear | constant |
+  |---:|---:|---:|---:|---:|---:|
+  | 4 | 21 ns | 65 ns | 61 ns | 30 ns | 25 ns |
+  | 16 | 70 ns | 72 ns | 68 ns | 31 ns | 26 ns |
+  | 64 | 272 ns | 78 ns | 77 ns | 35 ns | 30 ns |
+
+  The cubic modes read the four keys around the segment for their slopes; the search reads
+  only x, which took 64-point monotone from 101 ns to 78. Reading checks every point once.
+  `tools/count_instructions.py` against main: lookup, set and frame unchanged.
+- **Tests.** Each interpolation at its keys, between them and beyond them under each
+  extension; one point and no points; monotone within its keys where catmull-rom
+  overshoots; a point's slopes, and a kink; every refusal `read_curve` gives; writing a
+  curve and reading it back, and a host's own points; `Tweak<Curve>` from data, a layer
+  replacing a curve whole, `set`, `check_tweaks` with a range on y alone, and the tweaks
+  JSON; the shape type with its range and refusals located; `curve.sample`; and a
+  described curve tweak, with a refused one leaving the registry whole.
+
+## D246. A name's stable ID: `symbol_hash` and `"x"_hash`
+
+*A spec from the owner, by way of a research session.* Games give names stable integer IDs,
+to dispatch in a `switch` and to write into saves, network messages, replays and crash
+dumps. `Symbol::hash()` was already such a value, but its function was in `detail::` and
+nothing promised it.
+
+- **The API** (`<baker/symbol.hpp>`): `constexpr uint64_t symbol_hash(std::string_view)`
+  and the `consteval` literal `"jump"_hash`, both equal to `Symbol("jump").hash()`.
+  `detail::hash_symbol_text` is gone; its callers (the empty entry, the intern table,
+  `Hash<Str>`, a test) use `symbol_hash`.
+- **The promise.** FNV-1a 64 over the bytes as written, UTF-8 for a non-ASCII name, with
+  no normalisation; the same on every platform, compiler and build mode. A change of the
+  algorithm is a breaking change and needs a changelog entry. `symbol.cpp` holds golden
+  `static_assert`s (the empty string, FNV's own vector "a", "jump", and "épée" in UTF-8),
+  so the library does not build if it changes; the tests assert them again, and through
+  `_hash` too.
+- **`"x"_sym` interns with its compiled hash** through `detail::intern_hashed(text,
+  hash)`, so its first call does not hash. `Symbol(text)` keeps its own direct path: routing
+  it through the exported function cost `lookup_text` 2 instructions a call, which the
+  first version did.
+- **Cost.** `tools/count_instructions.py` against main: lookup, lookup_text and parse
+  unchanged. `tools/bench_compare.py` (lookup and parse, 7 runs a side, pinned) moved rows
+  the change does not touch, by up to 35% (`try_find` over 1,000 children, 302 to 198 ns),
+  and `find_float("key19")` by +5.3%, with no change in instructions: code layout. The
+  saving itself is the runtime hash of each literal, once per process: a scratch program
+  times `symbol_hash` at 6.3 ns for 8 bytes, 12.4 ns for 16 and 26.8 ns for 32 (Release,
+  pinned, best of 15).
+- **Docs.** The cookbook's "Stable IDs for names": a hash for IDs that outlive the process,
+  a `Symbol` for everything else, and data files and caches keep the text.
+- **Tests.** The golden values; a `switch` with `_hash` labels over names interned from a
+  literal, from runtime text, and from a data file, a non-ASCII one among them; compile
+  time, run time, `_sym` and `Symbol` agreeing, and `_sym` interning the same Symbol as text
+  does. The header gate compiles `symbol.hpp` alone.
+
+## D247. Two names that share a hash are reported (builds that are not shipping)
+
+*A spec from the owner, by way of a research session; the default's behaviour is the
+owner's choice.* With games keying on `Symbol::hash()` (D246), two names of one 64-bit hash
+would make a `switch` or a save lookup take one for the other, silently. Baker's own table
+compares text and stays correct.
+
+- **Where.** On the insert path alone: the lock-free probe that finds an interned name is
+  unchanged (D197). A new name takes the lock and probes again; that probe, in a build that
+  is not shipping, notes the first entry it passes with the same hash and other text. Every
+  earlier name of that hash starts its probe at the same slot, so the new one passes it.
+  The insert is out of line now (`add`), and `table()` forced inline: the first version cost
+  `lookup_text` 15 instructions a call, from the larger function, and then 2, from
+  `table()` no longer inlining.
+- **The report.** After the lock is released, so a handler may intern: an `Error` with the
+  new `ErrorCode::Collision` (named `collision` in the check JSON), naming both names and
+  the hash in hex, and saying that only code keyed on the hash is at risk. Both names stay
+  interned, distinct Symbols. `set_symbol_collision_handler(fn)` (`<baker/error.hpp>`) sets
+  the handler, a function pointer in an atomic, and returns the one it replaces; null
+  restores the default. The owner chose a default that writes the report to stderr and
+  aborts, in every build that is not shipping. Under `BAKER_SHIPPING` the check and the
+  report compile out.
+- **Located.** A thread-local intern site, set once per file and not once per name: each
+  parser sets its file and a pointer to its current line, and puts the includer's back when
+  it ends; a binary cache's load sets the cache's name for its interning. A collision from
+  a data file is reported at its file and line, an included file's at that file.
+- **The test seam.** `detail::intern_hashed(text, hash)` (D246's, for `"x"_sym`) plants a
+  name under another's hash, as no practical FNV-1a 64 collision exists. The spec asked for
+  a seam only tests see; this one is in the public header's `detail`, documented as
+  requiring the text's own hash.
+- **Cost** (Release, this container):
+  - `tools/count_instructions.py` against D246: lookup and lookup_text unchanged; parse +23
+    instructions a file (the site, set and restored).
+  - A scratch `intern_threads` driver, best of 5, per call per thread, before and after:
+    interned names from 1, 2 and 4 threads, 9.3, 9.4 and 9.3 ns against 9.3, 9.6 and
+    9.7 ns. New names, the insert path, from 1 thread, 119–135 ns against 119–124; from 4,
+    900–940 against 903–989. From 2 threads, consistently slower: 518–589 ns against
+    631–750 in three runs. The critical section does no more work, as one thread shows;
+    two threads inserting at once contend differently. It is load-time only.
+  - `tools/bench_compare.py` (lookup and parse, 7 runs a side): rows moved both ways, rows
+    that never intern among them (`try_find` on an array −39%), with no change in
+    instructions: code layout.
+- **Not tested:** a collision from a binary cache. A cache cannot be written in the test's
+  process without interning its names first, so a cache's names are never new there. Its
+  load interns through the same constructor and sets its site.
+- **Tests.** A planted collision reported once with both names, and in shipping not at all;
+  interning either again reports nothing; both distinct, working Symbols; a collision in a
+  data file at its line, through an `#include` at the included file's line and the
+  includer's after it; four threads interning while one plants a collision, reported once,
+  which TSan in CI runs.

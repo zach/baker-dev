@@ -2,8 +2,9 @@
 // the game around it: the in-game clock, the script words (econ.), the mouse UI, and a
 // town drawn from what you own.
 //
-//   stacks_ledger                      play: build, sell, and watch the money
-//   stacks_ledger sim --seeds 1-10     the bot strategies against each other, judged by metrics/
+//   stacks_ledger                         play: build, sell, and watch the money
+//   stacks_ledger sim --baker-seeds 1-10  the bot strategies against each other, judged by
+//                                         metrics/
 //   stacks_ledger eval "{econ.compete}" "{econ.advance_days 365}" "{econ.leader}"
 //
 // The numbers come from economy.xlsx through tools/export_economy.py, which writes

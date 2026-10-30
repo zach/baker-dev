@@ -6,7 +6,7 @@ with no dominant strategy, no dead ends, and the pace the designer intends?
 
 ```sh
 build-stacks/bin/stacks_ledger                            # play: build, sell, watch the money
-build-stacks/bin/stacks_ledger sim --seeds 1-10           # the bot strategies, judged by metrics/
+build-stacks/bin/stacks_ledger sim --baker-seeds 1-10     # the bot strategies, judged by metrics/
 build-stacks/bin/stacks_ledger eval "{econ.compete}" "{econ.advance_days 720}" "{econ.report}"
 python3 -I stacks/ledger/tools/export_economy.py          # economy.xlsx -> data/economy.dta
 ```

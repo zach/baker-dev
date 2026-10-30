@@ -8,6 +8,12 @@ set(BAKER_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." CACHE PATH "The Baker tree to
 add_subdirectory(${BAKER_ROOT} baker)
 add_executable(baker_count count.cpp)
 target_link_libraries(baker_count PRIVATE baker::baker)
+# The declared case needs Context::declare with a body (D213); older trees count without it.
+file(READ ${BAKER_ROOT}/include/baker/script.hpp baker_script_header)
+string(FIND "${baker_script_header}" "const Callback<Expected<Node>(Args&)>& body" declared_at)
+if(NOT declared_at EQUAL -1)
+  target_compile_definitions(baker_count PRIVATE BAKER_COUNT_DECLARED=1)
+endif()
 if(TARGET baker::host)
   target_link_libraries(baker_count PRIVATE baker::host)
   target_compile_definitions(baker_count PRIVATE BAKER_COUNT_HOST=1)

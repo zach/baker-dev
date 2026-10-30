@@ -6,7 +6,7 @@ and a CPU that is beatable, fair, and teaches?
 
 ```sh
 build-stacks/bin/stacks_duel                              # play: you on the left, the CPU on the right
-build-stacks/bin/stacks_duel sim --seeds 1-10             # the CPU against the bots, and the frame data
+build-stacks/bin/stacks_duel sim --baker-seeds 1-10       # the CPU against the bots, and the frame data
 build-stacks/bin/stacks_duel eval "{duel.frame_table}" "{duel.combo_route}"
 ```
 

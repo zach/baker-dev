@@ -6,7 +6,7 @@ preferences, and reactions, without getting stuck, oscillating, or starving?
 
 ```sh
 build-stacks/bin/stacks_hearth                                   # play
-build-stacks/bin/stacks_hearth sim --seeds 1-5                   # soak 50 households for 30 days, per seed
+build-stacks/bin/stacks_hearth sim --baker-seeds 1-5             # soak 50 households for 30 days, per seed
 build-stacks/bin/stacks_hearth eval "{hearth.soak 50 30}" "{hearth.soak_report}"
 build-stacks/bin/stacks_hearth eval "{hearth.bench 150}"         # microseconds per step, 150 villagers
 ```

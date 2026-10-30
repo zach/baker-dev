@@ -3,7 +3,7 @@
 // "why did you do that?", time controls, a spawner), the script words (hearth.), and drawing.
 //
 //   stacks_hearth                                     play
-//   stacks_hearth sim --seeds 1-3                     soak 50 households for 30 days, per seed
+//   stacks_hearth sim --baker-seeds 1-3               soak 50 households for 30 days, per seed
 //   stacks_hearth eval "{hearth.soak 10 7}" "{hearth.soak_report}"
 //   stacks_hearth eval "{hearth.bench 150}"           microseconds per step for 150 villagers
 //

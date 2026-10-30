@@ -228,6 +228,41 @@ TEST_CASE("Live reloads a saved file, with the save as its origin, and runs #aut
     }
 }
 
+TEST_CASE("Live notices a file added to a directory of layers, and one removed") {
+    if constexpr (!kShipping) {
+        TempDir dir;
+        dir.write("baker-project.dta",
+                  "(project (layers (default \"data/default.dta\") (mods (dir \"mods\"))))\n");
+        dir.write("data/default.dta", "(speed 1)\n");
+        dir.write("mods/order.dta", "(order fast)\n");
+        Context ctx;
+        Live live(ctx);
+        REQUIRE(live.open({.project = dir.path("")}));
+        REQUIRE(live.config().get<int>("speed") == 1);
+        dir.write("mods/fast.dta", "(speed 5)\n");
+        REQUIRE(frames_until(live, [&] { return live.config().get<int>("speed") == 5; }));
+        dir.write("mods/pack/layer.dta", "(lives 3)\n");  // a new folder with its layer.dta
+        REQUIRE(frames_until(live, [&] { return live.config().get<int>("lives") == 3; }));
+        std::filesystem::remove(dir.path("mods/fast.dta"));
+        CHECK(frames_until(live, [&] { return live.config().get<int>("speed") == 1; }));
+    }
+}
+
+TEST_CASE("Live notices a record's file added to an #include_dir directory") {
+    if constexpr (!kShipping) {
+        TempDir dir;
+        dir.write("baker-project.dta", "(project (layers (default \"data/default.dta\")))\n");
+        dir.write("data/default.dta", "(cards #include_dir \"cards\")\n");
+        dir.write("data/cards/fireball.dta", "(cost 3)\n");
+        Context ctx;
+        Live live(ctx);
+        REQUIRE(live.open({.project = dir.path("")}));
+        REQUIRE(live.config().get<int>("cards.fireball.cost") == 3);
+        dir.write("data/cards/frost.dta", "(cost 2)\n");
+        CHECK(frames_until(live, [&] { return live.config().get<int>("cards.frost.cost") == 2; }));
+    }
+}
+
 TEST_CASE("Live watches a host's virtual paths as the files they are (D191)") {
     if constexpr (!kShipping) {
         Stack st;

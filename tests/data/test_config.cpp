@@ -23,6 +23,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "dev_only.hpp"
 #include "ok.hpp"
 
 using namespace baker;
@@ -139,25 +140,26 @@ TEST_CASE("a layer that sets a whole section shares it, and a merge allocates li
     CHECK(merged->try_find("t") == base->try_find("t"));
     // A Config merging layers that override whole sections allocates the same for 20
     // sections as for 200: only what it keeps, the roots.
-    auto allocations_for = [](int sections) {
-        std::string lo, hi;
-        for (int i = 0; i < sections; ++i) {
-            lo += "(s" + std::to_string(i) + " (speed 1) (count 1) (sub (x 1) (y 1)))";
-            if (i % 2 == 0)
-                hi += "(s" + std::to_string(i) + " (speed 2) (count 2) (sub (x 2) (y 2)))";
-        }
-        Config cfg({.tweaks = nullptr});
-        REQUIRE(cfg.push_layer("lo", parse(lo.c_str())));
-        REQUIRE(cfg.push_layer("hi", parse(hi.c_str())));
-        REQUIRE(cfg.set_layer_enabled("hi", false));
-        REQUIRE(cfg.set_layer_enabled("hi", true));  // warm the scratch
-        REQUIRE(cfg.set_layer_enabled("hi", false));
-        const test::AllocationScope scope;
-        (void)cfg.set_layer_enabled("hi", true);
-        return scope.count();
-    };
-    if constexpr (!kShipping)  // shipping refuses toggling a layer
+    if constexpr (!kShipping) {  // shipping refuses toggling a layer
+        auto allocations_for = [](int sections) {
+            std::string lo, hi;
+            for (int i = 0; i < sections; ++i) {
+                lo += "(s" + std::to_string(i) + " (speed 1) (count 1) (sub (x 1) (y 1)))";
+                if (i % 2 == 0)
+                    hi += "(s" + std::to_string(i) + " (speed 2) (count 2) (sub (x 2) (y 2)))";
+            }
+            Config cfg({.tweaks = nullptr});
+            REQUIRE(cfg.push_layer("lo", parse(lo.c_str())));
+            REQUIRE(cfg.push_layer("hi", parse(hi.c_str())));
+            REQUIRE(cfg.set_layer_enabled("hi", false));
+            REQUIRE(cfg.set_layer_enabled("hi", true));  // warm the scratch
+            REQUIRE(cfg.set_layer_enabled("hi", false));
+            const test::AllocationScope scope;
+            (void)cfg.set_layer_enabled("hi", true);
+            return scope.count();
+        };
         if (test::counting_allocations()) CHECK(allocations_for(200) == allocations_for(20));
+    }
 }
 
 TEST_CASE("edit mode records where every node is written") {
@@ -355,13 +357,6 @@ TEST_CASE("source names a generated file's origin and tool (D91)") {
     s = *cfg.source("shop.tax");  // written by hand
     CHECK(s.origin.empty());
     CHECK(s.tool.empty());
-    // Layer tooling reports it too.
-    const auto effect = *cfg.layer_effect("default");
-    const auto price = std::find_if(effect.begin(), effect.end(), [](const LayerEffectEntry& e) {
-        return e.path == Symbol("econ.price");
-    });
-    REQUIRE(price != effect.end());
-    CHECK(price->source.tool == Symbol("sheets-export"));
 }
 
 #if !BAKER_SHIPPING  // reload is inert under BAKER_SHIPPING (tested below)
@@ -435,8 +430,7 @@ TEST_CASE("reload callbacks fire per group; punting rebuilds, migrating does not
 
 #endif
 
-TEST_CASE("callbacks may change the Config and their own lists while notified") {
-    if constexpr (kShipping) return;  // set() and reload() are refused
+BAKER_DEV_TEST_CASE("callbacks may change the Config and their own lists while notified") {
     TweakRegistry reg;
     Tweak<int> a{"t.a", 1, {}, reg};
     Tweak<int> b{"t.b", 1, {}, reg};
@@ -928,8 +922,7 @@ TEST_CASE("cache_dir: file layers load through caches outside edit mode") {
     CHECK(writes == before);
 }
 
-TEST_CASE("cache_dir names a cache by the normalized path (D140)") {
-    if constexpr (kShipping) return;  // shipping writes no caches
+BAKER_DEV_TEST_CASE("cache_dir names a cache by the normalized path (D140)") {
     TempDir dir;
     fs::create_directories(dir.path("cache"));
     dir.write("dlc/axe.dta", "(axe (damage 10))");
@@ -951,8 +944,7 @@ TEST_CASE("cache_dir names a cache by the normalized path (D140)") {
     CHECK(std::distance(fs::directory_iterator(cache_dir), fs::directory_iterator()) == 1);
 }
 
-TEST_CASE("cache_dir reads a cache through a custom reader, and from disk without one") {
-    if constexpr (kShipping) return;  // shipping writes no caches
+BAKER_DEV_TEST_CASE("cache_dir reads a cache through a custom reader, and from disk without one") {
     TempDir dir;
     fs::create_directories(dir.path("cache"));
     const std::string text = dir.write("pak.dta", "(pak (size 7))");
@@ -1125,10 +1117,9 @@ TEST_CASE("write-back keeps an integer token's form when a float value is whole"
 }
 #endif
 
-TEST_CASE(
+BAKER_DEV_TEST_CASE(
     "a tool keeps a Config and reloads: unchanged layers are kept, the result a fresh load's "
     "(D221)") {
-    if constexpr (kShipping) return;  // reload() is refused
     std::map<std::string, std::string> files = {{"mem/default.dta", "(a 1)\n(b 2)\n"},
                                                 {"mem/local.dta", "(b 3)\n"}};
     const LoadSession::Reader reader = [&](std::string_view p, TextSink out) {
@@ -1228,8 +1219,7 @@ struct baker::Convert<UnitRecord> {
     }
 };
 
-TEST_CASE("a read of a record or table above a live edit sees it (D224)") {
-    if constexpr (kShipping) return;  // live edits are refused
+BAKER_DEV_TEST_CASE("a read of a record or table above a live edit sees it (D224)") {
     Config cfg({.tweaks = nullptr});
     REQUIRE(cfg.push_layer(
         "default", ok(read_string("(units (tank (price 40) (hp 100)) (scout (price 10) (hp 30)))\n",

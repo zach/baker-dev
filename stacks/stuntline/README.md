@@ -6,7 +6,7 @@ and moments of airtime, built quickly from a kit?
 
 ```sh
 build-stacks/bin/stacks_stuntline                          # drive the first track
-build-stacks/bin/stacks_stuntline sim --seeds 1-5          # each track: valid, finishes, crashes, airtime, jumps
+build-stacks/bin/stacks_stuntline sim --baker-seeds 1-5    # each track: valid, finishes, crashes, airtime, jumps
 build-stacks/bin/stacks_stuntline eval "{track.load switchback}" "{track.report}"
 ```
 

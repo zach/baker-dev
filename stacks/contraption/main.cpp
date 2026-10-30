@@ -3,7 +3,7 @@
 // the script words (puzzle.), the workbench, and drawing.
 //
 //   stacks_contraption                          play
-//   stacks_contraption sim --seeds 1-5          every level: intended, robust, uncheesed
+//   stacks_contraption sim --baker-seeds 1-5    every level: intended, robust, uncheesed
 //   stacks_contraption eval "{puzzle.load first_drop}" "{puzzle.fewest_pieces 200}"
 //
 // Mouse: left places the tray piece you picked, right takes back the nearest; the wheel (or
