@@ -934,6 +934,13 @@ Expected<T> Array::get(const Path& path, T fallback) const {
 [[nodiscard]] bool structurally_equal(const Node& a, const Node& b) noexcept;
 [[nodiscard]] bool structurally_equal(const Array& a, const Array& b) noexcept;
 
+// `root` with every data array's metadata children left out, below it too: (@range 0 1),
+// (@desc "..."), (@was ...). For a shipped build, which reads values and no metadata: a bake
+// step writes the cache of this tree (baker_bake --drop-metadata, D265). Commands and
+// properties are kept as written, and an array with no metadata below it is shared, not
+// copied.
+[[nodiscard]] Ref<Array> without_metadata(const Array& root);
+
 // A refcounted string node payload: array("name", str("Bob")).
 [[nodiscard]] inline Ref<String> str(std::string_view text) {
     return String::make(text);

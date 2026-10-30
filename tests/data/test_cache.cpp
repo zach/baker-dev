@@ -616,3 +616,24 @@ TEST_CASE(
     CHECK((*cached)[1].array()->written_infix());
     CHECK(to_dta(*cached) == "(pass {0.3 <= $value <= 0.7})\n{$i += 1}\n");
 }
+
+TEST_CASE("without_metadata leaves out every @ child of data, and shares what holds none (D265)") {
+    const auto root =
+        ok(read_string("(speed 4.5 (@range 0 10) (@desc \"Run speed\"))\n"
+                       "(menu (title \"x\") (@note \"n\") (size 3))\n"
+                       "(plain (a 1) (b (c 2)))\n"
+                       "{func f ($x) (@doc \"kept\") $x}\n",
+                       "t.dta"));
+    const Ref<Array> lean = without_metadata(*root);
+    CHECK(to_dta(*lean) ==
+          "(speed 4.5)\n(menu (title \"x\") (size 3))\n(plain (a 1) (b (c 2)))\n"
+          "{func f ($x) (@doc \"kept\") $x}\n");
+    CHECK(lean->find<float>("speed").value() == 4.5f);
+    CHECK(lean->try_find("speed")->meta(Symbol("@range")) == nullptr);
+    CHECK((*lean)[2].array() == (*root)[2].array());         // nothing to leave out: shared
+    CHECK((*lean)[3].array() == (*root)[3].array());         // a command, as written
+    CHECK(root->try_find("speed")->meta(Symbol("@range")));  // the original is untouched
+    // Its cache reads back without them.
+    const auto back = ok(read_cache_bytes(bytes_of(*lean)));
+    CHECK(structurally_equal(*back, *lean));
+}

@@ -495,6 +495,12 @@ and one allocation each: a 6.2 MB tree in 2.3–2.5 ms (D79).
   and `baker::read_cached(text_path, cache_path, session)` in the game, which uses the
   cache when it is fresh and the text otherwise. Give `baker_bake` the same defines as the
   game, or the cache is stale for it.
+- **Leave the metadata at home:** `baker_bake --drop-metadata` writes a cache without any
+  `(@...)` child of data (ranges, descriptions, notes, `(@was ...)` pins), which only
+  development tools read; `ConfigOptions::cache_drop_metadata` does the same for a Config's
+  `cache_dir`, and `baker::without_metadata(root)` gives the tree. Values read the same.
+  Commands keep their own forms. A development build reading such a cache has no metadata
+  either, so bake the shipped caches apart from the ones developers use.
 - **A cache is a memory image**, for one byte order and pointer size: bake it with the
   target's layout. Today's consoles and PCs are all little-endian and 64-bit, so a bake
   on a development PC serves them. A cache from another layout is refused with an error
