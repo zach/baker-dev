@@ -71,7 +71,7 @@ thin base still fits these stacks best:
 | Headless runner for agents | By construction | Possible (`-nullrhi`, commandlets), heavy to start | Batch mode, heavy to start |
 | Agent fit | Text all the way down | Assets are binary `.uasset`s | Scenes are YAML (Unity) or text (Godot) |
 | Time to first playable | Slowest: weeks for the base, shared by six stacks | Fast | Fastest |
-| Acton review (`.claude/skills/acton-review`) | Passes by construction | A large engine around a small library | A managed runtime or a variant type in the core loop |
+| Acton review (`.claude/skills/gamedev-td`) | Passes by construction | A large engine around a small library | A managed runtime or a variant type in the core loop |
 
 So A stands. B or C is the hedge if the base slips: Baker then holds the data (shapes,
 layers, provenance, write-back, `check`) and the stacks keep most of §3, but lose

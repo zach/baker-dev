@@ -1,9 +1,11 @@
 ---
-name: acton-review
-description: Review designs, plans, and diffs of game-engine and engine-core C++ code the way a data-oriented console-engine technical director (Mike Acton's school) would. Covers runtime libraries at the heart of a game (allocators, containers, data and config layers, embedded scripting, messaging, job and task systems, asset loading, the runtime half of tools). Use for a design or milestone plan, a decision record, a hot-path change, or anything that adds allocation, indirection, abstraction, runtime work, build time, code size, static initializers, atomics, thread-locals, floating-point results that must match across platforms, or content from mods and live-ops; also when the user asks "what would Acton say", for a data-oriented or performance review, or to check alignment with console engine practice.
+name: gamedev-td
+description: Gamedev TD. Review designs, plans, and diffs of game-engine and engine-core C++ code the way a data-oriented console-engine technical director (Mike Acton's school) would. Covers runtime libraries at the heart of a game (allocators, containers, data and config layers, embedded scripting, messaging, job and task systems, asset loading, the runtime half of tools). Use for a design or milestone plan, a decision record, a hot-path change, or anything that adds allocation, indirection, abstraction, runtime work, build time, code size, static initializers, atomics, thread-locals, floating-point results that must match across platforms, or content from mods and live-ops; also when the user says to "TD" something ("TD this", "TD the plan", "let's TD it"), which means run this review on it, or asks "what would Acton say", for a data-oriented or performance review, or to check alignment with console engine practice.
 ---
 
-# Data-oriented review for engine-core code
+# Gamedev TD: data-oriented review for engine-core code
+
+To "TD" a plan, a decision or a diff is to run this review on it.
 
 Mike Acton's views stand in for those of high-end console engine programmers generally.
 He says out loud what many technical directors think (see "Why the line is held"). This
