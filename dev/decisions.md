@@ -8334,7 +8334,16 @@ parse-time rule, not the lighter spelling-only pass. Revisits D88, D218 and spec
     prototype measured +1.01% against an older parser. D143's bar is +1.1%; the owner took
     the prototype's cost knowing it.
   - A typed read pays `values()`'s compare: five instructions on `find_float`.
-  - The wall clock (`tools/bench_compare.py`) and the fuzz run follow below.
+  - `tools/bench_compare.py` against main, Release, 7 runs a side interleaved, pinned, with
+    a niced fuzzer on the other cores; medians:
+    - Typed reads pay the compare: `find_float` 9.47 → 9.86 ns (+4.1%), `find<float>` 9.48
+      → 9.94 (+4.9%), `find_float("key19")` 20.6 → 21.6, `"key19"_sym` 12.0 → 13.4,
+      `get<int>(Path)` of 4 segments 21.7 → 24.3, sorted `find_float` 18.2 → 19.2. Each is
+      0.4 to 2.6 ns; `try_find` of an array, which reads no values, 6.40 → 6.39.
+    - The parse of 4.2 MB, 31.1 → 29.8 ms (−4.4%), and the cache rows (−12% to +3%, their
+      ranges overlapping) move inside this machine's noise; the instruction count (+1.16%)
+      is the parse's number. `mark_visible` (−51%) and cold symbols (+25%, ranges 6 to 36
+      ms on both sides) run no changed code: layout and load.
   - The core is 15,282 counted lines (15,149 before): data +129, script +4; `baker::shape`
     847 → 862. The prototype estimated +104; the two `check` warnings and the `metadata()`
     range are the rest.
@@ -8351,6 +8360,11 @@ parse-time rule, not the lighter spelling-only pass. Revisits D88, D218 and spec
   tests: a shape describing itself with fields named `at`, `kind`, `desc` and `rule`, and
   the three located errors. The script tests: `(status 1)` as a body's first form, and an
   unknown `@` word refused.
+- **Fuzzing.** libFuzzer under ASan and UBSan, built as CI's fuzz job is, seeded with the
+  corpus, the fuzz regressions and every `.dta` of the stacks and examples. The first run
+  stopped after 349,913 executions on a defect of main's harness, a second `(origin "...")`
+  held as data (D91), which the syntax branches had skipped; the harness's three fixes are
+  the commit before this one. The run resumed from its grown corpus on the same parser.
 - **Not done here.** A bake that drops `@` children from shipped data is its own step,
   which the owner chose to follow this one. Storing and printing a shape's own description.
   Layer-markers' `(@was ...)` pin and promote's `(@note ...)` build on this rule in their
