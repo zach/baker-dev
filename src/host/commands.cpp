@@ -164,6 +164,7 @@ int check(const CommandLine& line, const CommandHooks& hooks) {
     shape::Report shaped;
     shapes.add(*cfg.root(), shaped);
     shape::check(*cfg.root(), shapes, shaped);
+    shape::unused(*cfg.root(), shapes, shaped);  // a shape at the wrong depth checks nothing
     tools::check_rules(*cfg.root(), shapes, l.ctx, shaped);  // a broken rule fails the check
     for (const Error& e : shaped.errors) err("shape: " + Str(to_string(e)) + "\n");
     for (const Error& e : shaped.warnings) err("shape warning: " + Str(to_string(e)) + "\n");
