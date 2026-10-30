@@ -617,7 +617,10 @@ A native function's parameter and result types are deduced from its signature; i
 take `Raw<Node>` for an argument it evaluates itself, `std::optional<T>` for an optional
 one, `Args` for the rest, and registering the name again with another signature makes an
 overload set. A call with two scalar arguments takes about 31 ns and never allocates
-(D78).
+(D78). The Context keeps a copy of the callable (moved, when given a temporary) in its own
+memory; a lambda that captures nothing is not kept at all. Registering costs about 460
+bytes of code per binding with GCC at -O2, most of it the call itself, and the
+registration's own work runs out of line.
 
 ### Variables
 
@@ -770,3 +773,20 @@ baker: '%' by zero  (boss.dta:9)
 Read it top down: the failing call, then each caller, each with the file and line where it
 is written. `script_backtrace()` prints the same stack while a call is running, for an
 assert handler or crash reporter to print beside the C++ stack.
+
+### Fatal errors
+
+A few failures leave Baker nothing to return: an allocator that returns null, an array or a
+string past 4 GB, reading the value of an `Expected` that holds an error. Baker reports
+each to the fatal handler and aborts. The message names what failed, and while a script
+call is running it carries the script stack, innermost first:
+
+```
+baker: fatal: an allocator returned null, asked for 16 bytes
+in {exhaust}  (level.dta:1)
+in {spawn_wave}  (level.dta:1)
+```
+
+`baker::set_fatal_handler(fn)` routes it to an engine's crash reporter; the default writes
+it to stderr. The handler must not return, and Baker aborts if it does. The message is built
+without allocating, since the allocator may be what failed, and is cut at 4 KB.

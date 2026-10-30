@@ -8679,3 +8679,144 @@ removal was built once, with rows (D249).*
   several verbs in one row. A reload does not repeat the push-time pin warnings. The stacks'
   agent skill still asks for a `;` comment; it can move to `(@note ...)` and `(@was ...)` in
   its own step.
+## D252. A fatal error goes to the host's handler, with the script stack
+
+*From the review of D250 (finding 18); the owner chose to build it.* Ten `std::abort()`
+sites in `src/` had no hook: an engine routes fatal errors to its crash reporter, with the
+script stack, and Baker's only replaceable handler was the symbol collision's (D247).
+
+- **The API** (`<baker/error.hpp>`): `set_fatal_handler(fn)`, a function pointer taking the
+  message, returning the one it replaces; null restores the default, which writes to
+  stderr. The handler must not return; Baker aborts if it does. Every abort site calls
+  `detail::fatal(what, more)` now: an allocator returning null (with the size asked), an
+  array or a string past 4 GB, an alignment past the default allocator's, EASTL asking for
+  an offset, a coroutine's unhandled exception, reading the value of an `Expected` that
+  holds an error (with the error, where Baker's own `Expected` is used: C++20), and the
+  collision's default handler.
+- **The script stack.** The data library cannot see script, so it holds a function pointer,
+  `detail::set_fatal_stack`, which each Context's constructor sets to `script_backtrace`, as
+  it sets the data library's evaluator: no static initializer. While a call runs, the
+  message carries the stack, innermost first, in the form errors already use.
+- **No allocation.** The message is built in a 4 KB buffer on the stack and cut there,
+  since what failed may be the allocator.
+- **Cost.** `fatal` is marked cold, as glibc marks `std::abort`: without it,
+  `Arena::make_array`'s size check compiled differently and parse took 885 more
+  instructions a parse. With it, `tools/count_instructions.py` against D250: parse +16 a
+  parse (0.001%), lookup, set, call, overload, declared, message and frame unchanged. The
+  allocation failure's formatting is in its own cold function.
+- **Tests,** each in a forked child (POSIX): a handler that reports and ends the process,
+  with the message exact; a failure inside a script function, carrying `{exhaust}` then
+  `{spawn_wave}`; a handler that returns, and the process still aborts; no handler, the
+  message on stderr; reading an `Expected`'s error, in C++20 builds.
+
+## D253. A cap on the names a read adds
+
+*From the review of D250 (finding 17); the owner chose to build it, with a default of
+1,048,576.* Symbols are never freed. A host that reads text it does not control all session
+(live overlays, mods, a console) grows the table with every unique ID written as a symbol,
+and no limit stopped it.
+
+- **The API.** `ParseLimits::max_new_symbols`, per top-level read like `max_nodes`: the
+  names it interns that the table did not hold. Past it the read fails with
+  `ErrorCode::Limit`, "more than N new names (ParseLimits::max_new_symbols)", located at the
+  line. The names interned up to then stay, so a read adds at most N plus one token's
+  names. Includes count into their reader's total; a cache load is not counted, as caches
+  come only from the game's own packages (D142). Every build counts, shipping included.
+- **Counting.** The table already knows when a name is new: it takes the lock to add it.
+  A thread-local pointer, set for the read, receives the count there. Nothing on the
+  lock-free path changes.
+- **No check of its own.** A first version compared the count after each symbol, variable
+  and directive token: parse +1.83% in instructions. Now, past the limit, the table sets
+  the read's node count to its limit, so `push`'s node check, made for every node anyway,
+  fails next and reports the names instead; the end of each file checks once more, for a
+  directive's last name. `tools/count_instructions.py` against D252: parse +34 a parse
+  (0.002%, the scope that sets the counter), lookup_text unchanged.
+- **Default.** 1,048,576 new names a read: far above what the game's own data interns, so
+  only a host's untrusted reads lower it. The cookbook says to.
+- **Test** (`test_preprocessor.cpp`): five new names under a cap of eight; the same text
+  again under a cap of zero, since nothing is new; twenty refused with the message and
+  line; an include, a macro name and a variable counting into one total.
+
+## D254. `<baker/fwd.hpp>`, declarations alone
+
+*From the review of D250 (finding 9); the owner chose to build it.* Every public header
+costs a translation unit 0.4 to 0.6 s with Clang 18, most of it `<string_view>` and
+`<span>`, so a game header that only names `Config` or `Context` pays it in every file that
+includes it.
+
+- **The header** declares the types a game's headers name: data (`Symbol`, `Node`,
+  `Array`, `Path`, `Error`, `ErrorCode`, `Type`, `Ref`, `List`, `Callback`, `Convert`,
+  `LoadSession`, `ParseLimits`, `Config` and its options, `Tweak`, `TweakBase`,
+  `TweakRegistry`, `Curve`, `Project`, ...), script (`Context`, `Args`,
+  `FuncRef`, `ObjectBase`, `Object`, `MethodRef`, `Task`, `Scheduler`) and `shape::Set`.
+  It includes `<cstdint>` alone, for the enums' underlying types; `check_headers.py`
+  holds it to that.
+- **`Object`'s default argument** (`Base = ObjectBase`) moves to `fwd.hpp`, since a
+  default may be given once; `object.hpp` includes it.
+- **Kept honest.** A header-alone unit includes `fwd.hpp` and then every public header: a
+  declaration that disagrees with its definition fails to compile (a template declared
+  as a class: checked), and under Clang `-Wmismatched-tags` catches a class declared a
+  struct (checked), which MSVC's ABI would mangle differently.
+- **Measured** (Clang 18, `-fsyntax-only`, five runs): an empty unit 0.022 s; `fwd.hpp`
+  0.033 s and 422 preprocessed lines; `config.hpp` 0.545 s and 36,086 lines;
+  `script.hpp` 0.404 s and 36,222 lines.
+
+## D255. A binding's registration out of line
+
+*From the review of D250 (finding 8); the owner chose to build it.* Each `ctx.func` and
+`Binder::method` call site inlined the whole registration: boxing the callable in the
+Context's allocator (a templated `Shared::Box`, with its own destroy function), counting
+the arguments over the parameter table, and building and moving an `Overload`. It runs
+once per binding, and it was about 400 of the 900 bytes a binding cost.
+
+- **Now** the call site builds a `NativeDesc` of constants (the thunk, the parameter
+  table, the result's name) and an `ErasedCallable` (the callable's address, size and
+  alignment, and two function pointers: construct it from there, by copy or by move as
+  the call was given it, and destroy it), and calls `Context::add_native` or
+  `add_native_method`, out of line. `Shared::make_erased` boxes the callable after a
+  header at its alignment; `make_native` counts the arguments. `make_overload` is gone.
+- **A stateless callable is not kept.** A lambda with no captures is empty, trivially
+  copyable and default-constructible, so `invoke` uses a `static constexpr` one instead of
+  reading the box, and the Context allocates nothing for it: one allocation fewer per
+  binding, for most of them.
+- **Measured** (GCC 13, a unit of N bindings of four kinds, N = 40 against 160, three
+  compiles each; a script in the session, not checked in):
+
+  | | before | after |
+  |---|---:|---:|
+  | code per binding, -O2 | 902 B | 463 B |
+  | compile time per binding, -O2 | 31 ms | 16 ms |
+  | code per binding, -O0 | 1,834 B | 1,129 B |
+  | compile time per binding, -O0 | 9 ms | 6 ms |
+
+  One registration's function: a stateless lambda 392 to 207 bytes, a capturing one 408
+  to 271. What remains per binding is mostly the thunk, the call itself.
+- **The calls are unchanged.** `tools/count_instructions.py` against D254: call, overload,
+  declared, message, frame and set the same to the instruction.
+- **Test** (`test_binding.cpp`): an lvalue callable is copied and a temporary moved (a
+  counter of live copies), a move-only lambda binds, the Context destroys what it kept,
+  and a stateless lambda costs one allocation fewer than a capturing one.
+
+## D256. A shipping build keeps no tweak tool text
+
+*From the review of D250 (finding 5); the owner chose to build it.* A `Tweak` copied its
+112-byte `TweakMeta` into itself in every build, so a shipping `Tweak<float>` was 184 bytes
+with its value at offset 180, and `strings` on a shipping object found every `desc` and
+`group` written: text for tools, and sometimes text a team would not publish.
+
+- **Now** `TweakBase` keeps a `detail::KeptTweakMeta`: `TweakMeta` itself, or under
+  `BAKER_SHIPPING` a `ShippedTweakMeta` of what decides the value (`range`, `one_of`,
+  `choices`, `dev_only`), with `step`, `desc`, `kind` and `group` as empty static members,
+  so `tweak.cpp` reads it the same way. The conversion is inline where the Tweak is made,
+  so the optimizer drops the text with the copy that no longer happens. The data's
+  metadata still applies in shipping.
+- **`code_meta()` is gone;** its one reader wanted `dev_only()`, which replaces it.
+- **Measured** (GCC 13, -O2): a shipping `Tweak<float>` is 128 bytes (`TweakBase` 120),
+  from 184 (176); development builds are unchanged. Of a tweak's three tool-text literals, a
+  shipping unit's assembly held 3 and now holds none.
+- **Kept honest.** `baker_tweak_shipping_text` compiles `tests/codegen/tweak_text.cpp` at
+  -O2 with and without `BAKER_SHIPPING` and counts the literals: all three in development,
+  none shipped (it failed against D255's header: 3). An unoptimized build still emits the
+  literals the source writes; the claim is for optimized ones. The tests of `step()` and
+  `desc()` expect the code's text only outside shipping.
+

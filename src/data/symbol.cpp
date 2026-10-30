@@ -32,11 +32,10 @@ static_assert(symbol_hash("\xC3\xA9p\xC3\xA9"
 namespace {
 
 thread_local detail::InternSite this_site;
+thread_local detail::NewSymbols* this_new_symbols = nullptr;
 
 void report_by_default(const Error& report) {
-    std::fprintf(stderr, "%.*s\n", static_cast<int>(to_string(report).size()),
-                 to_string(report).data());
-    std::abort();
+    detail::fatal(to_string(report));
 }
 
 std::atomic<SymbolCollisionHandler> collision_handler{report_by_default};
@@ -133,6 +132,8 @@ private:
             insert(*t, e);
             ++count_;
         }
+        if (detail::NewSymbols* n = this_new_symbols; n && ++n->count > n->limit)
+            *n->trip = n->trip_at;
         if constexpr (!kShipping)
             if (clash) report_collision(*clash, *e);
         return e;
@@ -226,6 +227,12 @@ size_t Symbol::table_size() noexcept {
 SymbolCollisionHandler set_symbol_collision_handler(SymbolCollisionHandler handler) noexcept {
     return collision_handler.exchange(handler ? handler : report_by_default,
                                       std::memory_order_acq_rel);
+}
+
+detail::NewSymbols* detail::count_new_symbols(NewSymbols* counter) noexcept {
+    NewSymbols* const was = this_new_symbols;
+    this_new_symbols = counter;
+    return was;
 }
 
 detail::InternSite detail::set_intern_site(InternSite site) noexcept {

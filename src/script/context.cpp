@@ -391,6 +391,7 @@ const Allocator& Context::allocator() const noexcept {
 Context::Context(const Allocator& allocator)
     : impl_(detail::create<Impl>(allocator, *this, allocator)) {
     detail::set_evaluator(&evaluate_for_data);
+    detail::set_fatal_stack(&script_backtrace);  // a fatal error carries the script stack
     if (!t_current) t_current = this;
     impl_->sink = &stderr_sink;
     impl_->trace_sink = &stderr_trace;
@@ -573,6 +574,10 @@ void Context::set_notice_sink(NoticeSink sink, void* user) noexcept {
 
 void Context::notice(const Error& notice) const {
     if (impl_->sink) impl_->sink(impl_->sink_user, notice);
+}
+
+Expected<FuncRef> Context::add_native(Symbol name, const detail::NativeDesc& native) {
+    return add_overload(name, detail::make_native(native, allocator()));
 }
 
 Expected<FuncRef> Context::add_overload(Symbol name, detail::Overload o) {
@@ -941,6 +946,55 @@ void Args::keep(Node n) const {
 }
 
 namespace detail {
+Shared Shared::make_erased(const Allocator& alloc, const ErasedCallable& c) {
+    if (c.size == 0) return {};
+    // The callable follows the box's header, at its own alignment.
+    struct Erased : Base {
+        void (*destroy_object)(void*) noexcept;
+        size_t bytes;
+        size_t offset;
+    };
+    const size_t align = c.align > alignof(Erased) ? c.align : alignof(Erased);
+    const size_t offset = (sizeof(Erased) + c.align - 1) / c.align * c.align;
+    const size_t bytes = offset + c.size;
+    auto* box = ::new (allocate(alloc, bytes, align)) Erased{};
+    box->alloc = &alloc;
+    box->destroy_object = c.destroy;
+    box->bytes = bytes;
+    box->offset = offset;
+    box->destroy = [](Base* b) {
+        auto* e = static_cast<Erased*>(b);
+        const Allocator& owner = *e->alloc;
+        const size_t size = e->bytes;
+        e->destroy_object(reinterpret_cast<char*>(e) + e->offset);
+        e->~Erased();
+        deallocate(owner, e, size);
+    };
+    void* object = reinterpret_cast<char*>(box) + offset;
+    c.construct(object, c.from);
+    Shared s;
+    s.base_ = box;
+    s.object_ = object;
+    return s;
+}
+
+Overload make_native(const NativeDesc& native, const Allocator& alloc) {
+    Overload o;
+    o.thunk = native.thunk;
+    o.callable = Shared::make_erased(alloc, native.callable);
+    o.result = native.result;
+    o.params = native.params;
+    for (const ParamInfo& p : o.params) {
+        if (p.kind == ParamKind::Rest) {
+            o.max_args = UINT32_MAX;
+            break;
+        }
+        ++o.max_args;
+        if (p.kind != ParamKind::Optional) o.min_args = o.max_args;
+    }
+    return o;
+}
+
 Expected<Raw<Var>> read_var(const Args& a, size_t i) {
     const Node& n = a.raw(i);
     if (n.type() == Type::Property) return Raw<Var>(a.context(), *n.array());

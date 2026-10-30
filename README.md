@@ -151,7 +151,9 @@ save, see it.
 Public headers include no standard containers or strings (an engine that bans the STL can
 use them); text comes out through a `TextSink`. `<baker/std_interop.hpp>`,
 `<baker/std_script.hpp>` and `<baker/tools/std_tools.hpp>` add `std::string` forms for
-hosts that want them.
+hosts that want them. `<baker/fwd.hpp>` declares Baker's types and includes only
+`<cstdint>`, for a header of yours that only names them: it compiles in a few
+milliseconds, where any other Baker header takes about half a second.
 
 ## Measured
 

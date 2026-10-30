@@ -58,6 +58,7 @@ if(BAKER_BUILD_SCRIPT)
     script/test_check.cpp
     script/test_debug.cpp
     script/test_eval.cpp
+    script/test_fatal.cpp
     script/test_messages.cpp
     script/test_object.cpp
     script/test_script_tasks.cpp
@@ -156,6 +157,15 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT BAKER_SANITIZE AND NOT BAKE
     -DOUT=${CMAKE_CURRENT_BINARY_DIR}/tweak_read.s
     -DARCH=${CMAKE_SYSTEM_PROCESSOR}
     -P ${CMAKE_CURRENT_SOURCE_DIR}/codegen/check_tweak_read.cmake)
+  add_test(NAME baker_tweak_shipping_text COMMAND ${CMAKE_COMMAND}
+    -DCXX=${CMAKE_CXX_COMPILER}
+    -DSTD=${CMAKE_CXX_STANDARD}
+    -DSRC=${CMAKE_CURRENT_SOURCE_DIR}/codegen/tweak_text.cpp
+    -DINC=${PROJECT_SOURCE_DIR}/include
+    "-DDEFS=-DBAKER_STD_EXPECTED=${BAKER_STD_EXPECTED_VALUE};-DBAKER_ATOMIC_REFCOUNT=$<BOOL:${BAKER_ATOMIC_REFCOUNT}>"
+    "-DFLAGS=${baker_codegen_flags}"
+    -DOUT=${CMAKE_CURRENT_BINARY_DIR}/tweak_text.s
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/codegen/check_tweak_text.cmake)
 endif()
 
 # Public headers reach only the allowed standard headers (std_*.hpp excepted), and each
@@ -195,6 +205,19 @@ foreach(header ${baker_tools_headers})
   file(CONFIGURE OUTPUT ${unit} CONTENT "#include <baker/tools/${name}.hpp>\n")
   list(APPEND baker_header_units ${unit})
 endforeach()
+# fwd.hpp, then every header: a declaration there that disagrees with a definition (a
+# class declared a struct, an enum's underlying type, a template's parameters) fails here.
+set(fwd_unit_text "#include <baker/fwd.hpp>\n")
+foreach(header ${baker_public_headers} ${baker_host_headers} ${baker_tools_headers})
+  file(RELATIVE_PATH rel ${PROJECT_SOURCE_DIR}/include ${header})
+  string(APPEND fwd_unit_text "#include <${rel}>\n")
+endforeach()
+set(fwd_unit ${CMAKE_CURRENT_BINARY_DIR}/header_alone/fwd_then_all.cpp)
+file(CONFIGURE OUTPUT ${fwd_unit} CONTENT "${fwd_unit_text}")
+list(APPEND baker_header_units ${fwd_unit})
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  set_source_files_properties(${fwd_unit} PROPERTIES COMPILE_OPTIONS "-Wmismatched-tags")
+endif()
 add_library(baker_header_alone OBJECT ${baker_header_units})
 if(TARGET baker::host)
   target_link_libraries(baker_header_alone PRIVATE baker::host)

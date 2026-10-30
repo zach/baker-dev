@@ -576,6 +576,13 @@ How a game delivers content after it ships (dev/background/content-updates.md):
   Content that arrives as text, such as a live overlay, also sets
   `LoadSession::refuse_includes`, so it cannot `#include` the game's files;
   `Config::push_layer_text` sets both (D163).
+- **Bound the names outside text adds.** Symbols live until the program ends, so overlays
+  read all session, mods, or a console that use unique IDs as symbols add to them with every
+  read. `ParseLimits::max_new_symbols` (on the session's `limits`) caps the names a read
+  may add that the program had not seen: past it the read fails with `ErrorCode::Limit`.
+  The default, 1,048,576, suits the game's own data; set it far lower for text you do not
+  trust. A name already interned costs nothing, so reading the same overlay again counts
+  none (D253).
 
 ## Linking a shipped game
 
@@ -602,6 +609,12 @@ pays only for what it links:
 A minimal game (load, read, a tweak, a function, an object, `eval`) built with
 `BAKER_SHIPPING` links 580 KB of Baker code, 41.5 KB of it tooling; with sections, 407
 KB, 4.8 KB of it tooling (the source maps that loading reaches).
+
+A tweak's tool text stays out too. Under `BAKER_SHIPPING` a `Tweak` keeps only the
+metadata that decides its value (`range`, `one_of`, `choices`, `dev_only`): its `desc`,
+`kind`, `group` and `step` are not copied, so an optimized build drops their literals with
+the copy, and a `Tweak<float>` is 128 bytes, not 184. Metadata in the data still applies
+(D256).
 
 ## Harness packs
 
