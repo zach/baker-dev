@@ -83,6 +83,9 @@ struct ProjectLayer {
     bool dev_only = false;  // `dev_only` in the file: never pushed under BAKER_SHIPPING
     ProjectPosition name_at{};
     ProjectPosition path_at{};
+    // (when COND) in the file: the condition, as text, for LayerOptions::when (D264). Empty
+    // for none.
+    Symbol when{};
 };
 
 struct Project {

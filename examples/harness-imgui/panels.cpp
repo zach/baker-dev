@@ -545,6 +545,11 @@ void layers_panel(baker::Config& cfg, LayersState& state) {
             bool on = cfg.layer_enabled(name);
             if (ImGui::Checkbox("##on", &on)) state.toggle = name;
             ImGui::SameLine();
+            // A layer's (when COND): the defines that keep it in, or out (D264).
+            if (const auto when = cfg.layer_condition(name)) {
+                ImGui::TextDisabled("(when %s)", baker::to_string(*when).c_str());
+                ImGui::SameLine();
+            }
             if (ImGui::TreeNode(name.c_str())) {
                 if (auto effect = baker::tools::layer_effect(cfg, name)) {
                     if (effect->empty()) ImGui::TextDisabled("changes nothing");

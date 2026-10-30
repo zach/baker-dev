@@ -175,6 +175,7 @@ Expected<List<ExplainEntry>> explain(const Config& cfg, const Path& path) {
                                Source{Symbol(l.name), field ? field->file() : d.file,
                                       field ? field->line() : d.line}};
                 e.standing = l.options.enabled ? Standing::Wins : Standing::Disabled;
+                e.when = cfg.layer_condition(l.name.view());
                 out.push_back(std::move(e));
             }
         if (out.empty())
@@ -231,6 +232,7 @@ Expected<List<ExplainEntry>> explain(const Config& cfg, const Path& path) {
         ExplainEntry e{
             layer, h.marker ? Node(detail::marker_symbol(detail::Marker::Remove)) : pack(h.nodes),
             source, Standing::Wins, row ? op_of(*row) : Symbol()};
+        e.when = cfg.layer_condition(layer.str());
         if (!enabled) {
             e.standing = Standing::Disabled;
         } else if (decided) {
