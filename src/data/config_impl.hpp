@@ -63,6 +63,10 @@ struct LayerState {
     Str dir;
     Str group;
     bool broken = false;  // a found layer that did not read: empty until its files change
+    // LayerOptions::when (D264): the condition, the one node of `when`, and the enabled the
+    // host asked for; options.enabled is that and the condition holding. Null: no condition.
+    Ref<Array> when;
+    bool wanted = true;
 };
 
 // One path in scratch. The array is owned by scratch alone, so set() may change it in
@@ -392,6 +396,11 @@ struct Config::Impl {
                                        std::span<const Error> read_warnings) const;
     // push_layer by path or text, once the layer is named.
     Expected<void> push_read(Config& c, LayerState&& layer, LayerOptions opts);
+    // A pushed layer's options: its condition read (D264), and options.enabled from it.
+    Expected<void> take_options(LayerState& layer, LayerOptions opts) const;
+    // options.enabled from what the host asked and the layer's condition, over `base`'s
+    // defines (D264). Whether it changed.
+    bool apply_condition(LayerState& l) const;
 
     bool changed(const LayerState& layer, Symbol& first) const;
     // Whether reload() must read `layer` again: a file of it changed, or, for a directory of

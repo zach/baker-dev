@@ -165,6 +165,11 @@ struct ValidatorOptions {
 struct LayerOptions {
     bool optional = false;  // a missing file is not an error; the layer exists, empty
     bool enabled = true;    // disabled layers keep their position but are skipped by merge
+    // A condition on the session's defines, as #ifdef reads them, written as a project file's
+    // (when COND) holds it: a define's name, (not C), (and C C...) or (or C C...), read
+    // unexpanded (D264). While it does not hold, the layer is skipped by merge as a disabled
+    // one is; set_defines and set_layer_enabled apply it again. Read at the push and kept.
+    std::string_view when = {};
     // Where push_layer places the layer: directly below or above the named layer, instead of
     // on top (D144). A file layer placed under others re-reads them, as remove_layer does,
     // because they read with the macros below them. Read at the push, never kept.
@@ -457,8 +462,12 @@ public:
     [[nodiscard]] Expected<void> set_layer_enabled(std::string_view name, bool enabled);
     // Returns the new state.
     [[nodiscard]] Expected<bool> toggle_layer(std::string_view name);
-    // False for an unknown layer.
+    // Whether the layer is in the merge: enabled, and its condition (LayerOptions::when)
+    // holding. False for an unknown layer.
     [[nodiscard]] bool layer_enabled(std::string_view name) const;
+    // The layer's condition as read, `(and PC (not DEMO))`, or nothing for a layer without
+    // one or an unknown layer (D264).
+    [[nodiscard]] std::optional<Node> layer_condition(std::string_view name) const;
     // The layer's own tree, as read, before any merge; null for an unknown layer and for
     // scratch. For tools such as shape::validator, which read it (D145); changing it changes
     // nothing until the next merge, and is not supported.

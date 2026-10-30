@@ -344,7 +344,7 @@ TEST_CASE("a project file's mistakes are located") {
         {"(project\n (layers (default \"d.dta\"))\n (levels a b))", 3, "has no 'levels'"},
         {"(project\n (layers\n  (default)))", 3, "a layer is"},
         {"(project\n (layers\n  (default \"d.dta\" optinal)))", 3,
-         "only optional, disabled and dev_only"},
+         "only optional, disabled, dev_only and one (when COND)"},
         {"(project\n (layers\n  (a \"x.dta\")\n  (a \"y.dta\")))", 4, "two layers named 'a'"},
         {"(project\n (pack_levels game))", 1, "needs (layers ...)"},
         {"(project\n (pack_levels (game)) (layers))", 2, "lists names or paths"},

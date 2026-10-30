@@ -100,6 +100,7 @@ Expected<Node> explain_node(Config& cfg, std::string_view path) {
                                                           : "ifdef"));
             fields.push_back(list(by));
         }
+        if (e.when) fields.push_back(tagged("when", *e.when));  // (when (not DEMO)) (D264)
         out.push_back(list(fields));
     }
     return list(out);

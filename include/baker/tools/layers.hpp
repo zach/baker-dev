@@ -34,6 +34,9 @@ struct ExplainEntry {
     // The innermost #ifdef or #ifndef branch the value was read in, if any: the define that
     // chose it (with active_defines(), who made it).
     std::optional<ConditionalSection> section{};
+    // The layer's condition (Config::layer_condition), if it has one: why a Disabled layer
+    // is out of the merge, or what keeps an enabled one in (D264).
+    std::optional<Node> when{};
 };
 
 // What `layer` (a layer's name, or "scratch") sets: each value, the stack's value without the

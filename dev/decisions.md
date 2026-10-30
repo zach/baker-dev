@@ -9281,3 +9281,53 @@ on 2026-10-30, who declined the layout and kept its printer half.*
 - **Fuzzing.** libFuzzer under ASan and UBSan, built as CI's fuzz job, on the stack through
   D265, seeded with D262's corpus: 100,000 executions, the bar the owner set for each step on
   2026-10-30, with no crash, leak or sanitizer report.
+
+## D264. A layer's `(when COND)`; layer blocks inside a file are declined
+
+*The inline-layers idea, prototyped on `claude/fervent-cray-l1kyf0-syntax-inline-layers` (its
+design note is that branch's `dev/syntax-inline-layers-design.md`), reviewed with the owner
+on 2026-10-30, who declined the in-file blocks and took the condition on project layers.*
+
+- **Blocks are declined.** The idea was `(#layer (handheld (when HANDHELD)) ...)` inside a
+  file, a sub-layer of it. The prototype fit Config's layer machinery, but:
+  - it cost 221 core lines as adopted, over the 150 bar;
+  - no stack writes a platform variant or an A/B that feels the file count;
+  - its survey found that it would replace a sixth of a shipped game's conditionals with a
+    second conditional form, of another precedence.
+
+  D242's `set_defines` and `explain`'s `(chosen_by ... ifdef)` already cover the live
+  switch and the visibility of what `#ifdef` chose.
+- **`(when COND)` on a project file's layer entries**, beside `optional`, `disabled` and
+  `dev_only`: `(handheld "data/handheld.dta" (when (and HANDHELD (not PC))))`.
+  - COND is a define's name, `(not C)`, `(and C C...)` or `(or C C...)`, read unexpanded as
+    `#ifdef` reads a name. It is tested against the Config's session, the host's and the
+    project's defines.
+  - `LayerOptions::when` takes it as text for `push_layer` and `push_layer_dir`.
+  - A condition of another shape is a `Syntax` error at the push, naming the layer.
+- **What it does.** A layer is always pushed and read. While its condition does not hold, it
+  is skipped by the merge as a disabled layer is (`options.enabled` is the host's choice and
+  the condition together), so its position, its reads and `#autorun` follow the same rules.
+  - `set_defines` applies every condition again before its one merge.
+  - `set_layer_enabled` sets the host's choice, and the layer stays under its condition.
+  - `toggle_layer` returns the state that results, which a condition can keep off.
+  - A directory's layers take its condition.
+- **What shows it.**
+  - `Config::layer_condition(name)` gives the condition as read.
+  - `ExplainEntry::when` carries it, for a Disabled entry or a winning one, and the
+    console's explain reply adds `(when COND)`.
+  - The ImGui harness's Layers panel prints it beside the layer's name.
+- **For the next release's changelog** (written at the release, dev/releasing.md): "A
+  project's layer may carry `(when COND)` (a define, `not`, `and`, `or`): it is in the merge
+  only while the defines say so, and `set_defines` applies it again; `LayerOptions::when`,
+  `Config::layer_condition`, `ExplainEntry::when`."
+- **Costs.** None per merge or lookup: a condition is tested at a push, a toggle and
+  `set_defines`.
+- **Lines.** The library gains 107 lines and loses 17, comments and headers included.
+- **Tests.** `test_defines.cpp`: a project's conditions with a host's defines,
+  `set_defines` turning one off and another on, disabling and toggling under a condition,
+  `layer_condition`, and the malformed shapes. `test_explain.cpp`: `when` on held and
+  unheld entries. `test_layer_dir.cpp`: a directory's condition. `test_project.cpp`: the
+  entry's error message.
+- **Fuzzing.** libFuzzer under ASan and UBSan, built as CI's fuzz job, on the stack through
+  D265, seeded with D262's corpus: 100,000 executions, the bar the owner set for each step on
+  2026-10-30, with no crash, leak or sanitizer report.

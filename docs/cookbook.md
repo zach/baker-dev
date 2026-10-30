@@ -136,6 +136,7 @@ and the game and every tool read it.
    (layers                            ; bottom to top
       (default "data/default.dta")
       (mods (dir "mods") optional)    ; a layer for each mod in mods/
+      (handheld "data/handheld.dta" (when (and HANDHELD (not PC))))
       (local "data/local.dta" optional dev_only)
       (agent "data/agent.dta" optional dev_only)))
 ```
@@ -158,6 +159,15 @@ if (auto r = baker::open_project(cfg, *project); !r) return report(r.error());
   shipping build never pushes even when its file is present. A `(dir "path")` entry is a
   directory of layers, one for each file or folder in it (see Content packages below); its
   flags apply to every layer it finds.
+- **A condition:** `(when COND)` keeps a layer in the merge only while the session's
+  defines say so: a platform's differences, a demo build's store, an experiment for one
+  build. COND is a define's name, `(not C)`, `(and C C...)` or `(or C C...)`, read as
+  `#ifdef` reads names, unexpanded. The layer is pushed and read either way; while its
+  condition does not hold it is skipped as a disabled one is. `set_defines` applies every
+  condition again in its one merge, `explain` lists a layer's condition with its values,
+  and `Config::layer_condition` gives it to a panel. With `disabled` too, it is off until
+  enabled, and then still under its condition. In C++, `push_layer(name, path, {.when =
+  "(not PC)"})`.
 - **Packaging:** a build step that copies the data directory whole would ship those files
   too. It reads the project instead and leaves out each layer whose `dev_only` is set, by
   the path the project names; a file such a layer only `#include`s is the step's to know.
