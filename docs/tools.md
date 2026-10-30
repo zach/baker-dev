@@ -59,7 +59,8 @@ An editor works on text that rarely parses, and checks it on every pause:
   tag) and every comment, even when the text does not parse. An unclosed bracket runs to the
   end of the text, an unterminated string or comment ends there, and the problems are listed
   beside the rest. It reads 2 MB in about 25 ms. The outline, folding, completion, hover, a
-  rename and a highlighter can all work from it, with no lexer of the tool's own.
+  rename and a highlighter can all work from it, with no lexer of the tool's own. A row's
+  key, the `/a.b.c` of a top-level `(/a.b.c 1)`, is a token of the kind `PathKey`.
 - **Laid out as Baker writes it.** `tools::format_text(text, sink, {.layout = ...})` lays
   out text as `write_dta` lays out a tree, with the project's `(format (indent 3) (width
   100))`, keeping every comment, directive, macro and spelling. Only whitespace changes:

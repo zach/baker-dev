@@ -8,9 +8,12 @@
 #include "session.hpp"
 #include "text.hpp"
 
+#include <baker/path.hpp>
+
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <utility>
 
 #if defined(_MSC_VER)
@@ -241,6 +244,10 @@ public:
             return fail(ErrorCode::Syntax, Str(bracket_name(f.open)) + " is never closed", f.line,
                         f.begin);
         }
+        if (!rows_.empty()) {
+            Str path;
+            if (!fold(scratch_, map_ ? &spans_ : nullptr, 0, path, 0)) return false;
+        }
         Ref<Array> root = arena_.make_array(scratch_, file_, 1);
         if (root->height() > s_.limits.max_depth + 1) return too_deep(1);
         if (map_) map_->record(root, {file_, 0, size_, {}}, spans_);
@@ -262,6 +269,7 @@ private:
         char open = '(';
         uint32_t begin = 0;    // offset of the opening bracket
         bool removes = false;  // holds #remove, which must be its one value (D143)
+        bool row = false;      // headed by a row's key: close() wraps it in the key's segments
     };
     struct Cond {
         bool active;         // tokens in the current branch are read
@@ -330,6 +338,11 @@ private:
     }
 
     bool symbol(const Token& t) {
+        // A row's key, (/a.b.c ...), heads a parenthesized array: a byte compare for every
+        // other symbol.
+        if (t.text.size() > 1 && t.text[0] == '/' && !t.quoted &&
+            frames_.back().kind == Frame::Array && scratch_.size() == frames_.back().start)
+            return row_key(t);
         const Symbol sym(t.text);
         const FrameInfo& f = frames_.back();
         const bool naming_macro = f.kind == Frame::MacroDef && scratch_.size() == f.start;
@@ -404,6 +417,7 @@ private:
         if ((arr->meta_first() | (arr->size() >> 14)) && f.kind == Frame::Array &&
             !metadata_placed(*arr, f))
             return false;
+        if (f.row) return wrap_row(std::move(arr), f, t.end);
         const SourceSpan span{file_, f.begin, t.end, {}};
         switch (f.kind) {
             case Frame::DefineBody:
@@ -427,6 +441,177 @@ private:
                     return declare_origin(*arr);
                 return push(Node(std::move(arr)), span);
         }
+    }
+
+    // The key after '/': segments separated by '.' or '/', a 'quoted' one for a name holding
+    // either, as a Path is written (D27); each a key, never an element. The last is the
+    // array's tag; close() wraps the array in the others.
+    BAKER_COLD bool row_key(const Token& t) {
+        auto bad = [&](const Str& why) { return fail(ErrorCode::Syntax, why, t.line, t.begin); };
+        if (frames_.size() != 2)
+            return bad("a row is a top-level form; write the key nested, or quote '" + Str(t.text) +
+                       "' for a symbol");
+        const std::string_view key = t.text.substr(1);
+        row_size_ = 0;
+        for (size_t i = 0, from = 0; i < key.size(); from = i) {
+            if (row_size_ == Path::kMaxSegments) return bad("the key has more than 16 segments");
+            std::string_view name;
+            if (key[i] == '\'') {
+                i = key.find('\'', i + 1);
+                if (i == std::string_view::npos)
+                    return bad(
+                        "the key has an unclosed quote; a key holds no space or bracket: write "
+                        "that key nested");
+                name = key.substr(from + 1, i++ - from - 1);
+            } else {
+                i = std::min(key.find_first_of("./", i), key.size());
+                name = key.substr(from, i - from);
+                if (!name.empty() && name.find_first_not_of("0123456789") == Str::npos)
+                    return bad("a row names keys, and '" + Str(name) +
+                               "' is an element; an element is set with config.set or by "
+                               "writing the whole list");
+                if (!name.empty() && !is_bare_symbol(name))
+                    return bad("the key's segment " + Str(name) + " must be quoted: '" + Str(name) +
+                               "'");
+            }
+            if (name.empty()) return bad("the key has an empty segment");
+            const auto at = static_cast<uint32_t>(t.begin + 1);
+            row_[row_size_++] = {Symbol(name), at + static_cast<uint32_t>(from),
+                                 at + static_cast<uint32_t>(i)};
+            if (i == key.size()) break;
+            if (key[i] != '.' && key[i] != '/')
+                return bad("a quoted segment is followed by '.' or '/'");
+            if (++i == key.size()) return bad("the key ends with a separator");
+        }
+        frames_.back().row = true;
+        rows_.push_back({t.line, t.begin});
+        return push(Node(row_[row_size_ - 1].name),
+                    {file_, row_[row_size_ - 1].begin, row_[row_size_ - 1].end, {}});
+    }
+
+    // `arr` in one array for each segment before its tag, each made in the load's arena with
+    // the row's line (D64). In edit mode each wrapper's extent is the row's, and the map
+    // records it as row-made: written as a segment of the key, not literally.
+    BAKER_COLD bool wrap_row(Ref<Array> arr, const FrameInfo& f, uint32_t end) {
+        const SourceSpan extent{file_, f.begin, end, {}};
+        for (size_t i = row_size_ - 1; i-- > 0;) {
+            Node pair[2] = {Node(row_[i].name), Node(std::move(arr))};
+            arr = arena_.make_array(pair, file_, f.line);
+            const SourceSpan spans[2] = {{file_, row_[i].begin, row_[i].end, {}}, extent};
+            if (map_) map_->record(arr, extent, spans, true);
+        }
+        s_.st_->nodes += 2 * (row_size_ - 1);  // push() counts them against the limit
+        if (arr->height() > s_.limits.max_depth) return too_deep(f.line, f.begin);
+        return push(Node(std::move(arr)), extent);
+    }
+
+    // In a file with rows, each tag heads one array at each level: the arrays sharing a tag
+    // in nodes[from..] are joined, in the order written, at the first one's place, and the
+    // joined children folded in turn. A key written twice, by two rows or by a row and a
+    // literal, is an error at the second: first-wins (D31) holds only in files without rows.
+    // Grouped by sorting, in buffers kept a depth (as MergeScratch's, D127): no allocation
+    // once they are warm.
+    BAKER_COLD bool fold(Vec<Node>& nodes, Vec<SourceSpan>* spans, size_t from, Str& path,
+                         size_t depth) {
+        if (fold_.empty()) fold_.reserve(s_.limits.max_depth + 2);  // a level never moves
+        if (fold_.size() <= depth) fold_.resize(depth + 1);
+        FoldLevel& l = fold_[depth];
+        l.order.clear();
+        for (size_t i = from; i < nodes.size(); ++i)
+            if (!tag_of(nodes[i]).empty()) l.order.push_back(static_cast<uint32_t>(i));
+        std::sort(l.order.begin(), l.order.end(), [&](uint32_t x, uint32_t y) {
+            const void *a = tag_of(nodes[x]).id(), *b = tag_of(nodes[y]).id();
+            return a != b ? std::less<>()(a, b) : x < y;
+        });
+        l.next.assign(nodes.size(), kNoNext);  // each array's next with its tag; kLater: not first
+        bool joins = false;
+        for (size_t k = 1; k < l.order.size(); ++k) {
+            const uint32_t x = l.order[k - 1], y = l.order[k];
+            if (tag_of(nodes[x]) != tag_of(nodes[y])) continue;
+            l.next[x] = (l.next[x] & kLater) | y;
+            l.next[y] |= kLater;
+            joins = true;
+        }
+        size_t out = from;
+        for (size_t i = from; i < nodes.size() && joins; ++i) {
+            if (l.next[i] & kLater) continue;  // joined into the first with its tag
+            if (l.next[i] != kNoNext && !join(nodes, spans, i, path, depth)) return false;
+            nodes[out] = std::move(nodes[i]);
+            if (spans) (*spans)[out] = (*spans)[i];
+            ++out;
+        }
+        // pop_back, not resize: a second caller of vector<Node>'s erase made GCC stop inlining
+        // it into truncate(), every close() (+1.4% parse instructions, measured).
+        while (joins && nodes.size() > out) nodes.pop_back();
+        if (spans) spans->resize(nodes.size());
+        return true;
+    }
+
+    // nodes[h] and the arrays after it with its tag, as one array: the one value run first,
+    // whichever member wrote it, then every tagged child in the order written, so a value
+    // never follows metadata (D248).
+    bool join(Vec<Node>& nodes, Vec<SourceSpan>* spans, size_t h, Str& path, size_t depth) {
+        FoldLevel& l = fold_[depth];
+        const Array& a = *nodes[h].try_array();
+        const size_t mark = path.size();
+        if (mark) path += '/';
+        append_path_name(path, a.tag().str());
+        // The member with values, if any; a second one, or a removal joined with anything,
+        // is written twice.
+        uint32_t valued = has_values(a) ? static_cast<uint32_t>(h) : kNoNext;
+        bool removed = is_removal(a);
+        for (uint32_t m = l.next[h]; m != kNoNext; m = l.next[m] & ~kLater) {
+            const Array& b = *nodes[m].try_array();
+            if ((valued != kNoNext && has_values(b)) || removed || is_removal(b))
+                return written_twice(b, path, valued != kNoNext && has_values(b));
+            if (has_values(b)) valued = m;
+        }
+        l.kids.assign(1, a[0]);
+        l.spans.clear();
+        auto take = [&](const Array& x, bool values) {
+            const auto known = spans ? map_->spans(x) : std::nullopt;
+            for (size_t k = 1; k < x.size(); ++k) {
+                if (tag_of(x[k]).empty() != values) continue;
+                l.kids.push_back(x[k]);
+                if (spans) l.spans.push_back(known ? (*known)[k] : SourceSpan{});
+            }
+        };
+        if (spans) {
+            const auto known = map_->spans(a);
+            l.spans.push_back(known ? (*known)[0] : SourceSpan{});
+        }
+        if (valued != kNoNext) take(*nodes[valued].try_array(), true);
+        take(a, false);
+        for (uint32_t m = l.next[h]; m != kNoNext; m = l.next[m] & ~kLater)
+            take(*nodes[m].try_array(), false);
+        if (!fold(l.kids, spans ? &l.spans : nullptr, 1, path, depth + 1)) return false;
+        path.resize(mark);
+        Ref<Array> joined = arena_.make_array(l.kids, a.file(), a.line());
+        while (!l.kids.empty()) l.kids.pop_back();  // moved from; see fold()
+        const SourceSpan* ext = map_ ? map_->extent(a) : nullptr;
+        if (map_) map_->record(joined, ext ? *ext : SourceSpan{}, l.spans, true);
+        nodes[h] = Node(std::move(joined));
+        return true;
+    }
+
+    static bool has_values(const Array& a) noexcept {
+        for (size_t i = 1; i < a.size(); ++i)
+            if (tag_of(a[i]).empty()) return true;
+        return false;
+    }
+
+    // At the later writing, `b`, and at its row's key when a row wrote it. A key written
+    // twice by literals only is the list a file of rows cannot hold (D31): the error says so.
+    bool written_twice(const Array& b, const Str& path, bool twice) {
+        const auto r = std::find_if(rows_.begin(), rows_.end(),
+                                    [&](const RowAt& x) { return x.line == b.line(); });
+        Str why = "'" + path + (twice ? "' is written twice" : "' is removed and also written");
+        if (r == rows_.end() && b.file() == file_)
+            why += "; this file holds rows (the first at line " + detail::decimal(rows_[0].line) +
+                   "), so each key is written once: a list of records is written without rows";
+        *err_ = make_error(ErrorCode::Syntax, why, b.file(), b.line());
+        if (b.file() == file_ && r != rows_.end()) err_->set_column(lex_.column_at(r->key));
+        return false;
     }
 
     static const Symbol& sym_pack() {
@@ -977,6 +1162,26 @@ private:
     bool origin_ = false;    // this file declared its origin
     Vec<Symbol> warned_;     // macros this file has been warned about
     InternSite outer_site_;  // the intern site of the read that included this file
+    struct RowSegment {
+        Symbol name;
+        uint32_t begin = 0, end = 0;  // its bytes in the text, quotes included
+    };
+    struct RowAt {
+        int32_t line;
+        uint32_t key;  // the offset of the key
+    };
+    // A depth's buffers for the fold: the nodes by tag, each array's next with its tag, and
+    // a joined array's children with their spans.
+    struct FoldLevel {
+        Vec<uint32_t> order, next;
+        Vec<Node> kids;
+        Vec<SourceSpan> spans;
+    };
+    static constexpr uint32_t kLater = 0x80000000u, kNoNext = 0x7FFFFFFFu;
+    RowSegment row_[Path::kMaxSegments];  // the open row's key: rows do not nest
+    size_t row_size_ = 0;
+    Vec<RowAt> rows_;  // the rows read, for the fold and its errors
+    Vec<FoldLevel> fold_;
 };
 
 }  // namespace detail

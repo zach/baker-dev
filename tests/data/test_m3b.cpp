@@ -546,7 +546,7 @@ TEST_CASE("write_back_to creates an absent personal file, or inserts beside sibl
     REQUIRE(cfg.set("box.width", Node(4)));
     auto r = cfg.write_back_to("box.width", "local");
     REQUIRE(r);
-    CHECK(dir.read("local/sam.dta") == "(box (width 4))\n");
+    CHECK(dir.read("local/sam.dta") == "(/box.width 4)\n");  // a created layer is rows (D249)
     CHECK(cfg.source("box.width")->layer == "local");
     CHECK(cfg.unsaved().empty());
 

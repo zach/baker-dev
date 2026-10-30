@@ -8375,3 +8375,105 @@ parse-time rule, not the lighter spelling-only pass. Revisits D88, D218 and spec
   which the owner chose to follow this one. Storing and printing a shape's own description.
   Layer-markers' `(@was ...)` pin and promote's `(@note ...)` build on this rule in their
   own steps (dev/syntax-ideas.md).
+
+## D249. Rows: a key by its path, `(/a.b.c 1)`
+
+*The path-rows syntax idea, prototyped on `claude/fervent-cray-l1kyf0-syntax-path-rows` (its
+design note is that branch's `dev/syntax-path-rows-design.md`), reviewed with the owner on
+2026-10-30, who chose rows now, with the review's four edges fixed in the same change and the
+sigil-free dotted form declined.*
+
+- **The need.** A layer is a diff written as a tree: `(fighters (kestrel (moves (jab (startup
+  5)))))` spends ten parentheses on one value, a miscounted bracket can land a value one level
+  off and still parse, and every tool already prints the leaf as a path (`diff`'s
+  `player.speed  3.5 -> 4.5`, errors' `'fighters/kestrel/health'`, D27). Agents' and live-ops
+  layers are written and read in that loop.
+- **The form.** A parenthesized form at a file's top level whose first atom is a bare
+  `/`-led symbol of two or more bytes is a row: `(/fighters.kestrel.health 1100)` is
+  `(fighters (kestrel (health 1100)))`. The key is a Path's text (D27): `.` or `/` between
+  segments, a `'quoted'` segment for a name holding either, at most 16. What follows the key
+  is what follows a tag: values, metadata (D248), children, `#remove` (D143).
+  - **Recognised** in `Parser::symbol()`, the slot-0 test; the lexer is unchanged.
+  - **Not a row:** a quoted `('/x' 1)`, a lone `/`, a `/`-led symbol in any other place. The
+    printer quotes a `/`-led head, as it spells `#remove` only where the parser takes it.
+  - **Located errors at the key:** an element segment (`(/a.0.b 1)`: rows name keys), an
+    empty segment, a trailing separator, more than 16 segments, an unclosed quote, a segment
+    that reads alone as something else (`1e5` must be quoted), a row below the top level.
+- **What it builds.** The row's own array closes as any; `wrap_row` puts it in a two-node
+  array a segment, in the load's arena (D64), with the row's file and line. When the file
+  closes, if it held a row, `fold` joins the arrays sharing a tag in the order written, at the
+  first's place, and folds the joined children in turn. No new node, flag or cache field: the
+  tree is the nested one, and merge, lookup, provenance, shapes, `check`, the cache and the
+  JSON documents see it.
+  - **The joined array's values come first,** whichever row wrote them, then every tagged
+    child in the order written: `(/a.b (@range 0 9))` and `(/a.b 5)` are `(b 5 (@range 0
+    9))`, so a value never follows metadata. The prototype appended a later row's values
+    after an earlier one's children, which D248's `values()` would have cut off.
+  - **A file with rows holds each key once.** A value written twice, by two rows or by a row
+    and a nested array, is an error at the second, at its row's key when a row wrote it; a
+    removal joined with anything too. A file without rows keeps first-wins (D31).
+  - **A row in a list of records.** One row in a file that repeats a tag, a file of
+    `(scenario ...)` forms, makes the repeats errors. The prototype's error named the second
+    record, unrelated to the row (the review's second edge). It now says why: "'scenario' is
+    written twice; this file holds rows (the first at line 3), so each key is written once:
+    a list of records is written without rows".
+  - An `#include`d file's rows fold in that file; its nodes splice where the include stands.
+  - A first form `(pack ...)` or `(origin "...")` held as data, which the reader would take
+    as a declaration (D80, D91), is printed as a row, since a row never declares, when the
+    top level repeats no tag. That spells the tree main's printer could not (D13), and the
+    fuzz harness now skips only the repeated-tag case (`row_first_form_pack.bin`,
+    `origin_repeated_tags.bin`).
+- **Edit mode (D33, D128).** A key's token is split into per-segment spans, so each
+  synthesized tag re-reads as its symbol. The arrays a key made are recorded as such in the
+  source map: `SourceMap::row_made(a)`, one bit taken from the entry's 32-bit span count. The
+  prototype marked them with `SourceSpan::macro = #row`, changing a public field's documented
+  meaning (the review's first edge); `SourceSpan` is unchanged.
+- **Write-back (D34, D132).**
+  - A row's value is a token, replaced in place with its line's comment.
+  - A key a file of rows lacks is added as a row after the last row under its deepest key
+    the file has, beside its siblings (the review's third edge; the prototype appended at the
+    end), or at the end when it shares none. A key a row's key made gets values, or a key
+    under it, the same way: it has no brackets of its own.
+  - A layer file write-back creates is rows: one line a value. A nested file stays nested.
+  - `promote` carries a removal (D143): the key's array is deleted from the target, with its
+    line when it stood alone, the closers that followed joining the line before. A key the
+    target writes as part of rows' keys is refused, to be removed by hand. This lifts a
+    refusal no test covered. A layer of rows promotes as its nested form does.
+- **The tolerant read (D220):** `TextTokenKind::PathKey`, a row's key.
+- **The kit (the review's fourth edge):** `diff --baker-rows` and `promote --baker-rows` (its
+  dry run) print each change as a row with its old value in a comment: text a layer file
+  holds. `--baker-patch` stays a unified diff of the files promote writes; the owner chose
+  rows in the dry run over a separate patch-as-rows mode.
+- **Not built.** The full rows printer (`WriteOptions::rows`, a base file printed as rows):
+  the prototype measured base files 35% bigger as rows, and the decision was for layers.
+  The stacks-agent skill still writes `agent.dta` nested.
+- **Cost.**
+  - `tools/count_instructions.py` against main (`cde9e14`): parse +0.91% with GCC 13
+    (1,862,133 → 1,879,016), +0.42% with Clang 18 (1,767,299 → 1,774,641); lookup,
+    lookup_text and set unchanged on both. Callgrind (GCC, 400 parses): `Parser::run` +7,900
+    a parse (the slot-0 test and `close()`'s row flag), `open()` +880 (the flag's store), and
+    `push()` +3,000, whose code did not change; a separate cold push for the row code moved
+    nothing, so it was not kept. The prototype measured +0.47% with GCC on the older parser.
+  - MSVC was not measured: no Windows machine or instruction counter is available to this
+    session or to CI. CI builds MSVC (C++20, C++latest) and the stacks with it.
+  - The core is 15,581 counted lines (15,282 before): data +299. The host kit 2,575 (+36),
+    `baker::tools` 2,164 (+4).
+- **The raw gate (D101).** 464 of 464 files parse and round-trip; no raw file has a `/`-led
+  head.
+- **Tests.** `tests/data/test_rows.cpp`: the fold, either separator, quoted segments,
+  `#remove`, an empty row, a row with a nested array, values before metadata; what is not a
+  row and the printer's quoting; every key error at its column and the twice-written errors;
+  the list-file message; macros, conditionals, an include, `(/pack ...)` as data printed back
+  as a row; edit-mode spans and `row_made`; write-back in place, beside siblings, at the end,
+  into a nested file, and for a key a row made; promote's removal, and a rows layer promoting
+  as its nested form; a layer's effect and `source` over three rows; a policy refusing a
+  command in a row at the row's line. `tests/host/test_commands.py`: `diff --baker-rows` and
+  `promote --baker-rows`. A created layer file's text, which is now rows, in
+  `tests/data/test_m3b.cpp`, the ImGui harness's panel test and the config example's
+  expected output.
+- **Fuzzing.** libFuzzer under ASan and UBSan, built as CI's fuzz job, seeded with the
+  corpus, the fuzz regressions, every `.dta` of the stacks and examples, and files of rows:
+  1,000,003 executions, no failure. After 206,443 the run went on as four processes of
+  198,390 on the shared corpus, because inputs whose nested macros expand into trees of tens
+  of thousands of nodes cost the harness up to 400 ms each (it re-reads, caches and prints
+  every tree); the cost is the harness's and main's macro expansion, not the rows'.

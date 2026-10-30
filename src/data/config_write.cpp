@@ -80,6 +80,79 @@ struct Edit {
     Str text;
 };
 
+// Whether `main`'s text holds a row at its top level, written "(/": then a key the layer
+// lacks is added to it as a row (D249).
+bool holds_rows(const SourceMap& map, const Array& root, Symbol main, std::string_view text) {
+    for (size_t i = 0; i < root.size(); ++i) {
+        const SourceSpan* sp = map.span(root, i);
+        if (sp && sp->literal() && sp->file == main && text.substr(sp->begin, 2) == "(/")
+            return true;
+    }
+    return false;
+}
+
+// (/a.b.c values): empty when a segment cannot be written in a key (an element, a byte that
+// ends an atom), or would open a comment.
+Str render_row(const Path& path, const Vec<Node>& values) {
+    for (size_t i = 0; i < path.size(); ++i)
+        if (path[i].is_index) return {};
+    const Str key = detail::text_of(path, SIZE_MAX, '.');
+    for (const char c : key)
+        if (detail::is_atom_end(static_cast<unsigned char>(c))) return {};
+    return key[0] == '*' ? Str() : "(/" + key + (values.empty() ? "" : " ") + join(values) + ")";
+}
+
+// Deleting `path`'s array from `layer`'s file, with its line when it stands alone there: a
+// removal promoted (D143, D249). Nothing to do when the file does not hold the key.
+Expected<Plan> plan_removal(const LayerState& layer, const Path& path,
+                            const LoadSession::Reader& read_file) {
+    if (!layer.map || layer.text)
+        return Unexpected(refused("layer '" + layer.name + "' has no file read in edit mode"));
+    const Array* cur = layer.root.get();
+    const SourceSpan* sp = nullptr;
+    for (size_t i = 0; i < path.size() && cur; ++i) {
+        const Array* parent = cur;
+        cur = nullptr;
+        for (size_t k = 0; k < parent->size() && !cur; ++k)
+            if (!path[i].is_index && detail::tag_of((*parent)[k]) == path[i].name) {
+                cur = (*parent)[k].try_array();
+                sp = layer.map->span(*parent, k);
+            }
+        if (cur && (!sp || !sp->literal()))
+            return Unexpected(refused("promote cannot remove " + quoted(path) +
+                                          ", which is not written as itself in '" + layer.file +
+                                          "'; remove it by hand",
+                                      cur->file(), cur->line()));
+    }
+    if (!cur) return Plan{Symbol(layer.file), {}, false};
+    // A key that is a segment of rows' keys is written in each of them.
+    if (layer.map->row_made(*cur))
+        return Unexpected(refused("promote cannot remove " + quoted(path) + ", which '" +
+                                      layer.file +
+                                      "' writes as part of rows' keys; remove those rows by hand",
+                                  cur->file(), cur->line()));
+    const auto text = layer.map->text(sp->file);
+    Str out;
+    if (!text || !detail::read_with(read_file, sp->file.str(), out) || out != *text)
+        return Unexpected(refused("'" + Str(sp->file.str()) +
+                                      "' has changed since it was read; reload before writing back",
+                                  sp->file));
+    size_t b = sp->begin, e = sp->end;
+    while (b > 0 && (out[b - 1] == ' ' || out[b - 1] == '\t')) --b;
+    while (e < out.size() && (out[e] == ' ' || out[e] == '\t')) ++e;
+    const bool line_start = b == 0 || out[b - 1] == '\n';
+    if (line_start && (e == out.size() || out[e] == '\n' || out[e] == '\r'))
+        e = std::min(out.find('\n', e), out.size() - 1) + 1;  // the line, which held it alone
+    else if (line_start)  // closers follow on its line: they join the line before
+        for (e = sp->end; b > 0 && (out[b - 1] == ' ' || out[b - 1] == '\t' || out[b - 1] == '\n' ||
+                                    out[b - 1] == '\r');)
+            --b;
+    else
+        e = sp->end;
+    out.erase(b, e - b);
+    return Plan{sp->file, std::move(out), true};
+}
+
 }  // namespace
 
 namespace config_internal {
@@ -187,6 +260,9 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
             return Unexpected(refused(
                 "'" + layer.file + "' has appeared since it was read; reload before writing back",
                 main));
+        // A layer file a tool creates is rows: one line a value (D249).
+        if (const Str row = render_row(path, values); !row.empty())
+            return Plan{main, row + "\n", true};
         return Plan{main, render_entry(path, 0, values, "") + "\n", true};
     }
 
@@ -241,13 +317,40 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path,
 
     Vec<Edit> edits;
     Symbol file;
+    // A key a row's key made has no text of its own (D249): values for it, or a key under it,
+    // go in a row of their own.
+    const bool row_made = map.row_made(*cur);
+    const bool own_row = missing_from == path.size() && targets.empty() && row_made;
+    if (own_row) missing_from = path.size() - 1;  // the key has values now: one more row
     if (missing_from < path.size()) {
         if (auto e = no_index(missing_from, cur->file(), cur->line())) return Unexpected(*e);
-        if (!insert) return Unexpected(detail::get_error(*layer.root, path, nullptr));
+        if (!insert && !own_row) return Unexpected(detail::get_error(*layer.root, path, nullptr));
         file = main;
         const auto text = map.text(main);
         if (!text) return Unexpected(refused("no source text for '" + layer.file + "'", main));
-        if (cur == layer.root.get()) {
+        // In a file of rows, one more row: after the last row under the deepest key the file
+        // already has, so it stands beside its siblings; at the end when it shares none.
+        Str row;
+        if (row_made || holds_rows(map, *layer.root, main, *text)) row = render_row(path, values);
+        if (row.empty() && row_made)
+            return Unexpected(refused("cannot add " + quoted(path) + " to '" + layer.file +
+                                          "' as a row; write it nested by hand",
+                                      cur->file(), cur->line()));
+        if (!row.empty() && cur != layer.root.get()) {
+            uint32_t after = 0;
+            if (const auto spans = map.spans(*cur))
+                for (const SourceSpan& sp : *spans)
+                    if (sp.file == main && sp.end > after) after = sp.end;
+            if (const SourceSpan* ext = map.extent(*cur); ext && ext->file == main)
+                after = std::max(after, ext->end);
+            const size_t line_end = text->find('\n', after);
+            const auto at = static_cast<uint32_t>(line_end == Str::npos ? text->size() : line_end);
+            edits.push_back({at, at, "\n" + row});
+        } else if (!row.empty()) {
+            const bool newline = !text->empty() && text->back() != '\n';
+            const auto end = static_cast<uint32_t>(text->size());
+            edits.push_back({end, end, (newline ? "\n" : "") + row + "\n"});
+        } else if (cur == layer.root.get()) {
             // A new top-level form at the end of the file.
             const bool newline = !text->empty() && text->back() != '\n';
             const auto end = static_cast<uint32_t>(text->size());
@@ -455,14 +558,10 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
     before.set_reader(vread);
     Vec<Error> refusals;
     for (const Leaf& leaf : leaves) {
-        if (leaf.values.size() == 1 && leaf.values[0].is(detail::remove_marker())) {
-            // Writing (key #remove) beside the key's children would not parse (D143).
-            refusals.push_back(refused("promote cannot write the removal of " +
-                                       quoted(Path(leaf.path)) +
-                                       "; remove the key from the target by hand"));
-            continue;
-        }
-        auto p = impl_->plan(target, Path(leaf.path), leaf.values, true, vread);
+        // A removal deletes the key from the target: its array, with its line if alone there.
+        const bool removal = leaf.values.size() == 1 && leaf.values[0].is(detail::remove_marker());
+        auto p = removal ? plan_removal(target, Path(leaf.path), vread)
+                         : impl_->plan(target, Path(leaf.path), leaf.values, true, vread);
         if (!p) {
             refusals.push_back(std::move(p).error());
             continue;

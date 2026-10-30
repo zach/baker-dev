@@ -18,6 +18,7 @@ enum class TextTokenKind : uint8_t {
     Variable,      // $name
     Directive,     // #name
     Macro,         // a symbol this text defines as a macro, [name ...] at the top level
+    PathKey,       // a row's key: (/a.b.c ...) at the top level
 };
 struct TextToken {
     TextTokenKind kind{};

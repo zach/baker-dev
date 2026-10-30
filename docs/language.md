@@ -137,6 +137,50 @@ may set the key again, and removing the layer brings the key back. The merged tr
 holds a marker, and `#merge` ignores one (it only fills in what is missing).
 `layer_effect` lists a removal with the value `#remove`, and what it removed in `below`.
 
+### Rows: a key by its path
+
+A layer usually changes a few values deep in the tree. A **row** names each by its path, as
+`diff`, errors and the console print it: a parenthesized form at a file's top level whose
+first atom is a `/`-led path.
+
+```dta
+; agent.dta: one line a value
+(/fighters.kestrel.health 1100)
+(/fighters.kestrel.walk_back 1.7)          ; a row's own comment
+(/cpu.easy.reaction 26)
+(/menu.debug_menu #remove)
+(/shapes.boss_phase.enter_at float (@range 0 2))
+```
+
+reads as the tree `(fighters (kestrel (health 1100) (walk_back 1.7))) (cpu (easy (reaction
+26))) ...`: the rows sharing a prefix fold into one array a key, and below the parser
+nothing knows rows were written. The key is written as a path is (Tags and lookup):
+segments separated by `.` or `/`, a `'quoted'` one for a name holding either,
+`(/menu.'v1.2'.price 3)`, at most 16 segments. What follows the key is what follows a tag:
+values, metadata, children, or `#remove`.
+
+- **A file with rows holds each key once.** A value written twice, by two rows or by a row
+  and a nested array, is an error at the second, where a file without rows keeps the first
+  (Merging). So a list of records that repeats a tag, a file of `(scenario ...)` forms, is
+  written without rows.
+- **Only at the top level.** `(a (/b 1))` is an error; a key is never a macro, and the
+  body expands as any body does.
+- **Not a row:** a quoted `('/x' 1)`, a lone `/`, and a `/`-led symbol anywhere but the
+  head of a top-level array, such as `(path /usr/share)`. The printer quotes a `/`-led
+  head, so its text reads back as the same tree.
+- **Not an element.** `(/fighters.0.health 5)` is an error: rows name keys, and a list is
+  written whole.
+- **Writing.** `write_back` replaces a row's value in place, its comment kept.
+  `write_back_to` adds a key to a file of rows as a row beside the rows of its prefix, and
+  creates an absent layer file as rows; a nested file stays nested. `promote` writes a
+  layer of rows into a nested base as it writes a nested layer, and carries a removal:
+  the key's array is deleted from the target.
+- **The kit:** `diff --baker-rows` prints a layer's changes as rows, which paste into a
+  layer file.
+
+Rows are for layers: a value changed is a line, its key named. A base file of records
+stays nested, where a path repeated on every line would only add bytes.
+
 ### Curves
 
 A curve is a function designers tune, such as reward by stage, difficulty by time, or
