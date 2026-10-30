@@ -216,6 +216,13 @@ LayerReport run_check(const Basis& b, std::string_view name, const Ref<Array>& c
                 at ? at->file() : Symbol(), at ? at->line() : 0));
         }
     }
+    // Shapes change how the stack is checked, not a value: an overlay that sent a wider
+    // range beside a value would pass a check the value alone fails.
+    if (policy.data_only || policy.scalars_only)
+        if (const Array* shapes = tree.try_find("shapes"))
+            refusals.push_back(
+                refused("(shapes ...) declares shapes; the layer may change data only",
+                        shapes->file(), shapes->line()));
     // One warning of each per layer, at the first: an unmigrated or misspelt file is
     // noticed at its first check.
     if (const Array* m = bare_metadata(tree))

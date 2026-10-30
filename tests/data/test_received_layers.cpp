@@ -390,3 +390,25 @@ TEST_CASE("set_layer_text replaces a text layer in place; the same bytes change 
     CHECK(client.set_layer_text("base", "").error().code() == ErrorCode::Refused);
     CHECK(client.set_layer_text("scratch", "").error().code() == ErrorCode::Refused);
 }
+
+TEST_CASE("a received layer's (shapes ...) is refused under data_only or scalars_only (D251)") {
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer_text("default",
+                                "(shapes (item (price int (@range 0 1000))))\n"
+                                "(shop (sword (price 50)))\n"));
+    // The overlay widens the range its own value is checked against.
+    const char* overlay =
+        "(shapes (item (price int (@range 0 99999))))\n(shop (sword (price 5000)))\n";
+    for (const LayerPolicy policy :
+         {LayerPolicy{.data_only = true}, LayerPolicy{.scalars_only = true}}) {
+        const LayerReport r = ok(cfg.check_layer_text("overlay", overlay, policy));
+        REQUIRE(r.refusals.size() == 1);
+        CHECK(std::string(r.refusals[0].message()) ==
+              "(shapes ...) declares shapes; the layer may change data only");
+        CHECK(r.refusals[0].line() == 1);
+    }
+    CHECK(ok(cfg.check_layer_text("overlay", "(shop (sword (price 60)))\n",
+                                  {.data_only = true, .scalars_only = true}))
+              .ok());
+    CHECK(ok(cfg.check_layer_text("overlay", overlay, {.existing_only = true})).refusals.empty());
+}

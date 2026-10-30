@@ -278,8 +278,9 @@ Paths may be quoted (`#include "shared/common.dta"`) or bare, and resolve agains
 including file's directory, then the session's include directories
 (`add_include_dir`). Either `/` or `\` separates a path's parts.
 
-Any other `#name` is an error, so a misspelled directive is caught. A lone `#` is not a
-directive but the symbol `#`, as in a key binding `(# {toggle_hud})` (D101).
+Any other `#name` is an error, so a misspelled directive is caught. `#` opens a directive
+only before a letter: a lone `#`, `#1` and `#00aa00` are symbols, as in a key binding
+`(# {toggle_hud})` (D101) or a color, and the printer writes them bare (D251).
 
 ### A directory as a table: `#include_dir`
 
@@ -459,7 +460,10 @@ Shapes are declared in data, in one `(shapes ...)` container, each tagged by its
 
 - **Types:** `int`, `float`, `bool`, `symbol`, `string`, `any`, `curve`, `(list T)`,
   `(key_of TABLE)`, or another shape's name. A `curve` field's values are a curve (see
-  Curves, above), and its `(@range lo hi)` holds every point's y.
+  Curves, above), and its `(@range lo hi)` holds every point's y. A list may give its count:
+  `(position (list float 3))` holds exactly three values and `(tags (list symbol 1 4))` one to
+  four, and any other count is an error at the field. A softer pack may narrow the count, never
+  widen it.
 - **Metadata:** `@range`, `@step`, `@kind`, `@desc`, `@note` (as a tweak's), and
   `@optional`. A field without `@optional` is required. A word without the `@` after a
   field's type, or a `@` word the grammar lacks, is an error. A shape may describe itself
@@ -485,6 +489,11 @@ Shapes are declared in data, in one `(shapes ...)` container, each tagged by its
   Keyed data is what layers merge by name: a layer above can retune `heavy` alone. Data
   written `(boss (name dragon) ...)` is governed by name, but repeated tags do not merge
   one by one.
+- **A shape that governs nothing** checks nothing, silently: `(@at fighters moves)` for
+  `(@at fighters * moves)` is one level off. `shape::unused(tree, shapes, report)` warns of
+  each such shape, located where it is declared ("shape 'move' governs nothing: no array is
+  a child of fighters/moves"), and the kit's `check` runs it. A validator does not, since a
+  stack may lack some content for now.
 - **Keys of a table.** A field `(key_of TABLE)` holds the key of a record in TABLE, a
   dotted path such as `weapons` or `items.weapons`; `(list (key_of TABLE))` holds several.
   The table is the nearest one of that path that encloses the record, looked up outward, the

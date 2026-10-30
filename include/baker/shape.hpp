@@ -18,7 +18,8 @@
 //   (shapes (move (@at fighters * moves) (@keyed) (startup int (@range 1 60))))
 //
 // A field has a type (int, float, bool, symbol, string, any, curve, (list T), another shape's
-// name, or (key_of TABLE)) and the tweak metadata, each with its sigil (spec §4, D248); a symbol
+// name, or (key_of TABLE)) and the tweak metadata, each with its sigil (spec §4, D248). A list
+// may give its count: (list float 4) holds four values, (list float 1 3) one to three. A symbol
 // field may list the symbols it allows, (button symbol (@one_of light heavy kick special)). A curve
 // field's values are a curve (<baker/curve.hpp>), and its (@range lo hi) holds every point's y.
 //
@@ -59,6 +60,9 @@ struct Field {
     Type element = Type::Any;   // a List's elements
     baker::Symbol shape;        // a Shape's, or a List of shapes', name
     List<baker::Symbol> table;  // a Key's, or a List of keys', table: a path, as written
+    // How many values a List holds: (list T N) exactly N, (list T N M) N to M; any number
+    // when not declared.
+    uint32_t min_count = 0, max_count = UINT32_MAX;
     bool optional = false;
     bool ranged = false;
     double min = 0, max = 0;
@@ -135,6 +139,11 @@ private:
 // one-way rule warns of a call (D80).
 void check(const Array& tree, const Set& shapes, Report& report,
            const LoadSession* packs = nullptr);
+// A warning in `report` for each shape of `shapes` that governs no array of `tree`: one whose
+// (@at ...) names a place the data does not have (a keyed shape one level off checks
+// nothing), or whose tag nothing carries. A tool's check, not a validator's: data a stack
+// lacks for now is not an error at every merge.
+void unused(const Array& tree, const Set& shapes, Report& report);
 // Calls `visit` with each array of `tree` that a shape with rules governs (as check() finds
 // them, by tag or at a keyed shape's path), the shape, and the array's path from the root:
 // what tools::check_rules evaluates each rule over.
@@ -150,7 +159,7 @@ void each_ruled(
 // baker::script warns once that the shapes hold rules it cannot check.
 [[nodiscard]] Config::Validator validator();
 
-// The shapes of `shapes` as JSON (schema baker.shapes/1.4, docs/reference-json.md), sorted by
+// The shapes of `shapes` as JSON (schema baker.shapes/1.5, docs/reference-json.md), sorted by
 // name: each shape's place, keyed or not, and its fields with their types, ranges, steps,
 // kinds, documentation, and where they are declared, and its rules. For editors and agents.
 void write_json(const Set& shapes, TextSink out);

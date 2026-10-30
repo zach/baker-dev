@@ -235,7 +235,12 @@ TEST_CASE("a softer pack may narrow a harder pack's shape, not loosen it (D145)"
          "(shapes (move (button symbol (@one_of light heavy))))\n(move (button light))"},
         {"more_buttons.dta",
          "(pack more_mod (level mod))\n(shapes (move (button symbol (@one_of kick))))\n"
-         "(move (button kick))"}};
+         "(move (button kick))"},
+        {"counts.dta",
+         "(pack game_rules (level game))\n(shapes (unit (pos (list float 3))))\n(unit (pos 1 2 "
+         "3))"},
+        {"wide_counts.dta",
+         "(pack wide_mod (level mod))\n(shapes (unit (pos (list float 2 4))))\n(unit (pos 1 2))"}};
     struct Run {
         Config cfg{{.tweaks = nullptr}};
         std::vector<std::string> reported;
@@ -274,6 +279,10 @@ TEST_CASE("a softer pack may narrow a harder pack's shape, not loosen it (D145)"
     Run buttons{"buttons.dta", "more_buttons.dta"};
     CHECK(buttons.has("'button' is declared by a harder pack"));
     CHECK(buttons.has("'button' is 'kick', not one of light, heavy"));
+    // Widening a list's count loosens it, and the harder count holds (D251).
+    Run counts{"counts.dta", "wide_counts.dta"};
+    CHECK(counts.has("'pos' is declared by a harder pack"));
+    CHECK(counts.has("'pos' holds 2 values, not 3"));
     // Files that declare no pack are unconstrained, as before (D84).
     Run loose{"loose_base.dta", "loose_mod.dta"};
     CHECK(loose.reported.empty());
@@ -319,7 +328,7 @@ TEST_CASE("a symbol field lists the symbols it allows, (one_of ...) (D203)") {
     CHECK_FALSE(check_text("(shapes (s (n symbol (@one_of a 2))))").ok());
 }
 
-// --- As JSON, baker.shapes/1.4 (dev/tool-surface-plan.md §6, D203, D235, D245). ---
+// --- As JSON, baker.shapes/1.5 (dev/tool-surface-plan.md §6, D203, D235, D245). ---
 
 TEST_CASE("the shapes as JSON: each shape and its fields") {
     shape::Set shapes;
@@ -334,16 +343,16 @@ TEST_CASE("the shapes as JSON: each shape and its fields") {
     REQUIRE(report.errors.empty());
     std::string json;
     shape::write_json(shapes, string_out(json));
-    CHECK(json.rfind("{\n  \"schema\": \"baker.shapes/1.4\",\n  \"shapes\": [\n", 0) == 0);
+    CHECK(json.rfind("{\n  \"schema\": \"baker.shapes/1.5\",\n  \"shapes\": [\n", 0) == 0);
     CHECK(json.find(R"j({"name": "boss_phase", "at": ["bosses", "*", "phases"], "keyed": true, )j"
                     R"j("file": "shapes.dta", "line": 2, "fields": [)j") != std::string::npos);
     CHECK(
         json.find(
-            R"j({"name": "enter_at", "type": "float", "element": "", "shape": "", "table": "", )j"
+            R"j({"name": "enter_at", "type": "float", "element": "", "count": null, "shape": "", "table": "", )j"
             R"j("optional": false, "range": [0.0, 1.0], "step": 0.05, "kind": "", )j"
             R"j("desc": "HP fraction", "note": "", "one_of": [], "file": "shapes.dta", "line": 3})j") !=
         std::string::npos);
-    CHECK(json.find(R"j({"name": "adds", "type": "list", "element": "symbol", )j"
+    CHECK(json.find(R"j({"name": "adds", "type": "list", "element": "symbol", "count": null, )j"
                     R"j("shape": "", "table": "", "optional": true, "range": null,)j") !=
           std::string::npos);
 }
@@ -456,10 +465,13 @@ TEST_CASE("a key field in the shapes JSON names its table") {
     REQUIRE(report.errors.empty());
     std::string json;
     shape::write_json(shapes, string_out(json));
-    CHECK(json.find(R"j({"name": "weapon", "type": "key", "element": "", "shape": "", )j"
-                    R"j("table": "items.weapons", )j") != std::string::npos);
-    CHECK(json.find(R"j({"name": "spares", "type": "list", "element": "key", "shape": "", )j"
-                    R"j("table": "weapons", )j") != std::string::npos);
+    CHECK(json.find(
+              R"j({"name": "weapon", "type": "key", "element": "", "count": null, "shape": "", )j"
+              R"j("table": "items.weapons", )j") != std::string::npos);
+    CHECK(
+        json.find(
+            R"j({"name": "spares", "type": "list", "element": "key", "count": null, "shape": "", )j"
+            R"j("table": "weapons", )j") != std::string::npos);
 }
 
 // --- Rules, read here and evaluated by baker::tools (D238). ---
@@ -616,4 +628,64 @@ TEST_CASE("a curve field holds a curve, and its range each point's y") {
               "baker: 'pace' is not a curve: wobbly is not an interpolation (monotone, linear, "
               "catmull-rom, constant) or an extension (clamp, extrapolate, loop), or names one "
               "twice  (t.dta:5, at enemies/grunt/pace)"});
+}
+
+TEST_CASE("a list may give its count: (list T N) and (list T N M) (D251)") {
+    const auto r = check_text(
+        "(shapes (unit (pos (list float 3)) (tags (list symbol 1 2) (@optional))"
+        " (spares (list (key_of weapons) 0 1) (@optional))))\n"
+        "(weapons (laser) (rifle))\n"
+        "(unit (pos 1 2 3) (tags a b))\n(unit (pos 1 2) (tags))\n(unit (pos 1 2 3 4) (spares laser "
+        "rifle))\n");
+    const auto e = texts(r.errors);
+    CHECK(e.size() == 4);
+    CHECK(std::count_if(e.begin(), e.end(), [](const std::string& x) {
+              return x.find("'pos' holds 2 values, not 3") != std::string::npos ||
+                     x.find("'pos' holds 4 values, not 3") != std::string::npos ||
+                     x.find("'tags' holds 0 values, not 1 to 2") != std::string::npos ||
+                     x.find("'spares' holds 2 values, not 0 to 1") != std::string::npos;
+          }) == 4);
+    // A malformed count is a located error at the field.
+    for (const char* bad :
+         {"(shapes (u (p (list float 3 1))))", "(shapes (u (p (list float -1))))",
+          "(shapes (u (p (list float x))))", "(shapes (u (p (list float 1 2 3))))"}) {
+        INFO(bad);
+        CHECK(!check_text(bad).errors.empty());
+    }
+    // The JSON gives it as [min, max].
+    shape::Set set;
+    shape::Report report;
+    set.add(
+        *ok(read_string("(shapes (unit (pos (list float 3)) (tags (list symbol 1 2))))", "a.dta")),
+        report);
+    std::string json;
+    shape::write_json(set, string_out(json));
+    CHECK(json.find(R"j("name": "pos", "type": "list", "element": "float", "count": [3, 3],)j") !=
+          std::string::npos);
+    CHECK(json.find(R"j("count": [1, 2])j") != std::string::npos);
+}
+
+TEST_CASE("a shape that governs nothing is named, where it is declared (D251)") {
+    // A keyed shape one level off, (@at fighters moves) for (@at fighters * moves), checks
+    // nothing, and check() says nothing of it: unused() names it.
+    const auto tree = ok(read_string(
+        "(shapes (move (@at fighters moves) (@keyed) (startup int (@range 1 60)))\n"
+        "        (fighter (@at fighters) (@keyed) (health int))\n"
+        "        (boss (hp int)) (stats (speed float)) (hero (stats stats)))\n"
+        "(fighters (kestrel (health 3) (moves (jab (startup 900)))))\n(hero (stats (speed 1.5)))\n",
+        "wrong.dta"));
+    shape::Set set;
+    shape::Report report;
+    set.add(*tree, report);
+    shape::check(*tree, set, report);
+    CHECK(report.errors.empty());  // the startup of 900 goes unchecked
+    shape::Report found;
+    shape::unused(*tree, set, found);
+    const auto w = texts(found.warnings);
+    REQUIRE(w.size() == 2);
+    CHECK(w[0].find("shape 'move' governs nothing: no array is a child of fighters/moves") !=
+          std::string::npos);
+    CHECK(w[0].find("wrong.dta:1") != std::string::npos);
+    CHECK(w[1].find("shape 'boss' governs nothing: no array is tagged 'boss'") !=
+          std::string::npos);
 }

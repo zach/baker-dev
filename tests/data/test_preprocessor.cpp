@@ -126,13 +126,20 @@ TEST_CASE("unknown directives are errors") {
     CHECK(e.line() == 2);
 }
 
-TEST_CASE("a lone # is a symbol") {
-    // Real data binds it as a key: (# {fake_win 3}) in a cheats table (D101).
-    auto root = read_string("(# 3) #", "t.dta");
+TEST_CASE("# opens a directive only before a letter: #, #1 and #00aa00 are symbols") {
+    // Real data binds a lone # as a key: (# {fake_win 3}) in a cheats table (D101). The
+    // reader and the printer agree on each, so it reads back as written (D251).
+    auto root = read_string("(# 3) # (tint #00aa00) (#1 one) (#- x)", "t.dta");
     REQUIRE(root);
     CHECK((*(**root)[0].array())[0].try_sym() == Symbol("#"));
     CHECK((**root)[1].try_sym() == Symbol("#"));
-    CHECK(to_dta(**root) == "('#' 3)\n'#'\n");
+    CHECK((*(**root)[2].array())[1].try_sym() == Symbol("#00aa00"));
+    CHECK(to_dta(**root) == "(# 3)\n#\n(tint #00aa00)\n(#1 one)\n(#- x)\n");
+    // Before a letter it is a directive, and a symbol so spelled prints quoted.
+    CHECK_FALSE(read_string("(a #x1)", "t.dta"));
+    auto quoted = read_string("('#x1')", "t.dta");
+    REQUIRE(quoted);
+    CHECK(to_dta(**quoted) == "('#x1')\n");
     auto again = read_string(to_dta(**root), "t.dta");
     REQUIRE(again);
     CHECK(structurally_equal(**root, **again));

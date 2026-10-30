@@ -102,7 +102,7 @@ bool is_bare_symbol(std::string_view s) noexcept {
     if (s.empty()) return false;
     for (char c : s)
         if (is_atom_end(static_cast<unsigned char>(c))) return false;
-    if (s[0] == '\'' || s[0] == '$' || s[0] == '#') return false;
+    if (s[0] == '\'' || s[0] == '$' || is_directive(s)) return false;
     if (s.size() >= 2 && s[0] == '/' && s[1] == '*') return false;
     return classify_number(s).kind == NumberKind::NotNumber;
 }

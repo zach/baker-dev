@@ -328,11 +328,15 @@ declares.
 
 | Rule | Refuses |
 |---|---|
-| `data_only` | commands, properties, variables, `#autorun` |
-| `scalars_only` | a value that is not a number, symbol or string, and a removal |
+| `data_only` | commands, properties, variables, `#autorun`, and `(shapes ...)` |
+| `scalars_only` | a value that is not a number, symbol or string, a removal, and `(shapes ...)` |
 | `existing_only` | a new key, and a removal |
 | `allow` | anything outside the listed paths |
 | `warnings_refuse` | anything a validator, or the read, warns about |
+
+Shapes are refused by both data rules because they change how the stack is checked: an
+overlay that sent `(shapes (item (price int (@range 0 99999))))` beside `(shop (sword (price
+5000)))` would widen the range its own value is checked against.
 
 **The check.** `cfg.check_layer_text(name, text, policy)` checks text received from
 outside, changing nothing:
