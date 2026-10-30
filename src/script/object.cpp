@@ -65,6 +65,10 @@ void set_type_name(TypeRecord& type, std::string_view name) {
     type.name = name;
 }
 
+MethodEntry* add_native_method(TypeRecord& r, Symbol name, const NativeDesc& native) {
+    return add_method(r, name, make_native(native));
+}
+
 MethodEntry* add_method(TypeRecord& r, Symbol name, Overload o) {
     MethodEntry* m = nullptr;
     for (MethodEntry& x : r.methods)

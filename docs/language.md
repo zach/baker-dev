@@ -617,7 +617,10 @@ A native function's parameter and result types are deduced from its signature; i
 take `Raw<Node>` for an argument it evaluates itself, `std::optional<T>` for an optional
 one, `Args` for the rest, and registering the name again with another signature makes an
 overload set. A call with two scalar arguments takes about 31 ns and never allocates
-(D78).
+(D78). The Context keeps a copy of the callable (moved, when given a temporary) in its own
+memory; a lambda that captures nothing is not kept at all. Registering costs about 460
+bytes of code per binding with GCC at -O2, most of it the call itself, and the
+registration's own work runs out of line.
 
 ### Variables
 

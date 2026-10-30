@@ -8761,3 +8761,39 @@ includes it.
   0.033 s and 422 preprocessed lines; `config.hpp` 0.545 s and 36,086 lines;
   `script.hpp` 0.404 s and 36,222 lines.
 
+## D255. A binding's registration out of line
+
+*From the review of D250 (finding 8); the owner chose to build it.* Each `ctx.func` and
+`Binder::method` call site inlined the whole registration: boxing the callable in the
+Context's allocator (a templated `Shared::Box`, with its own destroy function), counting
+the arguments over the parameter table, and building and moving an `Overload`. It runs
+once per binding, and it was about 400 of the 900 bytes a binding cost.
+
+- **Now** the call site builds a `NativeDesc` of constants (the thunk, the parameter
+  table, the result's name) and an `ErasedCallable` (the callable's address, size and
+  alignment, and two function pointers: construct it from there, by copy or by move as
+  the call was given it, and destroy it), and calls `Context::add_native` or
+  `add_native_method`, out of line. `Shared::make_erased` boxes the callable after a
+  header at its alignment; `make_native` counts the arguments. `make_overload` is gone.
+- **A stateless callable is not kept.** A lambda with no captures is empty, trivially
+  copyable and default-constructible, so `invoke` uses a `static constexpr` one instead of
+  reading the box, and the Context allocates nothing for it: one allocation fewer per
+  binding, for most of them.
+- **Measured** (GCC 13, a unit of N bindings of four kinds, N = 40 against 160, three
+  compiles each; a script in the session, not checked in):
+
+  | | before | after |
+  |---|---:|---:|
+  | code per binding, -O2 | 902 B | 463 B |
+  | compile time per binding, -O2 | 31 ms | 16 ms |
+  | code per binding, -O0 | 1,834 B | 1,129 B |
+  | compile time per binding, -O0 | 9 ms | 6 ms |
+
+  One registration's function: a stateless lambda 392 to 207 bytes, a capturing one 408
+  to 271. What remains per binding is mostly the thunk, the call itself.
+- **The calls are unchanged.** `tools/count_instructions.py` against D254: call, overload,
+  declared, message, frame and set the same to the instruction.
+- **Test** (`test_binding.cpp`): an lvalue callable is copied and a temporary moved (a
+  counter of live copies), a move-only lambda binds, the Context destroys what it kept,
+  and a stateless lambda costs one allocation fewer than a capturing one.
+
