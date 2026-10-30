@@ -34,9 +34,7 @@ namespace {
 thread_local detail::InternSite this_site;
 
 void report_by_default(const Error& report) {
-    std::fprintf(stderr, "%.*s\n", static_cast<int>(to_string(report).size()),
-                 to_string(report).data());
-    std::abort();
+    detail::fatal(to_string(report));
 }
 
 std::atomic<SymbolCollisionHandler> collision_handler{report_by_default};

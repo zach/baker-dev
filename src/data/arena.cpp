@@ -101,7 +101,7 @@ void Arena::adopt(Node* slot, Node&& n, bool building) {
 }
 
 Ref<Array> Arena::make_array(std::span<Node> nodes, Symbol file, int32_t line, int verb) {
-    if (nodes.size() > UINT32_MAX) std::abort();
+    if (nodes.size() > UINT32_MAX) fatal("an array of more than 4,294,967,295 nodes");
     const auto size = static_cast<uint32_t>(nodes.size());
     uint32_t offset = 0;
     void* mem = take(Array::bytes(size), offset);
@@ -115,7 +115,7 @@ Ref<Array> Arena::make_array(std::span<Node> nodes, Symbol file, int32_t line, i
 }
 
 Ref<String> Arena::make_string(std::string_view text) {
-    if (text.size() >= UINT32_MAX) std::abort();
+    if (text.size() >= UINT32_MAX) fatal("a string of 4 GB or more");
     const auto size = static_cast<uint32_t>(text.size());
     uint32_t offset = 0;
     void* mem = take(sizeof(String) + size + 1, offset);

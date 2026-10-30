@@ -1,8 +1,16 @@
 #include <baker/allocator.hpp>
+#include <baker/error.hpp>
 
 #include <atomic>
+#include <cstdio>
 #include <cstdlib>
 #include <new>
+
+#if defined(_MSC_VER)
+#define BAKER_COLD __declspec(noinline)
+#else
+#define BAKER_COLD [[gnu::noinline, gnu::cold]]
+#endif
 
 namespace baker {
 namespace {
@@ -10,7 +18,8 @@ namespace {
 // Baker never asks for more than the default alignment of new, so free() needs no
 // alignment to pick the matching delete.
 void* new_alloc(void*, size_t size, size_t align) {
-    if (align > __STDCPP_DEFAULT_NEW_ALIGNMENT__) std::abort();
+    if (align > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        detail::fatal("an allocation aligned past what the default allocator gives");
     return ::operator new(size, std::nothrow);
 }
 
@@ -40,9 +49,16 @@ bool set_default_allocator(const Allocator& allocator) noexcept {
 
 namespace detail {
 
+// Out of line, so the allocation it follows compiles as it would alone.
+[[noreturn]] BAKER_COLD void allocation_failed(size_t size) noexcept {
+    char bytes[32];
+    const int n = std::snprintf(bytes, sizeof bytes, "%zu bytes", size);
+    fatal("an allocator returned null, asked for ", {bytes, n > 0 ? static_cast<size_t>(n) : 0});
+}
+
 void* allocate(const Allocator& a, size_t size, size_t align) {
     void* p = a.alloc(a.user, size ? size : 1, align);
-    if (!p) std::abort();
+    if (!p) allocation_failed(size);
     return p;
 }
 

@@ -391,6 +391,7 @@ const Allocator& Context::allocator() const noexcept {
 Context::Context(const Allocator& allocator)
     : impl_(detail::create<Impl>(allocator, *this, allocator)) {
     detail::set_evaluator(&evaluate_for_data);
+    detail::set_fatal_stack(&script_backtrace);  // a fatal error carries the script stack
     if (!t_current) t_current = this;
     impl_->sink = &stderr_sink;
     impl_->trace_sink = &stderr_trace;
