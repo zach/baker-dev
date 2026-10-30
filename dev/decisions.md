@@ -9078,6 +9078,11 @@ NAME (body)` kept with a nudge toward `[NAME ...]`, and the at-the-table `#shape
   lists declarations in effect, diff and explain; `test_structure.cpp` marks a form. Fuzz
   regression `declarations.bin`; the dictionary gains the three directives.
 - **Raw gate.** 464/464 files, 0 round-trip failures.
-- **Fuzzing.** FUZZ
+- **Fuzzing.** libFuzzer under ASan and UBSan, built as CI's fuzz job, seeded with D260's
+  corpus and the fuzz regressions, toward the 1 million executions of each adoption step:
+  1,000,000 executions in runs each resumed from the last one's corpus, with no crash, leak
+  or sanitizer report, and a corpus of 18,695 inputs at the end. The first run stopped at
+  once: the dictionary's `#origin` entry escaped its own closing quote, which libFuzzer
+  refuses, so CI's fuzz job would have failed too; it reads `"#origin (\""` now.
 - **Not done.** The at-the-table `#shape` (deferred by the owner). A `#pack` or `#origin` in a
   layer's `layer_effect` has no line, since `Pack` and `Origin` keep none.
