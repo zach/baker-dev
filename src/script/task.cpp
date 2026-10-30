@@ -189,7 +189,7 @@ void park_tick(TaskPromiseBase& p) noexcept {
 }  // namespace detail
 
 void Task::promise_type::unhandled_exception() noexcept {
-    std::abort();
+    detail::fatal("a script task's coroutine threw");  // never, with exceptions disabled
 }
 
 Scheduler::Scheduler(Context& ctx, SchedulerOptions options)

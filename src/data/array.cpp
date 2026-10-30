@@ -42,7 +42,7 @@ Ref<Array> Array::make(uint32_t size, Symbol file, int32_t line) {
 }
 
 Ref<Array> Array::make_from(std::span<Node> nodes, Symbol file, int32_t line) {
-    if (nodes.size() > UINT32_MAX) std::abort();
+    if (nodes.size() > UINT32_MAX) detail::fatal("an array of more than 4,294,967,295 nodes");
     const auto size = static_cast<uint32_t>(nodes.size());
     Array* a = allocate(size, file, line);
     Node* d = a->data();
@@ -52,7 +52,7 @@ Ref<Array> Array::make_from(std::span<Node> nodes, Symbol file, int32_t line) {
 }
 
 Ref<Array> Array::make_copy(std::span<const Node> nodes, Symbol file, int32_t line) {
-    if (nodes.size() > UINT32_MAX) std::abort();
+    if (nodes.size() > UINT32_MAX) detail::fatal("an array of more than 4,294,967,295 nodes");
     const auto size = static_cast<uint32_t>(nodes.size());
     Array* a = allocate(size, file, line);
     Node* d = a->data();

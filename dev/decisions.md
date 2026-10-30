@@ -8540,3 +8540,33 @@ debug-build tracking, an arena-owned read destination and a fallible allocator f
 - **Cost.** `tools/count_instructions.py` against 77124a6: call, message, lookup, set,
   frame and parse unchanged; overload −4 instructions (788 to 784); declared +3 (524 to
   527), the spill holder keeping its allocator.
+
+## D251. A fatal error goes to the host's handler, with the script stack
+
+*From the review of D250 (finding 18); the owner chose to build it.* Ten `std::abort()`
+sites in `src/` had no hook: an engine routes fatal errors to its crash reporter, with the
+script stack, and Baker's only replaceable handler was the symbol collision's (D247).
+
+- **The API** (`<baker/error.hpp>`): `set_fatal_handler(fn)`, a function pointer taking the
+  message, returning the one it replaces; null restores the default, which writes to
+  stderr. The handler must not return; Baker aborts if it does. Every abort site calls
+  `detail::fatal(what, more)` now: an allocator returning null (with the size asked), an
+  array or a string past 4 GB, an alignment past the default allocator's, EASTL asking for
+  an offset, a coroutine's unhandled exception, reading the value of an `Expected` that
+  holds an error (with the error, where Baker's own `Expected` is used: C++20), and the
+  collision's default handler.
+- **The script stack.** The data library cannot see script, so it holds a function pointer,
+  `detail::set_fatal_stack`, which each Context's constructor sets to `script_backtrace`, as
+  it sets the data library's evaluator: no static initializer. While a call runs, the
+  message carries the stack, innermost first, in the form errors already use.
+- **No allocation.** The message is built in a 4 KB buffer on the stack and cut there,
+  since what failed may be the allocator.
+- **Cost.** `fatal` is marked cold, as glibc marks `std::abort`: without it,
+  `Arena::make_array`'s size check compiled differently and parse took 885 more
+  instructions a parse. With it, `tools/count_instructions.py` against D250: parse +16 a
+  parse (0.001%), lookup, set, call, overload, declared, message and frame unchanged. The
+  allocation failure's formatting is in its own cold function.
+- **Tests,** each in a forked child (POSIX): a handler that reports and ends the process,
+  with the message exact; a failure inside a script function, carrying `{exhaust}` then
+  `{spawn_wave}`; a handler that returns, and the process still aborts; no handler, the
+  message on stderr; reading an `Expected`'s error, in C++20 builds.

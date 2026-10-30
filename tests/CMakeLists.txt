@@ -57,6 +57,7 @@ if(BAKER_BUILD_SCRIPT)
     script/test_check.cpp
     script/test_debug.cpp
     script/test_eval.cpp
+    script/test_fatal.cpp
     script/test_messages.cpp
     script/test_object.cpp
     script/test_script_tasks.cpp

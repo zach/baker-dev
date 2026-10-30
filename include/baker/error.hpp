@@ -26,6 +26,14 @@
 #include <type_traits>
 #include <utility>
 
+// Marks a function rarely called, as std::abort is, so the code calling it is laid out as if
+// it did not.
+#if defined(__GNUC__)
+#define BAKER_DETAIL_COLD [[gnu::cold]]
+#else
+#define BAKER_DETAIL_COLD
+#endif
+
 namespace baker {
 
 // BAKER_SHIPPING: reload and live edits are inert, and dev_only tweaks keep their code
@@ -117,6 +125,27 @@ private:
 //     in {bob attack}  (boss.dta:4)
 [[nodiscard]] std::string_view describe(const Error& error);
 
+// A fatal error: Baker cannot go on. An allocator returned null, an array or a string passed
+// 4 GB, the value of an Expected that holds an error was read, a symbol collision went to the
+// default handler. The handler gets a message, and after it the current Context's script call
+// stack, innermost first, when a script call is running: for an engine's crash reporter. It
+// must not return; if it does, Baker aborts. The message is built in a buffer on the stack,
+// since what failed may be the allocator, and is cut at 4 KB. Returns the handler it replaces;
+// null restores the default, which writes the message to stderr.
+using FatalHandler = void (*)(std::string_view message);
+FatalHandler set_fatal_handler(FatalHandler handler) noexcept;
+
+namespace detail {
+// Reports a fatal error, `what` then `more`, to the fatal handler, then aborts. Cold, as
+// std::abort is, so a check that calls it compiles as one that aborts did (D251).
+[[noreturn]] BAKER_DETAIL_COLD void fatal(std::string_view what,
+                                          std::string_view more = {}) noexcept;
+// Writes the current Context's script call stack, if a call is running: baker::script sets it
+// when it makes its first Context, so a fatal error carries the stack.
+using FatalStack = void (*)(TextSink out);
+void set_fatal_stack(FatalStack stack) noexcept;
+}  // namespace detail
+
 // Two names that share a hash (symbol_hash). Symbols stay correct, since interning compares
 // text, but code that keys on Symbol::hash(), a switch over "x"_hash or a save keyed by hash,
 // cannot tell the two apart. A build that is not shipping checks each name the first time it
@@ -139,8 +168,11 @@ using Unexpected = unexpected<Error>;
 namespace detail {
 // Reading the value of an Expected that holds an error is a bug in the caller: abort.
 template <class E>
-[[noreturn]] void throw_bad_expected_access(const E&) {
-    std::abort();
+[[noreturn]] void throw_bad_expected_access(const E& e) {
+    if constexpr (std::is_same_v<E, Error>)
+        fatal("the value of an Expected that holds an error was read: ", to_string(e));
+    else
+        fatal("the value of an Expected that holds an error was read");
 }
 }  // namespace detail
 #endif

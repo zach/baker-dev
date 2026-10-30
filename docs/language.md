@@ -723,3 +723,20 @@ baker: '%' by zero  (boss.dta:9)
 Read it top down: the failing call, then each caller, each with the file and line where it
 is written. `script_backtrace()` prints the same stack while a call is running, for an
 assert handler or crash reporter to print beside the C++ stack.
+
+### Fatal errors
+
+A few failures leave Baker nothing to return: an allocator that returns null, an array or a
+string past 4 GB, reading the value of an `Expected` that holds an error. Baker reports
+each to the fatal handler and aborts. The message names what failed, and while a script
+call is running it carries the script stack, innermost first:
+
+```
+baker: fatal: an allocator returned null, asked for 16 bytes
+in {exhaust}  (level.dta:1)
+in {spawn_wave}  (level.dta:1)
+```
+
+`baker::set_fatal_handler(fn)` routes it to an engine's crash reporter; the default writes
+it to stderr. The handler must not return, and Baker aborts if it does. The message is built
+without allocating, since the allocator may be what failed, and is cut at 4 KB.

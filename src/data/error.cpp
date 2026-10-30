@@ -3,7 +3,12 @@
 
 #include "common/containers.hpp"
 
+#include <algorithm>
+#include <atomic>
 #include <charconv>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 namespace baker {
 
@@ -201,6 +206,57 @@ std::string_view describe(const Error& e) {
     }
     r.described = std::move(out);
     return r.described;
+}
+
+// --- Fatal errors ---
+
+namespace {
+
+std::atomic<FatalHandler> fatal_handler{nullptr};
+std::atomic<detail::FatalStack> fatal_stack{nullptr};
+
+// A message on the stack: what failed may be the allocator.
+struct FatalText {
+    char text[4096];
+    size_t size = 0;
+    void append(std::string_view s) noexcept {
+        const size_t n = std::min(s.size(), sizeof text - size);
+        std::memcpy(text + size, s.data(), n);
+        size += n;
+    }
+};
+
+}  // namespace
+
+FatalHandler set_fatal_handler(FatalHandler handler) noexcept {
+    return fatal_handler.exchange(handler, std::memory_order_acq_rel);
+}
+
+void detail::set_fatal_stack(FatalStack stack) noexcept {
+    fatal_stack.store(stack, std::memory_order_release);
+}
+
+void detail::fatal(std::string_view what, std::string_view more) noexcept {
+    FatalText m;
+    m.append("baker: fatal: ");
+    m.append(what);
+    m.append(more);
+    if (const FatalStack stack = fatal_stack.load(std::memory_order_acquire)) {
+        const size_t before = m.size;
+        m.append("\n");
+        stack({[](void* to, std::string_view text) { static_cast<FatalText*>(to)->append(text); },
+               &m});
+        if (m.size == before + 1) m.size = before;  // no call running
+    }
+    while (m.size > 0 && m.text[m.size - 1] == '\n') --m.size;  // the stack's last line
+    const std::string_view message(m.text, m.size);
+    if (const FatalHandler handler = fatal_handler.load(std::memory_order_acquire)) {
+        handler(message);
+    } else {
+        std::fwrite(message.data(), 1, message.size(), stderr);
+        std::fputc('\n', stderr);
+    }
+    std::abort();
 }
 
 }  // namespace baker
