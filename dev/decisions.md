@@ -8271,8 +8271,10 @@ parse-time rule, not the lighter spelling-only pass. Revisits D88, D218 and spec
   - The index of the first metadata child is kept in `Array::flags_`' 14 spare bits, by
     `finish()` (from the word the tag run's empty-tag test already loads, D125), `set()`
     and `sort_for_lookup()`, which sorts metadata after the other tagged children so the
-    values and the boundary survive (D28). `find_sorted` searches the metadata or the
-    rest, by the key's own bit. Metadata past child 16,383 is refused (`Limit`).
+    values and the boundary survive (D28). `find_sorted` searches the whole array in that
+    order; it began at the boundary at first, and CI's lookup fuzzer found the miss: in an
+    untagged array, `((@range 0 10) (@ssmall 1))`, slot 0 holds metadata's tag, which no
+    boundary names. Metadata past child 16,383 is refused (`Limit`).
   - `values()` ends at the boundary, for every reader. `metadata()` lists the metadata
     children, skipping a field that follows them; `meta(tag)` finds one by the tag run.
     `split_metadata` and `ValueMetadata` (D218) are deleted: `values()` and `metadata()`

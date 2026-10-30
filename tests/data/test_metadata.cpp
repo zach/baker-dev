@@ -110,6 +110,14 @@ TEST_CASE("the boundary survives sorting, set(), merging and the cache") {
         CHECK(k.try_find("@range"));
         CHECK(k.try_find("@desc"));
         CHECK(!k.try_find("@step"));
+        // In an untagged array, slot 0 may be tagged '@': no boundary names it, and the
+        // sorted search still finds it (a lookup fuzzer input).
+        Ref<Array> list = parse("((@range 0 10) (@ssmall 1))\n");
+        Array& l = const_cast<Array&>(*(*list)[0].try_array());
+        CHECK(l.meta_first() == 1);
+        l.sort_for_lookup();
+        CHECK(l.try_find("@range"));
+        CHECK(l.try_find("@ssmall"));
     }
     SUBCASE("set() moves it when the slot it replaces is or becomes the first") {
         Ref<Array> a = Array::make(4);
