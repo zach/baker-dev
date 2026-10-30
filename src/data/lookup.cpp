@@ -269,15 +269,15 @@ void Array::sort_for_lookup() {
 
 const Array* Array::find_sorted(Symbol tag) const noexcept {
     if (tag.empty()) return nullptr;  // '' is no tag (D125)
-    // The run to search: the metadata from the boundary, or the tagged children before it.
-    const Node* first = begin();
-    const Node* last = end();
-    if (const uint32_t m = meta_first()) (tag.is_meta() ? first : last) = begin() + m;
-    const Node* it = std::partition_point(first, last, [tag](const Node& n) {
+    // The sort's order: untagged, then the other tags, then metadata's. Not from the
+    // boundary: in an untagged array, slot 0 may be metadata's tag, which the boundary never
+    // names.
+    const bool meta = tag.is_meta();
+    const Node* it = std::partition_point(begin(), end(), [tag, meta](const Node& n) {
         const Symbol t = detail::tag_of(n);
-        return t.empty() || tag_less(t, tag);
+        return t.empty() || (t.is_meta() == meta ? tag_less(t, tag) : !t.is_meta());
     });
-    return it != last && detail::tag_of(*it) == tag ? it->try_array() : nullptr;
+    return it != end() && detail::tag_of(*it) == tag ? it->try_array() : nullptr;
 }
 
 namespace detail {
