@@ -181,6 +181,7 @@ struct LoadSession::State {
     // Per top-level read.
     Vec<Str> include_stack;
     uint64_t nodes = 0;
+    detail::NewSymbols new_symbols;  // counted by the symbol table
     uint32_t includes = 0;
 };
 
@@ -244,6 +245,8 @@ public:
             return fail(ErrorCode::Syntax, Str(bracket_name(f.open)) + " is never closed", f.line,
                         f.begin);
         }
+        if (s_.st_->new_symbols.count > s_.limits.max_new_symbols)  // a directive's last name
+            return too_many_names(line_, kNoColumn);
         if (!rows_.empty()) {
             Str path;
             if (!fold(scratch_, map_ ? &spans_ : nullptr, 0, path, 0)) return false;
@@ -298,6 +301,15 @@ private:
     bool fail(ErrorCode code, std::string_view msg, int32_t line) {
         return fail(code, msg, line, kNoColumn);
     }
+    // Past ParseLimits::max_new_symbols, the symbol table spends the node budget
+    // (count_new_symbols), so push() finds it at no cost of its own.
+    bool too_many_names(int32_t line, uint32_t at) {
+        return fail(ErrorCode::Limit,
+                    "more than " +
+                        detail::decimal(static_cast<int64_t>(s_.limits.max_new_symbols)) +
+                        " new names (ParseLimits::max_new_symbols)",
+                    line, at);
+    }
     bool too_deep(int32_t line, uint32_t at = kNoColumn) {
         return fail(ErrorCode::Limit,
                     "nesting deeper than " + detail::decimal(s_.limits.max_depth) + " levels", line,
@@ -312,11 +324,14 @@ private:
     // Edit mode keeps spans_ parallel to scratch_. An included file's nodes were counted by
     // its own parser, so splicing them in does not count them again (D135).
     bool push(Node n, const SourceSpan& span = {}, bool counted = false) {
-        if (!counted && ++s_.st_->nodes > s_.limits.max_nodes)
+        if (!counted && ++s_.st_->nodes > s_.limits.max_nodes) {
+            if (s_.st_->new_symbols.count > s_.limits.max_new_symbols)
+                return too_many_names(line_, span.file.empty() ? kNoColumn : span.begin);
             return fail(ErrorCode::Limit,
                         "more than " + detail::decimal(static_cast<int64_t>(s_.limits.max_nodes)) +
                             " nodes",
                         line_, span.file.empty() ? kNoColumn : span.begin);
+        }
         if (frames_.back().kind == Frame::Root && n.type() == Type::Property)
             return fail(ErrorCode::Syntax,
                         "a [property] cannot appear at top level, where '[' defines a macro", line_,
@@ -1519,6 +1534,7 @@ Expected<Ref<Array>> read_string(std::string_view text, std::string_view name,
     if (top) {
         LoadSession::State& st = *session.st_;
         st.nodes = 0;
+        st.new_symbols = {0, session.limits.max_new_symbols, &st.nodes, session.limits.max_nodes};
         st.includes = 0;
         st.recorded = session.record_for_cache;
         st.files.clear();
@@ -1543,6 +1559,19 @@ Expected<Ref<Array>> read_string(std::string_view text, std::string_view name,
     // Its first block is sized from the text (D131).
     const detail::Arena::Handle arena(detail::Arena::create(
         session.allocator ? *session.allocator : default_allocator(), first_block(text)));
+    // A top-level read counts the names it interns; an include counts into the same total.
+    struct CountNames {
+        bool top;
+        detail::NewSymbols* outer = nullptr;
+        CountNames(bool is_top, detail::NewSymbols* counter) : top(is_top) {
+            if (top) outer = detail::count_new_symbols(counter);
+        }
+        ~CountNames() {
+            if (top) (void)detail::count_new_symbols(outer);
+        }
+        CountNames(const CountNames&) = delete;
+        CountNames& operator=(const CountNames&) = delete;
+    } count(top, &session.st_->new_symbols);
     detail::Parser parser(session, *arena, text, Symbol(file), 0);
     Ref<Array> root;
     Error err;

@@ -19,6 +19,20 @@ struct InternSite {
 // Sets this thread's site and returns the one it replaces, to put back.
 InternSite set_intern_site(InternSite site) noexcept;
 
+// The names a read interns that are new to the table, against ParseLimits::max_new_symbols.
+// Past the limit, the table sets *trip to trip_at, the read's node limit, so the parser's
+// node check, which it makes anyway, fails next and finds why here.
+struct NewSymbols {
+    uint64_t count = 0;
+    uint64_t limit = 0;
+    uint64_t* trip = nullptr;
+    uint64_t trip_at = 0;
+};
+
+// Counts each name this thread interns that is new to the table into `*counter`, until it is
+// set again; null counts none. Returns the counter it replaces, to put back. In every build.
+NewSymbols* count_new_symbols(NewSymbols* counter) noexcept;
+
 // The site for a scope, in a build that is not shipping; the outer one again after it.
 class InternSiteScope {
 public:

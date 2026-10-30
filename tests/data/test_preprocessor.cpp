@@ -597,3 +597,40 @@ TEST_CASE("a session lists the macro definitions its reads made, where each is w
     CHECK(game.macro_definitions()[2].line == 2);
     CHECK(game.macro_definitions()[0].flag);
 }
+
+TEST_CASE("max_new_symbols bounds the names a read adds to the program (D252)") {
+    // Names no other test interns: a run counter keeps them new if the case runs twice.
+    static int run = 0;
+    ++run;
+    const auto names = [&](const char* prefix, int n) {
+        std::string s = "(ids";
+        for (int i = 0; i < n; ++i)
+            s += " " + std::string(prefix) + std::to_string(run) + "_" + std::to_string(i);
+        return s + ")";
+    };
+    LoadSession s;
+    s.limits.max_new_symbols = 8;
+    // The file's own name is new too; "ids" may be.
+    const std::string fine = names("cap_fine_", 5);
+    REQUIRE(read_string(fine, "cap_fine.dta", s));
+    // Read again, the same names are no longer new.
+    s.limits.max_new_symbols = 0;
+    CHECK(read_string(fine, "cap_fine.dta", s));
+
+    s.limits.max_new_symbols = 8;
+    const auto r = read_string(names("cap_many_", 20), "cap_many.dta", s);
+    REQUIRE_FALSE(r);
+    CHECK(r.error().code() == ErrorCode::Limit);
+    CHECK(r.error().message() == "more than 8 new names (ParseLimits::max_new_symbols)");
+    CHECK(r.error().line() == 1);
+
+    // An include counts into its reader's total; variables and macro names count.
+    Files fs;
+    fs.session.limits.max_new_symbols = 6;
+    fs.files["cap_inc.dta"] = names("cap_inc_", 4);
+    fs.files["cap_main.dta"] = "#include cap_inc.dta\n[CAP_M" + std::to_string(run) +
+                               " 1]\n(v $cap_var" + std::to_string(run) + ")\n";
+    CHECK(fs.fail("cap_main.dta").code() == ErrorCode::Limit);
+    fs.session.limits.max_new_symbols = 1 << 20;
+    CHECK(fs.load("cap_main.dta").find("cap_inc_") != std::string::npos);
+}

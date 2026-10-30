@@ -564,6 +564,13 @@ How a game delivers content after it ships (dev/background/content-updates.md):
   Content that arrives as text, such as a live overlay, also sets
   `LoadSession::refuse_includes`, so it cannot `#include` the game's files;
   `Config::push_layer_text` sets both (D163).
+- **Bound the names outside text adds.** Symbols live until the program ends, so overlays
+  read all session, mods, or a console that use unique IDs as symbols add to them with every
+  read. `ParseLimits::max_new_symbols` (on the session's `limits`) caps the names a read
+  may add that the program had not seen: past it the read fails with `ErrorCode::Limit`.
+  The default, 1,048,576, suits the game's own data; set it far lower for text you do not
+  trust. A name already interned costs nothing, so reading the same overlay again counts
+  none (D252).
 
 ## Linking a shipped game
 
