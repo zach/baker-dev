@@ -4,6 +4,7 @@
 #include "common/containers.hpp"
 #include "intern_site.hpp"
 #include "lexer.hpp"
+#include "markers.hpp"
 #include "merge.hpp"
 #include "session.hpp"
 #include "text.hpp"
@@ -267,9 +268,9 @@ private:
         int32_t line;
         Symbol name;  // DefineBody
         char open = '(';
-        uint32_t begin = 0;    // offset of the opening bracket
-        bool removes = false;  // holds #remove, which must be its one value (D143)
-        bool row = false;      // headed by a row's key: close() wraps it in the key's segments
+        uint32_t begin = 0;  // offset of the opening bracket
+        bool verb = false;   // holds a layer verb: its form is checked at close (D143)
+        bool row = false;    // headed by a row's key: close() wraps it in the key's segments
     };
     struct Cond {
         bool active;         // tokens in the current branch are read
@@ -390,7 +391,6 @@ private:
                         t.line, t.begin);
         frames_.pop_back();
         std::span<Node> kids(scratch_.data() + f.start, scratch_.size() - f.start);
-        if (f.removes && kids.size() != 2) return bad_remove(f.line, f.begin);
 
         if (f.kind == Frame::MacroDef) {
             const auto name = kids.empty() ? std::nullopt : kids[0].try_sym();
@@ -406,7 +406,7 @@ private:
             return true;
         }
 
-        Ref<Array> arr = arena_.make_array(kids, file_, f.line);
+        Ref<Array> arr = arena_.make_array(kids, file_, f.line, f.verb);
         record(arr, f.start, f.begin, t.end);
         truncate(f.start);
         if (arr->height() > s_.limits.max_depth) return too_deep(f.line, f.begin);
@@ -417,6 +417,7 @@ private:
         if ((arr->meta_first() | (arr->size() >> 14)) && f.kind == Frame::Array &&
             !metadata_placed(*arr, f))
             return false;
+        if (f.verb && !verb_placed(*arr, f)) return false;
         if (f.row) return wrap_row(std::move(arr), f, t.end);
         const SourceSpan span{file_, f.begin, t.end, {}};
         switch (f.kind) {
@@ -517,8 +518,11 @@ private:
         if (fold_.size() <= depth) fold_.resize(depth + 1);
         FoldLevel& l = fold_[depth];
         l.order.clear();
+        // A key's #append and #drop rows stay apart, in the order written: the merge applies
+        // each in turn, as it does a nested file's.
         for (size_t i = from; i < nodes.size(); ++i)
-            if (!tag_of(nodes[i]).empty()) l.order.push_back(static_cast<uint32_t>(i));
+            if (!tag_of(nodes[i]).empty() && !detail::composes(*nodes[i].try_array()))
+                l.order.push_back(static_cast<uint32_t>(i));
         std::sort(l.order.begin(), l.order.end(), [&](uint32_t x, uint32_t y) {
             const void *a = tag_of(nodes[x]).id(), *b = tag_of(nodes[y]).id();
             return a != b ? std::less<>()(a, b) : x < y;
@@ -559,10 +563,10 @@ private:
         // The member with values, if any; a second one, or a removal joined with anything,
         // is written twice.
         uint32_t valued = has_values(a) ? static_cast<uint32_t>(h) : kNoNext;
-        bool removed = is_removal(a);
+        bool removed = detail::is_removal(a);
         for (uint32_t m = l.next[h]; m != kNoNext; m = l.next[m] & ~kLater) {
             const Array& b = *nodes[m].try_array();
-            if ((valued != kNoNext && has_values(b)) || removed || is_removal(b))
+            if ((valued != kNoNext && has_values(b)) || removed || detail::is_removal(b))
                 return written_twice(b, path, valued != kNoNext && has_values(b));
             if (has_values(b)) valued = m;
         }
@@ -869,23 +873,30 @@ private:
         return true;
     }
 
-    // `(key #remove)`: the marker is the tagged array's one value (D143).
-    bool bad_remove(int32_t line, uint32_t at) {
-        return fail(ErrorCode::Directive, "#remove is written as a key's only value: (key #remove)",
-                    line, at);
+    // Whether the verb in `a`'s slot has the form it is written in; else the located error.
+    BAKER_COLD bool verb_placed(const Array& a, const FrameInfo& f) {
+        if (detail::verb_of(a) != detail::Marker::None) return true;
+        return fail(ErrorCode::Directive, detail::marker_hint(detail::marker_of(a[1])), f.line,
+                    f.begin);
     }
-    bool removal(const Token& t) {
+
+    // A layer verb, `#remove`, `#append` or `#drop`: the first value of a parenthesized
+    // array tagged with a key, metadata's included (D143). The rest of its form (how many
+    // values follow) is checked when the array closes.
+    bool verb(const Token& t, detail::Marker m) {
         FrameInfo& f = frames_.back();
-        if (f.kind != Frame::Array || scratch_.size() != f.start + 1 ||
-            !scratch_[f.start].try_sym())
-            return bad_remove(t.line, t.begin);
-        f.removes = true;
-        return push(Node(remove_marker()), here(t));
+        const auto tag =
+            scratch_.size() == f.start + 1 ? scratch_[f.start].try_sym() : std::nullopt;
+        if (f.kind != Frame::Array || !tag || tag->empty())
+            return fail(ErrorCode::Directive, detail::marker_hint(m), t.line, t.begin);
+        f.verb = true;
+        return push(Node(detail::marker_symbol(m)), here(t));
     }
 
     bool directive(const Token& t) {
         const std::string_view d = t.text;
-        if (d == "remove") return removal(t);
+        if (const detail::Marker m = detail::marker_named(d); m != detail::Marker::None)
+            return verb(t, m);
         if (d == "ifdef" || d == "ifndef") return conditional(t, true);
         if (d == "else" || d == "endif") return else_or_endif(t);
         if (d == "include" || d == "include_opt" || d == "merge" || d == "require") {

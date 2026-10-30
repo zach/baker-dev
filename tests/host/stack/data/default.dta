@@ -6,4 +6,5 @@
 (player
    (speed 3.5)   ; how fast
    (lives 3))
+(loot coin gem)
 (waves {spawn grunt 3})

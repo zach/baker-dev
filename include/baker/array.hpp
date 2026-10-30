@@ -664,9 +664,11 @@ public:
     [[nodiscard]] bool sorted_for_lookup() const noexcept {
         return (flags_ & kSortedForLookup) != 0;
     }
-    // Whether this array, or one below it, is a `(key #remove)`: a Config layer's removal,
-    // which a merge strips from what it adds to the stack (dev/decisions.md D143).
-    [[nodiscard]] bool has_removal() const noexcept { return (flags_ & kHasRemoval) != 0; }
+    // Whether this array, or one below it, holds a layer verb in its first value slot
+    // (`#remove`, `#append`, `#drop`) or a `(@was ...)` pin: what a Config's merge applies,
+    // and strips from what it adds to the stack (dev/decisions.md D143). Set where either is
+    // made: by finish() and by set().
+    [[nodiscard]] bool has_marker() const noexcept { return (flags_ & kHasMarker) != 0; }
 
     [[nodiscard]] Symbol file() const noexcept { return file_; }
     [[nodiscard]] int32_t line() const noexcept { return line_; }
@@ -699,9 +701,9 @@ public:
 
 private:
     static constexpr uint16_t kSortedForLookup = 1;
-    static constexpr uint16_t kHasRemoval = 2;
+    static constexpr uint16_t kHasMarker = 2;
     static constexpr uint16_t kMetaShift = 2;  // above them, the metadata boundary
-    static constexpr uint16_t kFlagBits = kSortedForLookup | kHasRemoval;
+    static constexpr uint16_t kFlagBits = kSortedForLookup | kHasMarker;
 
     Array(uint32_t block, uint32_t size, Symbol file, int32_t line) noexcept
         : block_(block), size_(size), file_(file), line_(line) {}
@@ -715,8 +717,12 @@ private:
     friend class detail::Arena;
     friend struct detail::CacheLayout;
     // Sets the height and the tag run from the nodes: every way of building an array ends
-    // here.
-    void finish() noexcept;
+    // here. `verb`: whether slot 1 holds a layer verb, when the caller knows (the parser
+    // does); -1 tests it.
+    void finish(int verb = -1) noexcept;
+    // kHasMarker if slot 1 holds a verb (`verb`, or tested when -1) or a child from
+    // `first_meta` on is a (@was ...) pin; else 0. Out of line: most arrays never call it.
+    [[nodiscard]] uint16_t marker_flag(int verb, uint32_t first_meta) const noexcept;
 
     // The tag run: for each node, the key of its tag if it is an Array whose first node is
     // a Symbol, else kNoTag. A key is 32 bits of the symbol's identity, made without loading
@@ -756,7 +762,7 @@ private:
     Symbol file_;
     int32_t line_;
     uint16_t height_ = 1;
-    uint16_t flags_ = 0;  // kSortedForLookup, kHasRemoval; above them, the metadata boundary
+    uint16_t flags_ = 0;  // kSortedForLookup, kHasMarker; above them, the metadata boundary
     // uint32_t tags[size_], padded to 8, follows (D77), then Node nodes[size_].
 };
 

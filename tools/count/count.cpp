@@ -120,6 +120,58 @@ void write(const std::filesystem::path& file, std::string_view text) {
     std::ofstream(file, std::ios::binary) << text;
 }
 
+// bench_layers' shape of data: a 2,000-item table, and an overlay of 400 of its prices,
+// each row `(price v` + `pin` + `)`.
+std::string table_text() {
+    std::string s = "(shop\n";
+    for (int i = 0; i < 2000; ++i)
+        s += "   (item" + std::to_string(i) + " (price " + std::to_string(10 + i % 90) +
+             ") (damage " + std::to_string(i % 7) + ") (tags a b c))\n";
+    return s + ")\n";
+}
+std::string overlay_text(bool pinned) {
+    std::string s = "(shop\n";
+    for (int i = 0; i < 2000; i += 5)
+        s += "   (item" + std::to_string(i) + " (price " + std::to_string(20 + i % 90) +
+             (pinned ? " (@was " + std::to_string(10 + i % 90) + ")" : std::string()) + "))\n";
+    return s + ")\n";
+}
+// The same 400 items, each extending its list: (tags #append d).
+std::string append_text() {
+    std::string s = "(shop\n";
+    for (int i = 0; i < 2000; i += 5) s += "   (item" + std::to_string(i) + " (tags #append d))\n";
+    return s + ")\n";
+}
+
+// Config::check_layer of `over` on the table, n times.
+int check_n(std::string_view over, long n) {
+    baker::Config cfg({.edit_mode = false, .tweaks = nullptr});
+    if (!cfg.push_layer_text("default", table_text())) return 2;
+    auto tree = baker::read_string(over, "over.dta");
+    if (!tree) {
+        std::fprintf(stderr, "usage: this tree cannot read the case's text\n");
+        return 2;
+    }
+    for (long i = 0; i < n; ++i) {
+        auto r = cfg.check_layer("over", *tree);
+        if (!r) return 2;
+        g_sink = static_cast<double>(r->effect.size());
+    }
+    return 0;
+}
+
+// baker::merge of `over` on the table, n times.
+int merge_n(std::string_view over, long n) {
+    auto base = baker::read_string(table_text(), "table.dta");
+    auto tree = baker::read_string(over, "over.dta");
+    if (!base || !tree) {
+        std::fprintf(stderr, "usage: this tree cannot read the case's text\n");
+        return 2;
+    }
+    for (long i = 0; i < n; ++i) g_sink = static_cast<double>(baker::merge(**base, **tree)->size());
+    return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -148,6 +200,16 @@ int main(int argc, char** argv) {
             return 2;
         for (long i = 0; i < n; ++i)
             if (!cfg.set("speed", baker::Node(static_cast<int64_t>(i)))) return 2;
+    } else if (which == "merge") {  // 400 prices merged over a 2,000-item table
+        return merge_n(overlay_text(false), n);
+    } else if (which == "merge_pinned") {  // the same, each row pinned (@was v)
+        return merge_n(overlay_text(true), n);
+    } else if (which == "merge_append") {  // 400 lists of the table, each (tags #append d)
+        return merge_n(append_text(), n);
+    } else if (which == "check") {  // Config::check_layer of the 400 prices on the table
+        return check_n(overlay_text(false), n);
+    } else if (which == "check_pinned") {  // the same, each row pinned (@was v)
+        return check_n(overlay_text(true), n);
     } else if (which == "call") {  // {add 1 2}: a native function of two ints
         baker::Context ctx;
         if (!ctx.func("add", [](int64_t a, int64_t b) { return a + b; })) return 2;
@@ -199,8 +261,9 @@ int main(int argc, char** argv) {
 #endif
     } else {
         std::fprintf(stderr,
-                     "usage: baker_count CASE N; cases: parse lookup lookup_text set call "
-                     "overload%s message message_loose handle_all%s\n",
+                     "usage: baker_count CASE N; cases: parse lookup lookup_text set merge "
+                     "merge_pinned merge_append check check_pinned call overload%s message "
+                     "message_loose handle_all%s\n",
                      BAKER_COUNT_DECLARED ? " declared" : "", BAKER_COUNT_HOST ? " frame" : "");
         return 2;
     }

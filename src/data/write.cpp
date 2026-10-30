@@ -2,7 +2,7 @@
 
 #include "common/containers.hpp"
 
-#include "merge.hpp"
+#include "markers.hpp"
 #include "text.hpp"
 
 #include <charconv>
@@ -18,14 +18,13 @@ char close_of(Type t) noexcept {
     return t == Type::Command ? '}' : t == Type::Property ? ']' : ')';
 }
 
-// Where the parser reads a symbol specially: a key's only value, where #remove reads back
+// Where the parser reads a symbol specially: a layer verb's slot, where the verb reads back
 // bare (D143); the head of a parenthesized array, where a '/'-led one is a row's key.
 enum Slot : uint8_t { kPlain, kMarker, kHead };
 
 void put_symbol(Str& out, std::string_view s, Slot slot = kPlain) {
     const bool key = slot == kHead && s.size() > 1 && s[0] == '/';
-    if ((detail::is_bare_symbol(s) && !key) ||
-        (slot == kMarker && s == detail::remove_marker().str())) {
+    if ((detail::is_bare_symbol(s) && !key) || slot == kMarker) {
         out += s;
     } else {
         out += '\'';
@@ -34,11 +33,12 @@ void put_symbol(Str& out, std::string_view s, Slot slot = kPlain) {
     }
 }
 
-// What `a[i]` is to the parser: where it takes #remove, the second of two in a
-// parenthesized array whose first is a symbol; where it takes a row's key, the first.
+// What `a[i]` is to the parser: a verb, in a parenthesized array of the form the parser
+// takes it in (elsewhere a verb's symbol is quoted, and reads back as that symbol); where it
+// takes a row's key, the first.
 Slot slot_of(const Node& n, const Array& a, uint32_t i) noexcept {
     if (n.type() != Type::Array) return kPlain;
-    if (a.size() == 2 && i == 1 && a[0].try_sym()) return kMarker;
+    if (i == 1 && detail::verb_of(a) != detail::Marker::None) return kMarker;
     return i == 0 ? kHead : kPlain;
 }
 
