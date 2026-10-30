@@ -13,6 +13,7 @@ option(BAKER_BUILD_EXAMPLES   "Build the examples" ${PROJECT_IS_TOP_LEVEL})
 option(BAKER_BUILD_HARNESS    "Build examples/harness-imgui (fetches Dear ImGui and GLFW)" OFF)
 option(BAKER_BUILD_FUZZERS    "Build libFuzzer targets (Clang only)" OFF)
 option(BAKER_USE_EASTL        "Internal containers from EASTL instead of the STL (D55, D61)" OFF)
+option(BAKER_RTTI             "Build Baker with RTTI. OFF is for a game that builds without RTTI, or never derives from baker::ObjectBase with it on (D250)" ON)
 set(BAKER_SANITIZE "" CACHE STRING "Sanitizers to enable, e.g. address,undefined")
 
 if(NOT DEFINED CMAKE_CXX_STANDARD)
@@ -35,13 +36,29 @@ if(BAKER_BUILD_FUZZERS)
   # Coverage instrumentation for everything the fuzzer exercises, not just its main.
   add_compile_options(-fsanitize=fuzzer-no-link)
 endif()
-# Baker never throws, and everything here builds with exceptions disabled (D54).
+# Baker never throws, and everything here builds with exceptions disabled (D54). No compiler
+# fuses a multiply and an add into one rounding, which GCC and Clang do by default where the
+# target has FMA: a curve's sample, or a digest of computed values, would differ by compiler
+# and platform (D250). MSVC does not contract under /fp:precise, its default.
+#
+# RTTI is on by default: a game that keeps it and derives from ObjectBase needs the typeinfo
+# Baker's object.cpp emits, and without it fails to link. Baker uses no typeid or
+# dynamic_cast, so BAKER_RTTI=OFF builds everything here without it, for a game that has
+# RTTI off itself or never derives from ObjectBase with it on; the EASTL configuration
+# tests it (D250).
 if(MSVC)
   string(REPLACE "/EHsc" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-  add_compile_options(/EHs-c-)
+  add_compile_options(/EHs-c- /fp:precise)
   add_compile_definitions(_HAS_EXCEPTIONS=0)
+  if(NOT BAKER_RTTI)
+    string(REPLACE "/GR" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+    add_compile_options(/GR-)
+  endif()
 else()
-  add_compile_options(-fno-exceptions)
+  add_compile_options(-fno-exceptions -ffp-contract=off)
+  if(NOT BAKER_RTTI)
+    add_compile_options(-fno-rtti)
+  endif()
 endif()
 
 # Whether the library's Expected<T> is std::expected, decided once at configure time and

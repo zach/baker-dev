@@ -8477,3 +8477,62 @@ sigil-free dotted form declined.*
   198,390 on the shared corpus, because inputs whose nested macros expand into trees of tens
   of thousands of nodes cost the harness up to 400 ms each (it re-reads, caches and prints
   every tree); the cost is the harness's and main's macro expansion, not the rows'.
+
+## D250. A review's findings: the clear fixes
+
+*From a review of Baker made while revising the acton-review skill, measured on main at
+77124a6 (GCC 13.2, Clang 18.1, x86-64). Nineteen findings. These are the defects and rules
+built here; the owner chose the larger items (D251 on), and left a sorted lookup's key run,
+debug-build tracking, an arena-owned read destination and a fallible allocator for later.*
+
+- **Nine arguments allocated from the default allocator (finding 1).** An overload set and
+  a declared function hold their evaluated arguments, eight on the stack and more in a
+  spill, which came from `detail::default_alloc`: a 9-argument call made one allocation
+  outside the Context's allocator, every call. `detail::ArgValues` holds them now, spilling
+  from the Context's allocator. A test with a counting allocator calls a 9-argument
+  overload set and a 9-argument declared function 1,000 times each: 2,000 default
+  allocations before, 0 after, and 2,000 from the Context's allocator. The other inline
+  capacities have tests one past them: a `ValueList` of 9 (`NodeBuffer`, whose default
+  allocator is right, as it belongs to no owner), and a cache 256 arrays deep, past the
+  loader's 256 inline frames, which already grew from the load's allocator.
+- **RTTI (finding 7).** The review suggested building Baker with `-fno-rtti`. Measured
+  first: a game that keeps RTTI and derives from `ObjectBase` then fails to link
+  (`undefined reference to typeinfo for baker::ObjectBase`), since the typeinfo is emitted
+  only where `~ObjectBase` is defined. So RTTI stays on by default, and the option
+  `BAKER_RTTI=OFF`, the owner's addition, builds everything Baker builds without it
+  (`-fno-rtti`, `/GR-`), for a game that has RTTI off or never derives from `ObjectBase`
+  with it on. The libraries then emit no typeinfo (4 objects before) and their archives are
+  5.3 KB smaller (Release, GCC 13); the review measured about 0.5 KB of code linked. The
+  EASTL configuration, in the local matrix and CI, builds with it, so Baker cannot come to
+  need RTTI: it builds clean and its 23 tests pass.
+- **FMA contraction (finding 11).** GCC and Clang fuse a multiply and an add where the
+  target has FMA (`-march=x86-64-v3`; AArch64 always), so a curve's sample, and anything
+  computed from it, differed by compiler. Baker's targets build with `-ffp-contract=off`
+  (`/fp:precise` on MSVC, which does not contract under it). A test pins eleven samples'
+  bits over monotone, catmull-rom, extrapolated and sloped curves; compiled with
+  contraction on, three of them change in their last bits.
+- **`sim::number_text` followed the locale (finding 14).** It wrote `%.6g`, so under a
+  comma-decimal `LC_NUMERIC`, 1.5 was "1,5" in sim's JSON and results. It writes through
+  `detail::print_g` now (D136's, made visible). A test under `de_DE.UTF-8` failed before
+  ("1,5") and passes after. The locale tests skipped wherever no such locale was
+  installed, CI included: the Linux jobs now generate `de_DE.UTF-8`.
+- **Dynamic initializers (finding 6).** `inline const Node kUnset` gave every script and
+  tools file that included `internal.hpp` an initializer and an exit-time destructor: nine
+  in all. It is a function, `unset_node()`, now. `VarRef::value()`'s function-local static
+  zero, a guard check a call, is a constant-initialized holder that is never destroyed. A
+  `Node` has a destructor, so no static of one can be free under GCC: GCC keeps one
+  initializer, in `context.cpp`, registering the holder's empty destructor; Clang has none.
+  Making `Node()` constexpr for it cost `Config::set` 12 instructions, so a tagged
+  constructor, `Node(detail::ConstantZero)`, makes the constant instead.
+- **Weak memory (finding 12).** CI was x86-64 only, where the symbol table's lock-free reads
+  (D197) and `read_consistent`'s seqlock (D240) cannot fail, and TSan does not model the
+  fence. baker-dev is public, so an `ubuntu-24.04-arm` job runs the whole suite, those
+  tests among it.
+- **Doc rules (findings 3 and 13).** Read a tweak once into a local before a hot loop: an
+  atomic load is never hoisted, so `v[i] *= speed` compiles to scalar `mulss`, and with
+  `const float s = speed;` first to `mulps` (GCC 13 and Clang 18 at -O3, checked). And no
+  fiber switch inside a Baker call, since its thread-local state may be cached across one.
+  In the cookbook, and the first beside `Tweak<T>`.
+- **Cost.** `tools/count_instructions.py` against 77124a6: call, message, lookup, set,
+  frame and parse unchanged; overload −4 instructions (788 to 784); declared +3 (524 to
+  527), the spill holder keeping its allocator.

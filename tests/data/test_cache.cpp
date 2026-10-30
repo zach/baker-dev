@@ -590,3 +590,18 @@ TEST_CASE("a cache replays packs' harness metadata and files' origins (D91)") {
     CHECK(o->source == Symbol("bosses.xlsx"));
     CHECK(o->tool == Symbol("export"));
 }
+
+TEST_CASE("a cache as deep as the parse allows reads back: past the loader's 256 inline frames") {
+    std::string text;
+    for (int i = 0; i < 256; ++i) text += "(a ";
+    text += "1";
+    for (int i = 0; i < 256; ++i) text += ")";
+    const auto deep = read_string(text, "deep.dta");
+    REQUIRE(deep);
+    std::string bytes;
+    REQUIRE(write_cache(**deep, string_out(bytes)));
+    const auto back = read_cache_bytes(bytes, "deep.datb");
+    REQUIRE(back);
+    CHECK(structurally_equal(**deep, **back));
+    CHECK((*back)->height() == (*deep)->height());
+}

@@ -87,6 +87,10 @@ void append_path_name(Str& out, std::string_view name);
 [[nodiscard]] bool is_absolute_path(std::string_view p) noexcept;
 // Removes "." and empty segments and resolves ".." lexically: "a/./b/../c.dta" -> "a/c.dta".
 [[nodiscard]] Str normalize_path(std::string_view p);
+// `v` printed as "%.*g" at `precision` into `out`, with '.' whatever the C locale's decimal
+// point: its length, or 0 if it did not fit.
+[[nodiscard]] size_t print_g(double v, int precision, char (&out)[64]) noexcept;
+
 // Everything before the last separator: "a/b/c.dta" -> "a/b"; "c.dta" -> ""; a root is its
 // own parent: "/a" -> "/", "C:/a" -> "C:/", "user://a" -> "user://".
 [[nodiscard]] std::string_view parent_path(std::string_view p) noexcept;

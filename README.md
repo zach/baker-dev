@@ -200,6 +200,7 @@ and the tool commands a game runs from its `main`
 | `BAKER_ATOMIC_REFCOUNT` | `ON` | `OFF` for single-threaded programs |
 | `BAKER_SHIPPING` | `OFF` | Reload and live edits inert; `dev_only` tweaks keep defaults |
 | `BAKER_USE_EASTL` | `OFF` | Internal containers from EASTL (fetched) |
+| `BAKER_RTTI` | `ON` | `OFF` builds Baker without RTTI (`-fno-rtti`, `/GR-`), for a game built without it, or one that never derives from `baker::ObjectBase` with RTTI on: such a class needs the typeinfo Baker otherwise emits |
 | `BAKER_SANITIZE` | empty | e.g. `address,undefined` |
 
 Android: CMake builds get C++20 from the targets; with `ndk-build`, add
