@@ -4,6 +4,7 @@
 #include <baker/cache.hpp>
 #include <baker/config.hpp>
 #include <baker/parse.hpp>
+#include <baker/project.hpp>
 #include <baker/std_interop.hpp>
 #include <baker/write.hpp>
 
@@ -727,3 +728,35 @@ TEST_CASE("taking a snapshot copies no array") {
     }
 }
 #endif
+
+BAKER_DEV_TEST_CASE("a Config writes in its layout: the house layout, or the project's (D263)") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    CHECK(cfg.layout().indent == 3);
+    CHECK(cfg.layout().width == 100);
+    REQUIRE(cfg.push_layer("d", dir.write("d.dta", "(audio (rate 44100))\n")));
+    const std::vector<Node> words{Node(Symbol("alpha")), Node(Symbol("beta")),
+                                  Node(Symbol("gamma")), Node(Symbol("delta"))};
+    REQUIRE(cfg.set(Path("menu.title.words"), std::span<const Node>(words)));
+    // A new entry wider than the layout's width wraps at its indent.
+    cfg.set_layout({.indent = 2, .width = 44});
+    REQUIRE(cfg.write_back_to("menu.title.words", "d"));
+    CHECK(dir.read("d.dta") ==
+          "(audio (rate 44100))\n"
+          "(menu\n"
+          "  (title (words alpha beta gamma delta)))\n");
+    std::string text;
+    REQUIRE(cfg.layer_text("d", string_out(text)));
+    CHECK(text ==
+          "(audio (rate 44100))\n"
+          "(menu\n"
+          "  (title (words alpha beta gamma delta)))\n");
+    // A project's (format ...) is what a Config opened from it writes.
+    const std::string file = dir.write(
+        "baker-project.dta", "(project (format (indent 2) (width 40)) (layers (d \"d.dta\")))\n");
+    const Project p = ok(read_project(file));
+    Config opened({.tweaks = nullptr});
+    REQUIRE(open_project(opened, p));
+    CHECK(opened.layout().indent == 2);
+    CHECK(opened.layout().width == 40);
+}

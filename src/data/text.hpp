@@ -1,6 +1,7 @@
 #pragma once
 
 #include <baker/node.hpp>
+#include <baker/write.hpp>
 
 #include "common/containers.hpp"
 
@@ -32,7 +33,7 @@ namespace baker::detail {
 // The text forms std_interop.hpp gives a host, for messages and edits inside Baker.
 [[nodiscard]] Str text_of(const Path& path, size_t count = SIZE_MAX, char separator = '/');
 [[nodiscard]] Str text_of(const Node& node);
-[[nodiscard]] Str dta_of(const Array& root);
+[[nodiscard]] Str dta_of(const Array& root, const WriteOptions& layout = {});
 
 // JSON, for the machine-readable outputs (check, the reference, replies): one string,
 // escaped (quote, backslash, control characters; UTF-8 as it is), and a list of names.

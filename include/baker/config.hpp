@@ -77,6 +77,7 @@
 #include <baker/path.hpp>
 #include <baker/source_map.hpp>
 #include <baker/tweak.hpp>
+#include <baker/write.hpp>
 
 #include <baker/callback.hpp>
 #include <baker/list.hpp>
@@ -471,6 +472,11 @@ public:
     // unchanged is a no-op on a receiver's reload. NotFound for an unknown layer. Allocates
     // only for the text; <baker/std_interop.hpp> has a std::string form.
     [[nodiscard]] Expected<void> layer_text(std::string_view name, TextSink out) const;
+    // The layout of the text this Config writes: layer_text, and the forms write-back and
+    // promote add to a layer's file (D263). WriteOptions' house layout until set;
+    // open_project sets the project's (format ...).
+    void set_layout(const WriteOptions& layout) noexcept;
+    [[nodiscard]] const WriteOptions& layout() const noexcept;
 
     // A digest of the data, for hosts that must agree on it: lockstep peers, a replay, a
     // save loaded under other data. 64 bits, the same on every platform and build for the

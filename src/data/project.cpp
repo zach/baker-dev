@@ -267,6 +267,7 @@ Expected<List<ProjectProblem>> open_project(Config& cfg, const Project& project,
             ErrorCode::Refused, "more than " +
                                     detail::decimal(static_cast<int64_t>(LayerNames::kCapacity)) +
                                     " layers to leave out (ProjectOptions::skip)"));
+    cfg.set_layout(project.format);  // what it writes, laid out as the project's files (D263)
     LoadSession& session = cfg.session();
     if (!project.pack_levels.empty()) {
         Vec<Symbol> levels;
