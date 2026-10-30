@@ -8820,3 +8820,38 @@ with its value at offset 180, and `strings` on a shipping object found every `de
   literals the source writes; the claim is for optimized ones. The tests of `step()` and
   `desc()` expect the code's text only outside shipping.
 
+## D257. An execution budget: a step a call
+
+*From the review of D250 (finding 4); the owner chose to build it, failing or asking a
+hook when it runs out.* The depth limit and the stack budget bound recursion, not work: a
+doubly recursive `{func}` from a mod or a live overlay stays shallow and can hang a frame.
+
+- **The API** (`Context`): `set_step_budget(n)`, `steps_left()`, and `set_step_hook(fn,
+  user)`, where `fn(user, ctx)` returns the steps it grants. `kUnlimitedSteps`
+  (`UINT64_MAX`) is the default. At 0 the hook is asked; 0 from it, or no hook, fails the
+  call that ran out with `ErrorCode::Limit`, "the step budget ran out", located and with
+  the script stack, unwinding as any error does. The count stays 0, so the scripts after
+  it fail too until the host sets it again.
+- **What a step is.** Every call through `call_body`: a native or script function, a
+  built-in such as `if` or `+`, or a message sent from script. Script has no loop
+  construct, so iteration is recursion or a task's tick, and both are calls; the
+  "back-edge" check the finding describes is this one. A message sent from C++
+  (`handle`) is not script and spends nothing. The count is exact, so the same script
+  spends the same on every run: what a headless simulation or a replay needs, and what a
+  wall clock is not.
+- **A hook, not a timer.** A host that wants a time limit grants, say, 10,000 steps a time
+  and checks the clock in the hook; a sampling profiler reads `top_frame()` there. The
+  hook is cold and out of line.
+- **Cost.** `steps-- == 0` and a cold branch: GCC 13 emits a load, a subtract, a store, a
+  test and the branch (`__builtin_sub_overflow` gave the same, so the plain form stays).
+  `tools/count_instructions.py` against D256: call 307 to 312 (+5), overload 784 to 789,
+  declared 527 to 532, message, frame and lookup unchanged. `tools/bench_compare.py
+  --bench call`, five runs a side: `{add 1 2}` 32.3 to 32.1 ns, `{add1 1}` 73.8 to
+  74.8 ns, nested 66.4 to 66.6 ns, all within noise. `handle_all` over 64 objects moved
+  366.6 to 421.0 ns (+15%) in both runs, but it never reaches `call_body`, and its count
+  is 4,772 instructions on both sides: code layout in the benchmark binary.
+- **Test** (`test_eval.cpp`): `{fib 10}` spends the same twice, a native call spends one,
+  `{fib 30}` under 1,000 steps fails with the message and leaves 0, a later call fails
+  until the budget is reset, and a hook granting 100 steps three times lets `{fib 8}`
+  finish and then ends `{fib 20}`, asked once more than it granted.
+
