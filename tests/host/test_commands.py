@@ -92,6 +92,12 @@ def eval_json(s):
 def diff_and_promote(s):
     code, out, _ = s.run("diff", agent="(player (speed 4.5))\n")
     expect(code == 0 and "player.speed  3.5 -> 4.5" in out, "diff: what the agent layer changes")
+    code, out, _ = s.run("diff", "--baker-rows", agent="(/player.speed 4.5)\n")
+    expect(code == 0 and out == "; layer 'agent' changes:\n(/player.speed 4.5)  ; was 3.5\n",
+           "diff --baker-rows: each change as a row a layer file holds")
+    code, out, _ = s.run("promote", "--baker-rows", agent="(player (speed 4.5))\n")
+    expect(code == 0 and "(/player.speed 4.5)  ; was 3.5\n" in out,
+           "promote --baker-rows: what it would write, as rows")
     before = (s.dir / "data" / "default.dta").read_text()
     code, out, _ = s.run("promote", "--baker-patch", "change.patch")
     patch = (s.dir / "change.patch").read_text()
