@@ -126,6 +126,10 @@ struct ConfigOptions {
     // must exist. Shipping builds write none: run the same layers through a development
     // build's Config (a build step), and ship the directory.
     std::string_view cache_dir = {};
+    // The caches it writes leave out metadata (without_metadata): for the build step's
+    // Config whose directory ships to a build that reads no metadata (D265). A tree it reads
+    // from such a cache has none either.
+    bool cache_drop_metadata = false;
 };
 
 // What a layer may change (Config::check_layer, LayerOptions::policy). Each rule is off by

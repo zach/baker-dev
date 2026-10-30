@@ -9326,3 +9326,41 @@ on 2026-10-30, who declined the in-file blocks and took the condition on project
 - **Fuzzing.** libFuzzer under ASan and UBSan, built as CI's fuzz job, on the stack through
   D265, seeded with D262's corpus: 100,000 executions, the bar the owner set for each step on
   2026-10-30, with no crash, leak or sanitizer report.
+
+## D265. A shipped cache may leave out metadata: `baker_bake --drop-metadata`
+
+*The step D248 left for later, as the owner set the order on 2026-10-30: "a shipping bake
+option dropping `@` children".*
+
+- **The need.** Since D248 a tree knows its metadata by spelling: `(@range 0 10)`,
+  `(@desc "...")`, `(@note ...)`, the shapes' words, D251's `(@was ...)` pins. Only
+  development tools read it: panels, checks, explain, promote. A shipped build reads
+  values, so carrying the metadata costs it memory and load time for nothing, and ships the
+  designers' notes.
+- **`without_metadata(root)`** returns the tree with every data array's `@` children left
+  out, below it too.
+  - From the metadata boundary on, a field may follow metadata (D248), so only `@` tags go.
+  - Commands and properties keep their forms as written: a `{func ... (@doc ...)}` is a
+    command's argument, not data's metadata.
+  - An array with no metadata below it is shared, not copied, so a tree without metadata
+    costs one walk.
+- **Where a bake uses it.**
+  - `baker_bake --drop-metadata` writes the cache of that tree.
+  - `ConfigOptions::cache_drop_metadata` makes a Config's `cache_dir` caches leave it out,
+    for the build step's Config whose directory ships (the cookbook's binary-cache section).
+  - A development build that reads such a cache has no metadata either, so the shipped
+    caches are baked apart from the developers' own.
+- **For the next release's changelog** (written at the release, dev/releasing.md):
+  "`baker_bake --drop-metadata`, `ConfigOptions::cache_drop_metadata` and
+  `without_metadata(root)` bake caches without `(@...)` metadata, for shipped builds."
+- **Costs.** None on any path a game runs: the walk is at a bake.
+- **Lines.** 55 lines added and 7 removed, in the library and the tool, comments included.
+- **Tests.**
+  - `test_cache.cpp`: what goes and what stays (a field after metadata, a command's own
+    `(@doc)`), sharing, the original untouched, and the cache reads back.
+  - `test_config.cpp`: a bake Config's caches read by a game's Config, with the value and no
+    metadata.
+  - `baker_bake_drop_metadata` runs the tool with the flag.
+- **Fuzzing.** libFuzzer under ASan and UBSan, built as CI's fuzz job, on the stack through
+  D265, seeded with D262's corpus: 100,000 executions, the bar the owner set for each step on
+  2026-10-30, with no crash, leak or sanitizer report.

@@ -1244,3 +1244,22 @@ BAKER_DEV_TEST_CASE("a read of a record or table above a live edit sees it (D224
     REQUIRE(cfg.clear_scratch("units.tank.price"));
     CHECK(ok(cfg.get<UnitRecord>("units.tank")).price == 40);
 }
+
+TEST_CASE("cache_drop_metadata: the caches a bake writes hold no metadata (D265)") {
+    if constexpr (kShipping) return;  // shipping writes no caches
+    TempDir dir;
+    fs::create_directories(dir.path("cache"));
+    const std::string base = dir.write("base.dta", "(speed 3 (@range 0 10) (@desc \"Run\"))\n");
+    const std::string cache_dir = dir.path("cache");
+    Config bake({.edit_mode = false,
+                 .tweaks = nullptr,
+                 .cache_dir = cache_dir,
+                 .cache_drop_metadata = true});
+    REQUIRE(bake.push_layer("base", base));
+    CHECK(bake.get<int>("speed") == 3);
+    // The game's Config reads the cache: the value, and no metadata.
+    Config game({.edit_mode = false, .tweaks = nullptr, .cache_dir = cache_dir});
+    REQUIRE(game.push_layer("base", base));
+    CHECK(game.get<int>("speed") == 3);
+    CHECK(game.root()->try_find("speed")->metadata().empty());
+}

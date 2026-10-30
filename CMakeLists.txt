@@ -272,6 +272,8 @@ if(BAKER_BUILD_TOOLS)
   if(BAKER_BUILD_TESTS)
     add_test(NAME baker_bake COMMAND baker_bake -D DEBUG
       ${PROJECT_SOURCE_DIR}/tests/corpus/config_app.dta ${CMAKE_CURRENT_BINARY_DIR}/config_app.datb)
+    add_test(NAME baker_bake_drop_metadata COMMAND baker_bake --drop-metadata
+      ${PROJECT_SOURCE_DIR}/tests/corpus/config_app.dta ${CMAKE_CURRENT_BINARY_DIR}/config_app_lean.datb)
   endif()
 endif()
 
