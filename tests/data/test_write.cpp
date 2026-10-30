@@ -4,6 +4,7 @@
 #include <baker/std_interop.hpp>
 #include <baker/write.hpp>
 
+#include "temp_dir.hpp"
 #include "text.hpp"
 
 #include <bit>
@@ -158,13 +159,14 @@ TEST_CASE("printing round-trips random trees") {
 }
 
 TEST_CASE("write_file writes the file form") {
-    const auto path = (std::filesystem::temp_directory_path() / "baker_write_test.dta").string();
+    // A directory of the process's own: test binaries of other builds may run at once.
+    const baker::test::TempDir dir;
+    const std::string path = dir.path("write_test.dta");
     auto root = parse("(a 1) (b \"two\")");
     REQUIRE(write_file(path, *root).has_value());
     auto back = read_file(path);
     REQUIRE(back.has_value());
     CHECK(structurally_equal(*root, **back));
-    std::remove(path.c_str());
     CHECK(write_file("/definitely/not/a/dir/x.dta", *root).error().code() == ErrorCode::Io);
 }
 
