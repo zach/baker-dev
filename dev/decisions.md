@@ -8366,7 +8366,11 @@ parse-time rule, not the lighter spelling-only pass. Revisits D88, D218 and spec
   corpus, the fuzz regressions and every `.dta` of the stacks and examples. The first run
   stopped after 349,913 executions on a defect of main's harness, a second `(origin "...")`
   held as data (D91), which the syntax branches had skipped; the harness's three fixes are
-  the commit before this one. The run resumed from its grown corpus on the same parser.
+  the commit before this one. Resumed from its grown corpus on the same parser, it ran
+  1,305,353 more executions with no failure: 1,655,266 in all. The owner set the bar for
+  these adoption steps at one million executions, not spec §8's ten million. CI's lookup
+  fuzzer found the one bug, in `find_sorted` (above), fixed in the commit after this
+  one; the lookup fuzzer then ran 5.66 million inputs with no failure.
 - **Not done here.** A bake that drops `@` children from shipped data is its own step,
   which the owner chose to follow this one. Storing and printing a shape's own description.
   Layer-markers' `(@was ...)` pin and promote's `(@note ...)` build on this rule in their
