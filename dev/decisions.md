@@ -8959,5 +8959,7 @@ the parts that need no new syntax first, then the directives with the tools that
   `#` tokens read and print back as written. Fuzz regression `hash_symbols.bin`; the
   dictionary gains `#0` and `#-`.
 - **Raw gate.** 464/464 files, 0 round-trip failures.
-- **Fuzzing.** libFuzzer under ASan and UBSan, toward the 1 million executions of each
-  adoption step; the run's total follows.
+- **Fuzzing.** libFuzzer under ASan and UBSan, built as CI's fuzz job, seeded with D251's
+  corpus and the fuzz regressions, toward the 1 million executions of each adoption step:
+  1,000,000 executions in runs each resumed from the last one's corpus, with no crash, leak
+  or sanitizer report, and a corpus of 17,509 inputs at the end.
