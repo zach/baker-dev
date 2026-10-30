@@ -242,8 +242,10 @@ Expected<Node> Context::Impl::eval(const Node& n) {
 BAKER_INLINE Expected<Node> Context::Impl::call_body(const Array& command, Counters** counted) {
     if (command.empty()) return bad_head(command);
     // A step a call (Context::set_step_budget). At 0, the hook may grant more.
-    if (steps-- == 0) [[unlikely]] {
-        if (!more_steps()) return out_of_steps(command);
+    if constexpr (kStepBudget) {
+        if (steps-- == 0) [[unlikely]] {
+            if (!more_steps()) return out_of_steps(command);
+        }
     }
     // The head names a function, or is an object: named, an Object node, or a command or
     // variable that evaluates to one (spec §5, "Object commands evaluate slot 0").
@@ -501,7 +503,7 @@ void Context::set_step_budget(uint64_t steps) noexcept {
 }
 
 uint64_t Context::steps_left() const noexcept {
-    return impl_->steps;
+    return kStepBudget ? impl_->steps : kUnlimitedSteps;
 }
 
 void Context::set_step_hook(StepHook hook, void* user) noexcept {

@@ -13,6 +13,7 @@ option(BAKER_BUILD_EXAMPLES   "Build the examples" ${PROJECT_IS_TOP_LEVEL})
 option(BAKER_BUILD_HARNESS    "Build examples/harness-imgui (fetches Dear ImGui and GLFW)" OFF)
 option(BAKER_BUILD_FUZZERS    "Build libFuzzer targets (Clang only)" OFF)
 option(BAKER_USE_EASTL        "Internal containers from EASTL instead of the STL (D55, D61)" OFF)
+option(BAKER_STEP_BUDGET      "Count a step a call for Context::set_step_budget. OFF compiles the check out, for a game that runs no script it did not write (D259)" ON)
 option(BAKER_RTTI             "Build Baker with RTTI. OFF is for a game that builds without RTTI, or never derives from baker::ObjectBase with it on (D250)" ON)
 set(BAKER_SANITIZE "" CACHE STRING "Sanitizers to enable, e.g. address,undefined")
 
@@ -124,6 +125,9 @@ function(baker_configure_library target)
       target_compile_definitions(${target} PUBLIC ${flag}=1)
     endif()
   endforeach()
+  if(NOT BAKER_STEP_BUDGET)
+    target_compile_definitions(${target} PUBLIC BAKER_STEP_BUDGET=0)
+  endif()
 endfunction()
 
 # --- baker::data: nodes, arrays, parsing, lookup, config, tweaks, binary cache.

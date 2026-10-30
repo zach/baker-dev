@@ -792,6 +792,14 @@ struct CallFrame {
     const CallFrame* parent;
 };
 
+// Whether calls count steps for Context::set_step_budget: CMake's BAKER_STEP_BUDGET, on
+// unless a game turns it off.
+#if defined(BAKER_STEP_BUDGET) && !BAKER_STEP_BUDGET
+inline constexpr bool kStepBudget = false;
+#else
+inline constexpr bool kStepBudget = true;
+#endif
+
 class Context {
 public:
     // Everything the Context keeps comes from `allocator`, which must outlive it (D61).
@@ -914,7 +922,9 @@ public:
     // out with a Limit error, which unwinds as any error does. Without a hook the call fails
     // at once. The steps left stay at 0 until set again, so the scripts that follow fail
     // too: set them once a frame, or before each command a console runs. The default,
-    // kUnlimitedSteps, is never spent in practice. Costs one decrement a call.
+    // kUnlimitedSteps, is never spent in practice. Costs one decrement a call; a build with
+    // BAKER_STEP_BUDGET off (kStepBudget false) compiles the check out, and then
+    // set_step_budget and set_step_hook do nothing and steps_left is kUnlimitedSteps.
     static constexpr uint64_t kUnlimitedSteps = UINT64_MAX;
     using StepHook = uint64_t (*)(void* user, Context& ctx);
     void set_step_budget(uint64_t steps) noexcept;

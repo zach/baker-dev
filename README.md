@@ -203,6 +203,7 @@ and the tool commands a game runs from its `main`
 | `BAKER_SHIPPING` | `OFF` | Reload and live edits inert; `dev_only` tweaks keep defaults |
 | `BAKER_USE_EASTL` | `OFF` | Internal containers from EASTL (fetched) |
 | `BAKER_RTTI` | `ON` | `OFF` builds Baker without RTTI (`-fno-rtti`, `/GR-`), for a game built without it, or one that never derives from `baker::ObjectBase` with RTTI on: such a class needs the typeinfo Baker otherwise emits |
+| `BAKER_STEP_BUDGET` | `ON` | `OFF` compiles out the step count behind `Context::set_step_budget`, five instructions a call, for a game that runs no script it did not write |
 | `BAKER_SANITIZE` | empty | e.g. `address,undefined` |
 
 Android: CMake builds get C++20 from the targets; with `ndk-build`, add
