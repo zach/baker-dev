@@ -240,3 +240,41 @@ TEST_CASE("a call of more arguments than fit on the stack spills into the Contex
     if (test::counting_allocations()) CHECK(scope.count() == 0);  // none from the default
     CHECK(counted.allocations - before == 2000);                  // one spill a call
 }
+
+TEST_CASE(
+    "a binding keeps a copy of an lvalue, the callable of an rvalue, and none when stateless") {
+    struct Tracked {
+        int* alive;
+        int k;
+        Tracked(int* a, int kk) : alive(a), k(kk) { ++*alive; }
+        Tracked(const Tracked& o) : alive(o.alive), k(o.k) { ++*alive; }
+        Tracked(Tracked&& o) noexcept : alive(o.alive), k(o.k) { ++*alive; }
+        ~Tracked() { --*alive; }
+        int64_t operator()(int64_t x) const { return x * k; }
+    };
+    int alive = 0;
+    {
+        Counted counted;
+        Context ctx(counted.allocator);
+        const Tracked times3(&alive, 3);
+        ok(ctx.func("times3", times3));  // copied: the original stays the caller's
+        CHECK(alive == 2);
+        ok(ctx.func("times5", Tracked(&alive, 5)));  // moved from the temporary
+        CHECK(alive == 3);
+        auto owned = std::make_unique<int64_t>(7);  // move-only
+        ok(ctx.func("plus7", [p = std::move(owned)](int64_t x) { return x + *p; }));
+        // A stateless lambda costs the function's records alone; one with state, one more.
+        size_t before = counted.allocations;
+        ok(ctx.func("twice", [](int64_t x) { return 2 * x; }));
+        const size_t stateless = counted.allocations - before;
+        before = counted.allocations;
+        ok(ctx.func("half", [k = 2.0](double x) { return x / k; }));
+        CHECK(counted.allocations - before == stateless + 1);
+        CHECK(ok(ctx.eval("{times3 2}")).try_int() == 6);
+        CHECK(ok(ctx.eval("{times5 2}")).try_int() == 10);
+        CHECK(ok(ctx.eval("{plus7 2}")).try_int() == 9);
+        CHECK(ok(ctx.eval("{twice 21}")).try_int() == 42);
+        CHECK(ok(ctx.eval("{half 3}")).try_float() == 1.5);
+    }
+    CHECK(alive == 0);  // the Context destroyed what it kept
+}
