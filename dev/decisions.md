@@ -8708,3 +8708,31 @@ script stack, and Baker's only replaceable handler was the symbol collision's (D
   with the message exact; a failure inside a script function, carrying `{exhaust}` then
   `{spawn_wave}`; a handler that returns, and the process still aborts; no handler, the
   message on stderr; reading an `Expected`'s error, in C++20 builds.
+
+## D253. A cap on the names a read adds
+
+*From the review of D250 (finding 17); the owner chose to build it, with a default of
+1,048,576.* Symbols are never freed. A host that reads text it does not control all session
+(live overlays, mods, a console) grows the table with every unique ID written as a symbol,
+and no limit stopped it.
+
+- **The API.** `ParseLimits::max_new_symbols`, per top-level read like `max_nodes`: the
+  names it interns that the table did not hold. Past it the read fails with
+  `ErrorCode::Limit`, "more than N new names (ParseLimits::max_new_symbols)", located at the
+  line. The names interned up to then stay, so a read adds at most N plus one token's
+  names. Includes count into their reader's total; a cache load is not counted, as caches
+  come only from the game's own packages (D142). Every build counts, shipping included.
+- **Counting.** The table already knows when a name is new: it takes the lock to add it.
+  A thread-local pointer, set for the read, receives the count there. Nothing on the
+  lock-free path changes.
+- **No check of its own.** A first version compared the count after each symbol, variable
+  and directive token: parse +1.83% in instructions. Now, past the limit, the table sets
+  the read's node count to its limit, so `push`'s node check, made for every node anyway,
+  fails next and reports the names instead; the end of each file checks once more, for a
+  directive's last name. `tools/count_instructions.py` against D252: parse +34 a parse
+  (0.002%, the scope that sets the counter), lookup_text unchanged.
+- **Default.** 1,048,576 new names a read: far above what the game's own data interns, so
+  only a host's untrusted reads lower it. The cookbook says to.
+- **Test** (`test_preprocessor.cpp`): five new names under a cap of eight; the same text
+  again under a cap of zero, since nothing is new; twenty refused with the message and
+  line; an include, a macro name and a variable counting into one total.

@@ -45,7 +45,8 @@
 // shares arrays instead of copying them. Paths may be "quoted" or bare.
 //
 // Nothing in a file can crash the reader: malformed input yields a located Error, and
-// ParseLimits bounds nesting, includes, and total size.
+// ParseLimits bounds nesting, includes, total size, and the names a read adds to the
+// program's symbols.
 
 #include <baker/array.hpp>
 #include <baker/error.hpp>
@@ -73,6 +74,13 @@ struct ParseLimits {
     uint32_t max_include_depth = 32;         // #include / #merge nesting
     uint32_t max_includes = 4096;            // files opened per top-level read
     uint64_t max_nodes = uint64_t{1} << 26;  // nodes created per top-level read
+    // Names a top-level read interns that the program had not interned before. Symbols live
+    // until the program ends, so text read again and again (overlays, mods, a console) that
+    // uses unique IDs as symbols would grow them without bound. A read that passes it fails
+    // with ErrorCode::Limit; the names it interned stay. Strings are not interned, and a name
+    // seen before costs nothing, so a second read of the same text counts none. Lower it for
+    // text you do not trust. Loading a binary cache is not counted.
+    uint64_t max_new_symbols = uint64_t{1} << 20;
 };
 
 // A file that declared itself a pack (above).
