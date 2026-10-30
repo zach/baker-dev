@@ -254,6 +254,7 @@ struct Config::Impl {
 
     const Allocator alloc;  // first: the containers below take it
     ConfigOptions options;
+    WriteOptions layout{};           // of the text it writes (D263)
     Str cache_dir{alloc};            // options.cache_dir views this
     mutable Str scan{alloc};         // changed()'s buffer, kept so that a poll allocates nothing
     mutable Vec<Str> listed{alloc};  // the same for a directory's listing

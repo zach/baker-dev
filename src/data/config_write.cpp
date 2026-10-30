@@ -64,12 +64,13 @@ Str join(const Vec<Node>& values) {
 
 // path[from..] holding `values`, in the pretty-printer's form: (a (b value)). Lines after
 // the first are indented by `indent`.
-Str render_entry(const Path& path, size_t from, const Vec<Node>& values, const Str& indent) {
+Str render_entry(const Path& path, size_t from, const Vec<Node>& values, const Str& indent,
+                 const WriteOptions& layout) {
     Vec<Node> inner{Node(path[path.size() - 1].name)};
     inner.insert(inner.end(), values.begin(), values.end());
     Ref<Array> nest = Array::make_from(inner);
     for (size_t i = path.size() - 1; i-- > from;) nest = array(path[i].name, Node(nest));
-    Str text = detail::dta_of(*array(Node(nest)));
+    Str text = detail::dta_of(*array(Node(nest)), layout);
     while (!text.empty() && text.back() == '\n') text.pop_back();
     for (size_t at = text.find('\n'); at != Str::npos; at = text.find('\n', at + 1))
         text.insert(at + 1, indent);
@@ -350,7 +351,7 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path, con
         // A layer file a tool creates is rows: one line a value (D249).
         if (const Str row = render_row(path, values); !row.empty())
             return Plan{main, row + "\n", true};
-        return Plan{main, render_entry(path, 0, values, "") + "\n", true};
+        return Plan{main, render_entry(path, 0, values, "", layout) + "\n", true};
     }
 
     // Walk the layer's own tree, checking that every step was written literally in a file.
@@ -445,9 +446,9 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path, con
             // A new top-level form at the end of the file.
             const bool newline = !text->empty() && text->back() != '\n';
             const auto end = static_cast<uint32_t>(text->size());
-            edits.push_back(
-                {end, end,
-                 (newline ? "\n" : "") + render_entry(path, missing_from, values, "") + "\n"});
+            edits.push_back({end, end,
+                             (newline ? "\n" : "") +
+                                 render_entry(path, missing_from, values, "", layout) + "\n"});
         } else {
             // The last child of the deepest ancestor written in this file itself.
             const SourceSpan* ext = map.extent(*cur);
@@ -464,8 +465,8 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path, con
             const bool one_line = text->find('\n', ext->begin) == Str::npos ||
                                   text->find('\n', ext->begin) >= last->begin;
             if (one_line) {
-                edits.push_back(
-                    {last->end, last->end, " " + render_entry(path, missing_from, values, "")});
+                edits.push_back({last->end, last->end,
+                                 " " + render_entry(path, missing_from, values, "", layout)});
             } else {
                 // Indented like the previous sibling, after the rest of its line.
                 const size_t line_start = text->rfind('\n', last->begin) + 1;
@@ -476,7 +477,8 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path, con
                 const auto at = static_cast<uint32_t>(
                     line_end != Str::npos && line_end < ext->end - 1 ? line_end : last->end);
                 edits.push_back(
-                    {at, at, "\n" + indent + render_entry(path, missing_from, values, indent)});
+                    {at, at,
+                     "\n" + indent + render_entry(path, missing_from, values, indent, layout)});
             }
         }
     } else {

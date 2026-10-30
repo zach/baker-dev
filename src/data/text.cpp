@@ -445,9 +445,9 @@ Str text_of(const Node& node) {
     return out;
 }
 
-Str dta_of(const Array& root) {
+Str dta_of(const Array& root, const WriteOptions& layout) {
     Str out;
-    write_dta(root, str_out(out));
+    write_dta(root, str_out(out), layout);
     return out;
 }
 

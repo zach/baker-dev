@@ -9230,3 +9230,49 @@ and without `&&`, `||` and `!`.*
 - **Not done.**
   - A comment-keeping reverse converter (infix to prefix by spans).
   - The prototype's experiment and its proof scripts, which stay on that branch.
+
+## D263. Baker writes in the house layout; the indentation layout is declined
+
+*The indent-lines idea, prototyped on `claude/fervent-cray-l1kyf0-syntax-indent-lines` (its
+design note is that branch's `dev/syntax-indent-lines-design.md`), reviewed with the owner
+on 2026-10-30, who declined the layout and kept its printer half.*
+
+- **The layout is declined.** The idea: a line that begins with an atom is an array, and
+  the lines indented deeper are its children, so `player` over an indented `speed 4.5` is
+  `(player (speed 4.5))`. Two measurements decided it.
+  - The parse paid for it whether or not a file used it: +1.67% instructions with the rule
+    always on, and +1.53% for the opt-in as built, against D143's bar of +1.1%. Four
+    layouts of the test were tried.
+  - D101's raw gate read 76 of the 426 raw files that read alone to a different tree,
+    with no error. Those files write a bare macro alone on a line at the top level, which
+    the layout reads as an array: 16% of the corpus, silently.
+
+  What it bought was small: a third of the parentheses (1,650 of 4,654) and most of the
+  piles of closers (489 lines to 29), no lines, and 2.4% of the bytes. An outline view of
+  bracketed text is the editor integration's.
+- **The house layout.** `WriteOptions`' defaults are three spaces a level and a hundred
+  columns, the layout the repository's own files and the stacks are written in. They were
+  2 and 80, so an entry write-back inserted, or a file `write_dta` wrote, read unlike the
+  file around it.
+  - Changing the defaults broke no test, in Baker's suites or the stacks'.
+- **A Config writes in its layout.** `Config::set_layout(WriteOptions)` and `layout()` name
+  the layout of the text a Config writes:
+  - `layer_text`;
+  - the forms write-back and promote add to a layer's file.
+
+  `open_project` sets it from the project's `(format ...)`, which before told only the
+  formatter and the kit's `format` command. So the kit's promote, and every tool that opens
+  a project, writes as `format` would lay out. A Config not opened from a project writes
+  the house layout.
+- **For the next release's changelog** (written at the release, dev/releasing.md):
+  "`WriteOptions` defaults to the house layout, three spaces a level and a hundred columns
+  (it was 2 and 80); a Config opened from a project writes in the project's `(format ...)`
+  (`Config::set_layout`)."
+- **Costs.** None on a hot path: the layout is read when text is written.
+- **Tests.** `test_m3b.cpp`: a Config's default layout; an inserted entry wrapped by a set
+  layout; `layer_text` in it; `open_project` taking a project's `(format ...)`.
+- **Docs.** `docs/tools.md` names the house layout and the Config's; the cookbook's project
+  file says `(format ...)` lays out write-back too.
+- **Fuzzing.** libFuzzer under ASan and UBSan, built as CI's fuzz job, on the stack through
+  D265, seeded with D262's corpus: 100,000 executions, the bar the owner set for each step on
+  2026-10-30, with no crash, leak or sanitizer report.

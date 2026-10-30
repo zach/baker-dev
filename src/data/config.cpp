@@ -1029,6 +1029,13 @@ Ref<Array> Config::layer_root(std::string_view name) const {
     return at ? impl_->layers[*at].root : nullptr;
 }
 
+void Config::set_layout(const WriteOptions& layout) noexcept {
+    impl_->layout = layout;
+}
+const WriteOptions& Config::layout() const noexcept {
+    return impl_->layout;
+}
+
 Expected<void> Config::layer_text(std::string_view name, TextSink out) const {
     Ref<Array> tree;
     if (name == "scratch")
@@ -1037,7 +1044,7 @@ Expected<void> Config::layer_text(std::string_view name, TextSink out) const {
         tree = impl_->layers[*at].root;
     else
         return Unexpected(make_error(ErrorCode::NotFound, "no layer named '" + Str(name) + "'"));
-    if (tree) write_dta(*tree, out);  // empty scratch is an empty layer
+    if (tree) write_dta(*tree, out, impl_->layout);  // empty scratch is an empty layer
     return {};
 }
 
