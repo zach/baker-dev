@@ -92,7 +92,7 @@ void Array::finish(int verb) noexcept {
     // A verb stands in the first value slot, which the parser knows; a pin is metadata.
     if (verb < 0) verb = size_ >= 2 && data()[1].type() == Type::Symbol ? -1 : 0;
     if (verb || first_meta) below = static_cast<uint16_t>(below | marker_flag(verb, first_meta));
-    // sort_for_lookup() runs this again, so the old boundary goes first. Past the 14 bits,
+    // sort_for_lookup() runs this again, so the old boundary goes first. Past the 13 bits,
     // metadata would read as values: the parser refuses such an array.
     flags_ = static_cast<uint16_t>((flags_ & kFlagBits) | (below & kHasMarker));
     if (first_meta <= kMaxMetaFirst)

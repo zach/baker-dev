@@ -111,7 +111,7 @@ TEST_CASE("check: literal types against overloads, and {set} needs a variable") 
     const CheckReport report = check(*tree, ctx);
     REQUIRE(report.errors.size() == 3);
     CHECK(report.errors[0].message() ==
-          "'+' is given (int symbol); it takes (int int) (float float)");
+          "'+' is given (int symbol); it takes (number number number...)");
     CHECK(report.errors[1].message() == "'set' is given (symbol int); it takes ($variable value)");
     CHECK(report.errors[2].message() == "'not' takes 1 argument, given 0");
     CHECK(report.errors[2].line() == 3);
@@ -904,4 +904,78 @@ TEST_CASE("a tool tells a type already known from a refusal without reading word
     CHECK(has_type(ctx, "Tank"));
     CHECK(declare_object(ctx, "scheduler", "Tank").error().code() == ErrorCode::Refused);
     CHECK(declare_object(ctx, "t", "Plane").error().code() == ErrorCode::Type);
+}
+
+namespace {
+// The variadic operators' report: the same for a prefix tree and its infix spelling.
+void check_operator_report(const char* text) {
+    Context ctx;
+    const auto tree = parse(text, "rules.dta");
+    const CheckReport report = check(*tree, ctx);
+    REQUIRE(report.errors.size() == 4);
+    CHECK(to_string(report.errors[0]) ==
+          "baker: '+' is given (int string); it takes (number number number...)  (rules.dta:2)");
+    CHECK(
+        to_string(report.errors[1]) ==
+        "baker: '+' is given (int int string); it takes (number number number...)  (rules.dta:3)");
+    CHECK(to_string(report.errors[2]) ==
+          "baker: '<' is given (int int symbol); it takes (number number number...)  "
+          "(rules.dta:5)");
+    CHECK(to_string(report.errors[3]) ==
+          "baker: '+=' is given (? symbol); it takes ($variable number)  (rules.dta:8)");
+    REQUIRE(report.demand.size() == 1);
+    CHECK(report.demand[0].name == Symbol("="));
+    CHECK(report.demand[0].sites[0].line == 6);
+}
+}  // namespace
+
+TEST_CASE("check holds variadic operators to their literal types, and `=` is a demand") {
+    check_operator_report(
+        "(rules\n"
+        "  (a {+ 1 \"x\"})\n"
+        "  (b {+ 1 2 \"x\"})\n"
+        "  (c {<= 0.3 $value 0.7})\n"
+        "  (d {< 1 2 three})\n"
+        "  (e {= $x 1})\n"
+        "  (f {+= $i 1})\n"
+        "  (g {+= $i one}))\n");
+    check_operator_report(
+        "(rules\n"
+        "  (a {+ 1 \"x\"})\n"
+        "  (b {1 + 2 + \"x\"})\n"
+        "  (c {0.3 <= $value <= 0.7})\n"
+        "  (d {1 < 2 < three})\n"
+        "  (e {$x = 1})\n"
+        "  (f {$i += 1})\n"
+        "  (g {$i += one}))\n");
+}
+
+TEST_CASE("check reports a head no call can have, as evaluation does, and names infix's fix") {
+    Context ctx;
+    const auto tree = parse(
+        "(rules\n"
+        "  (a {1 2})\n"
+        "  (b {\"f\" x})\n"
+        "  (c {[hp] 3})\n"
+        "  (d {0.3 $value <= 0.7})\n"
+        "  (e {$obj hit 1})\n"
+        "  (f {{find enemy} hit 1}))\n",
+        "rules.dta");
+    const CheckReport report = check(*tree, ctx);
+    REQUIRE(report.errors.size() == 4);
+    CHECK(to_string(report.errors[0]) ==
+          "baker: a command starts with a function or an object, not a int  (rules.dta:2)");
+    CHECK(to_string(report.errors[1]) ==
+          "baker: a command starts with a function or an object, not a string  (rules.dta:3)");
+    CHECK(to_string(report.errors[2]) ==
+          "baker: a command starts with a function or an object, not a property  (rules.dta:4)");
+    CHECK(to_string(report.errors[3]) ==
+          "baker: a command starts with a function or an object, not a float: infix needs an "
+          "operator between every two operands  (rules.dta:5)");
+    // A variable or a command at the head is an object computed at run time: no error.
+    REQUIRE(report.demand.size() == 1);
+    CHECK(report.demand[0].name == Symbol("find"));
+    // Each is what evaluation says of it.
+    CHECK(ctx.eval((*parse("{1 2}", "x.dta"))[0]).error().message() ==
+          "a command starts with a function or an object, not a int");
 }

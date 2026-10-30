@@ -160,15 +160,15 @@ TEST_CASE("the boundary survives sorting, set(), merging and the cache") {
     }
 }
 
-TEST_CASE("metadata past child 16383 is refused") {
+TEST_CASE("metadata past child 8191 is refused") {
     std::string at_limit = "(k";
-    for (int i = 1; i < 16383; ++i) at_limit += " 0";
+    for (int i = 1; i < 8191; ++i) at_limit += " 0";
     std::string past = at_limit + " 0";
     at_limit += " (@range 0 1))\n";
     past += " (@range 0 1))\n";
     const auto taken = read_string(at_limit, "m.dta");
     REQUIRE(taken);
-    CHECK((*taken)->try_find("k")->meta_first() == 16383);
+    CHECK((*taken)->try_find("k")->meta_first() == 8191);
     const auto refused = read_string(past, "m.dta");
     REQUIRE(!refused);
     CHECK(refused.error().code() == ErrorCode::Limit);

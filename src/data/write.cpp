@@ -19,12 +19,14 @@ char close_of(Type t) noexcept {
 }
 
 // Where the parser reads a symbol specially: a layer verb's slot, where the verb reads back
-// bare (D143); the head of a parenthesized array, where a '/'-led one is a row's key.
-enum Slot : uint8_t { kPlain, kMarker, kHead };
+// bare (D143); the head of a parenthesized array, where a '/'-led one is a row's key; an
+// operator at an odd slot of a command printed prefix, which must not read back as infix
+// (D262).
+enum Slot : uint8_t { kPlain, kMarker, kHead, kQuoted };
 
 void put_symbol(Str& out, std::string_view s, Slot slot = kPlain) {
     const bool key = slot == kHead && s.size() > 1 && s[0] == '/';
-    if ((detail::is_bare_symbol(s) && !key) || slot == kMarker) {
+    if ((detail::is_bare_symbol(s) && !key && slot != kQuoted) || slot == kMarker) {
         out += s;
     } else {
         out += '\'';
@@ -36,7 +38,10 @@ void put_symbol(Str& out, std::string_view s, Slot slot = kPlain) {
 // What `a[i]` is to the parser: a verb, in a parenthesized array of the form the parser
 // takes it in (elsewhere a verb's symbol is quoted, and reads back as that symbol); where it
 // takes a row's key, the first.
-Slot slot_of(const Node& n, const Array& a, uint32_t i) noexcept {
+Slot slot_of(const Node& n, const Array& a, uint32_t i,
+             detail::InfixShape shape = detail::InfixShape::None) noexcept {
+    if (shape == detail::InfixShape::Quoted && (i & 1) && detail::quoted_in_command(a[i]))
+        return kQuoted;  // `{+ '-' 1}`
     if (n.type() != Type::Array) return kPlain;
     if (i == 1 && detail::verb_of(a) != detail::Marker::None) return kMarker;
     return i == 0 ? kHead : kPlain;
@@ -87,7 +92,14 @@ void put_atom(Str& out, const Node& n, Slot slot = kPlain) {
     }
 }
 
-// Compact form; stops once `out` exceeds `limit` bytes. Returns false if it stopped.
+// How `n`, an array-like node, prints: a command by its infix shape (D262); every other
+// array head-first.
+detail::InfixShape shape_of(const Node& n, const Array& a) noexcept {
+    return n.type() == Type::Command ? detail::infix_shape(a) : detail::InfixShape::None;
+}
+
+// Compact form; stops once `out` exceeds `limit` bytes. Returns false if it stopped. An
+// infix command prints `{k0 op k2 ...}`: its operator at slot 0 goes between the operands.
 bool put_flat(Str& out, const Node& n, size_t limit, Slot slot = kPlain) {
     if (!n.is_array_like()) {
         put_atom(out, n, slot);
@@ -95,9 +107,17 @@ bool put_flat(Str& out, const Node& n, size_t limit, Slot slot = kPlain) {
     }
     out += open_of(n.type());
     const Array& a = *n.array();
-    for (uint32_t i = 0; i < a.size(); ++i) {
-        if (i > 0) out += ' ';
-        if (!put_flat(out, a[i], limit, slot_of(n, a, i))) return false;
+    const detail::InfixShape shape = shape_of(n, a);
+    const uint32_t first = shape == detail::InfixShape::Chain ? 1 : 0;
+    for (uint32_t i = first; i < a.size(); ++i) {
+        if (i > first) {
+            out += ' ';
+            if (first) {
+                out += a[0].try_sym()->str();
+                out += ' ';
+            }
+        }
+        if (!put_flat(out, a[i], limit, slot_of(n, a, i, shape))) return false;
     }
     out += close_of(n.type());
     return out.size() <= limit;
@@ -116,13 +136,20 @@ void put_pretty(Str& out, const Node& n, size_t indent, const WriteOptions& o, S
     out.resize(mark);
     const size_t step = o.indent > 0 ? static_cast<size_t>(o.indent) : 0;
     const Array& a = *n.array();
+    const detail::InfixShape shape = shape_of(n, a);
+    const uint32_t first = shape == detail::InfixShape::Chain ? 1 : 0;
     out += open_of(n.type());
-    for (uint32_t i = 0; i < a.size(); ++i) {
-        if (i > 0) {
+    // One child a line; an infix command's operator ends each line but the last.
+    for (uint32_t i = first; i < a.size(); ++i) {
+        if (i > first) {
+            if (first) {
+                out += ' ';
+                out += a[0].try_sym()->str();
+            }
             out += '\n';
             out.append(indent + step, ' ');
         }
-        put_pretty(out, a[i], indent + step, o, slot_of(n, a, i));
+        put_pretty(out, a[i], indent + step, o, slot_of(n, a, i, shape));
     }
     out += close_of(n.type());
 }

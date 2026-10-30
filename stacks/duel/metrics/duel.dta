@@ -5,21 +5,21 @@
 (objective duel.no_infinites
    (desc "No combo goes on forever")
    (measure {duel.infinites})
-   (pass {== $value 0}))
+   (pass {$value == 0}))
 (objective duel.combo_ceiling
    (desc "No combo does more than 35% of a fighter's health")
    (measure {duel.max_combo_damage})
-   (pass {<= $value 350}))
+   (pass {$value <= 350}))
 (objective duel.block_advantage
    (desc "No move is more than 2 frames ahead on block: blocking must give the turn back")
    (measure {duel.max_block_advantage})
-   (pass {<= $value 2}))
+   (pass {$value <= 2}))
 
 ; The CPU is fair: it never reacts faster than a person could.
 (objective duel.reaction_floor
    (desc "The CPU never blocks an attack within 10 frames of its start")
    (measure {duel.fastest_reaction 2})
-   (pass {or {< $value 0} {>= $value 10}}))
+   (pass {or {$value < 0} {$value >= 10}}))
 
 ; The CPU is beatable and teaches: its share of rounds against each kind of player, per
 ; difficulty, is the designer's curve. Each is judged by its median over the seeds a sim
@@ -28,34 +28,34 @@
    (desc "Easy: a newcomer mashing wins about half the time")
    (over median)  ; a win rate moves from seed to seed: judged where it sits
    (measure {duel.win_rate 2})
-   (pass {and {>= $value 0.3} {<= $value 0.7}}))
+   (pass {0.3 <= $value <= 0.7}))
 (objective duel.normal_vs_masher
    (desc "Normal: mashing mostly loses")
    (over median)  ; a win rate moves from seed to seed: judged where it sits
    (measure {duel.win_rate 2})
-   (pass {and {>= $value 0.6} {<= $value 0.95}}))
+   (pass {0.6 <= $value <= 0.95}))
 (objective duel.hard_vs_masher
    (desc "Hard: mashing does not work")
    (over median)  ; a win rate moves from seed to seed: judged where it sits
    (measure {duel.win_rate 2})
-   (pass {>= $value 0.85}))
+   (pass {$value >= 0.85}))
 (objective duel.easy_vs_combo
    (desc "Easy: a player who knows the combos wins nearly always")
    (over median)  ; a win rate moves from seed to seed: judged where it sits
    (measure {duel.win_rate 2})
-   (pass {<= $value 0.25}))
+   (pass {$value <= 0.25}))
 (objective duel.normal_vs_combo
    (desc "Normal: a player who knows the combos wins most rounds")
    (over median)  ; a win rate moves from seed to seed: judged where it sits
    (measure {duel.win_rate 2})
-   (pass {and {>= $value 0.15} {<= $value 0.5}}))
+   (pass {0.15 <= $value <= 0.5}))
 (objective duel.hard_vs_combo
    (desc "Hard: an even fight for a player who knows the combos, and still beatable")
    (over median)  ; a win rate moves from seed to seed: judged where it sits
    (measure {duel.win_rate 2})
-   (pass {and {>= $value 0.35} {<= $value 0.75}}))
+   (pass {0.35 <= $value <= 0.75}))
 (objective duel.normal_vs_turtle
    (desc "Normal: blocking alone does not beat the CPU, but it takes rounds from it")
    (over median)  ; a win rate moves from seed to seed: judged where it sits
    (measure {duel.win_rate 2})
-   (pass {and {>= $value 0.4} {<= $value 0.9}}))
+   (pass {0.4 <= $value <= 0.9}))

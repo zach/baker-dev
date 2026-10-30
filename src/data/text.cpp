@@ -107,6 +107,34 @@ bool is_bare_symbol(std::string_view s) noexcept {
     return classify_number(s).kind == NumberKind::NotNumber;
 }
 
+bool quoted_in_command(const Node& n) noexcept {
+    const auto s = n.try_sym();
+    return s && is_operator_symbol(s->str());
+}
+
+namespace {
+bool any_operand(const Array& a, uint32_t from, uint32_t step) noexcept {
+    for (uint32_t i = from; i < a.size(); i += step)
+        if (is_infix_operand(a[i])) return true;
+    return false;
+}
+}  // namespace
+
+InfixShape infix_shape(const Array& a) noexcept {
+    const uint32_t n = a.size();
+    const auto op = n >= 3 ? a[0].try_sym() : std::nullopt;
+    if (op && a.written_infix() && any_operand(a, 1, 1) && is_operator_symbol(op->str()) &&
+        is_bare_symbol(op->str()))
+        return InfixShape::Chain;  // not `/*`, which would open a comment
+    // Printed prefix, would the reader take it infix, or refuse it as malformed infix? Slot 1
+    // an operator, and an operand at an even slot (at slot 0, in an even brace).
+    const auto head = n >= 2 ? a[1].try_sym() : std::nullopt;
+    if (head && is_operator_symbol(head->str()) &&
+        ((n & 1) ? any_operand(a, 0, 2) : is_infix_operand(a[0])))
+        return InfixShape::Quoted;
+    return InfixShape::None;
+}
+
 void append_path_name(Str& out, std::string_view name) {
     const bool bare = is_bare_symbol(name) && name.find_first_of("./") == std::string_view::npos;
     if (!bare) out += '\'';

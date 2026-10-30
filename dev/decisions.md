@@ -9086,3 +9086,152 @@ NAME (body)` kept with a nudge toward `[NAME ...]`, and the at-the-table `#shape
   refuses, so CI's fuzz job would have failed too; it reads `"#origin (\""` now.
 - **Not done.** The at-the-table `#shape` (deferred by the owner). A `#pack` or `#origin` in a
   layer's `layer_effect` has no line, since `Pack` and `Origin` keep none.
+
+## D262. Braces written infix, `{0.3 <= $value <= 0.7}`, and the operators as a vocabulary
+
+*The curly-infix idea, prototyped on `claude/fervent-cray-l1kyf0-syntax-curly-infix` (its
+design note is that branch's `dev/syntax-curly-infix-design.md`), reviewed with the owner on
+2026-10-30, who chose the vocabulary and the infix reader for everyone, without the ternary
+and without `&&`, `||` and `!`.*
+
+- **The need.** Script was wordier than the data around it: a band was
+  `{and {>= $value 0.3} {<= $value 0.7}}`, two calls and three braces, in every objective of
+  every stack, and the people who write objectives read arithmetic infix.
+- **The vocabulary.**
+  - `+`, `-` and `*` fold left over two numbers or more (`{- 5}` negates).
+  - `<`, `<=`, `>` and `>=` test every adjacent pair, evaluating each argument once and
+    stopping at the first pair that fails, so `{<= 0.3 $value 0.7}` is a band in one call.
+  - `+=`, `-=`, `*=` and `/=` load a `$variable`, or in a method a `[property]`, apply,
+    store and return the value. An unset place is `NotFound` and one that holds no number is
+    `Type`, as reading it is.
+  - `==`, `!=`, `/` and `%` keep two arguments: each was one overload, and a rest parameter
+    cost it 23% to 40% a call in the prototype.
+  - Each operator is one native with a typed rest (`number...`); `check` holds every literal
+    of the rest to its type.
+  - With them, `Args` evaluates a `[property]` argument as it does a command or a variable.
+    A function of one overload used to read a property unevaluated: `{% [hp] 3}` failed
+    "argument 1 of '%' is property, not int".
+    - The fast path's test for a number parameter is left to the read, which takes only an
+      int or a float. As a three-type test, Clang kept it before its type switch, +12
+      instructions a two-argument call; as main's two-type test, it folded the test away.
+  - `check` reports a head no call can have (a number, a string or a property), as
+    evaluation does, and for malformed infix adds "infix needs an operator between every
+    two operands".
+- **The reader rule.** Inside `{...}` only, a brace of an odd number of nodes, three or
+  more, whose odd slots hold one and the same bare operator symbol (bytes of
+  `+-*/%<>=!&|^~` only), reads head-first when one of its operands is a number, variable,
+  property or command: `{0.3 <= $value <= 0.7}` is the tree `{<= 0.3 $value 0.7}`.
+  - The nodes and their edit-mode spans are permuted in place at the close. The head's
+    span is the first operator's.
+  - It is always on; the prototype's switch is gone.
+  - A quoted symbol at an odd slot exempts the brace (`{$obj '<=' 1 2}` calls a handler),
+    and so does a macro used there or one that expands to several nodes.
+  - Errors, each located at the brace:
+    - two different operators: "mixed operators in {...}: nest braces to say which applies
+      first";
+    - an operand where an operator belongs: "infix {...} needs '<=' between every two
+      operands";
+    - an even brace that ends with its operator after an operand head: "infix {...} ends
+      with '<=': write an operand after it".
+  - There is no precedence: nest, under `and`.
+  - No ternary: `{if c a b}` is already one word, and the ternary added two reserved
+    symbols, an empty-span head and a branch in the rule and the printer. `?` and `:` are
+    ordinary symbols.
+  - No `&&`, `||` or `!`: they were three words for three the vocabulary has.
+- **The written spelling.** `Array::written_infix()` records that a command was read infix,
+  so the printer, and with it `write_file`, promote and a reply's text, gives a designer
+  back the spelling they wrote. Equality, the digest and evaluation ignore it.
+  - It rides the binary cache with the array.
+  - A tool may set it: `set_written_infix`.
+  - Where it is kept: in `flags_`, beside D251's marker bit, so `finish()` and `set()` keep
+    it as they keep the others and no hot path pays for it. The metadata boundary above the
+    flags shrinks from 14 bits to 13: metadata past child 8,191 is refused (`Limit`),
+    where D248 refused it past 16,383.
+    - `height_`'s top bit was tried first. Masking each child's height in `finish()` cost
+      Clang about 9,000 instructions a parse and merge 0.4%.
+  - The printer writes a flagged command `{k0 op k2 ...}` when it still has the shape (an
+    operator head, an operand, `/*` never between operands). Long, it wraps one operand a
+    line with the operator ending each line.
+  - It quotes an operator at an odd slot of a prefix command that would otherwise read
+    infix (`{+ '-' 1}`), so every tree prints to text that reads back to it.
+- **The tolerant read.** `read_structure` applies the rule slot by slot.
+  `TextBracket::infix` is an infix brace's first operator token, its head, and the three
+  errors are reported with the parser's messages, lines and columns. It does not know a
+  macro's body, so it leaves a brace with any macro use as written.
+- **The repository's data.** The prototype's in-tree rewrite was replayed onto main:
+  - the seven stacks' metrics;
+  - Ledger's milestones and unlocks, with the four cells of `economy.xlsx` they are
+    exported from, so `export_economy.py --check` holds;
+  - the calculator's and scripting example's functions;
+  - three test fixtures.
+
+  Its three ternaries went back to `if`. Data written since the prototype is prefix, which
+  still reads. `stacks/agent.md` and the stacks-agent skill say how a brace reads.
+- **Docs.** `docs/language.md`'s "Operators, and braces written infix", and the regenerated
+  script reference. The guide says that data a build before this release reads, such as a
+  live-ops overlay for a shipped game, stays prefix, since an older build reads
+  `{2 <= $value <= 10}` as a call of 2.
+- **For the next release's changelog** (written at the release, dev/releasing.md): "A brace
+  may be written infix, `{0.3 <= $value <= 0.7}`, one operator a brace; `+ - *` take two
+  numbers or more, comparisons chain, and `+= -= *= /=` store. Keep data that older builds
+  read, such as live-ops overlays, in the prefix spelling." The editor note is in the
+  session's scratchpad for the owner.
+- **Costs.** `tools/count_instructions.py` against D261 with main merged, before main's D252
+  to D259, instructions per operation:
+
+  | case | GCC before | GCC after | change | Clang before | Clang after | change |
+  |---|---:|---:|---:|---:|---:|---:|
+  | parse | 1,894,667 | 1,894,122 | −0.03% | 1,767,425 | 1,779,734 | +0.70% |
+  | call | 307 | 302 | −1.63% | 235 | 237 | +0.85% |
+  | overload | 784 | 472 | −39.8% | 661 | 450 | −31.9% |
+  | check | 3,840,988 | 3,828,148 | −0.33% | 3,561,579 | 3,561,571 | −0.00% |
+  | lookup_text | 371 | 379 | +2.16% | 310 | 310 | 0 |
+
+  - The other cases are unchanged on both compilers: lookup, set, the merges, check_pinned,
+    declared, the messages and frame.
+  - Parse's rule is the test at each array close: the frame kind, then for a brace its size,
+    parity and slot 1. On Clang it is about 7 instructions a close. The text holds no
+    operator call, so the rule itself never runs.
+  - `overload` is `{+ 1.5 2}`: one native with a typed rest, in place of main's set of two
+    overloads, which evaluated every argument into a buffer and tried each.
+  - `lookup_text`'s 8 instructions on GCC are all in glibc, every Baker function's count
+    unchanged, as D261's `set`.
+  - Not counted here: the prototype measured each operator with a driver of its own. A band
+    in one call was 775 instructions, against 1,755 for the `and` of two comparisons.
+- **Lines.** The library gains 478 lines and loses 49; the tests, 556 and 14.
+- **Tests.**
+  - `test_parse.cpp`: chains with their spans; the guard; quoting; macros; `#autorun`; each
+    error with its column.
+  - `test_write.cpp`: prefix quoting; a flagged tree prints infix and re-reads flagged; a
+    tool's flag; `/*`; wrapping.
+  - `test_cache.cpp`: the flag rides the cache.
+  - `test_eval.cpp`: folds; chains with a counting native evaluated once; `+=` and its
+    family; `=` and `&&` undefined; infix spellings evaluate as their prefix trees.
+  - `test_object.cpp`: a property argument of a one-overload function; `+=` and `-=`
+    through `[hp]`.
+  - `test_check.cpp`: literal types through a variadic operator in both spellings; heads no
+    call can have.
+  - `test_structure.cpp`: `infix` and the three errors, matching the parser's.
+  - The fuzz harness checks that the written-infix marks survive print and re-read, and the
+    dictionary gains `<=` and `+=`.
+- **Raw gate.** 464/464 files, 0 round-trip failures; the infix rule fires on 0 braces, the
+  guard holds back 0, and 0 files are refused as malformed infix. Baker's corpus reads 6
+  braces infix.
+- **Stacks.** Built as CI's stacks job (GCC, Debug, Ninja): 30 of 30 tests pass. Each of
+  the seven games' `sim --baker-seeds 1-5 --baker-json --baker-results DIR` and `check`, run
+  against a build of the base:
+  - every run exits 0;
+  - `sim.json`, the results and `check`'s JSON are identical byte for byte, values
+    included, once the two worktrees' paths are normalized.
+
+  So the rewritten objectives, unlocks and milestones evaluate as their prefix originals.
+- **Fuzzing.** libFuzzer under ASan and UBSan, built as CI's fuzz job, seeded with D261's
+  corpus, the fuzz regressions and the repository's infix files: 601,935 executions, past
+  the 100,000 the owner set for each step on 2026-10-30, with no crash, leak or sanitizer
+  report, and a corpus of 23,055 inputs at the end. The harness checks that the written-infix
+  marks survive print and re-read. The first 252,576 ran from a seed that lacked D261's
+  corpus (a copy that overflowed its argument list) and reached 2,509 edges; the rest, from
+  the full corpus, reached 3,202.
+- **Not done.**
+  - A comment-keeping reverse converter (infix to prefix by spans).
+  - The prototype's experiment and its proof scripts, which stay on that branch.

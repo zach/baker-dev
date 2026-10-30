@@ -270,16 +270,17 @@ public:
     }
 
 private:
-    // Declare: the one form of #pack, #origin or #shape (D261).
+    // Declare: the one form of #pack, #origin or #shape (D261). The braces last, so the
+    // infix rule tests for one with one comparison (D262).
     enum class Frame : uint8_t {
         Root,
         Array,
-        Command,
         Property,
         MacroDef,
         DefineBody,
-        Autorun,
-        Declare
+        Declare,
+        Command,
+        Autorun
     };
     struct FrameInfo {
         Frame kind;
@@ -290,6 +291,9 @@ private:
         uint32_t begin = 0;  // offset of the opening bracket
         bool verb = false;   // holds a layer verb: its form is checked at close (D143)
         bool row = false;    // headed by a row's key: close() wraps it in the key's segments
+        // An odd slot was written as something other than a bare symbol token: a quoted symbol
+        // (`{+ '-' 1}`) or a macro use, so the brace is never read infix (D262).
+        bool no_infix = false;
     };
     struct Cond {
         bool active;         // tokens in the current branch are read
@@ -386,13 +390,18 @@ private:
                     one_way(sym, t.line);
                 else if (!s_.st_->macro_pack.empty())  // checked if a #pack follows
                     unpacked_.emplace_back(sym, t.line);
+                if (body->size() != 1 || odd_slot()) frames_.back().no_infix = true;
                 const SourceSpan from{file_, t.begin, t.end, sym};
                 for (const Node& n : *body)
                     if (!push(n, from)) return false;
                 return true;
             }
         }
+        if (t.quoted && odd_slot()) frames_.back().no_infix = true;
         return push(Node(sym), here(t));
+    }
+    [[nodiscard]] bool odd_slot() const noexcept {
+        return ((scratch_.size() - frames_.back().start) & 1) != 0;
     }
 
     bool open(char bracket, int32_t line, uint32_t begin) {
@@ -442,15 +451,27 @@ private:
             return true;
         }
 
+        // The infix rule, after a test of slot 1 that a call (`{game add_score 10}`) fails; an
+        // even brace only when its head is an operand, which only malformed infix gives.
+        bool infix = false;
+        if (f.kind >= Frame::Command && kids.size() >= 2 &&
+            ((kids.size() & 1) || is_infix_operand(kids[0])) && !f.no_infix &&
+            infix_head(kids[1])) {
+            const int r = infix_rule(kids.data(), kids.size(), f.start, f.line, f.begin);
+            if (r < 0) return false;
+            infix = r > 0;
+            if (infix) kids = kids.first(static_cast<size_t>(r));
+        }
         Ref<Array> arr = arena_.make_array(kids, file_, f.line, f.verb);
+        if (infix) arr->set_written_infix(true);
         record(arr, f.start, f.begin, t.end);
         truncate(f.start);
         if (arr->height() > s_.limits.max_depth) return too_deep(f.line, f.begin);
         // Metadata comes after the value. Inline, so an array without metadata, and with no
-        // more children than the boundary can name (kMaxMetaFirst, 14 bits), pays one test; a
+        // more children than the boundary can name (kMaxMetaFirst, 13 bits), pays one test; a
         // command's and a property's forms are positional and keep their order.
-        static_assert(Array::kMaxMetaFirst == (1u << 14) - 1);
-        if ((arr->meta_first() | (arr->size() >> 14)) && f.kind == Frame::Array &&
+        static_assert(Array::kMaxMetaFirst == (1u << 13) - 1);
+        if ((arr->meta_first() | (arr->size() >> 13)) && f.kind == Frame::Array &&
             !metadata_placed(*arr, f))
             return false;
         if (f.verb && !verb_placed(*arr, f)) return false;
@@ -470,6 +491,55 @@ private:
             case Frame::Declare: return declared(f, std::move(arr));
             default: return push(Node(std::move(arr)), span);
         }
+    }
+
+    // The infix rule (D262). A brace of 2k+1 nodes whose odd slots are one bare operator,
+    // `{0.3 <= $value <= 0.7}`, is the command `{<= 0.3 $value 0.7}`: the nodes, and their
+    // spans, are permuted in place and `kids` shrinks to the command. Only when an operand (an
+    // even slot) is a number, variable, property or command, the guard, so a brace of bare
+    // symbols means what it did. An operator at slot 1 that is not one is an error at the
+    // brace, and so is one after an operand head in an even brace (`{$v <= 0.7 0.3}`,
+    // `{$v <=}`), which no head-first call writes: quoted, `{$obj '<=' 1 2}`, it is a call.
+    static bool infix_head(const Node& n) noexcept {
+        const auto s = n.try_sym();
+        return s && !s->str().empty() && kOperatorByte[static_cast<unsigned char>(s->str()[0])];
+    }
+    // Returns the command's new size, 0 for a command as written, -1 after an error. Out of
+    // line, its arguments by value: the hot loop's close keeps its registers.
+    BAKER_COLD int infix_rule(Node* kids, size_t n, size_t start, int32_t line, uint32_t begin) {
+        const std::string_view op = kids[1].try_sym()->str();
+        if (!is_operator_symbol(op)) return 0;
+        bool operand = false;
+        for (size_t i = 0; i < n; i += 2) operand = operand || is_infix_operand(kids[i]);
+        if (!operand) return 0;
+        const Symbol head = *kids[1].try_sym();
+        for (size_t i = 3; i < n; i += 2) {
+            if (kids[i].is(head)) continue;
+            if (quoted_in_command(kids[i]))
+                return malformed(line, begin,
+                                 "mixed operators in {...}: nest braces to say which applies "
+                                 "first");
+            return malformed(line, begin,
+                             "infix {...} needs '" + Str(op) + "' between every two operands");
+        }
+        if (!(n & 1))
+            return malformed(line, begin,
+                             "infix {...} ends with '" + Str(op) + "': write an operand after it");
+        // [k0 op k2 op k4 ...] -> [op k0 k2 k4 ...]: each operand moves left over the operators
+        // before it, which end up past the command and are dropped.
+        auto swap = [&](size_t a, size_t b) {
+            kids[a].swap(kids[b]);
+            if (map_) std::swap(spans_[start + a], spans_[start + b]);
+        };
+        swap(0, 1);
+        for (size_t i = 3, j = 4; j < n; ++i, j += 2) swap(i, j);
+        const size_t size = (n + 3) / 2;
+        if (map_) spans_.resize(start + size);  // the operators' spans go with them
+        return static_cast<int>(size);
+    }
+    int malformed(int32_t line, uint32_t begin, std::string_view message) {
+        fail(ErrorCode::Syntax, message, line, begin);
+        return -1;
     }
 
     // The key after '/': segments separated by '.' or '/', a 'quoted' one for a name holding

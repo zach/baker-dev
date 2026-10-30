@@ -616,9 +616,9 @@ special forms, which is why the whole language is the [reference](script-referen
 list of functions.
 
 The built-ins are control (`if`, `do`, `set`, `func`, `override`, `class`, `new`,
-`delete`), arithmetic (`+ - * / %`), comparison (`== != < <= > >=`), and logic (`and or
-not`). Ints stay ints (wrapping on overflow) until a float joins them; `{/ 7 2}` is 3.5.
-Everything else is what the host binds:
+`delete`), arithmetic (`+ - * / %`), assignment (`+= -= *= /=`), comparison (`== != < <= >
+>=`), and logic (`and or not`). Ints stay ints (wrapping on overflow) until a float joins
+them; `{/ 7 2}` is 3.5. Everything else is what the host binds:
 
 ```cpp
 baker::Context ctx;
@@ -634,6 +634,49 @@ overload set. A call with two scalar arguments takes about 31 ns and never alloc
 memory; a lambda that captures nothing is not kept at all. Registering costs about 460
 bytes of code per binding with GCC at -O2, most of it the call itself, and the
 registration's own work runs out of line.
+
+### Operators, and braces written infix
+
+The operators take more than two arguments where that reads as one idea. `+`, `-` and `*`
+fold left over two numbers or more: `{+ 1 2 3}` is 6 and `{- 10 2 3}` is 5, and `{- 5}` is
+-5. `<`, `<=`, `>` and `>=` test every adjacent pair, evaluating each argument once and
+stopping at the first pair that fails, so `{<= 0.3 $value 0.7}` is a band. `==`, `!=`, `/`
+and `%` take two. `{+= $hp 5}` adds, stores and returns the new value, and so do `-=`, `*=`
+and `/=`; in a method, `{+= [hp] 5}` stores to the property. A place that is not set, or
+holds no number, is an error, as reading it is.
+
+A brace may be written with its operator between its operands:
+
+```dta
+(objective cube.turns
+   (measure {cube.turns})
+   (pass {2 <= $value <= 10}))        ; the command {<= 2 $value 10}
+(unlock {{econ.total_earned} >= 10000})
+{func average ($a $b) {{$a + $b} / 2}}
+```
+
+A brace of an odd number of nodes, three or more, whose odd slots hold one and the same
+bare operator (a symbol of `+ - * / % < > = ! & | ^ ~` only), reads head-first: `{a op b op
+c}` is `{op a b c}`. It does so only when one of its operands is a number, a variable, a
+property or a command, so a brace of bare symbols, `{wheat -> flour}`, is a call of `wheat`
+as it always was. The tree is the prefix command's, so evaluation, `check`, layers and
+provenance see no difference; the array remembers it was written infix, and printing,
+write-back and promote give that spelling back.
+
+- **One operator a brace.** `{0 < $value <= 10}` is an error at the brace ("mixed
+  operators in {...}: nest braces to say which applies first"). Nest instead, under `and`:
+  `{and {0 < $value} {$value <= 10}}`. There is no precedence to learn.
+- **Every operand needs its operator.** `{0.3 <= $value 0.7}` and `{$value <=}` are errors
+  at the brace, which name the fix.
+- **A call stays a call.** A brace whose first element is a function's name is a call
+  whatever follows it (`{f + 1 2}`), and so is a prefix command (`{<= 0.3 $v 0.7}`). A
+  quoted operator never reads infix: `{$obj '<=' 1 2}` calls the object's `<=` handler, and
+  the printer quotes an operator where the reader would otherwise take a prefix command as
+  infix (`{+ '-' 1}`). A macro used between operands, or one that expands to more than one
+  node, leaves its brace as written.
+- **Overlays for older builds.** A build of Baker before infix reads `{2 <= $value <= 10}` as
+  a call of 2. Data that a build without it reads, such as a live-ops overlay for a game
+  already shipped, stays in the prefix spelling, which every build reads.
 
 ### Variables
 

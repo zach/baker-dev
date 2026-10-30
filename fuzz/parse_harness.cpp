@@ -50,6 +50,19 @@ bool spans_hold(const Node& n, const SourceMap& map, std::string_view text, uint
     return true;
 }
 
+// Whether the same commands carry the written-infix mark in both trees, which are
+// structurally equal: the printer gives back the spelling the reader recorded (D262).
+bool marks_hold(const Node& a, const Node& b, uint64_t& budget) {
+    const Array* x = a.array();
+    const Array* y = b.array();
+    if (!x || !y || budget == 0) return true;
+    --budget;
+    if (a.type() == Type::Command && x->written_infix() != y->written_infix()) return false;
+    for (uint32_t i = 0; i < x->size() && i < y->size(); ++i)
+        if (!marks_hold((*x)[i], (*y)[i], budget)) return false;
+    return true;
+}
+
 LoadSession make_session() {
     LoadSession s;
     s.set_reader([](std::string_view, TextSink) { return false; });
@@ -93,7 +106,11 @@ bool check_parse(std::string_view data) {
     const std::string printed = to_dta(**first);
     LoadSession s2 = make_session();
     auto second = read_string(printed, "printed.dta", s2);
-    return second && structurally_equal(**first, **second);
+    if (!second || !structurally_equal(**first, **second)) return false;
+    uint64_t mark_budget = 100000;
+    for (uint32_t i = 0; i < (*first)->size(); ++i)
+        if (!marks_hold((**first)[i], (**second)[i], mark_budget)) return false;
+    return true;
 }
 
 }  // namespace baker::fuzz
