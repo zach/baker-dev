@@ -41,6 +41,7 @@
 // {bob hit 20} reaches the same handler, and handle() reaches a script handler (hit ($points)
 // ...) first, as a command would (dev/decisions.md D53).
 
+#include <baker/fwd.hpp>
 #include <baker/script.hpp>
 
 #include <cstddef>
@@ -279,7 +280,7 @@ private:
 template <class T>
 class Binder;
 
-template <class T, class Base = ObjectBase>
+template <class T, class Base>  // Base defaults to ObjectBase (fwd.hpp)
 class Object : public Base {
     static_assert(std::is_base_of_v<ObjectBase, Base>, "Base must be a bound type");
 

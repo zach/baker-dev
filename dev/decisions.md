@@ -8736,3 +8736,28 @@ and no limit stopped it.
 - **Test** (`test_preprocessor.cpp`): five new names under a cap of eight; the same text
   again under a cap of zero, since nothing is new; twenty refused with the message and
   line; an include, a macro name and a variable counting into one total.
+
+## D254. `<baker/fwd.hpp>`, declarations alone
+
+*From the review of D250 (finding 9); the owner chose to build it.* Every public header
+costs a translation unit 0.4 to 0.6 s with Clang 18, most of it `<string_view>` and
+`<span>`, so a game header that only names `Config` or `Context` pays it in every file that
+includes it.
+
+- **The header** declares the types a game's headers name: data (`Symbol`, `Node`,
+  `Array`, `Path`, `Error`, `ErrorCode`, `Type`, `Ref`, `List`, `Callback`, `Convert`,
+  `LoadSession`, `ParseLimits`, `Config` and its options, `Tweak`, `TweakBase`,
+  `TweakRegistry`, `Curve`, `Project`, ...), script (`Context`, `Args`, `Shared`,
+  `FuncRef`, `ObjectBase`, `Object`, `MethodRef`, `Task`, `Scheduler`) and `shape::Set`.
+  It includes `<cstdint>` alone, for the enums' underlying types; `check_headers.py`
+  holds it to that.
+- **`Object`'s default argument** (`Base = ObjectBase`) moves to `fwd.hpp`, since a
+  default may be given once; `object.hpp` includes it.
+- **Kept honest.** A header-alone unit includes `fwd.hpp` and then every public header: a
+  declaration that disagrees with its definition fails to compile (a template declared
+  as a class: checked), and under Clang `-Wmismatched-tags` catches a class declared a
+  struct (checked), which MSVC's ABI would mangle differently.
+- **Measured** (Clang 18, `-fsyntax-only`, five runs): an empty unit 0.022 s; `fwd.hpp`
+  0.033 s and 422 preprocessed lines; `config.hpp` 0.545 s and 36,086 lines;
+  `script.hpp` 0.404 s and 36,222 lines.
+
