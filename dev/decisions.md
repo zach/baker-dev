@@ -8855,3 +8855,42 @@ doubly recursive `{func}` from a mod or a live overlay stays shallow and can han
   until the budget is reset, and a hook granting 100 steps three times lets `{fib 8}`
   finish and then ends `{fib 20}`, asked once more than it granted.
 
+## D258. Every allocation names its kind
+
+*From the review of D250 (finding 19); the owner chose an argument to the allocator.* A host
+could give each Config and Context its own allocator, but could not tell what Baker's bytes
+were for inside one, nor what the default allocator's were, so it could not hold Baker to
+budgets per kind as engines do.
+
+- **The API** (`<baker/allocator.hpp>`): `enum class MemoryKind` (`Other`, `Symbols`,
+  `Trees`, `Config`, `Script`, `Tasks`, `Tweaks`, `Errors`, `Tools`), `kMemoryKinds`, and
+  `memory_kind_name`. `Allocator::alloc` and `free` take the kind as a fourth argument;
+  `Allocator` gains a `kind` member, and `with_kind(a, kind)` tags a copy.
+  `default_allocator(kind)` is the default's copy for a kind, stable for the program's
+  life; `default_allocator()` is `Other`. Breaking: every host allocator adds the argument.
+- **Tagging at the owners.** Each owner already kept a copy of the allocator it was given
+  (D61), and every container it holds points at that copy, so tagging the copy tags them
+  all, and `deallocate` and `destroy` pass the same kind back. A Config, its snapshots,
+  its LayerChecker, a SourceMap and a default LoadSession tag `Config`; an arena and solo
+  arrays and strings `Trees`; a Context `Script`, and its Schedulers keep their own copy
+  tagged `Tasks` (it was a reference to the Context's); the symbol table `Symbols`; error
+  records `Errors`; a tweak's extra state `Tweaks`; shapes `Config`; `baker::tools` and
+  `baker::host` `Tools`. Each owner's own record is created and destroyed with the same
+  tagged copy. What has no owner (Callbacks, Lists, results) stays `Other`.
+- **A fix on the way.** `~ConfigSnapshot` destroyed its state with an allocator read from
+  the state it was destroying; it copies the allocator first now, as the others did.
+- **Test** (`baker_alloc_tests`): an allocator that tallies live bytes per kind and records
+  each pointer's kind. A Config pushing a layer and a Context with a native, a script
+  function and a task allocate `Config`, `Trees`, `Script` and `Tasks`, nothing `Other`;
+  every free names its allocation's kind; every kind is back to 0 bytes after.
+- **Cost.** The kind is one more argument on allocation paths, which calls and lookups do
+  not take. `tools/count_instructions.py` against D257: call, overload, declared and
+  lookup unchanged, frame +2, set 652 to 655, parse +0.51% (1,886,423 to 1,896,063),
+  merge +1.67%. Parse's change was not the kind's own: callgrind put it in GCC's inlining,
+  which stopped inlining `vector<Node>::resize`'s erase into `Parser::run` and inlined
+  `string_view::find` instead. With `resize` as written, `tools/bench_compare.py --bench
+  parse` measured +4.6% (3 runs) and +5.8% (7 runs, ranges overlapping); the parser's
+  `truncate` now pops instead (it only shrinks), and parse measured 30.5 to 30.6 ms
+  (+0.4%, 7 runs). Layers, 3 runs: `read_string` +3.1%, `push_layer_text` +2.3%, the
+  policy rows within 1%.
+

@@ -31,10 +31,11 @@ namespace {
 // Records come from the default allocator: an error may outlive whatever made it (D61).
 template <class... A>
 detail::ErrorRecord* new_record(A&&... a) {
-    return detail::create<detail::ErrorRecord>(default_allocator(), std::forward<A>(a)...);
+    return detail::create<detail::ErrorRecord>(default_allocator(MemoryKind::Errors),
+                                               std::forward<A>(a)...);
 }
 void free_record(detail::ErrorRecord* r) noexcept {
-    detail::destroy(default_allocator(), r);
+    detail::destroy(default_allocator(MemoryKind::Errors), r);
 }
 detail::ErrorRecord* copy_of(const detail::ErrorRecord* r) {
     return r ? new_record(*r) : nullptr;

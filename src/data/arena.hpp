@@ -78,7 +78,9 @@ private:
         Block* next;
         size_t bytes;
     };
-    explicit Arena(const Allocator& a) : head_{{}, this}, alloc_(a) { head_.owner.kind = kArena; }
+    explicit Arena(const Allocator& a) : head_{{}, this}, alloc_(with_kind(a, MemoryKind::Trees)) {
+        head_.owner.kind = kArena;
+    }
     // The arena's own count, changed without atomics: until the load is returned, only the
     // thread building it can see it.
     void own_retain() noexcept;
@@ -94,7 +96,7 @@ private:
     };
     static_assert(std::is_standard_layout_v<Head>, "an Owner& must convert to its Head");
     Head head_;
-    const Allocator alloc_;     // a copy: the tree may outlive whoever read it
+    const Allocator alloc_;     // a copy, tagged Trees: the tree may outlive whoever read it
     Block* blocks_ = nullptr;   // newest first
     Block* current_ = nullptr;  // the block being filled
     char* cur_ = nullptr;

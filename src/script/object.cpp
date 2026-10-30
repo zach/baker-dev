@@ -56,7 +56,7 @@ void TypeRecord::sort() {
 
 TypeRecord* new_type_record(std::string_view name) {
     // One per bound type, for the life of the program: from the default allocator (D61).
-    auto* r = detail::create<TypeRecord>(default_allocator());
+    auto* r = detail::create<TypeRecord>(default_allocator(MemoryKind::Script));
     r->name = name;
     return r;
 }

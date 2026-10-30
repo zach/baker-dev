@@ -9,7 +9,12 @@ namespace baker {
 // the tables grow by doubling.
 struct SourceMap::Tables {
     explicit Tables(const Allocator& a)
-        : alloc(a), entries(alloc), run(alloc), keys(alloc), slots(alloc), texts(alloc) {}
+        : alloc(with_kind(a, MemoryKind::Config)),
+          entries(alloc),
+          run(alloc),
+          keys(alloc),
+          slots(alloc),
+          texts(alloc) {}
     struct Entry {
         Ref<Array> keep;  // keeps the address from being reused while it is a key
         SourceSpan extent;
@@ -53,8 +58,9 @@ struct SourceMap::Tables {
 
 // From the default allocator unless an owner passes its own: a host-made map has no owner,
 // and snapshots share a Config's (D61).
-SourceMap::SourceMap() : SourceMap(default_allocator()) {}
-SourceMap::SourceMap(const Allocator& alloc) : t_(detail::create<Tables>(alloc, alloc)) {}
+SourceMap::SourceMap() : SourceMap(default_allocator(MemoryKind::Config)) {}
+SourceMap::SourceMap(const Allocator& alloc)
+    : t_(detail::create<Tables>(with_kind(alloc, MemoryKind::Config), alloc)) {}
 SourceMap::~SourceMap() {
     const Allocator alloc = t_->alloc;
     detail::destroy(alloc, t_);

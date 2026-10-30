@@ -206,7 +206,8 @@ Node* Context::Impl::cell(Symbol name) {
 }
 
 Context::Impl::~Impl() {
-    for (detail::TypeRecord* t : declared_types) detail::destroy(default_allocator(), t);
+    for (detail::TypeRecord* t : declared_types)
+        detail::destroy(default_allocator(MemoryKind::Script), t);
     constexpr size_t cells = size_t{1} << kPageBits;
     for (Node* p : pages) {
         if (!p) continue;
@@ -397,7 +398,7 @@ const Allocator& Context::allocator() const noexcept {
 }
 
 Context::Context(const Allocator& allocator)
-    : impl_(detail::create<Impl>(allocator, *this, allocator)) {
+    : impl_(detail::create<Impl>(with_kind(allocator, MemoryKind::Script), *this, allocator)) {
     detail::set_evaluator(&evaluate_for_data);
     detail::set_fatal_stack(&script_backtrace);  // a fatal error carries the script stack
     if (!t_current) t_current = this;

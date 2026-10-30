@@ -174,7 +174,7 @@ Vec<Leaf> leaves_of(const Array& root);
 using namespace config_internal;
 
 struct ConfigSnapshot::State {
-    explicit State(const Allocator& a) : alloc(a) {}
+    explicit State(const Allocator& a) : alloc(with_kind(a, MemoryKind::Config)) {}
     const Allocator alloc;  // the Config's, which outlives its snapshots (D61)
     Vec<LayerState> layers{alloc};
     Vec<ScratchEntry> scratch{alloc};
@@ -234,7 +234,7 @@ struct Config::Impl {
         Callback<void(const ReloadRecord&)> fn;
     };
 
-    explicit Impl(const Allocator& a) : alloc(a) {
+    explicit Impl(const Allocator& a) : alloc(with_kind(a, MemoryKind::Config)) {
         base.allocator = &alloc;  // every layer's tree is the Config's (D64)
     }
 

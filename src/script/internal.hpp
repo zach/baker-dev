@@ -217,7 +217,7 @@ struct Context::Impl {
     static constexpr uint32_t kPageBits = 10;
     static constexpr uint32_t kMaxDepth = 1000;
 
-    Impl(Context& c, const Allocator& a) : alloc(a), self(c) {}
+    Impl(Context& c, const Allocator& a) : alloc(with_kind(a, MemoryKind::Script)), self(c) {}
     ~Impl();
     Impl(const Impl&) = delete;
     Impl& operator=(const Impl&) = delete;

@@ -106,16 +106,17 @@ struct Set::State {
     Vec<Ref<Array>> keep;    // the declarations the fields' text points into
 };
 
-Set::Set() : st_(detail::create<State>(default_allocator())) {}
+Set::Set() : st_(detail::create<State>(default_allocator(MemoryKind::Config))) {}
 Set::~Set() {
-    detail::destroy(default_allocator(), st_);
+    detail::destroy(default_allocator(MemoryKind::Config), st_);
 }
-Set::Set(const Set& other) : st_(detail::create<State>(default_allocator(), *other.st_)) {}
+Set::Set(const Set& other)
+    : st_(detail::create<State>(default_allocator(MemoryKind::Config), *other.st_)) {}
 Set& Set::operator=(const Set& other) {
     if (this != &other) *st_ = *other.st_;
     return *this;
 }
-Set::Set(Set&& other) noexcept : st_(detail::create<State>(default_allocator())) {
+Set::Set(Set&& other) noexcept : st_(detail::create<State>(default_allocator(MemoryKind::Config))) {
     std::swap(st_, other.st_);
 }
 Set& Set::operator=(Set&& other) noexcept {
