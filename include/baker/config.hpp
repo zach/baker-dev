@@ -106,7 +106,7 @@ struct Source {
     Symbol layer{};  // "scratch" for an unsaved live edit
     Symbol file{};   // empty for a layer with no file (an overlay, scratch)
     int32_t line = 0;
-    // When the file declares (origin "economy.xlsx" (tool sheets-export)): what it was
+    // When the file declares #origin ("economy.xlsx" (tool sheets-export)): what it was
     // generated from, and by what (parse.hpp). Empty otherwise.
     Symbol origin{};
     Symbol tool{};
@@ -130,9 +130,9 @@ struct ConfigOptions {
 // What a layer may change (Config::check_layer, LayerOptions::policy). Each rule is off by
 // default; a refusal names the rule's reason, the path, and the file and line.
 struct LayerPolicy {
-    // no {commands}, [properties], $variables, #autorun, or (shapes ...)
+    // no {commands}, [properties], $variables, #autorun, or #shape
     bool data_only = false;
-    // every value an int, float, symbol, or string; no removals, no (shapes ...)
+    // every value an int, float, symbol, or string; no removals, no #shape
     bool scalars_only = false;
     bool existing_only = false;     // change only values the stack already has: no new keys, no
                                     // removals
@@ -258,6 +258,10 @@ struct LayerEffectEntry {
     bool shadowed = false;  // a higher enabled layer (or scratch) overrides this path
     Symbol op;              // the row's verb: #append, #drop or #remove; empty for a value
     bool stale = false;     // the row's (@was ...) pin is not `below`
+    // A declaration the layer's read made, not a value: #shape, #pack or #origin. `path` is
+    // then the shape's or pack's name, or the file an origin describes; `value` its form;
+    // `below` the same declaration from a layer below, if any (D261).
+    Symbol declares;
 };
 
 // What a LayerReport was made against, so that a push can tell whether it still holds

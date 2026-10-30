@@ -48,7 +48,7 @@ def check(s):
     code, out, _ = s.run("check", agent="(player (speed 42))\n")
     r = json.loads(out)
     expect(code == 1 and len(r["shape_errors"]) == 1, "a value out of its shape's range fails")
-    code, out, _ = s.run("check", agent="(shapes (enemy (@at foes) (@keyed) (hp int)))\n")
+    code, out, _ = s.run("check", agent="#shape (enemy (@at foes) (@keyed) (hp int))\n")
     r = json.loads(out)
     expect(code == 0 and any("shape 'enemy' governs nothing: no array is a child of foes"
                              in w["message"] for w in r["shape_warnings"]),

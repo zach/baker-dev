@@ -337,14 +337,14 @@ declares.
 
 | Rule | Refuses |
 |---|---|
-| `data_only` | commands, properties, variables, `#autorun`, and `(shapes ...)` |
-| `scalars_only` | a value that is not a number, symbol or string, a removal, and `(shapes ...)` |
+| `data_only` | commands, properties, variables, `#autorun`, and `#shape` |
+| `scalars_only` | a value that is not a number, symbol or string, a removal, and `#shape` |
 | `existing_only` | a new key, and a removal |
 | `allow` | anything outside the listed paths |
 | `warnings_refuse` | anything a validator, or the read, warns about |
 
 Shapes are refused by both data rules because they change how the stack is checked: an
-overlay that sent `(shapes (item (price int (@range 0 99999))))` beside `(shop (sword (price
+overlay that sent `#shape (item (price int (@range 0 99999)))` beside `(shop (sword (price
 5000)))` would widen the range its own value is checked against.
 
 **The check.** `cfg.check_layer_text(name, text, policy)` checks text received from
@@ -381,11 +381,11 @@ which base it needs:
 
 ```dta
 ; data/default.dta
-(pack game_data (level game) (version "1.0"))
+#pack (game_data (level game) (version "1.0"))
 
 ; overlays/2026-10-17-double-xp.dta
-(pack double_xp_1017 (level live) (version 1) (requires (game_data "1.0")))
-(origin "liveops console, ticket 4412" (tool baker-publish))
+#pack (double_xp_1017 (level live) (version 1) (requires (game_data "1.0")))
+#origin ("liveops console, ticket 4412" (tool baker-publish))
 (event (xp_multiplier 2) (banner "Double XP all weekend!"))
 ```
 
@@ -394,7 +394,7 @@ which base it needs:
   refused.
 - This guards rollbacks too. An overlay checked against the base it lands on cannot meet
   data whose shape has moved since it was made.
-- `(origin ...)` carries into provenance. `source("event.xp_multiplier")` names the
+- `#origin` carries into provenance. `source("event.xp_multiplier")` names the
   overlay's layer, the ticket, and the publishing tool, so an operator can see what is live
   and why.
 
@@ -565,9 +565,10 @@ How a game delivers content after it ships (dev/background/content-updates.md):
 - **Run autorun with `Context::run_autorun(cfg.autorun().items())`** after every stack
   change. Script an uninstalled DLC defined goes with it, and what it replaced comes back
   (D146).
-- **Declare what a package requires**, and at which version: `(pack expansion (level dlc)
-  (version "1.0") (requires (base_game "1.2") season_pass))`. A requirement that is not loaded once the pack's file is read is a
-  located warning, forwarded to the Config's warning handler (D141).
+- **Declare what a package requires**, and at which version: `#pack (expansion (level dlc)
+  (version "1.0") (requires (base_game "1.2") season_pass))`. A requirement that is not
+  loaded once the pack's file is read is a located warning, forwarded to the Config's
+  warning handler (D141).
 - **A cache patches about as small as its text** (D148). It is laid out in source order,
   with no absolute offsets, so an edit changes the cache's bytes near the edit and a binary
   diff or a chunked store sends little more than the edit: inserting a section into a
@@ -647,14 +648,14 @@ fast: a boss-tuning harness, an economy harness. Packs give harnesses a structur
 
 ```dta
 ; harness/combat_core.dta
-(pack combat_core (level game))
+#pack (combat_core (level game))
 [combat.hit_pause 0.08]
 {func combat.knockback ($force) {* $force 1.5}}
 ```
 
 ```dta
 ; harness/boss_tools.dta
-(pack boss_tools (level task) (requires combat_core))
+#pack (boss_tools (level task) (requires combat_core))
 #require "combat_core.dta"
 [boss.restart_phase {boss_phase_restart}]
 ```

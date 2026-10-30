@@ -266,6 +266,8 @@ if(BAKER_BUILD_TOOLS)
   if(BAKER_BUILD_SCRIPT)  # the tolerant read of text is in baker::tools
     add_executable(baker_migrate_metadata tools/migrate_metadata.cpp)
     target_link_libraries(baker_migrate_metadata PRIVATE baker::tools baker::data)
+    add_executable(baker_migrate_declarations tools/migrate_declarations.cpp)
+    target_link_libraries(baker_migrate_declarations PRIVATE baker::tools baker::data)
   endif()
   if(BAKER_BUILD_TESTS)
     add_test(NAME baker_bake COMMAND baker_bake -D DEBUG

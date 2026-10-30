@@ -22,7 +22,7 @@ constexpr const char* kDefault =
     "   (radius 24 (@range 4 80) (@desc \"Radius\"))\n"
     "   (color 0.9 0.5 0.2 (@range 0 1))\n"
     "   (bounce 0.8 (@note \"1.0 never settles\")))\n"
-    "(shapes (spawner (count int (@range 1 50)) (interval float (@range 0.1 10))))\n"
+    "#shape (spawner (count int (@range 1 50)) (interval float (@range 0.1 10)))\n"
     "(spawner (count 3) (interval 2.5))\n";
 
 std::string read(const fs::path& p) {

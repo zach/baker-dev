@@ -108,3 +108,21 @@ TEST_CASE("read_structure agrees with the parser on the corpus: what parses read
         }
     }
 }
+
+TEST_CASE("a declaration's form is marked with its directive (D261)") {
+    const std::string text =
+        "#pack (core (level game))\n#shape (unit (hp int))\n(unit (hp 1))\n"
+        "(a #append (b 1))\n";
+    const TextStructure s = read_structure(text);
+    REQUIRE(s.brackets.size() >= 5);
+    auto directive = [&](const TextBracket& b) {
+        if (b.declares < 0) return std::string();
+        const TextToken& t = s.tokens[static_cast<size_t>(b.declares)];
+        return text.substr(t.begin, t.end - t.begin);
+    };
+    CHECK(directive(s.brackets[0]) == "#pack");
+    CHECK(s.brackets[1].declares < 0);  // (level game), inside it
+    CHECK(directive(s.brackets[2]) == "#shape");
+    CHECK(s.brackets[4].declares < 0);  // (unit (hp 1)) is data
+    for (size_t i = 5; i < s.brackets.size(); ++i) CHECK(s.brackets[i].declares < 0);
+}

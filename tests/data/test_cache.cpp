@@ -454,7 +454,7 @@ TEST_CASE("a cache load leaves the session as the text load did") {
     test::TempDir dir;
     const std::string main = dir.write("main.dta", R"(
         #define FLAG
-        #define BODY (x 1)
+        [BODY x 1]
         #undef GONE
         #ifdef PRE (pre yes) #endif
         #autorun {print "hello"}
@@ -515,7 +515,7 @@ TEST_CASE("a Cipher enciphers what it writes and deciphers what it reads") {
 
 TEST_CASE("a cache records the files #require read, and which it found already read") {
     test::TempDir dir;
-    dir.write("pack.dta", "#define SPEED (3)\n(pack_read)");
+    dir.write("pack.dta", "[SPEED 3]\n(pack_read)");
     const std::string main = dir.write("main.dta", "#require pack.dta\n(a SPEED)");
     const std::string cache = dir.path("main.datb");
     LoadSession text;
@@ -537,7 +537,7 @@ TEST_CASE("a cache records the files #require read, and which it found already r
 
 TEST_CASE("a cache replays packs, and is stale for other pack levels") {
     test::TempDir dir;
-    dir.write("task.dta", "(pack boss_task (level task))\n#define PHASES (3)");
+    dir.write("task.dta", "#pack (boss_task (level task))\n[PHASES 3]");
     const std::string main = dir.write("main.dta", "#require task.dta\n(a PHASES)");
     const std::string cache = dir.path("main.datb");
     LoadSession text;
@@ -553,7 +553,7 @@ TEST_CASE("a cache replays packs, and is stale for other pack levels") {
     REQUIRE(p);
     CHECK(p->rank == 1);
     // The replayed macro keeps its pack: a game pack using it is warned about.
-    const std::string game = dir.write("game.dta", "(pack rules (level game))\n(b PHASES)");
+    const std::string game = dir.write("game.dta", "#pack (rules (level game))\n(b PHASES)");
     (void)ok(read_file(game, cached));
     CHECK(cached.warnings().size() == 1);
 
@@ -565,8 +565,8 @@ TEST_CASE("a cache replays packs, and is stale for other pack levels") {
 TEST_CASE("a cache replays packs' harness metadata and files' origins (D91)") {
     test::TempDir dir;
     dir.write("task.dta",
-              "(pack boss (level task) (owners \"td-a\") (for designers) (stage genesis))\n"
-              "(origin \"bosses.xlsx\" (tool export))\n(a 1)");
+              "#pack (boss (level task) (owners \"td-a\") (for designers) (stage genesis))\n"
+              "#origin (\"bosses.xlsx\" (tool export))\n(a 1)");
     const std::string main = dir.write("main.dta", "#require task.dta\n(b 2)");
     const std::string cache = dir.path("main.datb");
     LoadSession text;

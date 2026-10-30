@@ -240,6 +240,33 @@ static void collect_leaves(const Array& a, size_t first, const Str& prefix, Vec<
     }
 }
 
+void declarations_of(const LoadSession& session, Symbol root, std::span<const Dep> files,
+                     Vec<Declaration>& out) {
+    auto mine = [&](Symbol file) {
+        return file == root || std::any_of(files.begin(), files.end(), [&](const Dep& d) {
+                   return d.path.view() == file.str();
+               });
+    };
+    for (const ShapeDecl& d : session.shapes())
+        if (d.root == root)
+            out.push_back({Symbol("#shape"), d.form->tag(), Node(d.form), d.file, d.line});
+    for (const Pack& p : session.packs())
+        if (mine(p.file)) {
+            Vec<Node> level{Node(Symbol("level")), Node(p.level)};
+            Vec<Node> form{Node(p.name), Node(Array::make_from(level))};
+            out.push_back({Symbol("#pack"), p.name, Node(Array::make_from(form)), p.file, 0});
+        }
+    for (const Origin& o : session.origins())
+        if (mine(o.file)) {
+            Vec<Node> form{Node(String::make(o.source.str()))};
+            if (!o.tool.empty()) {
+                Vec<Node> tool{Node(Symbol("tool")), Node(o.tool)};
+                form.emplace_back(Array::make_from(tool));
+            }
+            out.push_back({Symbol("#origin"), o.file, Node(Array::make_from(form)), o.file, 0});
+        }
+}
+
 Vec<Leaf> leaves_of(const Array& root) {
     Vec<Leaf> out;
     collect_leaves(root, 0, "", out);

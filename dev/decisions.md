@@ -8963,3 +8963,121 @@ the parts that need no new syntax first, then the directives with the tools that
   corpus and the fuzz regressions, toward the 1 million executions of each adoption step:
   1,000,000 executions in runs each resumed from the last one's corpus, with no crash, leak
   or sanitizer report, and a corpus of 17,509 inputs at the end.
+
+- **Fuzzing.** libFuzzer under ASan and UBSan, toward the 1 million executions of each
+  adoption step; the run's total follows.
+
+## D261. A file declares with `#pack`, `#origin` and `#shape`: the forms that declared by position are data
+
+*The second half of the hash-declarations idea (D260 took the first), prototyped on
+`claude/fervent-cray-l1kyf0-syntax-hash-declarations` behind a switch, reviewed with the
+owner on 2026-10-30, who chose the three directives with the tools that see them, `#define
+NAME (body)` kept with a nudge toward `[NAME ...]`, and the at-the-table `#shape` deferred.*
+
+- **The need.** A file told the reader what it is through forms that look like data: a first
+  form `(pack ...)` (D82), `(origin "..." ...)` when first, or first after the pack, and its
+  first value a string (D91), and a top-level `(shapes ...)` that stayed in the tree and merged
+  as data (D84). The parser and the shape library recognised them by position and type, so a
+  second `(pack ...)`, or one after an `#include`, became data silently, `(origin 0 0 0)` stayed
+  data only by a type test, and a layer's `(shapes ...)` was data a policy could not tell from
+  a value (D260). The printer had to spell a data first form `(pack ...)` as a row so that it
+  read back as data (D249), and the fuzz harness skipped a data `(origin "...")` first form.
+- **The directives.** `#pack (NAME (level L) ...)`, `#origin ("source" (tool T))` and
+  `#shape (NAME ...)` each take one form, at a file's top level, anywhere there; the form is
+  read as an array in the load's arena (D64), its macros expanded, and recorded in the session,
+  never in the tree. A pack and an origin once a file; any number of shapes. Each is a located
+  `Directive` error otherwise: below the top level, a second pack or origin, no form, an origin
+  whose first value is not a string, a shape with no name. A declaration counts only in the
+  `#ifdef` branch read.
+  - **A pack is its whole file's.** What a file defines above its `#pack` is the pack's, and
+    the macros it used above `#pack` are held to the one-way rule when the `#pack` is read,
+    since a position-free declaration would otherwise make the order a trap (D82).
+  - **`LoadSession::shapes()`** lists each `ShapeDecl`: the form, its file and line, and the
+    root of the read that declared it (a layer's file), so shapes are read per layer.
+- **The forms that declared by position are data.** `(pack ...)`, `(origin "...")` and
+  `(shapes ...)` are ordinary arrays wherever written. The printer writes them as they are:
+  D249's first-form row is gone, and so is the fuzz harness's skip of a data origin. A layer
+  check warns of each, once per layer, at the form: "(pack ...) is data; a file declares its
+  pack with #pack (NAME (level L) ...)", and the same for an origin and for shapes.
+- **`#define NAME (body)`** still defines a macro; the read warns, at the name, "#define RED
+  (...) is the older macro form; write [RED ...]". The migrator rewrites it.
+- **The shape library** reads declarations from the session: `Set::add(session, report,
+  root)` replaces `add(tree, report, packs)`, and with `root` reads one layer's. The validator,
+  the rules validator, the kit's `check` and `reference`, and the ImGui harness's panel read
+  each enabled layer's shapes with the stack's packs (D145); the kit's `check` read the
+  merged root without packs before, which the review found could disagree with `reference`.
+  The script `check` walks the session's `#shape` forms with the trees, so a rule's calls are
+  still demand.
+- **Received layers.** Under `data_only` or `scalars_only`, a candidate's `#shape` is refused,
+  located at it: "#shape 'item' declares a shape; the layer may change data only". This
+  replaces D260's refusal of `(shapes ...)`, which is now data that declares nothing. `#pack`
+  and `#origin` are admitted: a published overlay declares itself with them (D162).
+- **The binary cache, version 8.** The load's meta tree gains `(shapes (file line root FORM)
+  ...)`, replayed into the session; a version 7 cache is refused, and its text read.
+- **The tools see declarations.** Shapes leaving the tree would have left `layer_effect`,
+  `diff` and `explain`, so an agent's layer could loosen a shape and no tool say so (the
+  review's tool author). `LayerEffectEntry::declares` and `DiffEntry::declares` name the
+  directive of an entry that is a declaration: its `path` is the shape's or pack's name, or the
+  file an origin describes, its `value` the form, and `below` the same declaration in the
+  nearest enabled layer under it. `layer_effect`, a layer check's effect, and `diff` list them
+  after the values. `explain` takes `#shape.NAME` and `#shape.NAME.FIELD`, listing each layer
+  that declares it, every enabled one `Wins`, since a shape's declarations combine. The
+  console's replies carry `(declares ...)`; the kit's `diff` prints `#shape unit  ... -> (unit
+  ...)`, and `--baker-rows` writes a declaration as itself.
+- **The tolerant read** marks a declaration's form: `TextBracket::declares` is the index of its
+  directive's token, so an editor's outline can show `#shape unit` (the review's finding that a
+  bracket tree would show it as data).
+- **The formatter** needed no change: a directive keeps its one argument on its line, and
+  `#shape (unit` lays out as a top-level form after it.
+- **Migration.** `tools/migrate_declarations.cpp` (`baker_migrate_declarations`) rewrites the
+  four forms through `read_structure`: a first `(pack NAME ...)` to `#pack (NAME ...)`;
+  `(origin "source" ...)`, first or after the pack, to `#origin ("source" ...)`; a top-level
+  `(shapes (a ...) (b ...))` to a `#shape` a shape, each on its own line with its lines moved
+  left (in C++ literals, beside each other); and a top-level `#define NAME (body)` to `[NAME
+  body]`. It reads `.dta` files, C++ string literals (`--cpp`) and Markdown (`--md`), with the
+  run readers it now shares with `baker_migrate_metadata` (`tools/migrate_runs.hpp`). A
+  second run changes nothing.
+  - **The repository.** One commit carries the core, the migrator, and the migrator's run
+    over the repository, since the new reader takes the old forms as data and the old one
+    cannot read the new. Over the tests and examples it rewrote 73 packs, 14 origins, 83
+    shapes and 19 macros in 28 files; over the stacks' seven files 6 packs, 1 origin and 22
+    shapes; over the Markdown 6 packs, 2 origins, 9 shapes and 1 macro. The tests whose point
+    is an old form (the formatter's `#define`, the positional forms as data) were kept by
+    hand, and so was the cookbook's live-ops overlay, whose pack follows another file's in
+    one block. The Ledger's exporter writes `#origin`, and `docs/language.md`, the cookbook
+    and spec §1 describe the directives.
+- **For the next release's changelog** (written at the release, dev/releasing.md): "`#pack`,
+  `#origin` and `#shape` declare a file's pack, origin and shapes; `(pack ...)`, `(origin
+  ...)` and `(shapes ...)` are data. Run `baker_migrate_declarations --write` over your data.
+  A live-ops publisher switches its overlays to `#pack`/`#origin` before the game takes this
+  release: an overlay still in the old form reads as data, and a game whose policy has
+  `warnings_refuse` refuses it." The editor note is in the session's scratchpad for the owner.
+- **Costs.** `tools/count_instructions.py` against D260's commit, instructions per operation:
+
+  | case | GCC before | GCC after | change | Clang before | Clang after | change |
+  |---|---:|---:|---:|---:|---:|---:|
+  | parse | 1,886,372 | 1,894,667 | +0.44% | 1,776,079 | 1,767,425 | −0.49% |
+  | set | 644 | 652 | +1.24% | 602 | 610 | +1.33% |
+  | check | 3,832,628 | 3,840,988 | +0.22% | 3,563,650 | 3,561,579 | −0.06% |
+  | check_pinned | 4,431,994 | 4,433,151 | +0.03% | 4,044,119 | 4,048,085 | +0.10% |
+
+  The other twelve cases are unchanged on both compilers. Parse moves either way by under
+  half a percent: the directive dispatch gained three names, and the reader no longer tests
+  a file's first forms for a pack or an origin. `set`'s 8 instructions are all in glibc's
+  `memcmp`: under callgrind, the same 4,006 calls from the same caller, each 8 instructions
+  dearer (GCC: 77,179 to 109,190 over the run), with every Baker function's count unchanged.
+  The AVX2 `memcmp` branches on its operands' addresses, so the likely cause is the same
+  strings at other heap addresses (the session holds a shapes list now); no work was added.
+- **Lines.** The library gains 416 lines and loses 136, in 20 files; the migrator and the run
+  readers it now shares with `baker_migrate_metadata`, 498 and 183; the tests, 473 and 260.
+- **Tests.** `tests/data/test_declarations.cpp`: the three directives recorded and out of the
+  tree, macros and conditionals in a form; the old forms as data, printed back, and the
+  check's three warnings; each placement error; a pack's whole file, the one-way rule for a
+  use above `#pack`; `#define (body)`'s warning; a cache's `#shape`. The shape, rules, layer
+  tools, received-layer and kit tests read `#shape` through a session; `test_layers.cpp`
+  lists declarations in effect, diff and explain; `test_structure.cpp` marks a form. Fuzz
+  regression `declarations.bin`; the dictionary gains the three directives.
+- **Raw gate.** 464/464 files, 0 round-trip failures.
+- **Fuzzing.** FUZZ
+- **Not done.** The at-the-table `#shape` (deferred by the owner). A `#pack` or `#origin` in a
+  layer's `layer_effect` has no line, since `Pack` and `Origin` keep none.

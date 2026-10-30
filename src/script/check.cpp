@@ -253,10 +253,14 @@ void check(std::span<const Array* const> trees, const Context& ctx, CheckReport&
     for (size_t i = 0; i < b.demand.size(); ++i)
         c.demand_index[Checker::key(b.demand[i].name, b.demand[i].on)] = i;
     // Every tree's definitions first, so a call in one file to a function another defines
-    // counts as defined.
-    for (const Array* tree : trees)
+    // counts as defined. The session's #shape forms are read too: a rule's calls are demand
+    // (D261).
+    Vec<const Array*> all(trees.data(), trees.data() + trees.size());
+    if (options.packs)
+        for (const ShapeDecl& d : options.packs->shapes()) all.push_back(d.form.get());
+    for (const Array* tree : all)
         if (tree) c.collect(*tree, false);
-    for (const Array* tree : trees)
+    for (const Array* tree : all)
         if (tree) c.walk(*tree, false);
     Vec<CheckReport::Demand> demand;
     for (const Checker::DemandBuild& d : b.demand)

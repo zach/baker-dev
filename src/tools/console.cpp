@@ -202,6 +202,7 @@ Expected<void> bind_config_tools(Context& ctx, Config& cfg, const ConfigToolOpti
             for (const LayerEffectEntry& e : *effect) {
                 Vec<Node> f;
                 f.push_back(tagged("path", Node(e.path)));
+                if (!e.declares.empty()) f.push_back(tagged("declares", Node(e.declares)));
                 f.push_back(tagged("value", e.value));
                 if (!e.op.empty()) f.push_back(tagged("op", Node(e.op)));
                 if (e.below) f.push_back(tagged("below", *e.below));
@@ -224,6 +225,7 @@ Expected<void> bind_config_tools(Context& ctx, Config& cfg, const ConfigToolOpti
             for (const DiffEntry& d : *diff) {
                 Vec<Node> f;
                 f.push_back(tagged("path", Node(d.path)));
+                if (!d.declares.empty()) f.push_back(tagged("declares", Node(d.declares)));
                 if (d.a) f.push_back(tagged("a", *d.a));
                 if (!d.op_a.empty()) f.push_back(tagged("op_a", Node(d.op_a)));
                 if (d.b) f.push_back(tagged("b", *d.b));

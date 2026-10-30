@@ -1010,7 +1010,8 @@ void script_backtrace(TextSink out);
 // Given `options.packs`, the session that loaded the trees, it also applies the one-way
 // rule to calls (spec §5, D80): a call, in a pack's file, to a script function defined in a
 // softer pack's file is a warning, once per pack and function; and each pack that declares
-// (owners ...) with fewer than two is a finding (D94).
+// (owners ...) with fewer than two is a finding (D94). The #shape forms the session read are
+// checked with the trees, so a rule's calls are demand too.
 void check(std::span<const Array* const> trees, const Context& ctx, CheckReport& report,
            const CheckOptions& options = {});
 void check(const Array& tree, const Context& ctx, CheckReport& report,

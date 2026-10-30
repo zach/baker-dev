@@ -216,13 +216,32 @@ LayerReport run_check(const Basis& b, std::string_view name, const Ref<Array>& c
                 at ? at->file() : Symbol(), at ? at->line() : 0));
         }
     }
-    // Shapes change how the stack is checked, not a value: an overlay that sent a wider
+    // A #shape changes how the stack is checked, not a value: an overlay that sent a wider
     // range beside a value would pass a check the value alone fails.
     if (policy.data_only || policy.scalars_only)
-        if (const Array* shapes = tree.try_find("shapes"))
-            refusals.push_back(
-                refused("(shapes ...) declares shapes; the layer may change data only",
-                        shapes->file(), shapes->line()));
+        for (const ShapeDecl& d : session.shapes())
+            if (d.root == tree.file())
+                refusals.push_back(refused("#shape " + detail::quoted(d.form->tag()) +
+                                               " declares a shape; the layer may change data only",
+                                           d.file, d.line));
+    // The forms that declared before #pack, #origin and #shape, now read as data (D261): once
+    // each per layer, at the first.
+    const Array* first = tree.size() > 0 ? tree[0].try_array() : nullptr;
+    auto old_form = [&](const Array* a, const char* form, const char* now) {
+        if (a)
+            warnings.push_back(make_error(ErrorCode::Syntax,
+                                          Str(form) + " is data; a file declares " + now, a->file(),
+                                          a->line()));
+    };
+    old_form(first && first->tag() == Symbol("pack") ? first : nullptr, "(pack ...)",
+             "its pack with #pack (NAME (level L) ...)");
+    for (size_t i = 0; i < tree.size() && i < 2; ++i)
+        if (const Array* a = tree[i].try_array();
+            a && a->tag() == Symbol("origin") && a->size() > 1 && (*a)[1].string()) {
+            old_form(a, "(origin \"...\")", "its origin with #origin (\"source\" ...)");
+            break;
+        }
+    old_form(tree.try_find("shapes"), "(shapes ...)", "each shape with #shape (NAME ...)");
     // One warning of each per layer, at the first: an unmigrated or misspelt file is
     // noticed at its first check.
     if (const Array* m = bare_metadata(tree))
@@ -304,6 +323,24 @@ LayerReport run_check(const Basis& b, std::string_view name, const Ref<Array>& c
         if (!policy.allow.empty() && std::none_of(policy.allow.begin(), policy.allow.end(),
                                                   [&](const Path& p) { return under(path, p); }))
             refuse("is outside the paths the layer may change");
+    }
+
+    // The candidate's declarations, each over the stack's of that name (D261).
+    Vec<Declaration> decls(alloc);
+    declarations_of(session, tree.file(), {}, decls);
+    for (const Declaration& d : decls) {
+        LayerEffectEntry e{};
+        e.path = d.name;
+        e.value = d.form;
+        e.declares = d.directive;
+        e.source = Source{layer, d.file, d.line};
+        if (d.directive == Symbol("#shape"))
+            for (const ShapeDecl& under : b.session.shapes())
+                if (under.form->tag() == d.name) {
+                    e.below = Node(under.form);
+                    e.below_source = Source{Symbol(), under.file, under.line};
+                }
+        effect.push_back(std::move(e));
     }
 
     // The validators, over the stack with the candidate on top.
