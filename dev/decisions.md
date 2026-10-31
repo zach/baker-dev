@@ -9559,3 +9559,6 @@ ms when the push checks again), and the same push without validators took no lon
   validators, a push is 6.04 M against 0.6.0's 5.73 M, as before this change: the parse and
   merge of the metadata rules, which the host's wall-clock numbers did not separate from
   noise.
+- **Elsewhere.** `tools/count_instructions.py` against main: every case unchanged but
+  `check` and `check_pinned`, -0.08% (3,577,240 to 3,574,440 and 4,055,407 to 4,052,207),
+  and `set`, +1 instruction (677 to 678).
