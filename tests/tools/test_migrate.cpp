@@ -1,5 +1,4 @@
-// The language's migrations as a call: findings, their edits, and the text (requirement
-// 0027, D276).
+// The language's migrations as a call: findings, edits and text (D276).
 #include <doctest.h>
 #include <baker/std_interop.hpp>
 #include <baker/tools/migrate.hpp>
