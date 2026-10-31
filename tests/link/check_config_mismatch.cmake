@@ -1,10 +1,10 @@
 # A game compiled with BAKER_SHIPPING other than the library's must fail to link, naming the
 # configuration, and one compiled the same must link (D266). Invoked by CTest with CXX, STD,
 # SRC, INC, LIB (the baker_data archive), SHIPPING (the library's: 0 or 1), DEFS (;-list),
-# OUT.
+# FLAGS (;-list: the build's compile and link flags), OUT.
 function(try_link shipping out_var log_var)
   execute_process(
-    COMMAND ${CXX} -std=c++${STD} ${DEFS} -DBAKER_SHIPPING=${shipping} -I${INC} ${SRC} ${LIB}
+    COMMAND ${CXX} -std=c++${STD} ${FLAGS} ${DEFS} -DBAKER_SHIPPING=${shipping} -I${INC} ${SRC} ${LIB}
             -lpthread -o ${OUT}
     RESULT_VARIABLE rc OUTPUT_VARIABLE out ERROR_VARIABLE err)
   set(${out_var} ${rc} PARENT_SCOPE)
