@@ -933,6 +933,133 @@ void check(const Array& tree, const Set& shapes, Report& report, const LoadSessi
     report.warnings = List<Error>({warnings.data(), warnings.size()});
 }
 
+// --- Views: the contract set and the digest (D274). ---
+
+namespace {
+
+void append_hex16(Str& out, uint64_t v) {
+    static constexpr char digits[] = "0123456789abcdef";
+    char buf[16];
+    for (int i = 15; i >= 0; --i, v >>= 4) buf[i] = digits[v & 0xF];
+    out += std::string_view(buf, 16);
+}
+
+void append_type_text(const Set& set, const Field& f, Str& out, Vec<baker::Symbol>& visiting);
+
+// The canonical text view_digest hashes, or empty for a shape the set lacks. `visiting`
+// holds the shapes being spelled, so a shape that nests itself ends as `shape(NAME,cycle)`.
+void digest_text(const Set& set, const Shape& s, Str& out, Vec<baker::Symbol>& visiting) {
+    visiting.push_back(s.name);
+    out += s.name.str();
+    if (s.keyed) out += "\nkeyed";
+    for (const Field& f : s.fields) {
+        if (!f.view) continue;
+        out += '\n';
+        out += f.name.str();
+        out += '\n';
+        append_type_text(set, f, out, visiting);
+        if (!f.cxx.empty()) {
+            out += '\n';
+            out += f.cxx.str();
+        }
+    }
+    visiting.pop_back();
+}
+
+void append_shape_ref(const Set& set, baker::Symbol name, Str& out, Vec<baker::Symbol>& visiting) {
+    out += "shape(";
+    out += name.str();
+    out += ',';
+    const Shape* nested = set.find(name);
+    if (!nested) {
+        out += "unknown";
+    } else if (std::find(visiting.begin(), visiting.end(), name) != visiting.end()) {
+        out += "cycle";
+    } else {
+        Str text;
+        digest_text(set, *nested, text, visiting);
+        append_hex16(out, baker::symbol_hash(text));
+    }
+    out += ')';
+}
+
+void append_element_text(const Set& set, const Field& f, Type t, Str& out,
+                         Vec<baker::Symbol>& visiting) {
+    switch (t) {
+        case Type::Shape: append_shape_ref(set, f.shape, out, visiting); return;
+        case Type::Key:
+            out += "key_of(";
+            out += table_path(f);
+            out += ')';
+            return;
+        default: out += type_text(t); return;
+    }
+}
+
+void append_type_text(const Set& set, const Field& f, Str& out, Vec<baker::Symbol>& visiting) {
+    if (f.type != Type::List) {
+        append_element_text(set, f, f.type, out, visiting);
+        return;
+    }
+    out += "list(";
+    append_element_text(set, f, f.element, out, visiting);
+    if (f.min_count != 0 || f.max_count != UINT32_MAX) {
+        out += ',';
+        out += detail::decimal(f.min_count);
+        if (f.max_count != f.min_count) {
+            out += ',';
+            out += detail::decimal(f.max_count);
+        }
+    }
+    out += ')';
+}
+
+}  // namespace
+
+uint64_t view_digest(const Set& shapes, baker::Symbol shape) noexcept {
+    const Shape* s = shapes.find(shape);
+    if (!s) return 0;
+    Str text;
+    Vec<baker::Symbol> visiting;
+    digest_text(shapes, *s, text, visiting);
+    return baker::symbol_hash(text);
+}
+
+Set contract_set(const LoadSession& session, std::span<const baker::Symbol> roots, Report& report) {
+    Set set;
+    for (const baker::Symbol root : roots) set.add(session, report, root);
+    Vec<Error> errors(report.errors.begin(), report.errors.end());
+    const auto in_contract = [&](baker::Symbol root) {
+        return std::find(roots.begin(), roots.end(), root) != roots.end();
+    };
+    // A declaration read inside a branch the read took: its line lies in a section of its
+    // file. The sections the session records are the branches taken.
+    for (const ShapeDecl& d : session.shapes()) {
+        if (!in_contract(d.root)) continue;
+        for (const ConditionalSection& c : session.conditional_sections()) {
+            if (c.file != d.file || d.line <= c.begin || d.line >= c.end) continue;
+            errors.push_back(make_error(
+                ErrorCode::Refused,
+                "shape " + quoted(d.form->tag()) + " is declared inside #" +
+                    (c.negated ? "ifndef " : "ifdef ") + Str(c.name.str()) +
+                    ": a view's shape set is one per build, so a contract layer declares "
+                    "its shapes outside every #ifdef",
+                d.file, d.line));
+            break;
+        }
+    }
+    for (const SkippedShape& s : session.skipped_shapes()) {
+        if (!in_contract(s.root)) continue;
+        errors.push_back(make_error(
+            ErrorCode::Refused,
+            "a #shape inside an #ifdef branch this build skipped: a view's shape set is one "
+            "per build, so a contract layer declares its shapes outside every #ifdef",
+            s.file, s.line));
+    }
+    report.errors = List<Error>({errors.data(), errors.size()});
+    return set;
+}
+
 void unused(const Array& tree, const Set& shapes, Report& report) {
     Vec<Error> errors, warnings(report.warnings.begin(), report.warnings.end()), ignored;
     Vec<bool> used(shapes.shapes().size(), false);

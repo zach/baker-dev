@@ -149,6 +149,25 @@ private:
     State* st_;
 };
 
+// --- Views (D269). ---
+
+// The shapes a project's contract layers declare, as one Set: each layer's #shape forms,
+// bottom to top, read through `session` and selected by the file each read began with
+// (Set::add's `root`). A view's shape set is one per build, so a #shape inside an #ifdef
+// or #ifndef branch of a contract layer's file, taken or skipped, is an error in `report`,
+// located; so is a malformed declaration, as Set::add reports it.
+[[nodiscard]] Set contract_set(const LoadSession& session, std::span<const baker::Symbol> roots,
+                               Report& report);
+
+// The digest a view generated from the shape asserts (kShapeDigest): symbol_hash's FNV-1a
+// 64 (D246) over the shape's layout and nothing else, so tuning metadata never moves it.
+// The text hashed, items joined by '\n': the shape's name; `keyed` if it is (@keyed);
+// then, for each field in the struct (not (@view no)), in declared order, its name, its
+// type spelled canonically (`int`, `list(float,3)`, `list(symbol,1,4)`, `key_of(a.b)`,
+// `shape(NAME,DIGEST)` with the nested shape's own digest in 16 hex digits, or
+// `list(shape(NAME,DIGEST))`), and its (@cxx T) if any. Zero for a shape the set lacks.
+[[nodiscard]] uint64_t view_digest(const Set& shapes, baker::Symbol shape) noexcept;
+
 // Checks every array of `tree` that a shape of `shapes` governs, into `report`. With
 // `packs`, a key a harder pack's field names from a softer pack's table is a warning, as the
 // one-way rule warns of a call (D80).

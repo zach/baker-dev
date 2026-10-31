@@ -9,6 +9,7 @@
 #include "ok.hpp"
 
 #include <algorithm>
+#include <cstdio>
 #include <map>
 #include <string>
 #include <vector>
@@ -776,4 +777,131 @@ TEST_CASE("a softer pack may not change a harder pack's view layout (D145, D273)
     REQUIRE(report.warnings.size() == 2);
     CHECK(set.find("s")->field("x")->cxx == Symbol("int64"));
     CHECK(set.find("s")->field("y")->view);
+}
+
+// --- Views: the digest and the contract set (D274). ---
+
+namespace {
+
+uint64_t digest_of(std::string_view text, std::string_view shape) {
+    shape::Set set;
+    shape::Report report;
+    add_text(set, text, report);
+    for (const Error& e : report.errors) MESSAGE(to_string(e));
+    REQUIRE(report.errors.empty());
+    return shape::view_digest(set, Symbol(shape));
+}
+
+std::string hex16(uint64_t v) {
+    char buf[17];
+    std::snprintf(buf, sizeof buf, "%016llx", static_cast<unsigned long long>(v));
+    return buf;
+}
+
+}  // namespace
+
+TEST_CASE("a view's digest is symbol_hash of the shape's layout, and of nothing else") {
+    const uint64_t d = digest_of(
+        "#shape (move (@at fighters * moves) (@keyed) (@view) (@cxx_name MoveView)\n"
+        "   (startup int (@range 1 60) (@kind frames) (@desc \"d\") (@cxx uint16))\n"
+        "   (damage float (@cxx double) (@cxx_name dmg) (@step 0.5) (@note \"n\"))\n"
+        "   (on_hit any (@view no))\n"
+        "   (button symbol (@one_of light heavy) (@optional))\n"
+        "   (@rule \"m\" {> $damage 0}))",
+        "move");
+    CHECK(d ==
+          symbol_hash("move\nkeyed\nstartup\nint\nuint16\ndamage\nfloat\ndouble\nbutton\nsymbol"));
+    // The same layout, without any tuning word, hashes the same.
+    CHECK(
+        d ==
+        digest_of(
+            "#shape (move (@at m) (@keyed) (startup int (@cxx uint16)) (damage float (@cxx double))"
+            " (on_hit any (@view no)) (button symbol))",
+            "move"));
+    // What moves it: a type, a name, the order, a @cxx, a field left out, keyed.
+    const auto moved = [&](std::string_view text) { return digest_of(text, "move") != d; };
+    CHECK(moved(
+        "#shape (move (@at m) (@keyed) (startup float (@cxx double)) (damage float (@cxx double))"
+        " (on_hit any (@view no)) (button symbol))"));
+    CHECK(
+        moved("#shape (move (@at m) (@keyed) (startup int (@cxx uint16)) (dmg float (@cxx double))"
+              " (on_hit any (@view no)) (button symbol))"));
+    CHECK(moved(
+        "#shape (move (@at m) (@keyed) (damage float (@cxx double)) (startup int (@cxx uint16))"
+        " (on_hit any (@view no)) (button symbol))"));
+    CHECK(moved(
+        "#shape (move (@at m) (@keyed) (startup int (@cxx uint32)) (damage float (@cxx double))"
+        " (on_hit any (@view no)) (button symbol))"));
+    CHECK(moved(
+        "#shape (move (@at m) (@keyed) (startup int (@cxx uint16)) (damage float (@cxx double))"
+        " (on_hit any (@view no)) (button symbol (@view no)))"));
+    CHECK(
+        moved("#shape (move (startup int (@cxx uint16)) (damage float (@cxx double))"
+              " (on_hit any (@view no)) (button symbol))"));
+    CHECK(shape::view_digest(shape::Set(), Symbol("move")) == 0);
+}
+
+TEST_CASE("the digest spells lists, keys and nested shapes canonically") {
+    shape::Set set;
+    shape::Report report;
+    add_text(set,
+             "#shape (vec (x float) (y float))\n"
+             "#shape (unit (@at units) (@keyed) (@view)\n"
+             "   (pos (list float 3)) (tags (list symbol 1 4)) (next (list (key_of units)))\n"
+             "   (weapon (key_of items.weapons)) (at vec) (path (list vec)))\n"
+             "#shape (loop (self loop) (n int))",
+             report);
+    REQUIRE(report.errors.empty());
+    const std::string vec = hex16(shape::view_digest(set, Symbol("vec")));
+    CHECK(shape::view_digest(set, Symbol("vec")) == symbol_hash("vec\nx\nfloat\ny\nfloat"));
+    CHECK(shape::view_digest(set, Symbol("unit")) ==
+          symbol_hash("unit\nkeyed\npos\nlist(float,3)\ntags\nlist(symbol,1,4)\nnext\n"
+                      "list(key_of(units))\nweapon\nkey_of(items.weapons)\nat\nshape(vec," +
+                      vec + ")\npath\nlist(shape(vec," + vec + "))"));
+    CHECK(shape::view_digest(set, Symbol("loop")) ==
+          symbol_hash("loop\nself\nshape(loop,cycle)\nn\nint"));
+}
+
+TEST_CASE("the contract set holds the named layers' shapes, outside every #ifdef") {
+    LoadSession session;
+    session.define("PC");
+    auto core = ok(read_string("#shape (a (x int))\n", "core.dta", session));
+    auto content = ok(read_string("#shape (b (y int))\n", "content.dta", session));
+    auto mod = ok(read_string("#shape (c (z int))\n#shape (a (w int))\n", "mod.dta", session));
+    const Symbol roots[] = {Symbol("core.dta"), Symbol("content.dta")};
+    shape::Report report;
+    const shape::Set set = shape::contract_set(session, roots, report);
+    CHECK(report.errors.empty());
+    CHECK(set.find("a"));
+    CHECK(set.find("b"));
+    CHECK_FALSE(set.find("c"));
+    CHECK_FALSE(set.find("a")->field("w"));  // the mod's addition stays out of the contract
+
+    // A shape inside a branch the read took, one in the #else taken, and one skipped.
+    auto taken = ok(read_string("#ifdef PC\n#shape (p (x int))\n#endif\n", "taken.dta", session));
+    auto elsed = ok(read_string("#ifdef HANDHELD\n(a 1)\n#else\n#shape (q (x int))\n#endif\n",
+                                "else.dta", session));
+    auto skipped =
+        ok(read_string("#ifdef HANDHELD\n#shape (r (x int))\n#endif\n#shape (s (x int))\n",
+                       "skipped.dta", session));
+    const Symbol all[] = {Symbol("taken.dta"), Symbol("else.dta"), Symbol("skipped.dta")};
+    shape::Report r2;
+    const shape::Set s2 = shape::contract_set(session, all, r2);
+    const auto e = texts(r2.errors);
+    REQUIRE(e.size() == 3);
+    CHECK(e[0].find("shape 'p' is declared inside #ifdef PC") != std::string::npos);
+    CHECK(e[0].find("taken.dta:2") != std::string::npos);
+    CHECK(e[1].find("shape 'q' is declared inside #ifdef HANDHELD") != std::string::npos);
+    CHECK(e[2].find("a #shape inside an #ifdef branch this build skipped") != std::string::npos);
+    CHECK(e[2].find("skipped.dta:2") != std::string::npos);
+    CHECK(s2.find("s"));
+    CHECK_FALSE(s2.find("r"));
+    // The skipped one is the session's to list, located.
+    REQUIRE(session.skipped_shapes().size() == 1);
+    CHECK(session.skipped_shapes()[0].root == Symbol("skipped.dta"));
+    // A file outside the contract may hold them.
+    shape::Report r3;
+    const Symbol only[] = {Symbol("core.dta")};
+    (void)shape::contract_set(session, only, r3);
+    CHECK(r3.errors.empty());
 }

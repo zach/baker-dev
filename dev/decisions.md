@@ -9628,3 +9628,30 @@ its own (step 5); a curve field is a member by value in the light struct header,
   when the shape validator is installed or a tool reads the set. `Field` grows by 24 bytes
   (a bool and two Symbols); it is a tool struct.
 - **For the next release's changelog** (written with W1's last step).
+
+## D274. Views, step 2: the contract set, and a view's digest
+
+*`dev/views-plan.md` step 2.*
+
+- **`shape::contract_set(session, roots, report)`** is the shape set views are generated
+  from: `Set::add` once per contract layer, bottom to top, selecting each layer's
+  declarations by the file its read began with (`ShapeDecl::root`). A shape only a layer
+  outside the contract declares, or a field one adds, stays out of it.
+- **One shape set per build** (D269). A `#shape` inside an `#ifdef` branch of a contract
+  file is a located `Refused` error, whether the branch was taken (its `ShapeDecl` lies in
+  a `ConditionalSection` of its file) or skipped. For the skipped case the parser records
+  each `#shape` directive it passes in a branch not read, as `LoadSession::skipped_shapes()`
+  (`SkippedShape {file, line, root}`): one string compare per directive line inside a
+  skipped branch, nowhere else. A cache replays a session's shapes and not its skipped
+  ones, which is fine: views are generated from text, never from a cache.
+- **`shape::view_digest(set, name)`** is `symbol_hash` (FNV-1a 64, D246) of the shape's
+  layout text, items joined by `\n`: the name; `keyed`; then each field in the struct (not
+  `(@view no)`), in order, as its name, its canonical type and its `@cxx` if any. Types
+  spell as `int`, `list(float,3)`, `list(symbol,1,4)`, `key_of(items.weapons)`,
+  `shape(vec,<16 hex digits of vec's digest>)`, `list(shape(...))`; a shape that nests
+  itself spells `shape(NAME,cycle)`. Tuning words (`@range`, `@step`, `@kind`, `@desc`,
+  `@note`, `@one_of`, `@optional`, `@at`, rules) and `@cxx_name` are left out, so tuning
+  never forces a rebuild, and a rename of a member is a regeneration, not drift. The
+  generator and the runtime call this one function. Golden values in the tests are
+  `symbol_hash` of the hand-written text.
+- **Costs.** None on any path but generation and `check_views`.

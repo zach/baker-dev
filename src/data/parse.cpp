@@ -174,6 +174,7 @@ struct LoadSession::State {
     Vec<Definition> definitions;       // macro definitions, in the order read
     Vec<ActiveDefine> flags;           // the flags that stand, in the order made
     Vec<ConditionalSection> sections;  // the #ifdef branches the reads took
+    Vec<SkippedShape> skipped_shapes;  // #shape directives inside branches not taken
     Vec<Symbol> tested;   // each name an #ifdef, #ifndef, #define or #undef named, as read
     uint64_t parses = 0;  // the files parsed: a cache's replay parses none
     HashMap<Symbol, uint32_t> macro_pack;  // the pack that defined each macro, by index
@@ -989,6 +990,9 @@ private:
     bool skipped_directive(const Token& t) {
         if (t.text == "ifdef" || t.text == "ifndef") return conditional(t, false);
         if (t.text == "else" || t.text == "endif") return else_or_endif(t);
+        if (t.text == "shape")  // for shape::contract_set: a view's shape set is one per build
+            s_.st_->skipped_shapes.push_back(
+                {file_, t.line, Symbol(s_.st_->include_stack.front())});
         return true;
     }
 
@@ -1481,6 +1485,9 @@ std::span<const Origin> LoadSession::origins() const noexcept {
 }
 std::span<const ShapeDecl> LoadSession::shapes() const noexcept {
     return {st_->shapes.data(), st_->shapes.size()};
+}
+std::span<const SkippedShape> LoadSession::skipped_shapes() const noexcept {
+    return {st_->skipped_shapes.data(), st_->skipped_shapes.size()};
 }
 const Origin* LoadSession::origin_of(Symbol file) const noexcept {
     for (const Origin& o : st_->origins)
