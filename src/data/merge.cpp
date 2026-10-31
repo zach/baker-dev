@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <bit>
-#include <iterator>
 
 namespace baker {
 namespace detail {
@@ -148,8 +147,9 @@ bool apply_verb(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const 
             }
         }
         if (adds.empty()) return false;
-        dst.insert(dst.begin() + static_cast<ptrdiff_t>(run), std::make_move_iterator(adds.data()),
-                   std::make_move_iterator(adds.data() + adds.size()));
+        // A pointer range, as EASTL takes (it refuses move iterators): the rare path, so a copy.
+        dst.insert(dst.begin() + static_cast<ptrdiff_t>(run), adds.data(),
+                   adds.data() + adds.size());
         if (spans)
             spans->insert(spans->begin() + static_cast<ptrdiff_t>(run), add_spans.data(),
                           add_spans.data() + add_spans.size());
