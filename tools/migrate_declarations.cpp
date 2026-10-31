@@ -1,6 +1,6 @@
 // Spells a file's declarations as directives (D261): the forms that declared by position.
 //
-//   baker_migrate_declarations stacks/duel/packs/game/duel_core.dta   print the rewritten text
+//   baker_migrate_declarations packs/game/core.dta                    print the rewritten text
 //   baker_migrate_declarations --write $(git ls-files '*.dta')        rewrite in place
 //   baker_migrate_declarations --report $(git ls-files '*.dta')       what would change
 //   baker_migrate_declarations --write --cpp tests/shape/test_shape.cpp   DTA in C++ literals
