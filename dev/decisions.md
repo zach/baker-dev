@@ -9536,6 +9536,12 @@ asset systems, on Halo's tags and DataArray, and on Onager.*
   forces a rebuild. Drift warns in development and fails `check --baker-strict-views`.
 - **A wrong-typed value is a located error** for the record read into a view; range and
   `@one_of` stay validator warnings, and the validator stays optional.
+- **Lists are `baker::ListView<V>`,** over a tree's nodes or a table's packed storage,
+  since a tree list is a run of nodes and cannot be borrowed as a span. A field marked
+  `(@view no)` stays out of the struct and its digest, and is read from the tree; an `any`
+  field must carry it.
+- **Asset edges are `baker.assets/1`,** written by a host-kit command from the merged
+  stack: the reference JSON is written from a script Context that holds no data.
 - **Phases and order.** One spec, four phases shipped separately, built W1 (views), W3
   (identity), W2 (baked tables), W4 (change records). Data forms and APIs may both break,
   with migration by the formatter or a `tools/` migrator.
@@ -9576,7 +9582,9 @@ asset systems, on Halo's tags and DataArray, and on Onager.*
 - **The shipped image is a stack-wide `.datb`.** Per-layer caches cannot hold a table built
   from the merged contract stack, so `baker_bake` writes one cache for that stack, in the
   existing container and under its rules, with the tables as a section. A section whose
-  view digest differs from the compiled view's is refused, and the game reads the tree.
+  view digest differs from the compiled view's is skipped, and that table is built in
+  memory from the tree. Tables of a shape whose `@at` has a `*` are one flat table,
+  grouped by parent and looked up by path below the table or by ID.
 
 ## D272. Change records hold whole values; an agent's change set is a layer
 

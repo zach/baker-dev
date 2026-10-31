@@ -92,8 +92,8 @@ The designer:
 
 The tools programmer:
 
-19. I read every asset dependency from the reference JSON as a flat list of edges, and
-    index it forward or in reverse.
+19. I read every asset dependency from `baker.assets/1` as a flat list of edges, and index
+    it forward or in reverse.
 20. I read the change log as `baker.changes/1` JSON, like check and reference output.
 21. I address a record by its ID, which survives renames, in my editor's selection and undo
     history.
@@ -133,70 +133,148 @@ The agent:
 lists it:
 
 ```dta
-#shape (boss_phase (@at bosses * phases) (@view)
-   (enter_at float (@range 0 1))
-   (attacks  (list symbol))
-   (cadence  float (@range 0.2 5) (@optional)))
+#shape (move (@at fighters * moves) (@keyed) (@view)
+   (startup     int (@range 1 60) (@kind frames))
+   (damage      float (@range 0 200))
+   (cancel_into (list (key_of moves)) (@optional))
+   (on_hit      any (@view no)))
 ```
 
 ```dta
 ; baker-project.dta
 (views
    (layers core content)          ; the contract stack, bottom to top
-   (shapes boss_phase move)       ; views besides those marked (@view)
+   (shapes boss_phase)            ; views besides those marked (@view)
    (namespace game::data))
 ```
 
-**The contract stack.** Views come from the shapes declared in the named layers only. A
-field a higher layer, overlay or mod adds is readable from the tree and absent from the
-struct. A shape that only higher layers declare generates nothing.
+- A shape named in `(views (shapes ...))` that the contract stack does not declare is a
+  generation error.
+- A shape a viewed shape nests is generated too, as a nested struct, whether or not it is
+  marked.
+- `(@view)` on a shape that only layers outside the contract stack declare generates
+  nothing; `check` says so, as information.
+- **`(@view no)` on a field** leaves it out of the struct and the digest. The field stays
+  in the shape and the data, is checked as today, and is read from the tree. An `any`
+  field in a viewed shape must carry it; without it, generation fails naming the field.
+
+**The contract stack.** Views come from the shapes the named layers declare, and nothing
+else.
+
+- A field a higher layer, overlay or mod adds is readable from the tree and absent from
+  the struct, and moves no digest.
+- A higher layer that declares a viewed field again with another type, or a different list
+  count, is a `check` error (a narrower `@range` is fine, as D145 allows today).
+- A contract layer may be a file or a `(dir ...)`, and an `optional` one that is missing is
+  empty. A `dev_only` layer or one with `(when COND)` in the contract stack is a generation
+  error, as is a `#shape` inside an `#ifdef` or `#ifndef` branch of a contract file, taken
+  or skipped. The preprocessor already scans skipped branches for their `#endif`; it
+  records a `#shape` it meets there, and the session records which shapes it read inside a
+  branch, so generation can refuse both. Whether a layer is enabled does not matter: the
+  contract is what its files declare.
+
+**Names.**
+
+- A view's struct is the shape's name in PascalCase, split at `_`: `boss_phase` is
+  `BossPhase`. Members keep the field's name: Baker's names are already `snake_case`.
+- A name that is not a C++ identifier, is a keyword, or collides with another after the
+  case rule is a generation error naming both. `(@cxx_name other)` on the shape or field
+  is the escape hatch.
+- Everything is generated in the project's `namespace`, `baker_views` by default.
 
 **Type mapping.**
 
 | Shape type | View member |
 |---|---|
-| `int` | `int32_t`, narrowed with a located error on overflow |
-| `float` | `float` |
+| `int` | `int32_t`; a value out of range is a located error |
+| `float` | `float`; a finite value past `float`'s range is a located error, else it rounds to nearest |
 | `bool` | `bool` |
-| `symbol` | `baker::Symbol` |
+| `symbol` | `baker::Symbol` (an `@one_of` field too: no enum in W1) |
 | `string` | `std::string_view`, borrowed |
 | `curve` | `baker::Curve` |
 | another shape | that shape's view, nested |
-| `(list T)` | `std::span<const V>` of T's member type, borrowed |
-| `(list T N)` | `std::array<V, N>` |
-| `(key_of TABLE)` | `baker::Symbol` of the key (W2 may add a typed reference) |
+| `(list T)`, `(list T N)`, `(list T N M)` | `baker::ListView<V>`, V being T's member type; the count is checked as the shape checks it |
+| `(key_of TABLE)` | `baker::Symbol` of the key |
 | `(asset KIND)` | `std::string_view` of the path, borrowed (W3) |
-| `any` | none: a generation error naming the field |
+| `any` | not allowed: it must be `(@view no)` |
 
-`(@cxx int64)`, `(@cxx double)` and similar override a member's type where the shape type
-allows it. An `@optional` field reads as its default when absent; views hold no
-`std::optional`. A field's default is its shape default, else zero, an empty Symbol or an
-empty view.
+- `ListView<V>` is a new public type over either a tree's nodes or a baked table's packed
+  storage. It converts each element on read, as `Curve` reads its points, and it has
+  `size()`, `operator[]` and iteration. A list of shapes is a `ListView` of their views; a
+  list of `key_of` is a `ListView<Symbol>`.
+- **`(@cxx T)`** overrides a member's type, from a closed list:
+  - for `int`: `int8`, `int16`, `int32`, `int64`, `uint8`, `uint16`, `uint32` and
+    `uint64`, each narrowed with a located error;
+  - for `float`: `float` and `double`.
+
+  Any other `@cxx` is a generation error.
+- An `@optional` field that is absent reads as zero, `false`, an empty Symbol, string,
+  list or curve, or a nested view of those. Shapes have no defaults today, and W1 adds
+  none; views hold no `std::optional`.
 
 **Lifetime.** A view is a plain value struct. Its strings and lists borrow from the tree or
-table they were read from, and stay valid while the reader holds that tree's or table's
-`Ref`; a reload never invalidates a held `Ref`.
+table they were read from. They stay valid while the reader holds that tree's or table's
+`Ref`, and a reload never invalidates a held `Ref`.
 
-**Reading.** The generated `Convert<T>` returns `Expected<T>`. A value of the wrong type is
-a located error for that record. Range and `@one_of` violations are not read errors; the
-shape validator reports them as it does today, and it stays optional.
+**Reading.** Each view gets a generated reader and a `Convert<T>`.
 
-**The digest.** Each view carries `kShapeDigest`, a 64-bit hash of its fields' names,
-types and order (and its nested views'), never of `@range`, `@step`, `@desc`, `@note`,
-`@kind`, `@one_of` or rules: tuning never forces a rebuild. The running shape set computes
-the same digest. A mismatch is a warning in development builds and in `check`, and an
-error under `check --baker-strict-views`, which a farm sets.
+- `baker::read_view<T>(const Array& record) -> Expected<T>`, and `Config::view<T>(path)`
+  over it, read one record. A value of the wrong type is a located error: the field's file
+  and line, the record's path, and the field.
+- The generated `Convert<T>` lets `get<T>` and nested views read a view the usual way,
+  with the usual `bool` result.
+- Range and `@one_of` violations are not read errors. The shape validator reports them as
+  it does today, and it stays optional.
 
-**Build integration.** `baker_bake --views OUT_DIR` reads the project's contract stack and
-writes one header per viewed shape plus an umbrella header. A CMake function drives it:
+**The digest.** Each view carries `kShapeDigest`, computed with `symbol_hash`'s FNV-1a 64
+(D246), which is promised the same in every build, over this text:
+
+- the shape's name;
+- `keyed` if it is `(@keyed)`;
+- then, for each field not marked `(@view no)`, in declared order: its name, its type
+  spelled canonically and its `@cxx` override if any.
+
+Canonical spellings are `int`, `list(float,3)`, `list(float,1,4)`, `key_of(weapons)`,
+`asset(mesh)`, and for a nested shape `shape(NAME,DIGEST)` with its own digest in hex.
+Items are separated by `\n`. `@range`, `@step`, `@desc`, `@note`, `@kind`, `@one_of`,
+`@optional`, `@at` and rules are left out: tuning never forces a rebuild.
+
+**Drift.**
+
+- `baker::shape::view_digest(const shape::Set&, Symbol shape)` computes the same digest at
+  run time, from a `Set` read from the contract layers' trees (`Config::layer_root`) only.
+- The generated umbrella header defines `kViews`, a span of `{name, digest}` pairs, and
+  `baker::check_views(const Config&, std::span<const ViewInfo>, contract layers)` compares
+  them. The game calls it after its load in development, and its mismatches go to the
+  warning handler.
+- The host kit's `CommandHooks` gains `views`, the same span plus the contract layers'
+  names, so `check` reports a mismatch as a warning. `check --baker-strict-views` makes it
+  an error, which a farm sets.
+
+**Build integration.**
+
+```
+baker_bake --views OUT_DIR --project FILE [--depfile FILE]
+```
+
+- It reads the project's contract stack, writes one header per viewed shape and an
+  umbrella `views.hpp`, and writes a file only if its text changed. A tuning edit in a
+  file that also declares shapes therefore rebuilds nothing.
+- `--depfile` lists every file the contract stack read, `#include`s and directories
+  included.
+- `baker_bake` links `baker::shape` for this mode. It is built under `BAKER_BUILD_TOOLS`,
+  which W1 makes available when Baker is not the top-level project.
+
+A CMake function drives it:
 
 ```cmake
 baker_generate_views(my_game PROJECT ${CMAKE_SOURCE_DIR}/baker-project.dta)
 ```
 
-It adds the generated directory to the target's include path, regenerates when any file
-of the contract stack changes, and writes only to the build tree. Generated headers are
-never committed.
+It runs the tool with a depfile, adds the output directory to the target's include path,
+and writes only to the build tree; generated headers are never committed. A cross-compile
+sets `BAKER_BAKE_EXECUTABLE` to a tool built for the host. Generated headers include only
+Baker's public headers and stay within D55's standard headers.
 
 **Out of W1:** C++26 reflection. A later drift checker may compare hand-written structs
 against shapes, but shapes stay the source.
@@ -220,10 +298,11 @@ The ID is metadata, so readers of values read past it.
 **Rename.** A host-kit command beside `format` and `promote`:
 
 ```
-rename --baker-table weapons laser plasma_lance [--baker-write]
+rename --baker-table TABLE OLD NEW [--baker-write]     ; rename --baker-table weapons laser plasma_lance
 ```
 
-It renames the record in the layer that declares it, rewrites every `key_of` that names it
+TABLE is a dotted path, as in `key_of`. The command renames the record in the layer that
+declares it, rewrites every `key_of` that names it
 in every layer, overlay and mod directory of the stack, and writes `(@aka laser)` on the
 record. Without `--baker-write` it lists what it would change. A reference it cannot
 rewrite, inside a macro or an `#include`d file that write-back already refuses, is listed
@@ -244,8 +323,9 @@ and another's alias is an error at both. A layer that retunes `(weapons (laser .
 
 The value is a path string, relative to the project's directory. `check` reports a path
 whose extension its kind does not list, and a file the session's lister cannot find (the
-lister lists directories today, D243; W3 extends it to answer for a file). The reference
-JSON gains an `assets` array of edges:
+lister lists directories today, D243; W3 extends it to answer for a file). A new host-kit
+command, `assets`, writes the edges from the merged stack as `baker.assets/1`, documented
+beside the other JSON formats:
 
 ```json
 {"from": {"file": "data/bosses.dta", "line": 12, "path": "bosses.dragon.mesh",
@@ -262,29 +342,38 @@ the record. A record with both is an error.
 
 ### W2: baked tables
 
-**What bakes.** Every table a viewed `(@keyed)` shape governs in the contract stack.
+**What bakes.** Every viewed `(@keyed)` shape in the contract stack bakes into one table.
+A shape whose `@at` has a `*` governs many parents, as `move` governs each fighter's
+moves; its table is still one, flat, with its records grouped by parent in the merged
+tree's order.
 
-**Layout.** An array of the view struct, one element per record, in the merged tree's
-order (array of structs; struct of arrays is deferred). Strings and lists live in a pool
-the table owns.
+**Layout.** An array of the view struct, one element per record (array of structs; struct
+of arrays is deferred). Strings and lists live in a pool the table owns. The pool is a
+`Vec` from the Config's allocator, and the table is one block.
+
+**Registering.** A table exists once the game asks for it before its load:
+`cfg.add_table<T>()`. The generated `register_views(Config&)` adds every viewed keyed
+shape's table. A Config with no tables builds none.
 
 **Reading.**
 
 ```cpp
-baker::Ref<const baker::Table<BossPhase>> t = cfg.table<BossPhase>();
-std::optional<uint32_t> i = t->index_of("dragon"_sym);  // by key or alias
-std::optional<uint32_t> j = t->index_of(id);            // by record ID
-const BossPhase& p = (*t)[*i];
+baker::Ref<const baker::Table<Move>> t = cfg.table<Move>();
+std::optional<uint32_t> a = t->index_of("kestrel.jab");     // path below the table, alias too
+std::optional<uint32_t> b = t->index_of(id);                // baker::RecordId, 128 bits
+baker::IndexRange r = t->children_of("kestrel"_sym);         // one parent's records
+const Move& jab = (*t)[*a];
 ```
 
-An index stays the same across a reload while the table's set of keys is unchanged; adding
-or removing a record renumbers it.
+- A shape without `*` in its `@at` has unique keys, so `index_of(Symbol)` works too.
+- `baker::RecordId` is a public `{uint64_t hi, lo}`.
+- An index stays the same across a reload while the table's set of records is unchanged;
+  adding, removing or reordering a record renumbers it.
 
 **Literals only.** In W2's first version, a view field must hold a literal after the
 preprocessor (macros, defines and `#ifdef` resolved). A `{command}` in a view field is a
-bake error naming the field; the field may still be read lazily from the tree if the shape
-leaves it out of the view. Folding commands bound as pure is deferred, since it reopens
-D8.
+bake error naming the field; a field marked `(@view no)` may hold one, and is read lazily
+from the tree. Folding commands bound as pure is deferred, since it reopens D8.
 
 **Reload.** In development, `Config::reload()` and every other merge rebuild each baked
 table whose records changed, and swap it in with the tree. Tables are refcounted like trees:
@@ -294,13 +383,23 @@ a reader holding the old `Ref` keeps it.
 pushes as today, under its `LayerPolicy`, and every baked table whose records it touches is
 rebuilt from the merged tree at that push. Nothing is patched in place.
 
-**The baked image.** `baker_bake --stack PROJECT -o game.datb` writes one cache for the
-contract stack in the existing `.datb` container: same format version, endianness and
-pointer-size rules, and a freshness record covering every layer and file it read. The
-tables are a new section of it, loaded in place with the tree's one fix-up pass. Each table
-section records its view digest; loading a section whose digest differs from the compiled
-view's refuses that table with a located error, and the game reads it from the tree.
-Development builds build tables in memory at load and never need the file.
+**The baked image.** `baker_bake --stack --project FILE -o game.datb` writes one cache for
+the contract stack.
+
+- It holds each contract layer's tree, as its per-layer cache would, and the tables, with a
+  freshness record covering every file and directory it read. A shipped Config loads it
+  through `ConfigOptions::stack_image`, and the layers above the contract stack load as
+  today.
+- **Format.** The container keeps its endianness and pointer-size rules. Its header gains a
+  section directory, which bumps the format version (8 at 0.7.0).
+- The tables load in place with the tree's one fix-up pass. A table's Symbols are stored as
+  indices into the image's symbol table and fixed up as the tree's are; its strings and
+  lists as offsets into its pool.
+- Each table section records its view digest. A section whose digest differs from the
+  compiled view's is skipped with a located warning, and that table is built in memory from
+  the tree, as development builds it.
+
+Development builds always build tables in memory at load and never need the file.
 
 **Derived-data caching** stays out of scope, as A5 settled: no shared cache, and no change
 to how per-layer caches are named.
@@ -334,9 +433,10 @@ same transaction.
 
 ### Targets
 
-- `Table<T>` and the baked section live in `baker::data`, with no script dependency.
+- `Table<T>`, `ListView<V>`, `RecordId` and the baked section live in `baker::data`, with
+  no script dependency; `view_digest` lives in `baker::shape`.
 - View generation lives in `baker_bake`, driven by `baker_generate_views`.
-- `rename` and `format --baker-mint-ids` live in the host kit (`baker::host`).
+- `rename`, `assets` and `format --baker-mint-ids` live in the host kit (`baker::host`).
 - Asset kinds and the `views` key are new project-file keys.
 
 ## Testing decisions
@@ -363,7 +463,9 @@ The seams, highest first:
 ## Phase plan
 
 **W1, views.** Ships `@view`, the project file's `views`, `baker_bake --views`,
-`baker_generate_views`, generated `Convert<T>` and `kShapeDigest`, and drift reporting.
+`baker_generate_views`, `(@view no)`, `ListView<V>`, generated `read_view<T>`,
+`Convert<T>` and `kShapeDigest`, and drift reporting (`view_digest`, `check_views`,
+`CommandHooks::views`).
 Depends on nothing new. Done when an example's shapes generate headers that compile in
 every local-matrix configuration, the golden tests pass, a deliberate drift warns in
 development and fails `check --baker-strict-views`, and the no-cost rows are unchanged.
@@ -372,7 +474,7 @@ development and fails `check --baker-strict-views`, and the no-cost rows are unc
 `(asset KIND)` with the project's `assets` and the reference JSON's edges, and
 `@renamed_from`. Depends on W1 for the shape syntax it extends. Done when renaming a record
 in the stacks' data rewrites every reference, a shipped-style overlay naming the old key
-still merges, the corpus round trips, and the reference JSON's new version is documented.
+still merges, the corpus round trips, and `baker.assets/1` is documented.
 
 **W2, baked tables.** Ships `Table<T>`, in-memory tables for development, the stack
 `.datb` section for shipping, reload and live-ops rebuilds. Depends on W1 (views) and W3

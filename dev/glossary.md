@@ -23,7 +23,8 @@ Avoid: entry, row, instance, object.
 **Table.** An array whose keyed children a shape governs.
 Avoid: collection, list.
 
-**Shape set.** Every shape the merged stack declares, taken together, with one digest.
+**Shape set.** Every shape the merged stack declares, taken together. Each view has its own
+digest, of its shape's layout.
 Avoid: schema.
 
 **View.** A C++ struct generated from a shape marked `(@view)`. It reads data and never
