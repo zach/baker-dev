@@ -348,6 +348,13 @@ struct Context::Impl {
     uint64_t steps = Context::kUnlimitedSteps;  // Context::set_step_budget
     Context::StepHook step_hook = nullptr;
     void* step_user = nullptr;
+    bool in_step_hook = false;
+    // The budget ran out and the hook gave none (D266).
+    bool steps_out = false;
+    // No call can run until the host sets a budget: a Scheduler stops its tick (D266).
+    [[nodiscard]] bool steps_spent() const noexcept {
+        return steps_out || (steps == 0 && !step_hook);
+    }
     uintptr_t stack_base = 0;                        // the outermost call's stack address
     uintptr_t stack_budget = uintptr_t{256} * 1024;  // see Context::set_stack_budget
     NoticeSink sink = nullptr;

@@ -59,7 +59,7 @@ struct TweakBase::Extra {
     bool notifying = false;  // a change made from inside a callback does not notify again
 };
 
-void TweakBase::attach() {
+void TweakBase::attach(detail::Configuration) {
     registry_->lock();
     next_ = registry_->head_;
     if (next_) next_->prev_ = this;

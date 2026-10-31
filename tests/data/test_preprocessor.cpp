@@ -641,3 +641,28 @@ TEST_CASE("max_new_symbols bounds the names a read adds to the program (D253)") 
     fs.session.limits.max_new_symbols = 1 << 20;
     CHECK(fs.load("cap_main.dta").find("cap_inc_") != std::string::npos);
 }
+
+TEST_CASE("names a host's Reader interns are not the read's (D266)") {
+    // A host may switch fibers in its Reader and run another read, or intern its own names:
+    // neither counts against the read that called it.
+    static int run = 0;
+    ++run;
+    Files fs;
+    fs.files["host_main.dta"] = "#include host_inc.dta\n";
+    fs.files["host_inc.dta"] = "(x 1)\n";
+    LoadSession other;  // the work of another fiber, on this thread
+    fs.session.set_reader([&](std::string_view path, TextSink out) {
+        for (int i = 0; i < 20; ++i)
+            (void)Symbol("host_name_" + std::to_string(run) + "_" + std::string(path) + "_" +
+                         std::to_string(i));
+        other.limits.max_new_symbols = 1000;
+        CHECK(read_string("(y " + std::string(path) + "_" + std::to_string(run) + ")", "o.dta",
+                          other));
+        const auto it = fs.files.find(std::string(path));
+        if (it == fs.files.end()) return false;
+        out(it->second);
+        return true;
+    });
+    fs.session.limits.max_new_symbols = 8;
+    CHECK(fs.load("host_main.dta") == "((x 1))");
+}

@@ -160,18 +160,32 @@ TEST_CASE("the boundary survives sorting, set(), merging and the cache") {
     }
 }
 
-TEST_CASE("metadata past child 8191 is refused") {
-    std::string at_limit = "(k";
-    for (int i = 1; i < 8191; ++i) at_limit += " 0";
-    std::string past = at_limit + " 0";
-    at_limit += " (@range 0 1))\n";
-    past += " (@range 0 1))\n";
-    const auto taken = read_string(at_limit, "m.dta");
-    REQUIRE(taken);
-    CHECK((*taken)->try_find("k")->meta_first() == 8191);
-    const auto refused = read_string(past, "m.dta");
-    REQUIRE(!refused);
-    CHECK(refused.error().code() == ErrorCode::Limit);
+TEST_CASE("metadata past child 8190 is found by a scan, read or merged (D266)") {
+    // Up to child 8190 the boundary is kept; past it, a scan finds it.
+    for (const int values : {8189, 8190, 8191, 9000}) {
+        std::string text = "(k";
+        for (int i = 0; i < values; ++i) text += " 1";
+        text += " (@range 0 1))\n";
+        const auto read = read_string(text, "m.dta");
+        REQUIRE(read);
+        const Array* k = (*read)->try_find("k");
+        CHECK(k->meta_first() == static_cast<uint32_t>(values + 1));
+        CHECK(k->values().size() == static_cast<size_t>(values));
+        CHECK(k->meta("@range"));
+    }
+    // A merge that grows a list past the boundary keeps its metadata out of the values.
+    std::string base = "(items";
+    for (int i = 0; i < 8000; ++i) base += " 1";
+    base += " (@desc \"d\"))\n";
+    std::string more = "(items #append";
+    for (int i = 0; i < 500; ++i) more += " 2";
+    more += ")\n";
+    Config cfg;
+    REQUIRE(cfg.push_layer("base", ok(read_string(base, "b.dta"))));
+    REQUIRE(cfg.push_layer("more", ok(read_string(more, "m.dta"))));
+    const auto items = cfg.get<std::vector<int>>("items");
+    REQUIRE(items);
+    CHECK(items->size() == 8500);
 }
 
 BAKER_DEV_TEST_CASE("write-back grows a value before its metadata, and inserts after it") {

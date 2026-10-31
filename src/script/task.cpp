@@ -304,6 +304,18 @@ void Scheduler::tick(double dt) {
         const Due d = s.ready[k];
         if (s.slots[d.slot].salt == d.salt && s.slots[d.slot].wait == Wait::Running)
             s.resume(d.slot);
+        // The step budget ran out: the task that spent it had the error, and the rest run at
+        // the next tick, in their order, once the host sets a budget (D266).
+        if (kStepBudget && s.ctx.impl().steps_spent()) [[unlikely]] {
+            for (size_t r = k + 1; r < s.ready.size(); ++r) {
+                const Due& later_one = s.ready[r];
+                TaskSlot& slot = s.slots[later_one.slot];
+                if (slot.salt != later_one.salt || slot.wait != Wait::Running) continue;
+                slot.wait = Wait::Tick;
+                s.ticks.push_back(later_one.slot);
+            }
+            break;
+        }
     }
     s.ticking = false;
     s.sync();

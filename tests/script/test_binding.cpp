@@ -278,3 +278,20 @@ TEST_CASE(
     }
     CHECK(alive == 0);  // the Context destroyed what it kept
 }
+
+namespace {
+// Empty, but with a default constructor its author wrote: not a constant, so it is boxed.
+struct WrittenDefault {
+    WrittenDefault() {}  // NOLINT(modernize-use-equals-default): the case under test
+    int64_t operator()(int64_t x) const { return x + 1; }
+};
+}  // namespace
+
+TEST_CASE("an empty functor with a written default constructor binds (D266)") {
+    static_assert(!detail::kStateless<WrittenDefault>);
+    auto lambda = [](int64_t x) { return x; };
+    static_assert(detail::kStateless<decltype(lambda)>);
+    Context ctx;
+    ok(ctx.func("next", WrittenDefault{}));
+    CHECK(ok(ctx.eval("{next 41}")).try_int() == 42);
+}

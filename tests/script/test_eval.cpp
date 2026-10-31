@@ -407,6 +407,27 @@ TEST_CASE("the step budget: a call a step, the same on every run, refilled by a 
     CHECK(grants.asked >= 1);
     CHECK_FALSE(ctx.eval("{fib 20}"));
     CHECK(grants.asked == grants.allowed + 1);
+    // The hook sees the budget at 0, not wrapped; a budget it sets stands, and its grant adds
+    // to it. A call it makes cannot ask it again (D266).
+    struct Seen {
+        uint64_t left = 1;
+        bool nested = false;
+    } seen;
+    ctx.set_step_hook(
+        [](void* user, Context& c) -> uint64_t {
+            auto& s = *static_cast<Seen*>(user);
+            s.left = c.steps_left();
+            c.set_step_budget(50);
+            s.nested = !c.eval("{fib 10}").has_value();  // more than 50: fails, no recursion
+            c.set_step_budget(40);
+            return 10;
+        },
+        &seen);
+    ctx.set_step_budget(0);
+    CHECK(ok(ctx.eval("{tick}")).try_int() == 3);
+    CHECK(seen.left == 0);
+    CHECK(seen.nested);
+    CHECK(ctx.steps_left() == 49);  // 40 set, 10 granted, 1 spent
     ctx.set_step_hook(nullptr);
     ctx.set_step_budget(Context::kUnlimitedSteps);
 }

@@ -169,6 +169,20 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT BAKER_SANITIZE AND NOT BAKE
     -P ${CMAKE_CURRENT_SOURCE_DIR}/codegen/check_tweak_text.cmake)
 endif()
 
+# A game built with another BAKER_SHIPPING than the library's fails to link (D266).
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT BAKER_SANITIZE AND NOT BAKER_USE_EASTL)
+  add_test(NAME baker_config_mismatch COMMAND ${CMAKE_COMMAND}
+    -DCXX=${CMAKE_CXX_COMPILER}
+    -DSTD=${CMAKE_CXX_STANDARD}
+    -DSRC=${CMAKE_CURRENT_SOURCE_DIR}/link/tweak_game.cpp
+    -DINC=${PROJECT_SOURCE_DIR}/include
+    -DLIB=$<TARGET_FILE:baker_data>
+    -DSHIPPING=$<BOOL:${BAKER_SHIPPING}>
+    "-DDEFS=-DBAKER_STD_EXPECTED=${BAKER_STD_EXPECTED_VALUE};-DBAKER_ATOMIC_REFCOUNT=$<BOOL:${BAKER_ATOMIC_REFCOUNT}>"
+    -DOUT=${CMAKE_CURRENT_BINARY_DIR}/tweak_game
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/link/check_config_mismatch.cmake)
+endif()
+
 # Public headers reach only the allowed standard headers (std_*.hpp excepted), and each
 # compiles on its own (D55).
 find_package(Python3 COMPONENTS Interpreter)
