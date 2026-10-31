@@ -25,8 +25,8 @@
 //
 // What it will not decide, it reports: a tagged array with no untagged value whose last
 // child is tagged with a metadata word, (limits (min 0) (step 0.5)), is the old rule's
-// ambiguity; it
-// reads as all value today and under the rule, so nothing is renamed and a person decides.
+// ambiguity; it reads as all value today and under the rule, so nothing is renamed and a
+// person decides.
 // In --md, a top-level form tagged with a metadata word, `(range 0 10)` in prose, is
 // reported too: it names metadata without a value, so no rule can tell.
 //
