@@ -9512,3 +9512,84 @@ shipping.*
   (D266 made it 678). One read at the default `max_new_symbols` keeps about 73.5 MB, 74
   bytes a name, which the cookbook now says.
 
+
+## D269. Shapes become the contract C++ is generated from; data stays the authority
+
+*The schema-layer spec (`dev/schema-layer-spec.md`), settled with the owner on 2026-10-30
+and 31 in a design session over 0.7.0; background in the owner's research docs on game
+asset systems, on Halo's tags and DataArray, and on Onager.*
+
+- **Direction.** A shape is the one declaration from which C++ views, baked tables and
+  dependency edges are generated. The data on disk stays self-describing: no file needs
+  matching code to be read, a missing field reads as its default, and an undeclared one is
+  a warning. Baker extends from programmer-owned config to content definitions that
+  designers and agents author, and does not move to a schema-first model in which code
+  owns the layout (the trade Halo's tags made and their architect regretted).
+- **Shape-first, not code-first.** Views are generated from shapes; C++26 reflection is
+  deferred to a later drift checker. Layers can extend shapes, which a code-first model
+  could not allow.
+- **Opt-in, from a contract stack.** A shape generates a view if it says `(@view)` or the
+  project file lists it, and only from the shapes of the project's named contract layers,
+  so an overlay or mod never changes a compiled struct. One shape set per build: a shape
+  that varies with defines is a generation error.
+- **The digest covers layout only** (field names, types, order), so tuning metadata never
+  forces a rebuild. Drift warns in development and fails `check --baker-strict-views`.
+- **A wrong-typed value is a located error** for the record read into a view; range and
+  `@one_of` stay validator warnings, and the validator stays optional.
+- **Phases and order.** One spec, four phases shipped separately, built W1 (views), W3
+  (identity), W2 (baked tables), W4 (change records). Data forms and APIs may both break,
+  with migration by the formatter or a `tools/` migrator.
+- **Out of scope.** Shared or content-addressed caches (to be looked at again once W2
+  exists), paging, real-time collaboration, asset import or cooking, and a second language
+  for schemas.
+
+## D270. A record's identity is a 128-bit ID written inside it; references still name keys
+
+*Spec W3.*
+
+- **`(@id ...)`, 128 random bits in 32 hex digits, inside the record,** so identity travels
+  with the data and cannot be lost the way a sidecar file can. 128 bits over 64, though
+  `symbol_hash` (D246) is 64: IDs are minted independently by many tools and agents, and
+  may be merged across projects. Optional; tools mint one when they create a record.
+- **`key_of` keeps naming keys.** The ID anchors renames, change records and tools, and is
+  never written in a reference by hand: data stays readable.
+- **Renames leave `(@aka old)`,** kept until someone removes it, since shipped live-ops
+  overlays may name the old key and Baker cannot see them. `--drop-metadata` (D265) keeps
+  `@id` and `@aka`: they are identity, not tool text.
+- **Duplicates are a located error;** the formatter re-mints the newer copy.
+- **Spelling.** Every new form is metadata with `@` (D248), so a record may still have
+  fields named `id` or `aka`; `(asset KIND)` is a type, like `(key_of TABLE)`.
+
+## D271. Baked tables: literals only, rebuilt on every merge, one stack-wide image
+
+*Spec W2.*
+
+- **Array of the view struct,** looked up by key, alias or ID, with an index stable while
+  the table's keys are unchanged.
+- **Literals only in the first version.** A `{command}` in a view field is a bake error.
+  Folding commands bound as pure is deferred: nothing is marked pure today, and D8 recorded
+  pure commands as deliberately unbuilt.
+- **Rebuilt inside every merge and refcounted like trees,** so a reload never pulls a table
+  from under a reader and no separate swap point is needed. A live-ops overlay rebuilds the
+  tables it touches; nothing is patched in place, so development and live-ops share one
+  path.
+- **The shipped image is a stack-wide `.datb`.** Per-layer caches cannot hold a table built
+  from the merged contract stack, so `baker_bake` writes one cache for that stack, in the
+  existing container and under its rules, with the tables as a section. A section whose
+  view digest differs from the compiled view's is refused, and the game reads the tree.
+
+## D272. Change records hold whole values; an agent's change set is a layer
+
+*Spec W4.*
+
+- **A change record holds the whole old and new values** as `Ref`s, the record ID, the
+  path, the layer written and the old value's source. Structural edits (add, remove,
+  rename, reorder) and the list verbs (D251) are change records too. The journal becomes a
+  capped view over the log.
+- **Transactions,** one per console command, tool action or promoted change set, are what
+  undo and redo step over.
+- **An agent's change set is layer text,** checked with `check_layer_text`, pushed, and
+  written to files by `promote`, which reuses the candidate-layer machinery whole. A stale
+  check is checked again at the push, as a `CheckStamp` push already is, rather than
+  refused on a digest mismatch: unrelated edits never bounce an agent's work.
+- **`baker.changes/1`** is the JSON form, beside `baker.check` and `baker.reference`.
