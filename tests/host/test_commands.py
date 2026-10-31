@@ -73,7 +73,7 @@ def check(s):
 
 
 def views(s):
-    """The views the game compiled, against the stack's shapes (D278)."""
+    """The views the game compiled, against the stack's shapes (D282)."""
     code, out, err = s.run("check", agent="")
     r = json.loads(out)
     expect(code == 0 and not any("regenerate the views" in w["message"] for w in r["shape_warnings"]),

@@ -73,7 +73,7 @@ struct ProjectEntry {
 };
 
 // (views (layers core content) (shapes item) (namespace game::data)): what `baker_bake
-// --views` generates C++ views from (D277). `layers` are names from (layers ...): the
+// --views` generates C++ views from (D281). `layers` are names from (layers ...): the
 // contract stack, bottom to top, whose #shape forms the views come from; neither dev_only
 // nor under a (when COND). `shapes` are views besides those marked (@view); `ns` is the
 // namespace, "baker_views" when the file says nothing. Empty `layers`: no views.

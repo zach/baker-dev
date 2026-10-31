@@ -1,4 +1,4 @@
-// The views a project's build generates (D277), compiled and read: baker_generate_views made
+// The views a project's build generates (D281), compiled and read: baker_generate_views made
 // the headers under this test's binary directory from tests/views/project. Exits 1 on a
 // mismatch, naming it.
 #include <baker/config.hpp>

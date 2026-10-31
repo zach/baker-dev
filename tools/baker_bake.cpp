@@ -1,5 +1,5 @@
 // Writes the binary cache of a DTA file, for a build step (dev/decisions.md D70, D72), or
-// the C++ views of a project's shapes (D277):
+// the C++ views of a project's shapes (D281):
 //
 //   baker_bake [-D NAME]... [-I DIR]... [--drop-metadata] INPUT.dta OUTPUT.datb
 //   baker_bake --views OUT_DIR --project baker-project.dta [--depfile FILE] [--stamp FILE]

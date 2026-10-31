@@ -1,4 +1,4 @@
-; A project whose build generates views (D277): the contract stack is core and content; the
+; A project whose build generates views (D281): the contract stack is core and content; the
 ; mods directory and the dev_only layer may add fields, which stay out of the structs.
 (project
    (defines PC)

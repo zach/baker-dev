@@ -1,6 +1,6 @@
 #pragma once
 
-// Reading a view (<baker/view.hpp>, D275): read_view<T> over a record, or over a Config at a
+// Reading a view (<baker/view.hpp>, D279): read_view<T> over a record, or over a Config at a
 // path; what a generated reader (ViewReader<T>) calls for each field; and ListView's reads.
 // This header reaches <baker/array.hpp> and <baker/config.hpp>, so it belongs in the files
 // that read views, not in every file that names one.

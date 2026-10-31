@@ -430,7 +430,7 @@ TEST_CASE("a tool path in the build directory resolves where the tool says (D234
           std::string::npos);
 }
 
-TEST_CASE("a project names the layers its views are generated from (D277)") {
+TEST_CASE("a project names the layers its views are generated from (D281)") {
     TempDir dir;
     const std::string file = dir.write(
         "baker-project.dta",

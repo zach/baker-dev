@@ -23,7 +23,7 @@
 // field's values are a curve (<baker/curve.hpp>), and its (@range lo hi) holds every point's y.
 //
 // A shape marked (@view) generates a C++ view, a struct read from its records
-// (D269, D273): a field marked (@view no) stays out of the struct, an
+// (D269, D277): a field marked (@view no) stays out of the struct, an
 // `any` field must be; (@cxx int64) picks the member's C++ type from a closed list, and
 // (@cxx_name N) names the struct or the member when the shape's own name cannot.
 //
@@ -77,7 +77,7 @@ struct Field {
     // (@one_of light heavy kick): the symbols a symbol field's value may be, in the order
     // written; a field declared again adds to it. Empty: any symbol.
     List<baker::Symbol> one_of;
-    // For a view (D273): whether the field is in the struct ((@view no) leaves it out), the
+    // For a view (D277): whether the field is in the struct ((@view no) leaves it out), the
     // member's C++ type when (@cxx T) overrides the default (int8, int16, int32, int64,
     // uint8, uint16, uint32, uint64 for an int; float, double for a float), and the member's
     // name when (@cxx_name N) gives one. Empty: the defaults.
@@ -105,7 +105,7 @@ struct Shape {
     bool keyed = false;      // governs every child at `at`, whatever its tag
     List<Field> fields;
     List<Rule> rules;
-    bool view = false;       // (@view): generates a C++ view (D273)
+    bool view = false;       // (@view): generates a C++ view (D277)
     baker::Symbol cxx_name;  // (@cxx_name N): the struct's name; empty: from the shape's
     baker::Symbol file;
     int32_t line = 0;
@@ -169,7 +169,7 @@ private:
 // `list(shape(NAME,DIGEST))`), and its (@cxx T) if any. Zero for a shape the set lacks.
 [[nodiscard]] uint64_t view_digest(const Set& shapes, baker::Symbol shape) noexcept;
 
-// --- Generating views (D276). What baker_bake --views writes; a tool may call it too. ---
+// --- Generating views (D280). What baker_bake --views writes; a tool may call it too. ---
 
 struct ViewOptions {
     std::string_view ns = "baker_views";  // the namespace the structs are generated in
@@ -198,7 +198,7 @@ void write_view_reader(const Set& shapes, baker::Symbol shape, const ViewOptions
 void write_views_umbrella(const Set& shapes, std::span<const baker::Symbol> views,
                           const ViewOptions& options, TextSink out);
 
-// Drift (D278): the views a game compiled against the shapes its stack declares. Each
+// Drift (D282): the views a game compiled against the shapes its stack declares. Each
 // compiled view (the generated kViews) is compared by name with the contract set's shape:
 // a digest that differs, a shape the set lacks, or, for a nameless view (a shipping build
 // keeps no names), a digest no shape's layout has, is a warning in `report`, located at

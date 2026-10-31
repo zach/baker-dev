@@ -123,7 +123,7 @@ struct ShapeDecl {
 
 // A #shape inside an #ifdef branch the read skipped: where, and the file the read began
 // with. Not read, so it has no form. A view's shape set is one per build, so generating
-// views refuses a contract layer that holds one (shape::contract_set, D274).
+// views refuses a contract layer that holds one (shape::contract_set, D278).
 struct SkippedShape {
     Symbol file;
     int32_t line = 0;

@@ -1,6 +1,6 @@
 #pragma once
 
-// Views (D269, D275): a C++ struct generated from a shape marked
+// Views (D269, D279): a C++ struct generated from a shape marked
 // (@view), read from the records the shape governs. The struct reads data and never defines
 // it: a record is readable without the struct, a field the record lacks reads as the
 // member's default, and a field the shape does not declare is left in the tree.

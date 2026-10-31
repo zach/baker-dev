@@ -116,7 +116,7 @@ struct CommandHooks {
     Callback<void(Context&)> unbind{};
     // Reads the game's structured data, as Live's `changed`.
     Callback<void(const Config&)> changed{};
-    // The views the game compiled (the generated kViews, D278): check compares each with
+    // The views the game compiled (the generated kViews, D282): check compares each with
     // the shape the project's contract layers declare, and reports one generated from
     // another layout as a shape warning, or an error under --baker-strict-views.
     std::span<const ViewInfo> views{};

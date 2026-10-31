@@ -239,7 +239,7 @@ if(BAKER_BUILD_SHAPE)
   target_link_libraries(baker INTERFACE baker::shape)
 endif()
 
-# baker_bake: the binary cache (D70) and, with baker::shape, the views (D277). Built whenever
+# baker_bake: the binary cache (D70) and, with baker::shape, the views (D281). Built whenever
 # the library is, so a game's baker_generate_views (cmake/BakerViews.cmake) has it.
 add_executable(baker_bake tools/baker_bake.cpp)
 target_link_libraries(baker_bake PRIVATE baker::data)
@@ -299,7 +299,7 @@ if(BAKER_BUILD_BENCH)
   target_link_libraries(baker_bench_lookup PRIVATE baker::data)
   add_executable(baker_bench_view bench/bench_view.cpp)
   target_link_libraries(baker_bench_view PRIVATE baker::data)
-  target_include_directories(baker_bench_view PRIVATE tests/shape/views)  # the golden views (D276)
+  target_include_directories(baker_bench_view PRIVATE tests/shape/views)  # the golden views (D280)
   add_executable(baker_bench_layers bench/bench_layers.cpp)
   target_link_libraries(baker_bench_layers PRIVATE baker::data)
   if(BAKER_BUILD_SHAPE)  # the same, with shape::validator judging each candidate

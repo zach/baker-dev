@@ -1,4 +1,4 @@
-// Generating views (<baker/shape.hpp>, D276): the C++ a shape marked (@view) becomes. The
+// Generating views (<baker/shape.hpp>, D280): the C++ a shape marked (@view) becomes. The
 // text is what tests/shape/views/ holds as golden files, and what the data tests read
 // through; a change here changes them in the same commit.
 #include <baker/shape.hpp>

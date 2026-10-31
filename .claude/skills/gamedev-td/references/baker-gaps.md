@@ -180,15 +180,15 @@ One line each; the D-entries hold the measurements.
    and destroyed, so accepted (D100). `handle_all` takes the caller's span: Baker never
    iterates objects itself.
 44. **A view read matches F finds, not beats them (load).** W1's generated reader walks a
-   record once and dispatches on each child's tag hash (D275): 40.7 ns for five scalar
+   record once and dispatches on each child's tag hash (D279): 40.7 ns for five scalar
    fields against 37.3 ns for five finds, because each child costs its array header's load
    where a find scans the tag run. Accepted for W1: the view is the struct and the located
    errors; the per-frame path is W2's table, built once. A reader over the tag run (private
    today) is the next thing to measure there.
 45. **Reading text costs 1% more instructions since W1 (load).** `parse` 1,874,727 to
    1,894,330 instructions per 16 KB, `read_string` +6% wall; the only parser change is
-   D274's skipped-shape record, which the texts do not exercise. Open: isolate with
-   cachegrind's per-function counts before W3 touches the parser (D279).
+   D278's skipped-shape record, which the texts do not exercise. Open: isolate with
+   cachegrind's per-function counts before W3 touches the parser (D283).
 10. **Tooling in the core (tool).** Accepted as a standing rule (D100), then moved out:
    `baker::tools` holds what only tools call, and a minimal shipping game is 24.2 KB
    smaller with default flags, unchanged with `--gc-sections` (D231).

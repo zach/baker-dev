@@ -699,7 +699,7 @@ TEST_CASE("a shape that governs nothing is named, where it is declared (D260)") 
           std::string::npos);
 }
 
-// --- Views: (@view), (@view no), (@cxx T), (@cxx_name N) (D273). ---
+// --- Views: (@view), (@view no), (@cxx T), (@cxx_name N) (D277). ---
 
 TEST_CASE(
     "a shape marked (@view) generates a view; its fields may opt out, pick a type, or a name") {
@@ -763,7 +763,7 @@ TEST_CASE("the view words are checked: a flag is (@view) or (@view no), @cxx is 
     CHECK(errors("#shape (s (@view) (x int (@cxx int64) (@cxx_name _x) (@view no)))").empty());
 }
 
-TEST_CASE("a softer pack may not change a harder pack's view layout (D145, D273)") {
+TEST_CASE("a softer pack may not change a harder pack's view layout (D145, D277)") {
     LoadSession session;
     session.set_pack_levels({"engine", "game"});
     auto hard =
@@ -783,7 +783,7 @@ TEST_CASE("a softer pack may not change a harder pack's view layout (D145, D273)
     CHECK(set.find("s")->field("y")->view);
 }
 
-// --- Views: the digest and the contract set (D274). ---
+// --- Views: the digest and the contract set (D278). ---
 
 namespace {
 
@@ -910,7 +910,7 @@ TEST_CASE("the contract set holds the named layers' shapes, outside every #ifdef
     CHECK(r3.errors.empty());
 }
 
-// --- Generating views (D276): which shapes, the names, and the golden headers. ---
+// --- Generating views (D280): which shapes, the names, and the golden headers. ---
 
 namespace {
 
@@ -1030,7 +1030,7 @@ TEST_CASE("the generated headers match their golden files (BAKER_UPDATE_GOLDEN=1
     CHECK(generated(set, "move.hpp").find(hex) != std::string::npos);
 }
 
-// --- Drift: the views a game compiled against its shapes (D278). ---
+// --- Drift: the views a game compiled against its shapes (D282). ---
 
 TEST_CASE("check_views: a view generated from another layout, a missing shape, a nameless digest") {
     shape::Set set;

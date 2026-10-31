@@ -3,7 +3,7 @@
 #include <baker/host/commands.hpp>
 #include <baker/parse.hpp>
 #if BAKER_TEST_GAME_VIEWS
-#include "views.hpp"  // generated from the stack's shapes by the build (D278)
+#include "views.hpp"  // generated from the stack's shapes by the build (D282)
 #endif
 
 #include <cstdio>

@@ -3,9 +3,9 @@
 *Phase W1 of `dev/schema-layer-spec.md` (D269). Terms are `dev/glossary.md`'s. The design
 note is §2; §3 is the steps, each committed green.*
 
-**Status: done.** Steps 1 to 7 are D273 to D279; the measurements the design note asked
-for are in D275 (the reader matches finds rather than beating them; the include costs) and
-D279 (the no-cost rows).
+**Status: done.** Steps 1 to 7 are D277 to D283; the measurements the design note asked
+for are in D279 (the reader matches finds rather than beating them; the include costs) and
+D283 (the no-cost rows).
 
 | Decision | Choice |
 |---|---|
@@ -162,7 +162,7 @@ the canonical text is a deliberate one.
 ## 3. Steps
 
 Each step runs `tools/local_matrix.sh` and clang-tidy before its commit, and records its
-result in its D-entry (D273 onward).
+result in its D-entry (D277 onward).
 
 1. **Grammar.** `(@view)` and `(@cxx_name N)` on a shape; `(@view no)`, `(@cxx T)` and
    `(@cxx_name N)` on a field; the closed `@cxx` list; `Field` and `Shape` members;
@@ -197,7 +197,7 @@ result in its D-entry (D273 onward).
 
 ## 4. Open questions for the owner
 
-Asked with AskUserQuestion before step 1; their answers go in D273.
+Asked with AskUserQuestion before step 1; their answers go in D277.
 
 - **Q1. `baker_bake`'s build gate.** It is built only under `BAKER_BUILD_TOOLS`, which the
   stacks force OFF and which defaults OFF when Baker is not the top-level project. A

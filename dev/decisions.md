@@ -9602,7 +9602,7 @@ asset systems, on Halo's tags and DataArray, and on Onager.*
   refused on a digest mismatch: unrelated edits never bounce an agent's work.
 - **`baker.changes/1`** is the JSON form, beside `baker.check` and `baker.reference`.
 
-## D273. Views, step 1: a shape says `(@view)`, a field `(@view no)`, `(@cxx T)` or `(@cxx_name N)`
+## D277. Views, step 1: a shape says `(@view)`, a field `(@view no)`, `(@cxx T)` or `(@cxx_name N)`
 
 *`dev/views-plan.md` step 1, the first of W1 (D269). The plan's open questions, answered by
 the owner on 2026-10-31: `baker_bake` is built whenever `baker::shape` is, as a target of
@@ -9629,7 +9629,7 @@ its own (step 5); a curve field is a member by value in the light struct header,
   (a bool and two Symbols); it is a tool struct.
 - **For the next release's changelog** (written with W1's last step).
 
-## D274. Views, step 2: the contract set, and a view's digest
+## D278. Views, step 2: the contract set, and a view's digest
 
 *`dev/views-plan.md` step 2.*
 
@@ -9656,7 +9656,7 @@ its own (step 5); a curve field is a member by value in the light struct header,
   `symbol_hash` of the hand-written text.
 - **Costs.** None on any path but generation and `check_views`.
 
-## D275. Views, step 3: `<baker/view.hpp>`, `<baker/view_read.hpp>`, and what a reader costs
+## D279. Views, step 3: `<baker/view.hpp>`, `<baker/view_read.hpp>`, and what a reader costs
 
 *`dev/views-plan.md` step 3. The hand-written reader in `tests/support/view_move.hpp` is the
 model of what step 4 generates.*
@@ -9697,7 +9697,7 @@ model of what step 4 generates.*
 - **A read allocates nothing** (the data tests, under the counting allocator), and the
   public headers stay within D55's list (`check_headers.py`).
 
-## D276. Views, step 4: the generator, and its golden headers
+## D280. Views, step 4: the generator, and its golden headers
 
 *`dev/views-plan.md` step 4. `src/shape/views.cpp`.*
 
@@ -9715,7 +9715,7 @@ model of what step 4 generates.*
 - **Three writers,** deterministic for a set: `write_view_header` (the struct, with
   `kShapeName` as `view_text` and `kShapeDigest` from `view_digest`; it includes
   `<baker/view.hpp>`, `<baker/curve.hpp>` only for a curve field, and the struct headers
-  of the shapes it nests), `write_view_reader` (the `ViewReader<T>` of D275's form, with a
+  of the shapes it nests), `write_view_reader` (the `ViewReader<T>` of D279's form, with a
   `kRequired` table and `first_missing`, and the `Convert<T>`; it includes the nested
   readers), and `write_views_umbrella` (every struct header and `kViews`, a `ViewInfo` per
   view). The file names are `<shape>.hpp`, `<shape>_read.hpp` and `views.hpp`.
@@ -9724,10 +9724,10 @@ model of what step 4 generates.*
   `BAKER_UPDATE_GOLDEN=1`. The data tests and `bench_lookup` read through those headers,
   so the generator's output is also the code the runtime tests exercise, and
   `tests/support/view_move.hpp` is gone.
-- **Costs.** Tool path only. The generated reader is D275's: no interning, no static
+- **Costs.** Tool path only. The generated reader is D279's: no interning, no static
   guards, nothing allocated.
 
-## D277. Views, step 5: the project's `(views ...)`, `baker_bake --views`, and `baker_generate_views`
+## D281. Views, step 5: the project's `(views ...)`, `baker_bake --views`, and `baker_generate_views`
 
 *`dev/views-plan.md` step 5, with its Q1 as the owner answered it.*
 
@@ -9758,10 +9758,35 @@ model of what step 4 generates.*
   unknown listed shape; a `dev_only` contract layer; an unknown contract layer).
 - **Costs.** Build time only: one tool run when a contract file changes.
 
-## D279. Views, step 7: the example, the docs, and what W1 costs a stack that uses none of it
+## D282. Views, step 6: drift, reported by `check` and by the game
+
+*`dev/views-plan.md` step 6.*
+
+- **`shape::check_views(contract, compiled, report)`** compares the views a game compiled
+  (the generated `kViews`) with the contract set: a view whose digest differs from its
+  shape's is a warning located at the shape, one naming a shape the set lacks a warning,
+  and, for a nameless view (a shipping build keeps no names, D256), a digest no shape's
+  layout has. Each says to regenerate the views. **`shape::contract_roots(cfg, layers)`**
+  gives `contract_set` its roots from a running Config: a file layer's own file, or every
+  file the stack read under a directory layer.
+- **The host kit.** `CommandHooks::views` is the game's `kViews`; `check` re-reads the
+  project for its `(views (layers ...))`, builds the contract set and reports drift as shape
+  warnings, printed `view warning:`, or as shape errors under `check --baker-strict-views`
+  (`CommandLine::strict_views`), which a farm sets. A game that registers views against a
+  project naming no contract layers gets one warning saying so. No JSON field is added:
+  `baker.check/1.5`'s `shape_warnings` and `shape_errors` carry them, by their message.
+- **The game, in development,** calls `contract_roots`, `contract_set` and `check_views`
+  after its load and sends the warnings where it likes; `examples/content-tables` shows it
+  (step 7). Nothing of this runs unless the game asks: a Config pays nothing.
+- **Tests.** The host test game is built with `baker_generate_views` over its stack and
+  registers `host_game::kViews`; `test_commands.py` edits the stack copy's shape layout and
+  sees the warning, then the error under the strict flag. The shape tests cover each
+  message and `contract_roots` over a file layer and a directory layer.
+
+## D283. Views, step 7: the example, the docs, and what W1 costs a stack that uses none of it
 
 *`dev/views-plan.md` step 7, and the end of W1 (D269). The owner asked for views on
-2026-10-31; steps 1 to 7 are D273 to D279.*
+2026-10-31; steps 1 to 7 are D277 to D283.*
 
 - **`examples/content-tables`**: a fighters table whose shape is `(@view)`, generated by the
   build (`baker_generate_views` in `examples/CMakeLists.txt`), read one record at a time and
@@ -9777,7 +9802,7 @@ model of what step 4 generates.*
   rows read +50% (6.5 to 9.7 ns) and +55% at 1,000 children, on a library whose lookup
   counts 209 instructions on both commits. A benchmark's translation unit is part of what
   it measures; long-lived rows keep theirs. `bench_view` (GCC 13 -O2, this machine):
-  `read_view<Move>` 86.8 ns, `read_view<Scalars>` 41.9 ns, the five finds 37.3 ns (D275).
+  `read_view<Move>` 86.8 ns, `read_view<Scalars>` 41.9 ns, the five finds 37.3 ns (D279).
 - **The no-cost rows,** `tools/bench_compare.py --base b515446` (0.7.0), 7 runs a side on a
   quiet machine for `lookup` and `layers`, 5 for `layers_shape` and `cache` while the
   matrix built in another checkout (their ranges show it; `cache`'s rows span 5x within a
@@ -9798,7 +9823,7 @@ model of what step 4 generates.*
   `tools/count_instructions.py --base b515446`: `lookup` 209 = 209, `merge` and `check`
   unchanged, `lookup_text` 372 to 380 (+2.2%), `parse` 1,874,727 to 1,894,330 (+1.05%).
 - **A regression, recorded and not yet isolated.** Reading text costs about 1% more
-  instructions and 4 to 6% more time. W1's only change on that path is D274's: a
+  instructions and 4 to 6% more time. W1's only change on that path is D278's: a
   `Vec<SkippedShape>` in the session's state, and one string compare per directive inside
   a skipped `#ifdef` branch, which the benchmarks' texts do not have. Neither explains 20,000
   instructions per 16 KB parse, so the cause is to be found with cachegrind's per-function

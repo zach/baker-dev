@@ -1,4 +1,4 @@
-// A view read (D275): one pass over a record's children into a generated struct, against
+// A view read (D279): one pass over a record's children into a generated struct, against
 // the same fields read one find at a time, as a game without views reads them. Its own
 // translation unit, so bench_lookup's rows stay comparable across releases.
 #include <baker/array.hpp>

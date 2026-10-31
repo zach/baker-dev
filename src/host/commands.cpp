@@ -179,7 +179,7 @@ int check(const CommandLine& line, const CommandHooks& hooks) {
     tools::check_rules(*cfg.root(), shapes, l.ctx, shaped);  // a broken rule fails the check
     for (const Error& e : shaped.errors) err("shape: " + Str(to_string(e)) + "\n");
     for (const Error& e : shaped.warnings) err("shape warning: " + Str(to_string(e)) + "\n");
-    // The views the game compiled, against the contract layers' shapes (D278).
+    // The views the game compiled, against the contract layers' shapes (D282).
     if (!hooks.views.empty()) {
         shape::Report drift;
         Project read;

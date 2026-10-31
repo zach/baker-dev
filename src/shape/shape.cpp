@@ -159,7 +159,7 @@ bool identifier(std::string_view s) {
     return true;
 }
 
-// The (@cxx T) a field's type allows: a closed list (D273).
+// The (@cxx T) a field's type allows: a closed list (D277).
 bool cxx_allowed(Type type, baker::Symbol cxx) {
     static const baker::Symbol ints[] = {"int8",  "int16",  "int32",  "int64",
                                          "uint8", "uint16", "uint32", "uint64"};
@@ -933,7 +933,7 @@ void check(const Array& tree, const Set& shapes, Report& report, const LoadSessi
     report.warnings = List<Error>({warnings.data(), warnings.size()});
 }
 
-// --- Views: the contract set and the digest (D274). ---
+// --- Views: the contract set and the digest (D278). ---
 
 namespace {
 

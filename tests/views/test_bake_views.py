@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests baker_bake --views (D277) on a copy of tests/views/project.
+"""Tests baker_bake --views (D281) on a copy of tests/views/project.
 
     python3 -I tests/views/test_bake_views.py build/baker_bake tests/views/project
 
