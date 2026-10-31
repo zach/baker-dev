@@ -43,7 +43,8 @@ Error bad_count(const Array& field, std::string_view shape, uint32_t min, uint32
                : min == max      ? detail::decimal(min)
                                  : detail::decimal(min) + " to " + detail::decimal(max);
     return make_error(ErrorCode::Range,
-                      field_label(field, shape) + " holds " + detail::decimal(n) + " value" +
+                      field_label(field, shape) + " holds " +
+                          detail::decimal(static_cast<int64_t>(n)) + " value" +
                           (n == 1 ? "" : "s") + ", not " + want,
                       field.file(), field.line());
 }
@@ -68,7 +69,7 @@ Error bad_element(const Array& list, uint32_t i, std::string_view type) {
     if (i < v.size())
         msg += " is not " + article + Str(type) + ": " + detail::preview(v[i]);
     else
-        msg += " is past its " + detail::decimal(v.size()) + " values";
+        msg += " is past its " + detail::decimal(static_cast<int64_t>(v.size())) + " values";
     return make_error(ErrorCode::Type, msg, list.file(), list.line());
 }
 

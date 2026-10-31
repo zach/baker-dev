@@ -3,7 +3,9 @@
 *Phase W1 of `dev/schema-layer-spec.md` (D269). Terms are `dev/glossary.md`'s. The design
 note is §2; §3 is the steps, each committed green.*
 
-**Status: approved 2026-10-31, with Q1 and Q2 answered as recommended; in progress.**
+**Status: done.** Steps 1 to 7 are D273 to D279; the measurements the design note asked
+for are in D275 (the reader matches finds rather than beating them; the include costs) and
+D279 (the no-cost rows).
 
 | Decision | Choice |
 |---|---|

@@ -72,6 +72,27 @@ def check(s):
     expect(code == 0, "the local layer is left out (its value would fail the shape)")
 
 
+def views(s):
+    """The views the game compiled, against the stack's shapes (D278)."""
+    code, out, err = s.run("check", agent="")
+    r = json.loads(out)
+    expect(code == 0 and not any("regenerate the views" in w["message"] for w in r["shape_warnings"]),
+           "a game whose views match its shapes passes check with no view warning")
+    default = s.dir / "data" / "default.dta"
+    text = default.read_text()
+    default.write_text(text.replace("(lives int)", "(lives int (@cxx int64))"))
+    code, out, err = s.run("check", agent="")
+    r = json.loads(out)
+    expect(code == 0 and any("regenerate the views" in w["message"] for w in r["shape_warnings"]),
+           f"a shape whose layout moved is a shape warning: {err}")
+    expect("view warning:" in err, "and is printed as one")
+    code, out, err = s.run("check", "--baker-strict-views", agent="")
+    r = json.loads(out)
+    expect(code == 1 and any("regenerate the views" in e["message"] for e in r["shape_errors"]),
+           f"--baker-strict-views makes it an error: {err}")
+    default.write_text(text)
+
+
 def reference(s):
     code, out, _ = s.run("reference", "--baker-json", agent="")
     r = json.loads(out)
@@ -250,7 +271,7 @@ def main():
         print(__doc__)
         return 2
     writes = shipping if sys.argv[3:] == ["shipping"] else diff_and_promote
-    for case in (check, reference, eval_json, writes, host_io, scenarios, command_line,
+    for case in (check, views, reference, eval_json, writes, host_io, scenarios, command_line,
                  format_files):
         case(Stack(sys.argv[1], sys.argv[2]))
     print(f"{len(FAILURES)} failures" if FAILURES else "all passed")

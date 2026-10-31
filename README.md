@@ -132,6 +132,9 @@ save, see it.
 - **Packs and levels.** `#require` reads a shared file once per session; a pack declares
   its level (`engine`, `game`, `task`), and a harder pack using a softer one's macro or
   function is warned about. [Language guide](docs/language.md#packs-and-levels).
+- **Views.** A shape marked `(@view)` generates a C++ struct, its reader and a digest of
+  its layout; `baker_generate_views` keeps them current in the build, and `check` reports
+  a struct compiled against another layout (`docs/language.md`, Views).
 - **Shapes.** `#shape (boss_phase (enter_at float (@range 0 1)) ...)` declares what data
   should look like; a Config validator reports violations at load, located.
   [Language guide](docs/language.md#shapes).

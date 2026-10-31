@@ -1,5 +1,5 @@
 ; The test game's data.
-#shape (player
+#shape (player (@view)
    (speed float (@range 0 10))
    (lives int))
 (player

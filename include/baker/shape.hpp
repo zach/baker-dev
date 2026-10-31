@@ -49,6 +49,7 @@
 #include <baker/list.hpp>
 #include <baker/symbol.hpp>
 #include <baker/text.hpp>
+#include <baker/view.hpp>
 
 #include <cstdint>
 #include <span>
@@ -196,6 +197,18 @@ void write_view_reader(const Set& shapes, baker::Symbol shape, const ViewOptions
                        TextSink out);
 void write_views_umbrella(const Set& shapes, std::span<const baker::Symbol> views,
                           const ViewOptions& options, TextSink out);
+
+// Drift (D278): the views a game compiled against the shapes its stack declares. Each
+// compiled view (the generated kViews) is compared by name with the contract set's shape:
+// a digest that differs, a shape the set lacks, or, for a nameless view (a shipping build
+// keeps no names), a digest no shape's layout has, is a warning in `report`, located at
+// the shape when there is one, saying to regenerate the views. A tool makes them errors.
+void check_views(const Set& contract, std::span<const ViewInfo> compiled, Report& report);
+
+// The reads a Config's contract layers began with, for contract_set: each named layer's
+// own file, or, for a directory of layers, every file under it the stack read.
+[[nodiscard]] List<baker::Symbol> contract_roots(const Config& cfg,
+                                                 std::span<const baker::Symbol> contract_layers);
 
 // Checks every array of `tree` that a shape of `shapes` governs, into `report`. With
 // `packs`, a key a harder pack's field names from a softer pack's table is a warning, as the

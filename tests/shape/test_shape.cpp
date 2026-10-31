@@ -1029,3 +1029,66 @@ TEST_CASE("the generated headers match their golden files (BAKER_UPDATE_GOLDEN=1
                   static_cast<unsigned long long>(shape::view_digest(set, Symbol("move"))));
     CHECK(generated(set, "move.hpp").find(hex) != std::string::npos);
 }
+
+// --- Drift: the views a game compiled against its shapes (D278). ---
+
+TEST_CASE("check_views: a view generated from another layout, a missing shape, a nameless digest") {
+    shape::Set set;
+    shape::Report report;
+    add_text(set, "#shape (a (@view) (x int))\n#shape (b (@view) (y float))", report);
+    REQUIRE(report.errors.empty());
+    const uint64_t a = shape::view_digest(set, Symbol("a"));
+    const uint64_t b = shape::view_digest(set, Symbol("b"));
+    const ViewInfo same[] = {{"a", a}, {"b", b}, {"", a}};
+    shape::check_views(set, same, report);
+    CHECK(report.warnings.empty());
+    const ViewInfo drifted[] = {{"a", a ^ 1}, {"c", 7}, {"", 9}};
+    shape::check_views(set, drifted, report);
+    const auto w = texts(report.warnings);
+    REQUIRE(w.size() == 3);
+    CHECK(w[0].find("view 'a' was generated from another layout of its shape") !=
+          std::string::npos);
+    CHECK(w[0].find("t.dta:1") != std::string::npos);
+    CHECK(w[1].find("view 'c' names a shape no contract layer declares") != std::string::npos);
+    CHECK(w[2].find("a compiled view (digest 0x0000000000000009) matches no shape's layout") !=
+          std::string::npos);
+}
+
+TEST_CASE("contract_roots: a file layer's own file, and the files under a directory layer") {
+    std::map<std::string, std::string> files = {
+        {"core.dta", "#shape (a (@view) (x int))\n(a (x 1))"},
+        {"mods/one.dta", "#shape (a (y int))"},
+        {"mods/two.dta", "#include \"inc.dta\"\n"},
+        {"mods/inc.dta", "(b 2)"}};
+    Config cfg({.tweaks = nullptr});
+    cfg.session().set_reader([&](std::string_view p, TextSink out) {
+        const auto it = files.find(std::string(p));
+        if (it == files.end()) return false;
+        out(it->second);
+        return true;
+    });
+    cfg.session().set_lister([&](std::string_view dir, Callback<void(std::string_view)> entry) {
+        if (dir != "mods") return false;
+        entry("mods/one.dta");
+        entry("mods/two.dta");
+        return true;
+    });
+    REQUIRE(cfg.push_layer("core", "core.dta"));
+    REQUIRE(cfg.push_layer_dir("mods", "mods"));
+    const Symbol core_only[] = {Symbol("core")};
+    const auto r1 = shape::contract_roots(cfg, core_only);
+    REQUIRE(r1.size() == 1);
+    CHECK(r1[0] == Symbol("core.dta"));
+    const Symbol both[] = {Symbol("core"), Symbol("mods")};
+    const auto r2 = shape::contract_roots(cfg, both);
+    std::vector<std::string> names;
+    for (const Symbol s : r2) names.emplace_back(s.str());
+    CHECK(std::find(names.begin(), names.end(), "core.dta") != names.end());
+    CHECK(std::find(names.begin(), names.end(), "mods/one.dta") != names.end());
+    CHECK(std::find(names.begin(), names.end(), "mods/two.dta") != names.end());
+    // The contract set over them: the mod's field is in, the include contributes nothing.
+    shape::Report report;
+    const shape::Set set = shape::contract_set(cfg.read_session(), r2.items(), report);
+    CHECK(report.errors.empty());
+    CHECK(set.find("a")->field("y"));
+}

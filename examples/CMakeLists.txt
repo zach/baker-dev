@@ -66,6 +66,19 @@ if(baker_test_dev)
     ${CMAKE_CURRENT_SOURCE_DIR}/config/data)
 endif()
 
+# --- content-tables: records read into structs the build generates from their shape (D269).
+if(BAKER_BUILD_SHAPE)
+  add_executable(baker_example_content_tables content-tables/main.cpp)
+  target_link_libraries(baker_example_content_tables PRIVATE baker::shape)
+  baker_generate_views(baker_example_content_tables
+    PROJECT ${CMAKE_CURRENT_SOURCE_DIR}/content-tables/data/baker-project.dta)
+  if(baker_test_dev)
+    baker_example_test(baker_example_content_tables baker_example_content_tables
+      "^views: 1, up to date${nl}jab: startup 4, damage 3[.]5, button light, cancels into heavy kick${nl}kestrel[.]heavy runs a command on a hit${nl}wren[.]poke: \"Safe at range\"${nl}4 moves read${nl}baker: field 'startup' of 'move' is not an int: fast .*fighters/kestrel/moves/jab"
+      ${CMAKE_CURRENT_SOURCE_DIR}/content-tables/data/baker-project.dta)
+  endif()
+endif()
+
 # --- live-ops: published overlays staged, applied under a policy, refused, rolled back.
 # Runs in shipping builds too: that is where it matters.
 if(BAKER_BUILD_SHAPE)

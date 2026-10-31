@@ -2,6 +2,9 @@
 // commands, and one command of its own, as a game's main would have them.
 #include <baker/host/commands.hpp>
 #include <baker/parse.hpp>
+#if BAKER_TEST_GAME_VIEWS
+#include "views.hpp"  // generated from the stack's shapes by the build (D278)
+#endif
 
 #include <cstdio>
 #include <filesystem>
@@ -46,6 +49,9 @@ int main(int argc, char** argv) {
     };
     const baker::ProjectOptions skip_local{.skip = {"local"}};
     hooks.open = skip_local;
+#if BAKER_TEST_GAME_VIEWS
+    hooks.views = host_game::kViews;
+#endif
 
     // --root DIR: the stack is read through the host's reader, as game://..., which names
     // nothing on the disk.

@@ -179,6 +179,42 @@ int check(const CommandLine& line, const CommandHooks& hooks) {
     tools::check_rules(*cfg.root(), shapes, l.ctx, shaped);  // a broken rule fails the check
     for (const Error& e : shaped.errors) err("shape: " + Str(to_string(e)) + "\n");
     for (const Error& e : shaped.warnings) err("shape warning: " + Str(to_string(e)) + "\n");
+    // The views the game compiled, against the contract layers' shapes (D278).
+    if (!hooks.views.empty()) {
+        shape::Report drift;
+        Project read;
+        const Project* project = hooks.built;
+        if (!l.live.project_file().empty()) {
+            if (auto p = read_project(l.live.project_file().str(), hooks.reader)) {
+                read = std::move(*p);
+                project = &read;
+            }
+        }
+        if (!project || project->views.layers.empty()) {
+            const Error e = make_error(
+                ErrorCode::NotFound,
+                "the game compiled " + detail::decimal(static_cast<int64_t>(hooks.views.size())) +
+                    " views, but the project names no (views (layers ...)) to check them against");
+            drift.warnings = List<Error>(std::span<const Error>(&e, 1));
+        } else {
+            const auto roots = shape::contract_roots(cfg, project->views.layers.items());
+            const shape::Set contract =
+                shape::contract_set(cfg.read_session(), roots.items(), drift);
+            shape::check_views(contract, hooks.views, drift);
+        }
+        Vec<Error> errors(shaped.errors.begin(), shaped.errors.end());
+        Vec<Error> warnings(shaped.warnings.begin(), shaped.warnings.end());
+        for (const Error& e : drift.errors) {
+            err("view: " + Str(to_string(e)) + "\n");
+            errors.push_back(e);
+        }
+        for (const Error& e : drift.warnings) {
+            err(Str(line.strict_views ? "view: " : "view warning: ") + Str(to_string(e)) + "\n");
+            (line.strict_views ? errors : warnings).push_back(e);
+        }
+        shaped.errors = List<Error>(std::span<const Error>(errors.data(), errors.size()));
+        shaped.warnings = List<Error>(std::span<const Error>(warnings.data(), warnings.size()));
+    }
     report.shape_errors = List<Error>(shaped.errors.items());
     report.shape_warnings = List<Error>(shaped.warnings.items());
 #endif
@@ -887,6 +923,8 @@ Expected<CommandLine> parse_command_line(int argc, const char* const* argv) {
             line.rows = true;
         } else if (a == "check") {
             line.check = true;
+        } else if (a == "strict-views") {
+            line.strict_views = true;
         } else if (std::string_view* into = text_option(line, a)) {
             if (!value(*into)) return missing();
         } else if (a == "seed" || a == "step-hz") {
@@ -959,8 +997,9 @@ int run_command(const CommandLine& line, const CommandHooks& hooks) {
 
 std::string_view command_help() noexcept {
     return "The kit's flags begin --baker-; any other flag is the game's.\n"
-           "  check                          baker.check/1.5 JSON; exit 1 on an error, a load\n"
-           "                                 problem, a shape error, or an undefined function\n"
+           "  check [--baker-strict-views]   baker.check/1.5 JSON; exit 1 on an error, a load\n"
+           "                                 problem, a shape error, or an undefined function;\n"
+           "                                 --baker-strict-views: a compiled view's drift too\n"
            "  reference [--baker-json]       the script vocabulary, as Markdown; --baker-json:\n"
            "                                 {reference, tweaks, shapes} as Baker's JSON\n"
            "  diff [--baker-layer L] [--baker-rows]\n"

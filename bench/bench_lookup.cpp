@@ -11,10 +11,6 @@
 #include <baker/array.hpp>
 #include <baker/cache.hpp>
 #include <baker/parse.hpp>
-#include <baker/view_read.hpp>
-
-#include "move_read.hpp"
-#include "scalars_read.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -105,36 +101,6 @@ int main() {
         ns_per_call([&](int) { return *obj.find_float("key19"); }));
     row("find_float(\"key19\"_sym)",
         ns_per_call([&](int) { return *obj.find_float("key19"_sym); }));
-    // A view read (D275): one pass over a record's 11 children into a 10-field struct, against
-    // the same fields read one find at a time, as a game without views reads them.
-    auto fighters = baker::read_string(
-        "(fighters (kestrel (moves (jab (startup 4) (damage 3.5) (name \"Jab\") (button light)"
-        " (armored 1) (cancel_into heavy kick) (hitbox (x 1) (y 2.5)) (points (p (x 0) (y 0)))"
-        " (ramp (0 0) (1 1)) (on_hit {do_hit}) (taunt \"ha\")))))",
-        "view.dta");
-    if (!fighters) return 1;
-    const baker::Array& jab = *(*fighters)->try_get("fighters.kestrel.moves.jab");
-    row("read_view<Move>, 10 fields of 11 children", ns_per_call([&](int) {
-            views_test::Move m;
-            baker::Error err;
-            (void)baker::ViewReader<views_test::Move>::read(opaque(jab), m, &err);
-            return static_cast<double>(m.startup) + m.damage;
-        }));
-    row("read_view<Scalars>, 5 fields of 11 children", ns_per_call([&](int) {
-            views_test::Scalars m;
-            baker::Error err;
-            (void)baker::ViewReader<views_test::Scalars>::read(opaque(jab), m, &err);
-            return static_cast<double>(m.startup) + m.damage;
-        }));
-    row("the same 5 scalar fields, one find each", ns_per_call([&](int) {
-            const baker::Array& a = opaque(jab);
-            const auto startup = *a.find_int("startup"_sym);
-            const auto damage = *a.find_float("damage"_sym);
-            const auto name = *a.find_str("name"_sym);
-            const auto button = *a.find_sym("button"_sym);
-            const auto armored = *a.find_int("armored"_sym);
-            return static_cast<double>(startup + armored + name.size() + button.index()) + damage;
-        }));
     row("get<int>(Path), 4 segments",
         ns_per_call([&](int) { return static_cast<double>(*(*root)->get<int>(opaque(path))); }));
     row("get<float>(Path), 4 segments with index",

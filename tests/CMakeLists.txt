@@ -122,6 +122,10 @@ if(TARGET baker::host)
   # The commands, through a game binary that uses them (D190).
   add_executable(baker_host_test_game host/game.cpp)
   target_link_libraries(baker_host_test_game PRIVATE baker::host)
+  if(BAKER_BUILD_SHAPE)  # the game registers the views its build generates (D278)
+    baker_generate_views(baker_host_test_game PROJECT ${CMAKE_CURRENT_SOURCE_DIR}/host/stack/baker-project.dta)
+    target_compile_definitions(baker_host_test_game PRIVATE BAKER_TEST_GAME_VIEWS=1)
+  endif()
   find_package(Python3 COMPONENTS Interpreter)
   if(Python3_FOUND)
     add_test(NAME baker_host_commands
