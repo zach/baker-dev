@@ -218,6 +218,49 @@ def renames(s):
     default.write_text(text)
 
 
+def rename(s):
+    """rename OLD NEW: the key in the declaring layer, (@aka OLD), an ID, and every key_of (D287)."""
+    default = s.dir / "data" / "default.dta"
+    text = default.read_text()
+    added = ("#shape (wave (@at waves2) (@keyed) (foe (key_of foes)) (also (list (key_of foes)) (@optional)))\n"
+             "(foes (grunt (hp 1)) (brute (@id a0000000000000000000000000000002) (hp 2)))\n"
+             "(waves2 (first (foe grunt)) (second (foe brute) (also grunt brute grunt)))\n")
+    default.write_text(text + added)
+    agent = "(waves2 (third (foe grunt)))\n(foes (grunt (hp 5)))\n"
+    code, out, err = s.run("rename", "foes.grunt", "runt", agent=agent)
+    expect(code == 0 and "rerun with --baker-write" in out and default.read_text() == text + added
+           and "grunt -> runt" in out and "(@aka grunt)" in out and "(@id " in out
+           and out.count("(foe ...): grunt -> runt") == 2 and "(also ...): grunt -> runt" in out,
+           f"a dry run lists the edits and writes nothing: {out} {err}")
+    code, out, err = s.run("rename", "foes.grunt", "runt", "--baker-write", agent=agent)
+    after = default.read_text()
+    expect(code == 0 and "(runt (@id " in after and "(@aka grunt)" in after and "(foe runt)" in after
+           and "(also runt brute runt)" in after and "(brute (@id a0000000000000000000000000000002)" in after,
+           f"--baker-write: the key, its alias and ID, and every reference: {after}")
+    expect(re.search(r"\(runt \(@id [a-f][0-9a-f]{31}\) \(hp 1\) \(@aka grunt\)\)", after) is not None,
+           f"the ID after the key, the alias after the last child: {after}")
+    agent_text = (s.dir / "data" / "agent.dta").read_text()
+    expect("(foe runt)" in agent_text and "(foes (grunt (hp 5)))" in agent_text,
+           f"an overlay's reference is rewritten; its record keeps the old key, which the alias resolves: {agent_text}")
+    code, out, _ = s.run("check", agent=agent)
+    r = json.loads(out)
+    expect(code == 0 and not r["shape_errors"], f"after which the stack checks clean: {out}")
+    code, out, _ = s.run("eval", "{config.get foes.runt.hp}", agent=agent)
+    expect(code == 0 and out == "5\n", f"and the overlay merges into the renamed record: {out!r}")
+    # Refusals: a key taken, an alias taken, a record that is not there, a bad key.
+    code, _, err = s.run("rename", "foes.runt", "brute", agent=agent)
+    expect(code == 2 and "'brute' is already a key of foes" in err, "a key a sibling has")
+    code, _, err = s.run("rename", "foes.brute", "grunt", agent=agent)
+    expect(code == 2 and "'grunt' is an alias of 'runt'" in err, "a key that is a sibling's alias")
+    code, _, err = s.run("rename", "foes.nosuch", "x", agent=agent)
+    expect(code == 2 and "no record 'foes.nosuch'" in err, "a record the stack lacks")
+    code, _, err = s.run("rename", "foes.runt", "two words", agent=agent)
+    expect(code == 2 and "is not a key" in err, "a key that is not one symbol")
+    code, _, err = s.run("rename", "foes.runt", agent=agent)
+    expect(code == 2 and "rename takes OLD" in err, "the arguments")
+    default.write_text(text)
+
+
 def mint_ids(s):
     """format --baker-mint-ids TABLE: an ID for each record without one, in its declaring layer."""
     default = s.dir / "data" / "default.dta"
@@ -245,8 +288,8 @@ def mint_ids(s):
 
 def shipping(s):
     """Under BAKER_SHIPPING, the commands that write refuse; the others run."""
-    for command in ("diff", "promote"):
-        code, _, err = s.run(command)
+    for command in ("diff", "promote", "rename"):
+        code, _, err = s.run(command, "a.b", "c")
         expect(code == 2 and "shipping" in err, f"shipping: {command} refuses")
 
 
@@ -341,7 +384,7 @@ def main():
         print(__doc__)
         return 2
     writes = shipping if sys.argv[3:] == ["shipping"] else diff_and_promote
-    for case in (check, views, aliases, renames, mint_ids, reference, eval_json, writes, host_io, scenarios, command_line,
+    for case in (check, views, aliases, renames, mint_ids, rename, reference, eval_json, writes, host_io, scenarios, command_line,
                  format_files):
         case(Stack(sys.argv[1], sys.argv[2]))
     print(f"{len(FAILURES)} failures" if FAILURES else "all passed")

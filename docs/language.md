@@ -202,7 +202,7 @@ handler at every merge; the host kit's loop and `check` add it. A shipped cache 
 without metadata keeps `@id` and `@aka`: they are identity, not tool text.
 
 A renamed record keeps answering to its old key with `(@aka old)` (D285), which the kit's
-`rename` writes: a layer that retunes `(weapons (laser ...))` merges into the record now
+`rename OLD NEW` writes, with the new key and every `key_of` reference (D287): a layer that retunes `(weapons (laser ...))` merges into the record now
 named `plasma`, and a `(key_of weapons)` naming `laser` resolves to it (a key wins over an
 alias). A key that is also a sibling's alias is an error from `id_validator`. Aliases stay
 until someone removes them, since a shipped overlay may still name one; `check` lists an

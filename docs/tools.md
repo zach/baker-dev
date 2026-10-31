@@ -200,6 +200,7 @@ error, so a misspelling is caught.
 | `promote [--baker-from L] [--baker-to T] [--baker-write \| --baker-patch FILE]` | what promoting L into T would write; `--baker-write` writes; `--baker-patch` writes a unified diff and nothing else, after a line `# path: note` for each row's `(@note ...)`, which `git apply` skips |
 | `sim [--baker-scenario NAME]... [--baker-seed N \| --baker-seeds A-B] [--baker-step-hz N] [--baker-json] [--baker-results DIR]` | the project's scenarios run and judged by its objectives ([`baker.sim/1.3`](sim-json.md)); exit 1 when one fails |
 | `compare --baker-before DIR --baker-after DIR` | which objectives broke or were fixed between two `sim --baker-results` ([`baker.compare/1`](sim-json.md)) |
+| `rename OLD NEW [--baker-write]` | the record at path OLD (`weapons.laser`) keyed NEW in the layer that declares it, with `(@aka OLD)` kept and an `(@id ...)` minted if it has none, and every `(key_of ...)` value naming it rewritten in every enabled layer; without `--baker-write`, the edits are listed, one a line, and nothing is written. Refuses, writing nothing, when NEW is a sibling's key or alias, or when an edit cannot be placed in the text (a record a row's path made, a macro's expansion): edit those where they are written. An overlay's own record keeps the old key, which the alias resolves |
 | `format [--baker-check] [--baker-json] [--baker-mint-ids TABLE] [FILE...]` | lays out each file (the stack's own files under the project's directory if none is named) with the project's `(format ...)`, after spelling each field by its shape's name where a record uses one the shape `(@renamed_from ...)`; `--baker-mint-ids TABLE` first writes an `(@id ...)` into each record of TABLE that has none, or repeats another's, in the layer that declares the record; `--baker-check` changes nothing and exits 1, listing each file that would change, for CI and a pre-commit hook; `--baker-json`: `{"schema": "baker.format/1.1", "files": [{"file", "changed", "rewrites", "line_end", "edits": [[begin, end, newlines, spaces], ...], "errors"}]}`, where `rewrites` counts the renames and IDs and `edits` lays out the text after them |
 
 Each runs on a fresh Context with your functions bound (`CommandHooks::bind`), the stack
@@ -207,8 +208,8 @@ opened as the game opens it, and, for `eval`, your state reset (`CommandHooks::r
 `sim` steps your game with `CommandHooks::step`, and `check` reads the project's scenarios
 and objectives with the data. A game that can only step inside its engine's main loop
 drives a `SimRun` from its frames instead ([how](sim-json.md#a-run-your-own-loop-advances)). `extra_trees` adds other files of your own to `check`. The exit status is 0, 1
-when something failed, 2 when it could not run. In a shipping build, `diff` and `promote`
-refuse. A tool reads the commands' standard output as the document itself, so your
+when something failed, 2 when it could not run. In a shipping build, `diff`, `promote` and
+`rename` refuse. A tool reads the commands' standard output as the document itself, so your
 functions and `#autorun` must print nothing there while a command runs. Where that cannot
 be kept clean (an engine prints its own lines), `--baker-output FILE` writes the output to a
 file instead, or `CommandHooks::output` routes it. `CommandHooks::reader` reads the stack

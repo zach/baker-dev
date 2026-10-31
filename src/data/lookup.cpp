@@ -356,7 +356,9 @@ ResolveStatus resolve_in_layer(const Array& layer, const Path& path, const Array
             if (const Array* aka = mer_rec->meta(aka_tag()))
                 for (const Node& old : aka->values()) {
                     const auto s = old.try_sym();
-                    if (s && (next = lay->try_find(*s))) {
+                    if (!s) continue;
+                    next = lay->try_find(*s);
+                    if (next) {
                         name = *s;
                         respelled = true;
                         break;

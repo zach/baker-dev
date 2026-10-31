@@ -669,12 +669,19 @@ int run_scenarios(const CommandLine& line, const CommandHooks& hooks) {
 // to a byte edit once the file's text is read, at the bracket on that line whose tag spells
 // `tag`, in order.
 struct Want {
-    enum class Kind : uint8_t { Rename, InsertId, ReplaceId };
+    enum class Kind : uint8_t {
+        Rename,     // the tag token becomes `text`
+        InsertId,   // " (@id text)" after the tag
+        ReplaceId,  // the record's (@id ...) value becomes `text`
+        Value,      // each value token of the bracket spelling `value` becomes `text` (D287)
+        AppendAka,  // " (@aka text)" before the record's close, or into its (@aka ...)
+    };
     Kind kind;
     Symbol file;
     int32_t line;
-    Symbol tag;  // the field's old name, or the record's key
-    Str text;    // the field's name now, or the ID
+    Symbol tag;    // the field's old name, or the record's key
+    Str text;      // the field's name now, or the ID
+    Symbol value;  // Value: the key as written
     bool done = false;
 };
 
@@ -692,8 +699,9 @@ bool spells(std::string_view text, const tools::TextToken& t, Symbol name) {
     return false;
 }
 
-// Resolves the wants of `file` against its text. A row's path, (/a.b 1), is not a tag the
-// structure spells, so a field a row names stays as written (check still warns).
+// Resolves the wants of `file` against its text, every want a bracket answers to (a rename
+// wants three of one record's). A row's path, (/a.b 1), is not a tag the structure spells,
+// so a field a row names stays as written (check still warns).
 void resolve(std::string_view text, const tools::TextStructure& s, Symbol file, Vec<Want>& wants,
              Vec<Rewrite>& out) {
     const auto n = static_cast<int32_t>(s.brackets.size());
@@ -705,18 +713,29 @@ void resolve(std::string_view text, const tools::TextStructure& s, Symbol file, 
             if (w.done || w.file != file || w.line != tag.line || !spells(text, tag, w.tag))
                 continue;
             w.done = true;
+            // The bracket's child tagged `meta`, (@id ...) or (@aka ...), as a bracket index.
+            const auto child = [&](Symbol meta) -> int32_t {
+                for (int32_t c = b + 1; c < n && s.brackets[static_cast<size_t>(c)].begin < br.end;
+                     ++c) {
+                    const tools::TextBracket& cb = s.brackets[static_cast<size_t>(c)];
+                    if (cb.parent == b && cb.tag >= 0 &&
+                        spells(text, s.tokens[static_cast<size_t>(cb.tag)], meta))
+                        return c;
+                }
+                return -1;
+            };
             if (w.kind == Want::Kind::Rename) {
                 out.push_back({tag.begin, tag.end, w.text});
             } else if (w.kind == Want::Kind::InsertId) {
                 out.push_back({tag.end, tag.end, " (@id " + w.text + ")"});
-            } else {  // the record's (@id ...), whose value is replaced; absent: inserted
-                bool found = false;
-                for (int32_t c = b + 1; c < n && s.brackets[static_cast<size_t>(c)].begin < br.end;
-                     ++c) {
+            } else if (w.kind == Want::Kind::ReplaceId) {
+                // The record's (@id ...), whose value is replaced; absent: inserted.
+                const int32_t c = child("@id");
+                if (c < 0) {
+                    out.push_back({tag.end, tag.end, " (@id " + w.text + ")"});
+                } else {
                     const tools::TextBracket& cb = s.brackets[static_cast<size_t>(c)];
-                    if (cb.parent != b || cb.tag < 0) continue;
                     const tools::TextToken& id_tag = s.tokens[static_cast<size_t>(cb.tag)];
-                    if (!spells(text, id_tag, "@id")) continue;
                     const auto next = static_cast<size_t>(cb.tag) + 1;
                     if (next < s.tokens.size() &&
                         s.tokens[next].kind != tools::TextTokenKind::Close &&
@@ -724,12 +743,22 @@ void resolve(std::string_view text, const tools::TextStructure& s, Symbol file, 
                         out.push_back({s.tokens[next].begin, s.tokens[next].end, w.text});
                     else
                         out.push_back({id_tag.end, id_tag.end, " " + w.text});
-                    found = true;
-                    break;
                 }
-                if (!found) out.push_back({tag.end, tag.end, " (@id " + w.text + ")"});
+            } else if (w.kind == Want::Kind::Value) {
+                for (size_t t = static_cast<size_t>(br.tag) + 1;
+                     t < s.tokens.size() && s.tokens[t].begin < br.end; ++t)
+                    if (spells(text, s.tokens[t], w.value))
+                        out.push_back({s.tokens[t].begin, s.tokens[t].end, w.text});
+            } else {  // AppendAka: into the record's (@aka ...), else a new one before its close
+                const int32_t c = child("@aka");
+                const tools::TextBracket& into = c < 0 ? br : s.brackets[static_cast<size_t>(c)];
+                if (!into.closed) {
+                    w.done = false;  // an unclosed bracket: the text does not parse
+                    continue;
+                }
+                out.push_back(
+                    {into.end - 1, into.end - 1, c < 0 ? " (@aka " + w.text + ")" : " " + w.text});
             }
-            break;
         }
     }
 }
@@ -771,10 +800,21 @@ void want_renames(const Config& cfg, Vec<Want>& wants) {
         shape::Report r;
         shape::check(*root, set, r);
         for (const shape::Renamed& m : r.renames)
-            wants.push_back({Want::Kind::Rename, m.file, m.line, m.old, Str(m.name.str())});
+            wants.push_back({Want::Kind::Rename, m.file, m.line, m.old, Str(m.name.str()), {}});
     }
 }
 #endif
+
+// The array at `path` (dotted, from the root) below `root`, or null.
+const Array* at_path(const Array* root, std::string_view path) {
+    const Array* t = root;
+    for (size_t at = 0; t && at <= path.size();) {
+        const size_t dot = std::min(path.find('.', at), path.size());
+        t = t->try_find(Symbol(path.substr(at, dot - at)));
+        at = dot + 1;
+    }
+    return t;
+}
 
 // A fresh ID from the system's random source: the library mints none (D284).
 Str mint_id() {
@@ -797,12 +837,7 @@ bool want_ids(const Config& cfg, std::string_view table, Vec<Want>& wants) {
     for (const Symbol layer : cfg.layers()) {
         if (!cfg.layer_enabled(layer.str())) continue;
         const Ref<Array> root = cfg.layer_root(layer.str());
-        const Array* t = root.get();
-        for (size_t at = 0; t && at <= table.size();) {
-            const size_t dot = std::min(table.find('.', at), table.size());
-            t = t->try_find(Symbol(table.substr(at, dot - at)));
-            at = dot + 1;
-        }
+        const Array* t = at_path(root.get(), table);
         if (!t) continue;
         found = true;
         for (uint32_t i = t->tag().empty() ? 0 : 1; i < t->size(); ++i) {
@@ -817,11 +852,169 @@ bool want_ids(const Config& cfg, std::string_view table, Vec<Want>& wants) {
                 continue;
             }
             const bool has = r->meta("@id") != nullptr;
-            wants.push_back({has ? Want::Kind::ReplaceId : Want::Kind::InsertId, r->file(),
-                             r->line(), r->tag(), mint_id()});
+            wants.push_back({has ? Want::Kind::ReplaceId : Want::Kind::InsertId,
+                             r->file(),
+                             r->line(),
+                             r->tag(),
+                             mint_id(),
+                             {}});
         }
     }
     return found;
+}
+
+// Whether `text` is one symbol to the lexer: a key a record can be renamed to.
+bool one_symbol(std::string_view text) {
+    const tools::TextStructure s = tools::read_structure(text);
+    return s.errors.empty() && s.tokens.size() == 1 &&
+           s.tokens[0].kind == tools::TextTokenKind::Symbol && s.tokens[0].begin == 0 &&
+           s.tokens[0].end == text.size();
+}
+
+// rename OLD NEW [--baker-write] (D287): the record at path OLD takes the key NEW in the
+// layer that declares it, keeps OLD as an alias, gets an ID if it has none, and every
+// (key_of ...) value naming it in any enabled layer is rewritten. Without --baker-write,
+// the edits are listed and nothing is written; with a refusal, nothing is written.
+int rename(const CommandLine& line, const CommandHooks& hooks) {
+    if (line.rest.size() != 2) {
+        err("rename takes OLD, a record's path, and NEW, its key: rename weapons.laser plasma\n");
+        return kCommandError;
+    }
+    const std::string_view old_path = line.rest[0], to = line.rest[1];
+    const size_t dot = old_path.rfind('.');
+    const std::string_view table_path =
+        dot == std::string_view::npos ? "" : old_path.substr(0, dot);
+    const Symbol key(dot == std::string_view::npos ? old_path : old_path.substr(dot + 1));
+    if (key.empty() || !one_symbol(key.str())) {
+        err("rename: '" + Str(old_path) + "' does not name a record\n");
+        return kCommandError;
+    }
+    if (!one_symbol(to) || to.front() == '@') {
+        err("rename: '" + Str(to) + "' is not a key: one symbol, as a record's tag is written\n");
+        return kCommandError;
+    }
+    Loaded l(hooks);
+    if (!load(l, line)) return kCommandError;
+    const Config& cfg = l.live.config();
+    const Ref<Array> merged = cfg.root();
+    const Array* table = table_path.empty() ? merged.get() : at_path(merged.get(), table_path);
+    const Array* record = table ? table->try_find(key) : nullptr;
+    if (!record) {
+        err("rename: no record '" + Str(old_path) + "' in the stack\n");
+        return kCommandError;
+    }
+    // The key must be free: no sibling has it, as its key or as an alias.
+    if (table->try_find(Symbol(to))) {
+        err("rename: '" + Str(to) + "' is already a key of " +
+            Str(table_path.empty() ? "the root" : table_path) + "\n");
+        return kCommandError;
+    }
+    for (uint32_t i = table->tag().empty() ? 0 : 1; i < table->size(); ++i)
+        if (const Array* sib = (*table)[i].try_array())
+            if (const Array* aka = sib->meta("@aka"))
+                for (const Node& v : aka->values())
+                    if (v.is(Symbol(to))) {
+                        err("rename: '" + Str(to) + "' is an alias of '" + Str(sib->tag().str()) +
+                            "' (its (@aka ...)); remove it first\n");
+                        return kCommandError;
+                    }
+    // The declaring layer: the lowest enabled one whose own tree holds the record by key.
+    Vec<Want> wants;
+    bool declared = false;
+    for (const Symbol layer : cfg.layers()) {
+        if (!cfg.layer_enabled(layer.str())) continue;
+        const Ref<Array> root = cfg.layer_root(layer.str());
+        const Array* r = root ? at_path(root.get(), old_path) : nullptr;
+        if (!r) continue;
+        wants.push_back({Want::Kind::Rename, r->file(), r->line(), key, Str(to), {}});
+        wants.push_back({Want::Kind::AppendAka, r->file(), r->line(), key, Str(key.str()), {}});
+        const RecordId id = r->record_id();
+        if (id.empty() || !id.valid())
+            wants.push_back({Want::Kind::InsertId, r->file(), r->line(), key, mint_id(), {}});
+        declared = true;
+        break;
+    }
+    if (!declared) {
+        err("rename: no layer's own file declares '" + Str(old_path) +
+            "' by that key (a layer built in code, or one naming it by an alias)\n");
+        return kCommandError;
+    }
+    // Every (key_of TABLE) value naming the key, in every enabled layer.
+#if BAKER_HOST_SHAPE
+    {
+        shape::Set set;
+        shape::Report declared_shapes;
+        add_shapes(cfg, set, declared_shapes);
+        for (const Symbol layer : cfg.layers()) {
+            if (!cfg.layer_enabled(layer.str())) continue;
+            const Ref<Array> root = cfg.layer_root(layer.str());
+            if (!root) continue;
+            for (const shape::KeyUse& u : shape::key_uses(*root, set)) {
+                if (u.key != key) continue;
+                Str path;
+                for (const Symbol seg : u.table) path += (path.empty() ? "" : ".") + Str(seg.str());
+                if (path.view() != table_path) continue;
+                const bool twice = std::any_of(wants.begin(), wants.end(), [&](const Want& w) {
+                    return w.kind == Want::Kind::Value && w.file == u.file && w.line == u.line &&
+                           w.tag == u.field;
+                });
+                if (!twice)
+                    wants.push_back({Want::Kind::Value, u.file, u.line, u.field, Str(to), key});
+            }
+        }
+    }
+#endif
+    // Each file's edits, from its text; a want no bracket spells (a row's path, a macro's
+    // expansion) refuses the whole rename.
+    Vec<Symbol> files;
+    for (const Want& w : wants)
+        if (std::find(files.begin(), files.end(), w.file) == files.end()) files.push_back(w.file);
+    Vec<std::pair<Symbol, Str>> written;
+    for (const Symbol file : files) {
+        Str text;
+        if (!read_whole(Str(file.str()), text, hooks.reader)) {
+            err("rename: cannot read '" + Str(file.str()) + "'\n");
+            return kCommandError;
+        }
+        const tools::TextStructure s = tools::read_structure(text.view(), file);
+        Vec<Rewrite> rewrites;
+        resolve(text.view(), s, file, wants, rewrites);
+        written.emplace_back(file, splice(text.view(), rewrites));
+    }
+    int status = 0;
+    for (const Want& w : wants) {
+        Str what;
+        switch (w.kind) {
+            case Want::Kind::Rename: what = Str(w.tag.str()) + " -> " + w.text; break;
+            case Want::Kind::AppendAka: what = "(@aka " + w.text + ")"; break;
+            case Want::Kind::InsertId: what = "(@id " + w.text + ")"; break;
+            case Want::Kind::Value:
+                what = "(" + Str(w.tag.str()) + " ...): " + Str(w.value.str()) + " -> " + w.text;
+                break;
+            case Want::Kind::ReplaceId: break;
+        }
+        if (!w.done) {
+            err("rename: cannot place " + what + " at " + Str(w.file.str()) + ":" +
+                detail::decimal(w.line) +
+                " (a row's path, or a macro's expansion): edit it there\n");
+            status = kCommandError;
+            continue;
+        }
+        out(Str(w.file.str()) + ":" + detail::decimal(w.line) + "  " + what + "\n");
+    }
+    if (status != 0) return status;
+    if (!line.write) {
+        out("rerun with --baker-write to write\n");
+        return 0;
+    }
+    for (const auto& [file, text] : written) {
+        if (!write_whole(file.str(), text.view())) {
+            err("rename: cannot write '" + Str(file.str()) + "'\n");
+            return kCommandError;
+        }
+        out("wrote " + Str(file.str()) + "\n");
+    }
+    return 0;
 }
 
 int format(const CommandLine& line, const CommandHooks& hooks) {
@@ -1237,12 +1430,14 @@ int dispatch(const CommandLine& line, const CommandHooks& hooks) {
     if (line.command == "eval") return eval(line, hooks);
     if (line.command == "compare") return compare(line);
     if (line.command == "format") return format(line, hooks);
-    if (line.command == "diff" || line.command == "promote") {
+    if (line.command == "diff" || line.command == "promote" || line.command == "rename") {
         if constexpr (kShipping) {
             err(Str(line.command) + ": not in a shipping build\n");
             return kCommandError;
         } else {
-            return line.command == "diff" ? diff(line, hooks) : promote(line, hooks);
+            return line.command == "diff"      ? diff(line, hooks)
+                   : line.command == "promote" ? promote(line, hooks)
+                                               : rename(line, hooks);
         }
     }
     return -1;
@@ -1286,6 +1481,10 @@ std::string_view command_help() noexcept {
            "                                 compare reads\n"
            "  compare --baker-before DIR --baker-after DIR\n"
            "                                 which objectives moved: baker.compare/1\n"
+           "  rename OLD NEW [--baker-write]  the record at path OLD keyed NEW where it is\n"
+           "                                 declared, (@aka OLD) kept, an (@id ...) minted,\n"
+           "                                 every key_of naming it rewritten; --baker-write\n"
+           "                                 writes, else the edits are listed\n"
            "  format [--baker-check] [--baker-json] [--baker-mint-ids TABLE] [FILE...]\n"
            "                                 lays out the files (no FILE: the stack's own) as\n"
            "                                 Baker writes them, spelling each field by its\n"

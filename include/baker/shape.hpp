@@ -230,6 +230,19 @@ void check_views(const Set& contract, std::span<const ViewInfo> compiled, Report
 [[nodiscard]] List<baker::Symbol> contract_roots(const Config& cfg,
                                                  std::span<const baker::Symbol> contract_layers);
 
+// A key a field names (D287): every value of a `key` field, or element of a list of keys,
+// that check() reaches in a tree, with the table the field declares, as written.
+struct KeyUse {
+    baker::Symbol file;
+    int32_t line = 0;
+    baker::Symbol field;        // the field's tag
+    List<baker::Symbol> table;  // the field's (key_of TABLE), a path from the root
+    baker::Symbol key;          // the value as written
+};
+// Every key `tree` names, as check() finds the fields: what a tool renames with the record.
+// The table need not be in `tree` (an overlay names a base's keys); nothing is checked.
+[[nodiscard]] List<KeyUse> key_uses(const Array& tree, const Set& shapes);
+
 // Checks every array of `tree` that a shape of `shapes` governs, into `report`. With
 // `packs`, a key a harder pack's field names from a softer pack's table is a warning, as the
 // one-way rule warns of a call (D80).

@@ -10069,3 +10069,32 @@ not a load failure; `@renamed_from` is never applied at load; `rename` writes fi
   the views project's golem is spelled by its old name. The kit's tests rename across the
   base and an overlay, count rewrites under `--baker-json`, and mint over a record without
   an ID, a copy, and an overlay. Full matrix green (recorded below).
+
+## D287. Identity, step 4: `rename`
+
+*`dev/identity-plan.md` step 4.*
+
+- **`rename OLD NEW [--baker-write]`** in the host kit: the record at path OLD takes the key
+  NEW in the lowest enabled layer whose own tree holds it by that key (the declaring
+  layer), keeps OLD as `(@aka OLD)` after its last child (or in its `(@aka ...)`), and gets
+  an `(@id ...)` after its key if it has none; every `key_of` value naming it, in every
+  enabled layer, is rewritten. An overlay's own record keeps the old key: the alias
+  resolves it, and the overlay may be one the stack does not own. Without `--baker-write`
+  the edits are listed, one a line, and nothing is written.
+- **The references come from the shape library:** `shape::key_uses(tree, shapes)` lists
+  every `key` value and list-of-keys element the checker reaches, with the field's table
+  as written; the kit keeps those whose table path spells OLD's and whose key is OLD's.
+  An overlay's tree is listed alone, where the table is absent, so nothing is checked and
+  the use is still found.
+- **Edits are token edits over the structure,** as `format`'s rewrites are (D286): a
+  record's bracket found by its file, line and tag; a value token inside a field's bracket
+  by what it spells. A want no bracket spells (a record a row's path made, a macro's
+  expansion) refuses the whole rename, naming the place, and nothing is written. The
+  source map was not needed: the text's own structure says where a token is, and a record
+  assembled by `#include_dir` is edited in the file that holds it, which is right.
+- **Refusals:** NEW already a sibling's key or alias; OLD not in the stack; OLD declared by
+  no layer's own file by that key (built in code, or named through an alias); NEW not one
+  symbol. Shipping builds refuse the command, as `diff` and `promote`.
+- **Tests:** the kit's, over the test stack with a `key_of` field, a list of keys and an
+  overlay naming the record: the dry run's listing, the written files, `check` clean after,
+  the overlay merging by the alias, and each refusal.

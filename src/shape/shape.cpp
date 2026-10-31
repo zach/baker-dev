@@ -773,6 +773,8 @@ struct Checker {
     // A key against its table: the nearest enclosing table of that path, the root last.
     BAKER_COLD void key(const Node& n, const Array& f, const Field& field) {
         const auto sym = n.try_sym();
+        if (sym && key_uses)
+            key_uses->push_back({f.file(), f.line(), field.name, field.table, *sym});
         if (!sym) {
             report(errors, ErrorCode::Type,
                    quoted(field.name) + " is " + Str(type_name(n.type())) + ", not a key of " +
@@ -838,6 +840,7 @@ struct Checker {
     }
     Vec<baker::Symbol> aliases_used;  // keys that resolved through an alias
     Vec<Renamed> renames;             // fields spelled by an old name (D286)
+    Vec<KeyUse>* key_uses = nullptr;  // for key_uses(): every key named (D287)
     // The table's key, or alias, nearest `wrong` by edits, within two, or none: what a typo
     // meant.
     static std::optional<std::string_view> nearest(const Array& table, std::string_view wrong) {
@@ -995,9 +998,9 @@ void each_ruled(const Array& tree, const Set& shapes, const RuleWalker::Visit& v
 namespace {
 void run(const Array& tree, const Set& shapes, Vec<Error>& errors, Vec<Error>& warnings,
          const LoadSession* packs, Vec<bool>* used, Vec<baker::Symbol>* aliases_used = nullptr,
-         Vec<Renamed>* renames = nullptr) {
-    Checker checker{shapes, errors, warnings, {}, 0,     {},   {}, {},
-                    {},     {},     packs,    {}, false, used, {}, {}};
+         Vec<Renamed>* renames = nullptr, Vec<KeyUse>* key_uses = nullptr) {
+    Checker checker{shapes, errors, warnings, {},    0,    {}, {}, {},      {},
+                    {},     packs,  {},       false, used, {}, {}, key_uses};
     checker.arrays.push_back(&tree);
     for (const Shape& s : shapes.shapes()) {
         if (s.keyed && !s.at.empty()) checker.keyed.push_back(&s);
@@ -1016,6 +1019,13 @@ void run(const Array& tree, const Set& shapes, Vec<Error>& errors, Vec<Error>& w
     if (renames) renames->insert(renames->end(), checker.renames.begin(), checker.renames.end());
 }
 }  // namespace
+
+List<KeyUse> key_uses(const Array& tree, const Set& shapes) {
+    Vec<Error> errors, warnings;
+    Vec<KeyUse> uses;
+    run(tree, shapes, errors, warnings, nullptr, nullptr, nullptr, nullptr, &uses);
+    return List<KeyUse>({uses.data(), uses.size()});
+}
 
 void check(const Array& tree, const Set& shapes, Report& report, const LoadSession* packs) {
     Vec<Error> errors(report.errors.begin(), report.errors.end());
