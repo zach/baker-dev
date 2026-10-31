@@ -133,6 +133,15 @@ Path parent_of(const Path& path);
 // The nodes a path's value consists of: the values of the array it names, or the one node
 // an index selects. False if the path does not resolve.
 bool value_nodes(const Array& root, const Path& path, Vec<Node>& out);
+// The list a layer row's verb changes at `path` in `root`: every child of the array there up
+// to its metadata, records too, which an #append adds after and a #drop removes from. False
+// if the path does not name an array.
+bool list_nodes(const Array& root, const Path& path, Vec<Node>& out);
+// What `row`, a layer's row at `path`, stands over in `root`: the list its verb changes if it
+// composes, else the path's values.
+inline bool below_nodes(const Array& root, const Path& path, const Array& row, Vec<Node>& out) {
+    return detail::composes(row) ? list_nodes(root, path, out) : value_nodes(root, path, out);
+}
 
 bool same_nodes(std::span<const Node> a, std::span<const Node> b);
 
@@ -519,15 +528,17 @@ struct Config::Impl {
 
     // The enabled layer below `top` (skipping `skip`) whose own tree has `path`'s value:
     // overwrite merging means its values won. A row that composes (#append, #drop) supplies
-    // none: the value it changes does.
+    // none: the value it changes does. With `list`, the list a verb changes: an array with
+    // any element, records too (list_nodes).
     [[nodiscard]] std::optional<size_t> supplier(const Path& path, size_t top,
-                                                 size_t skip = SIZE_MAX) const {
+                                                 size_t skip = SIZE_MAX, bool list = false) const {
         const bool index = last_is_index(path);
         for (size_t i = top; i-- > 0;) {
             if (i == skip || !layers[i].options.enabled || composes_at(i, path)) continue;
             detail::Resolved r;
             if (detail::resolve(*layers[i].root, path, r) != detail::ResolveStatus::Ok) continue;
-            if (index || (r.array && has_values(*r.array))) return i;
+            if (index || (r.array && (list ? !r.array->values().empty() : has_values(*r.array))))
+                return i;
         }
         return std::nullopt;
     }

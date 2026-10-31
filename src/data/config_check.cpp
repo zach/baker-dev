@@ -67,6 +67,15 @@ public:
             if (!is_tagged((*r.array)[i])) out.push_back((*r.array)[i]);
         return true;
     }
+    // list_nodes, through find(): the list a verb changes, records too.
+    bool list(const Array& root, const Path& path, Vec<Node>& out) {
+        out.clear();
+        detail::Resolved r;
+        if (path.empty() || last_is_index(path) || !resolve(root, path, r) || !r.array)
+            return false;
+        for (const Node& n : r.array->values()) out.push_back(n);
+        return true;
+    }
 
 private:
     static constexpr size_t kWide = 32;  // below this, the tag run's scan is as quick
@@ -264,13 +273,14 @@ LayerReport run_check(const Basis& b, std::string_view name, const Ref<Array>& c
     const Array& stack = b.root;
     Finder finder(alloc);
     // supplier() and source_in(), through the finder: the enabled layer, from the top, whose
-    // own tree holds the value, and where.
-    auto below_source = [&](const Path& path) -> std::optional<Source> {
+    // own tree holds the value, and where. With `list`, the list a verb changes.
+    auto below_source = [&](const Path& path, bool list) -> std::optional<Source> {
         const bool index = last_is_index(path);
         for (size_t i = b.layers.size(); i-- > 0;) {
             detail::Resolved r;
             if (!finder.resolve(*b.layers[i], path, r)) continue;
-            if (!index && !(r.array && has_values(*r.array) && !detail::composes(*r.array)))
+            if (!index && !(r.array && (list ? !r.array->values().empty() : has_values(*r.array)) &&
+                            !detail::composes(*r.array)))
                 continue;
             const Array& holder = *r.values.source();
             Source s{b.names[i], holder.file(), holder.line()};
@@ -286,15 +296,17 @@ LayerReport run_check(const Basis& b, std::string_view name, const Ref<Array>& c
     for (const Leaf& leaf : leaves_of(tree)) {
         const Path path(leaf.path);
         const bool removal = detail::is_removal(*leaf.holder);
-        const bool exists = finder.values(stack, path, below);
+        const bool verb = detail::composes(*leaf.holder);
+        const bool exists =
+            verb ? finder.list(stack, path, below) : finder.values(stack, path, below);
         LayerEffectEntry e{};
         e.path = Symbol(leaf.path);
-        e.value = pack(leaf.values);
+        e.values = RowValues({leaf.values.data(), leaf.values.size()});
         e.op = op_of(*leaf.holder);
         e.source = Source{layer, leaf.holder->file(), leaf.holder->line()};
         if (exists) {
-            e.below = pack(below);
-            e.below_source = below_source(path);
+            e.below = RowValues({below.data(), below.size()});
+            e.below_source = below_source(path, verb);
         }
         if (leaf.holder->has_marker()) {  // a verb or a pin
             e.stale = stale(*leaf.holder, exists ? &below : nullptr);
@@ -335,13 +347,14 @@ LayerReport run_check(const Basis& b, std::string_view name, const Ref<Array>& c
     for (const Declaration& d : decls) {
         LayerEffectEntry e{};
         e.path = d.name;
-        e.value = d.form;
+        e.values = RowValues({&d.form, 1});
         e.declares = d.directive;
         e.source = Source{layer, d.file, d.line};
         if (d.directive == Symbol("#shape"))
             for (const ShapeDecl& under : b.session.shapes())
                 if (under.form->tag() == d.name) {
-                    e.below = Node(under.form);
+                    const Node form(under.form);
+                    e.below = RowValues({&form, 1});
                     e.below_source = Source{Symbol(), under.file, under.line};
                 }
         effect.push_back(std::move(e));

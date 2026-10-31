@@ -259,18 +259,48 @@ struct StackFile {
     bool directory = false;
 };
 
+// A row's values, one node each, held as one node so that a single value costs nothing more:
+// (aim 0 0) is two values, (aim (0 0)) one, an array. What a layer tool reports for a row
+// (LayerEffectEntry, explain, diff).
+class RowValues {
+public:
+    RowValues() noexcept = default;
+    explicit RowValues(std::span<const Node> values)
+        : node_(values.size() == 1 ? values[0] : Node(Array::make_copy(values))),
+          one_(values.size() == 1) {}
+    [[nodiscard]] std::span<const Node> nodes() const noexcept {
+        if (one_) return {&node_, 1};
+        const Array* a = node_.array();
+        return a ? a->nodes() : std::span<const Node>();
+    }
+    [[nodiscard]] size_t size() const noexcept { return nodes().size(); }
+    [[nodiscard]] bool empty() const noexcept { return nodes().empty(); }
+    [[nodiscard]] const Node& operator[](size_t i) const noexcept { return nodes()[i]; }
+    [[nodiscard]] const Node* begin() const noexcept { return nodes().data(); }
+    [[nodiscard]] const Node* end() const noexcept { return nodes().data() + nodes().size(); }
+
+private:
+    Node node_;         // the one value, or an array of the values
+    bool one_ = false;  // node_ is the value itself
+};
+
 struct LayerEffectEntry {
-    Symbol path;                // dotted, as get<T>() takes it
-    Node value;                 // this layer's value; a verb's operands; #remove
-    std::optional<Node> below;  // the stack's value without this layer, if any
-    Source source;              // provenance, as source() returns it
+    Symbol path;  // dotted, as get<T>() takes it
+    // This layer's values, one node each: (aim (0 0)) is one, an array; (aim 0 0) is two. A
+    // verb's operands, a record one operand; a removal's #remove.
+    RowValues values;
+    // The stack's values without this layer, if it has the path. Under a verb, the list the
+    // verb changes: every element, records too, (moves (jab ...) (heavy ...)) two.
+    std::optional<RowValues> below;
+    Source source;  // provenance, as source() returns it
+    // Where `below` was written: under a verb, the row of the list it changes (D285).
     std::optional<Source> below_source;
     bool shadowed = false;  // a higher enabled layer (or scratch) overrides this path
     Symbol op;              // the row's verb: #append, #drop or #remove; empty for a value
     bool stale = false;     // the row's (@was ...) pin is not `below`
     // A declaration the layer's read made, not a value: #shape, #pack or #origin. `path` is
-    // then the shape's or pack's name, or the file an origin describes; `value` its form;
-    // `below` the same declaration from a layer below, if any (D261).
+    // then the shape's or pack's name, or the file an origin describes; `values` its form,
+    // alone; `below` the same declaration from a layer below, if any (D261).
     Symbol declares;
 };
 

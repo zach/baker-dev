@@ -9969,3 +9969,46 @@ model of what step 4 generates.*
   picks a member's C++ type, `(@cxx_name N)` a name; the project file's `(views (layers
   ...) (shapes ...) (namespace ...))` names the contract. `baker.shapes/1.6` carries the
   words. `baker_bake` is built whenever the library is; `BAKER_BUILD_TOOLS` keeps the rest."
+
+## D285. A row's values one node each, and the list a verb changes below it
+
+*From the editor integration's requirement note 0028, which the owner chose to build.* What
+a layer changes, row by row, packed each row's values into one node: itself for one value,
+an array for several. So `(aim (0 0))`, one value that is an array, and `(aim 0 0)`, two
+values, came back the same, and `(moves #append (jab2 (startup 3)))`, one operand, read as
+two values. And under a verb, `below` held only the untagged children of the list below, so
+for a list of records, `(moves (jab ...) (heavy ...))`, it was empty and had no source,
+though the verb appends to those two records. A tool writing a pin, counting a row's
+operands, or showing `(jab heavy) #append jab2 -> (jab heavy jab2)` had nothing to go on;
+the most common list a game appends to, moves, items or waves, showed nothing below it.
+
+- **`RowValues`.** `LayerEffectEntry::values` and `below`, `ExplainEntry::values` and
+  `DiffEntry::a` and `b` are a `RowValues`: the values one node each (`nodes()`, `size()`,
+  `[i]`, iteration), held as one node, the value itself or an array of several, and a flag
+  that says which. The owner chose replacing the packed node over keeping it beside a list.
+  A `List<Node>` and then a `ValueList` (eight nodes inline) were tried first: they cost the
+  layer check 21% and 15% more instructions, an allocation or sixteen node constructions and
+  destructions for each entry and its copy; `RowValues` costs what the packed node did.
+- **The list a verb changes.** Under `#append` or `#drop`, `below` is the list the verb
+  applies to, every child up to the metadata, records too, as the merge appends after it
+  and drops from it (`list_nodes`, `below_nodes`), and `below_source` is the row of the
+  topmost layer that wrote that list (`supplier(..., list)`), as it is for a list of numbers.
+  A layer check reads the same through its finder. A row's `stale` flag, the check's
+  warnings on an `#append` of a value already there or a `#drop` of one that is not, and
+  the push-time warnings read that list too, so a `(@was ...)` pin on a list of records and
+  an appended record that is already held are now judged against the records.
+- **Printing.** `to_string(const RowValues&)` in `<baker/std_interop.hpp>` writes the values
+  as a row does, `0 0` or `(0 0)`, `()` for none. The console's replies write one child a
+  value, `(value (0 0))` against `(value 0 0)`; their JSON projection stays lossy by design,
+  and the reply's `text` is the authority. `config.get` keeps its packed result. The host's
+  `diff` and `--baker-rows` print the list under a verb in parentheses, `(coin gem) ->
+  #append ruby`, and other values one after another.
+- **Costs.** `tools/count_instructions.py` against main: `check` 3,574,192 to 3,573,454
+  (-0.02%), `check_pinned` 4,051,827 to 4,062,494 (+0.26%, the pin now read against the list);
+  `lookup_text` 380 to 372 and `set` 686 to 678, neither of which this touches; every other
+  case unchanged.
+- **Tests.** `test_layers.cpp`: a one-tuple and two values told apart in `layer_effect`,
+  a record as one operand, the list of records below an `#append` with its source, a
+  `#drop` from a check, `explain` and `diff`; a pin and an append judged against a list of
+  records. `test_config_tools.cpp`: the console's `(value (0 0))` and `(value 0 0)`. The
+  existing expectations of packed text changed to the values one after another.
