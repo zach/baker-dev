@@ -84,6 +84,16 @@ bool value_nodes(const Array& root, const Path& path, Vec<Node>& out) {
     return true;
 }
 
+bool list_nodes(const Array& root, const Path& path, Vec<Node>& out) {
+    out.clear();
+    detail::Resolved r;
+    if (path.empty() || last_is_index(path) ||
+        detail::resolve(root, path, r) != detail::ResolveStatus::Ok || !r.array)
+        return false;
+    for (const Node& n : r.array->values()) out.push_back(n);
+    return true;
+}
+
 bool same_nodes(std::span<const Node> a, std::span<const Node> b) {
     return std::equal(a.begin(), a.end(), b.begin(), b.end(),
                       [](const Node& x, const Node& y) { return structurally_equal(x, y); });
@@ -791,7 +801,8 @@ Expected<void> Config::Impl::push_read(Config& c, LayerState&& layer, LayerOptio
             Vec<Error> found(alloc);
             for (const Leaf& leaf : leaves_of(*layer.root))
                 row_warnings(*leaf.holder, leaf.path,
-                             value_nodes(*stack, Path(leaf.path), v) ? &v : nullptr, *stack, found);
+                             below_nodes(*stack, Path(leaf.path), *leaf.holder, v) ? &v : nullptr,
+                             *stack, found);
             for (const Error& w : found) warn(w);
         }
     }

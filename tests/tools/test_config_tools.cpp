@@ -65,6 +65,12 @@ TEST_CASE("the reading tools: get, source, explain, layers, effect, diff") {
     CHECK(eval(f.ctx, "{config.diff default local}").find("((path box.width) (a 2) (b 3))") !=
           std::string::npos);
 
+    // Values one child each: one array reads apart from two numbers (D285).
+    REQUIRE(f.cfg.push_layer("pair", f.dir.write("pair.dta", "(pair (0 0))\n(two 0 0)\n")));
+    const std::string pair = eval(f.ctx, "{config.effect pair}");
+    CHECK(pair.find("((path pair) (value (0 0))") != std::string::npos);
+    CHECK(pair.find("((path two) (value 0 0)") != std::string::npos);
+
     // Failures are the Config's, located.
     CHECK_FALSE(f.ctx.eval("{config.get box.depth}", "test"));
     CHECK_FALSE(f.ctx.eval("{config.effect nosuch}", "test"));

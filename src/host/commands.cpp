@@ -285,6 +285,20 @@ int eval(const CommandLine& line, const CommandHooks& hooks) {
     return status;
 }
 
+// Values one after another, as a row writes them: (aim 0 0)'s "0 0", (aim (0 0))'s "(0 0)";
+// "()" for none. With `list`, the list a verb changes, in parentheses: "(coin gem)".
+Str values_text(const RowValues& values, bool list = false) {
+    Str s;
+    for (const Node& v : values) {
+        if (!s.empty()) s += ' ';
+        s += detail::text_of(v);
+    }
+    return list || values.empty() ? "(" + s + ")" : s;
+}
+bool composes(const LayerEffectEntry& e) {
+    return e.op == Symbol("#append") || e.op == Symbol("#drop");
+}
+
 // The row of `root` an effect entry was read from: the first with its key, or for a later
 // row that composes (a key's second #append), the one on the entry's line.
 const Array* row_of(const Array* root, const LayerEffectEntry& e) {
@@ -310,7 +324,7 @@ void print_rows(const Config& cfg, std::string_view layer, const List<LayerEffec
     for (const LayerEffectEntry& e : effect) {
         const std::string_view key = e.path.str();
         if (!e.declares.empty()) {  // a declaration is written as itself, not as a row
-            out(Str(e.declares.str()) + " " + detail::text_of(e.value) + "\n");
+            out(Str(e.declares.str()) + " " + values_text(e.values) + "\n");
             continue;
         }
         const Array* a = row_of(root.get(), e);
@@ -328,7 +342,7 @@ void print_rows(const Config& cfg, std::string_view layer, const List<LayerEffec
         for (const Array& m : a->metadata())
             row += " " + detail::text_of(Node(Ref<Array>(const_cast<Array*>(&m))));
         row += ")  ; ";
-        row += e.below ? "was " + detail::text_of(*e.below) : Str("new");
+        row += e.below ? "was " + values_text(*e.below, composes(e)) : Str("new");
         if (e.shadowed) row += ", shadowed";
         if (e.stale) row += ", stale";
         out(row + "\n");
@@ -378,8 +392,8 @@ int print_effect(const Config& cfg, std::string_view layer, std::string_view hea
         const bool verb = !e.op.empty() && e.op != Symbol("#remove");  // #remove is the value
         const Str what = e.declares.empty() ? Str() : Str(e.declares.str()) + " ";
         out("  " + what + Str(e.path.str()) + "  " +
-            (e.below ? detail::text_of(*e.below) : Str("(new)")) + " -> " +
-            (verb ? Str(e.op.str()) + " " : Str()) + detail::text_of(e.value) + "  (" +
+            (e.below ? values_text(*e.below, verb) : Str("(new)")) + " -> " +
+            (verb ? Str(e.op.str()) + " " : Str()) + values_text(e.values) + "  (" +
             Str(e.source.file.str()) + ":" + detail::decimal(e.source.line) + ")" +
             (e.shadowed ? "  shadowed" : "") + (e.stale ? "  stale" : "") + "\n");
     }

@@ -10,7 +10,9 @@ namespace baker::tools {
 
 struct DiffEntry {
     Symbol path;
-    std::optional<Node> a, b;  // empty: that layer does not set this path
+    // Each layer's values, one node each, as LayerEffectEntry::values; empty: that layer
+    // does not set this path.
+    std::optional<RowValues> a, b;
     std::optional<Source> source_a, source_b;
     Symbol op_a, op_b;  // each row's verb, as LayerEffectEntry::op
     Symbol declares;    // a declaration's directive, as LayerEffectEntry::declares
@@ -26,8 +28,8 @@ enum class Standing : uint8_t {
 };
 
 struct ExplainEntry {
-    Symbol layer{};  // a layer's name, "scratch", or "code" for a tweak's default
-    Node value{};    // packed as LayerEffectEntry::value; the symbol #remove for Removes
+    Symbol layer{};      // a layer's name, "scratch", or "code" for a tweak's default
+    RowValues values{};  // as LayerEffectEntry::values; the symbol #remove for Removes
     Source source{};
     Standing standing = Standing::Wins;
     Symbol op{};  // the row's verb, as LayerEffectEntry::op

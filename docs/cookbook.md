@@ -254,8 +254,8 @@ Live tuning goes to the `scratch` layer, so "my tuning versus the files" is also
 `cfg.toggle_layer("scratch")`.
 
 `source()` names the layer a value comes from; `tools::explain(cfg, path)` names every layer that
-has a say, bottom to top. Each entry gives the layer, its value, its file and line, and how
-it stands:
+has a say, bottom to top. Each entry gives the layer, its values (one node each, so
+`(aim 0 0)` is two and `(aim (0 0))` one), its file and line, and how it stands:
 
 - `Wins`: it supplies the value `get` returns.
 - `Shadowed`: a layer above overrides it.

@@ -165,10 +165,14 @@ a `#shape`: a shape is declared whole.
 
 A composing row supplies no value of its own: `source()` names the layer whose list it
 changes, `explain` shows it as `Composes` with its verb, and `layer_effect`'s `op` names the
-verb. A check warns at the row when an `#append` adds a value already there (a layer left
-behind after its promotion would add it twice) or a `#drop` names one that is not. Writing
-a value back into a layer at or below a row that composes it is refused, since the verb
-would apply again over what is written; `promote` writes the list the verb makes.
+verb. Its `values` are the operands, one node each (a record is one), and its `below` is the
+list the verb changes, every element of it, records too, with the source of the row that
+wrote that list: `(moves (jab ...) (heavy ...))` below `(moves #append (jab2 ...))` is two
+elements, and the merged list three. A `(@was ...)` pin on the row names that list. A check
+warns at the row when an `#append` adds a value already there (a layer left behind after its
+promotion would add it twice) or a `#drop` names one that is not. Writing a value back into
+a layer at or below a row that composes it is refused, since the verb would apply again over
+what is written; `promote` writes the list the verb makes.
 
 **Pinning what a row was written against.** `(@was v...)` is metadata on a layer's row: the
 value below the layer when the row was written.
