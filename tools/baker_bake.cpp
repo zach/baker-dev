@@ -125,8 +125,10 @@ int bake_views(baker::LoadSession& session, const std::string& out_dir,
                 if (layer->optional && !fs::exists(file)) continue;
                 return fail(baker::to_string(tree.error()));
             }
+            // The root as the parser recorded it (its normalized path), which the
+            // declarations name: not the path as the project joined it.
+            roots.push_back((*tree)->file());
             trees.push_back(std::move(*tree));
-            roots.emplace_back(file);
         }
     }
     baker::shape::Report report;
