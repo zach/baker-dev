@@ -22,6 +22,11 @@
 // field may list the symbols it allows, (button symbol (@one_of light heavy kick special)). A curve
 // field's values are a curve (<baker/curve.hpp>), and its (@range lo hi) holds every point's y.
 //
+// A shape marked (@view) generates a C++ view, a struct read from its records
+// (D269, D273): a field marked (@view no) stays out of the struct, an
+// `any` field must be; (@cxx int64) picks the member's C++ type from a closed list, and
+// (@cxx_name N) names the struct or the member when the shape's own name cannot.
+//
 // (key_of TABLE) holds a symbol to the keys of a keyed table: (weapon (key_of weapons)) in
 // a unit names a child of (weapons (laser ...) (rifle ...)). TABLE is a dotted path, looked
 // up by its first segment outward from the record that refers to it, the nearest enclosing
@@ -71,6 +76,13 @@ struct Field {
     // (@one_of light heavy kick): the symbols a symbol field's value may be, in the order
     // written; a field declared again adds to it. Empty: any symbol.
     List<baker::Symbol> one_of;
+    // For a view (D273): whether the field is in the struct ((@view no) leaves it out), the
+    // member's C++ type when (@cxx T) overrides the default (int8, int16, int32, int64,
+    // uint8, uint16, uint32, uint64 for an int; float, double for a float), and the member's
+    // name when (@cxx_name N) gives one. Empty: the defaults.
+    bool view = true;
+    baker::Symbol cxx;
+    baker::Symbol cxx_name;
     baker::Symbol file;
     int32_t line = 0;
 };
@@ -92,6 +104,8 @@ struct Shape {
     bool keyed = false;      // governs every child at `at`, whatever its tag
     List<Field> fields;
     List<Rule> rules;
+    bool view = false;       // (@view): generates a C++ view (D273)
+    baker::Symbol cxx_name;  // (@cxx_name N): the struct's name; empty: from the shape's
     baker::Symbol file;
     int32_t line = 0;
 
@@ -160,7 +174,7 @@ void each_ruled(
 // baker::script warns once that the shapes hold rules it cannot check.
 [[nodiscard]] Config::Validator validator();
 
-// The shapes of `shapes` as JSON (schema baker.shapes/1.5, docs/reference-json.md), sorted by
+// The shapes of `shapes` as JSON (schema baker.shapes/1.6, docs/reference-json.md), sorted by
 // name: each shape's place, keyed or not, and its fields with their types, ranges, steps,
 // kinds, documentation, and where they are declared, and its rules. For editors and agents.
 void write_json(const Set& shapes, TextSink out);

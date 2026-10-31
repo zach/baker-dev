@@ -9601,3 +9601,30 @@ asset systems, on Halo's tags and DataArray, and on Onager.*
   check is checked again at the push, as a `CheckStamp` push already is, rather than
   refused on a digest mismatch: unrelated edits never bounce an agent's work.
 - **`baker.changes/1`** is the JSON form, beside `baker.check` and `baker.reference`.
+
+## D273. Views, step 1: a shape says `(@view)`, a field `(@view no)`, `(@cxx T)` or `(@cxx_name N)`
+
+*`dev/views-plan.md` step 1, the first of W1 (D269). The plan's open questions, answered by
+the owner on 2026-10-31: `baker_bake` is built whenever `baker::shape` is, as a target of
+its own (step 5); a curve field is a member by value in the light struct header, and step
+3's include-cost measurement decides whether it moves behind the reader header.*
+
+- **The grammar.** On a shape, `(@view)` marks it as generating a C++ view and `(@view
+  no)` unmarks it; `(@cxx_name N)` names the struct. On a field, `(@view no)` leaves it out
+  of the struct (and `(@view)` puts it back, for a later layer); `(@cxx T)` picks the
+  member's C++ type from a closed list (`int8` to `uint64` for an `int`, `float` or
+  `double` for a `float`; any other pairing is a located error); `(@cxx_name N)` names the
+  member. `N` is checked as a C++ identifier here; keywords and collisions are generation's,
+  since they depend on the whole set (step 4). `@cxx` on a shape is unknown metadata.
+- **In `Field` and `Shape`:** `Field::view` (default true), `Field::cxx`, `Field::cxx_name`,
+  `Shape::view` (default false), `Shape::cxx_name`. A field declared again keeps them
+  unless it restates them, as it keeps `optional`.
+- **The one-way rule** (D145) covers them: a softer pack that leaves a field out, changes
+  its C++ type or renames its member is refused with the usual warning, since a view's
+  layout is the harder pack's.
+- **`baker.shapes/1.6`** adds `view` and `cxx_name` to each shape and `view`, `cxx` and
+  `cxx_name` to each field (`docs/reference-json.md`).
+- **Costs.** None at load or lookup: the words are read in `Set::add`, which runs only
+  when the shape validator is installed or a tool reads the set. `Field` grows by 24 bytes
+  (a bool and two Symbols); it is a tool struct.
+- **For the next release's changelog** (written with W1's last step).

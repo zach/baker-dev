@@ -470,8 +470,9 @@ name (D84, D261). The session records it, and the tree never holds it:
   `(position (list float 3))` holds exactly three values and `(tags (list symbol 1 4))` one to
   four, and any other count is an error at the field. A softer pack may narrow the count, never
   widen it.
-- **Metadata:** `@range`, `@step`, `@kind`, `@desc`, `@note` (as a tweak's), and
-  `@optional`. A field without `@optional` is required. A word without the `@` after a
+- **Metadata:** `@range`, `@step`, `@kind`, `@desc`, `@note` (as a tweak's), `@optional`,
+  and, for a shape that generates a C++ view (Views, below), `@view`, `@cxx` and
+  `@cxx_name`. A field without `@optional` is required. A word without the `@` after a
   field's type, or a `@` word the grammar lacks, is an error. A shape may describe itself
   with its own `(@desc ...)` and `(@note ...)`, and its fields may be named anything,
   `at` and `desc` included. A `symbol` or `(list symbol)` field may list the

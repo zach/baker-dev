@@ -335,7 +335,7 @@ TEST_CASE("a symbol field lists the symbols it allows, (one_of ...) (D203)") {
     CHECK_FALSE(check_text("#shape (s (n symbol (@one_of a 2)))").ok());
 }
 
-// --- As JSON, baker.shapes/1.5 (dev/tool-surface-plan.md §6, D203, D235, D245). ---
+// --- As JSON, baker.shapes/1.6 (dev/tool-surface-plan.md §6, D203, D235, D245). ---
 
 TEST_CASE("the shapes as JSON: each shape and its fields") {
     shape::Set shapes;
@@ -348,15 +348,17 @@ TEST_CASE("the shapes as JSON: each shape and its fields") {
     REQUIRE(report.errors.empty());
     std::string json;
     shape::write_json(shapes, string_out(json));
-    CHECK(json.rfind("{\n  \"schema\": \"baker.shapes/1.5\",\n  \"shapes\": [\n", 0) == 0);
-    CHECK(json.find(R"j({"name": "boss_phase", "at": ["bosses", "*", "phases"], "keyed": true, )j"
-                    R"j("file": "shapes.dta", "line": 1, "fields": [)j") != std::string::npos);
+    CHECK(json.rfind("{\n  \"schema\": \"baker.shapes/1.6\",\n  \"shapes\": [\n", 0) == 0);
+    CHECK(json.find(
+              R"j({"name": "boss_phase", "at": ["bosses", "*", "phases"], "keyed": true, )j"
+              R"j("view": false, "cxx_name": "", "file": "shapes.dta", "line": 1, "fields": [)j") !=
+          std::string::npos);
     CHECK(
         json.find(
             R"j({"name": "enter_at", "type": "float", "element": "", "count": null, "shape": "", "table": "", )j"
             R"j("optional": false, "range": [0.0, 1.0], "step": 0.05, "kind": "", )j"
-            R"j("desc": "HP fraction", "note": "", "one_of": [], "file": "shapes.dta", "line": 2})j") !=
-        std::string::npos);
+            R"j("desc": "HP fraction", "note": "", "one_of": [], "view": true, "cxx": "", "cxx_name": "", )j"
+            R"j("file": "shapes.dta", "line": 2})j") != std::string::npos);
     CHECK(json.find(R"j({"name": "adds", "type": "list", "element": "symbol", "count": null, )j"
                     R"j("shape": "", "table": "", "optional": true, "range": null,)j") !=
           std::string::npos);
@@ -690,4 +692,88 @@ TEST_CASE("a shape that governs nothing is named, where it is declared (D260)") 
     CHECK(w[0].find("wrong.dta:1") != std::string::npos);
     CHECK(w[1].find("shape 'boss' governs nothing: no array is tagged 'boss'") !=
           std::string::npos);
+}
+
+// --- Views: (@view), (@view no), (@cxx T), (@cxx_name N) (D273). ---
+
+TEST_CASE(
+    "a shape marked (@view) generates a view; its fields may opt out, pick a type, or a name") {
+    shape::Set set;
+    shape::Report report;
+    add_text(set,
+             "#shape (move (@at fighters * moves) (@keyed) (@view) (@cxx_name MoveView)\n"
+             "   (startup int (@range 1 60) (@cxx uint16))\n"
+             "   (damage float (@cxx double) (@cxx_name dmg))\n"
+             "   (on_hit any (@view no))\n"
+             "   (name symbol))\n"
+             "#shape (plain (@at plains) (@keyed) (@view no) (x int))\n",
+             report);
+    REQUIRE(report.errors.empty());
+    const shape::Shape* move = set.find("move");
+    REQUIRE(move);
+    CHECK(move->view);
+    CHECK(move->cxx_name == Symbol("MoveView"));
+    CHECK(move->field("startup")->cxx == Symbol("uint16"));
+    CHECK(move->field("startup")->view);
+    CHECK(move->field("damage")->cxx == Symbol("double"));
+    CHECK(move->field("damage")->cxx_name == Symbol("dmg"));
+    CHECK_FALSE(move->field("on_hit")->view);
+    CHECK(move->field("name")->cxx.empty());  // the default
+    CHECK_FALSE(set.find("plain")->view);
+    // A shape declared again keeps its view flags unless it says otherwise.
+    add_text(set, "#shape (move (damage float (@range 0 9)))", report, "patch.dta");
+    REQUIRE(report.errors.empty());
+    CHECK(set.find("move")->view);
+    CHECK(set.find("move")->field("damage")->cxx == Symbol("double"));
+
+    std::string json;
+    shape::write_json(set, string_out(json));
+    CHECK(json.find(R"j("keyed": true, "view": true, "cxx_name": "MoveView", "file")j") !=
+          std::string::npos);
+    CHECK(json.find(R"j("view": false, "cxx": "", "cxx_name": "", "file": "t.dta", "line": 4})j") !=
+          std::string::npos);
+    CHECK(json.find(R"j("view": true, "cxx": "uint16", "cxx_name": "", "file")j") !=
+          std::string::npos);
+}
+
+TEST_CASE("the view words are checked: a flag is (@view) or (@view no), @cxx is a closed list") {
+    const auto errors = [](std::string_view text) {
+        shape::Set set;
+        shape::Report report;
+        add_text(set, text, report);
+        return texts(report.errors);
+    };
+    const auto has = [](const std::vector<std::string>& e, std::string_view part) {
+        return std::any_of(e.begin(), e.end(),
+                           [&](const std::string& s) { return s.find(part) != std::string::npos; });
+    };
+    CHECK(has(errors("#shape (s (@view yes) (x int))"), "shape 's' is (@view) or (@view no)"));
+    CHECK(has(errors("#shape (s (x int (@view maybe)))"), "field 'x' is (@view) or (@view no)"));
+    CHECK(has(errors("#shape (s (x int (@cxx float)))"), "field 'x' (@cxx T): T is int8"));
+    CHECK(has(errors("#shape (s (x float (@cxx int32)))"), "field 'x' (@cxx T)"));
+    CHECK(has(errors("#shape (s (x symbol (@cxx int32)))"), "field 'x' (@cxx T)"));
+    CHECK(has(errors("#shape (s (x int (@cxx_name 2fast)))"), "N is a C++ identifier"));
+    CHECK(has(errors("#shape (s (@cxx_name \"S\") (x int))"), "shape 's' (@cxx_name N)"));
+    CHECK(has(errors("#shape (s (@cxx int64) (x int))"), "has unknown metadata '@cxx'"));
+    CHECK(errors("#shape (s (@view) (x int (@cxx int64) (@cxx_name _x) (@view no)))").empty());
+}
+
+TEST_CASE("a softer pack may not change a harder pack's view layout (D145, D273)") {
+    LoadSession session;
+    session.set_pack_levels({"engine", "game"});
+    auto hard =
+        ok(read_string("#pack (core (level engine))\n"
+                       "#shape (s (@at ss) (@keyed) (@view) (x int (@cxx int64)) (y int))",
+                       "hard.dta", session));
+    auto soft =
+        ok(read_string("#pack (mod (level game) (requires core))\n"
+                       "#shape (s (x int (@cxx int32)) (y int (@view no)))",
+                       "soft.dta", session));
+    shape::Set set;
+    shape::Report report;
+    set.add(session, report);
+    CHECK(report.errors.empty());
+    REQUIRE(report.warnings.size() == 2);
+    CHECK(set.find("s")->field("x")->cxx == Symbol("int64"));
+    CHECK(set.find("s")->field("y")->view);
 }
