@@ -29,7 +29,9 @@ def main(tool, source):
         out = Path(tmp) / "views"
 
         def run(*extra, project_file="baker-project.dta"):
-            cmd = [tool, "--views", str(out), "--project", str(project / project_file),
+            # A path the parser normalizes differently from how it is given (`..`, and on
+            # Windows the separators): the tool must select declarations by the parser's form.
+            cmd = [tool, "--views", str(out), "--project", str(project / ".." / "project" / project_file),
                    "--depfile", str(out / "views.d"), "--stamp", str(out / "views.stamp"), *extra]
             p = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
             return p.returncode, p.stdout, p.stderr
@@ -39,10 +41,10 @@ def main(tool, source):
         for name in ["boss.hpp", "boss_read.hpp", "item.hpp", "item_read.hpp", "vec2.hpp",
                      "vec2_read.hpp", "views.hpp", "views.d", "views.stamp"]:
             expect((out / name).exists(), f"{name} is written")
-        dep = (out / "views.d").read_text()
+        dep = (out / "views.d").read_text().replace("\\", "/")
         expect(dep.startswith(str(out / "views.stamp") + ":"), "the depfile's target is the stamp")
         for name in ["baker-project.dta", "core.dta", "content.dta"]:
-            expect(str(project / name) in dep, f"the depfile names {name}")
+            expect(name in dep, f"the depfile names {name}")
         expect("extra.dta" not in dep, "a layer outside the contract is not read")
         boss = (out / "boss.hpp").read_text()
         expect("std::string_view hint;" in boss, "the content layer's field is in the struct")
