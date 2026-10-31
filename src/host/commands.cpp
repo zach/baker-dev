@@ -107,6 +107,17 @@ Expected<void> read_book(const Loaded& l, sim::Book& book) {
     return {};
 }
 
+// The project the stack opened from: its file, read again into `storage`, else the one the
+// host built; null for neither.
+const Project* project_of(const Loaded& l, Project& storage) {
+    if (!l.live.project_file().empty())
+        if (auto p = read_project(l.live.project_file().str(), l.hooks.reader)) {
+            storage = std::move(*p);
+            return &storage;
+        }
+    return l.hooks.built;
+}
+
 #if BAKER_HOST_SHAPE
 // The shapes the enabled layers declare, each layer's read alone with the stack's packs
 // (D145), as the validator reads them.
@@ -115,6 +126,69 @@ void add_shapes(const Config& cfg, shape::Set& set, shape::Report& report) {
         if (cfg.layer_enabled(layer.str()))
             if (const Ref<Array> root = cfg.layer_root(layer.str()))
                 set.add(cfg.read_session(), report, root->file());
+}
+
+// The project's (assets ...), for the (asset KIND) fields (D288).
+void add_asset_kinds(const Project* project, shape::Set& set) {
+    if (!project) return;
+    Vec<shape::AssetKind> kinds;
+    for (const ProjectAssetKind& k : project->assets) kinds.push_back({k.name, k.extensions});
+    set.add_asset_kinds({kinds.data(), kinds.size()});
+}
+
+// An asset the merged stack names, and whether the lister finds it: each file's directory is
+// listed once per run, through the host's lister or the disk (D288). Paths are relative to
+// the project file's directory.
+struct AssetEdge {
+    shape::AssetUse use;
+    Str target;  // joined with the project's directory
+    bool exists;
+};
+Vec<AssetEdge> asset_edges(const Loaded& l, const shape::Set& set) {
+    struct Dir {
+        Str path;
+        Vec<Str> names;
+        bool listed;
+    };
+    Vec<Dir> dirs;
+    const auto base_name = [](std::string_view p) {
+        const size_t slash = p.find_last_of("/\\");
+        return slash == std::string_view::npos ? p : p.substr(slash + 1);
+    };
+    const std::string_view root = detail::parent_path(l.live.project_file().str());
+    LoadSession disk;
+    const LoadSession::Lister& lister = l.hooks.list ? l.hooks.list : disk.lister();
+    Vec<AssetEdge> edges;
+    for (const shape::AssetUse& u : shape::asset_uses(*l.live.config().root(), set)) {
+        const bool absolute = !u.target.empty() && (u.target.front() == '/' ||
+                                                    (u.target.size() > 1 && u.target[1] == ':'));
+        Str target = absolute || root.empty() ? Str(u.target) : Str(root) + "/" + u.target;
+        const std::string_view dir = detail::parent_path(target.view());
+        auto d = std::find_if(dirs.begin(), dirs.end(),
+                              [&](const Dir& x) { return x.path.view() == dir; });
+        if (d == dirs.end()) {
+            Dir fresh{Str(dir), {}, false};
+            fresh.listed =
+                lister(dir.empty() ? std::string_view(".") : dir,
+                       [&](std::string_view p) { fresh.names.emplace_back(base_name(p)); });
+            dirs.push_back(std::move(fresh));
+            d = dirs.end() - 1;
+        }
+        const std::string_view name = base_name(target.view());
+        const bool exists =
+            d->listed && std::any_of(d->names.begin(), d->names.end(),
+                                     [&](const Str& n) { return n.view() == name; });
+        edges.push_back({u, std::move(target), exists});
+    }
+    return edges;
+}
+
+// A record's path as the check names it, with dots, as rows and the JSON spell paths.
+Str dotted(Symbol path) {
+    Str out(path.str());
+    for (char& c : out)
+        if (c == '/') c = '.';
+    return out;
 }
 #endif
 
@@ -230,26 +304,34 @@ int check(const CommandLine& line, const CommandHooks& hooks) {
 #if BAKER_HOST_SHAPE
     // The shapes, over the merged data: a value out of range or of the wrong type fails the
     // check; a field no shape declares is reported, as demand for a word, and passes.
+    Project read;
+    const Project* project = project_of(l, read);
     shape::Set shapes;
     shape::Report shaped;
     add_shapes(cfg, shapes, shaped);
+    add_asset_kinds(project, shapes);
     shape::check(*cfg.root(), shapes, shaped);
     shape::unused(*cfg.root(), shapes, shaped);  // a shape at the wrong depth checks nothing
     unused_aliases(cfg, shaped, report);         // an (@aka old) nothing names (D285)
     tools::check_rules(*cfg.root(), shapes, l.ctx, shaped);  // a broken rule fails the check
+    {  // an asset the lister cannot find fails the check (D288)
+        Vec<Error> errors(shaped.errors.begin(), shaped.errors.end());
+        for (const AssetEdge& e : asset_edges(l, shapes)) {
+            if (e.exists) continue;
+            Error missing = make_error(ErrorCode::NotFound,
+                                       "asset \"" + Str(e.use.target) + "\" of " +
+                                           dotted(e.use.path) + " is not there (" + e.target + ")",
+                                       e.use.file, e.use.line);
+            missing.set_path(e.use.path.str());
+            errors.push_back(std::move(missing));
+        }
+        shaped.errors = List<Error>({errors.data(), errors.size()});
+    }
     for (const Error& e : shaped.errors) err("shape: " + Str(to_string(e)) + "\n");
     for (const Error& e : shaped.warnings) err("shape warning: " + Str(to_string(e)) + "\n");
     // The views the game compiled, against the contract layers' shapes (D282).
     if (!hooks.views.empty()) {
         shape::Report drift;
-        Project read;
-        const Project* project = hooks.built;
-        if (!l.live.project_file().empty()) {
-            if (auto p = read_project(l.live.project_file().str(), hooks.reader)) {
-                read = std::move(*p);
-                project = &read;
-            }
-        }
         if (!project || project->views.layers.empty()) {
             const Error e = make_error(
                 ErrorCode::NotFound,
@@ -279,6 +361,57 @@ int check(const CommandLine& line, const CommandHooks& hooks) {
     report.shape_warnings = List<Error>(shaped.warnings.items());
 #endif
     return report_check(report, l, &cfg.read_session());
+}
+
+// assets (D288): every asset the merged stack names, as baker.assets/1 (docs/assets-json.md),
+// sorted by file, line and path; exit 1 when one is not there.
+int assets(const CommandLine& line, const CommandHooks& hooks) {
+    Loaded l(hooks);
+    if (!load(l, line)) return kCommandError;
+#if BAKER_HOST_SHAPE
+    const Config& cfg = l.live.config();
+    Project read;
+    const Project* project = project_of(l, read);
+    shape::Set shapes;
+    shape::Report declared;
+    add_shapes(cfg, shapes, declared);
+    add_asset_kinds(project, shapes);
+    Vec<AssetEdge> edges = asset_edges(l, shapes);
+    std::stable_sort(edges.begin(), edges.end(), [](const AssetEdge& a, const AssetEdge& b) {
+        if (a.use.file != b.use.file) return a.use.file.str() < b.use.file.str();
+        if (a.use.line != b.use.line) return a.use.line < b.use.line;
+        return a.use.path.str() < b.use.path.str();
+    });
+    Str json = R"({"schema": "baker.assets/1", "root": )";
+    detail::json_string(json, detail::parent_path(l.live.project_file().str()));
+    json += ", \"assets\": [";
+    bool missing = false;
+    for (size_t i = 0; i < edges.size(); ++i) {
+        const AssetEdge& e = edges[i];
+        json += i ? ",\n  {\"from\": {\"file\": " : "\n  {\"from\": {\"file\": ";
+        detail::json_string(json, e.use.file.str());
+        json += ", \"line\": " + detail::decimal(e.use.line) + ", \"path\": ";
+        detail::json_string(json, dotted(e.use.path).view());
+        json += ", \"id\": ";
+        char hex[RecordId::kDigits];
+        e.use.id.write(hex);
+        detail::json_string(
+            json, e.use.id.empty() ? std::string_view() : std::string_view(hex, RecordId::kDigits));
+        json += "}, \"field\": ";
+        detail::json_string(json, e.use.field.str());
+        json += ", \"kind\": ";
+        detail::json_string(json, e.use.kind.str());
+        json += ", \"target\": ";
+        detail::json_string(json, e.use.target);
+        json += Str(", \"exists\": ") + (e.exists ? "true" : "false") + "}";
+        missing |= !e.exists;
+    }
+    out(json + (edges.empty() ? "]}\n" : "\n]}\n"));
+    return missing ? kCommandFailed : 0;
+#else
+    err("assets: this build has no baker::shape\n");
+    return kCommandError;
+#endif
 }
 
 int reference(const CommandLine& line, const CommandHooks& hooks) {
@@ -1427,6 +1560,7 @@ namespace {
 int dispatch(const CommandLine& line, const CommandHooks& hooks) {
     if (line.command == "check") return check(line, hooks);
     if (line.command == "reference") return reference(line, hooks);
+    if (line.command == "assets") return assets(line, hooks);
     if (line.command == "eval") return eval(line, hooks);
     if (line.command == "compare") return compare(line);
     if (line.command == "format") return format(line, hooks);
@@ -1459,8 +1593,11 @@ int run_command(const CommandLine& line, const CommandHooks& hooks) {
 std::string_view command_help() noexcept {
     return "The kit's flags begin --baker-; any other flag is the game's.\n"
            "  check [--baker-strict-views]   baker.check/1.5 JSON; exit 1 on an error, a load\n"
-           "                                 problem, a shape error, or an undefined function;\n"
+           "                                 problem, a shape error, a missing asset, or an\n"
+           "                                 undefined function;\n"
            "                                 --baker-strict-views: a compiled view's drift too\n"
+           "  assets                         every asset the stack names, as baker.assets/1;\n"
+           "                                 exit 1 when one is not there\n"
            "  reference [--baker-json]       the script vocabulary, as Markdown; --baker-json:\n"
            "                                 {reference, tweaks, shapes} as Baker's JSON\n"
            "  diff [--baker-layer L] [--baker-rows]\n"

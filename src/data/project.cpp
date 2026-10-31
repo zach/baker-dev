@@ -224,6 +224,32 @@ Expected<Project> read_project(std::string_view path, const LoadSession::Reader&
                 List<Symbol>(std::span<const Symbol>(view_layers.data(), view_layers.size()));
             p.views.shapes =
                 List<Symbol>(std::span<const Symbol>(view_shapes.data(), view_shapes.size()));
+        } else if (key == Symbol("assets")) {
+            Vec<ProjectAssetKind> kinds;
+            for (size_t k = 1; k < part->size(); ++k) {
+                const Array* kind = (*part)[k].try_array();
+                const Symbol name = kind ? kind->tag() : Symbol();
+                if (name.empty() || name.is_meta())
+                    return Unexpected(places.at(
+                        kind ? *kind : *part,
+                        "assets are (assets (KIND \".ext\" ...) ...), each kind a symbol"));
+                for (const ProjectAssetKind& seen : kinds)
+                    if (seen.name == name)
+                        return Unexpected(places.at(
+                            *kind, "asset kind '" + Str(name.str()) + "' is declared twice"));
+                Vec<Symbol> extensions;
+                for (size_t m = 1; m < kind->size(); ++m) {
+                    const auto ext = (*kind)[m].try_str();
+                    if (!ext || ext->size() < 2 || ext->front() != '.')
+                        return Unexpected(places.at(
+                            *kind, "asset kind '" + Str(name.str()) +
+                                       "' lists its extensions as strings, each with its dot"));
+                    extensions.emplace_back(*ext);
+                }
+                kinds.push_back({name, List<Symbol>({extensions.data(), extensions.size()}),
+                                 places.of(*kind, 0)});
+            }
+            p.assets = List<ProjectAssetKind>({kinds.data(), kinds.size()});
         } else if (key == Symbol("reference")) {
             std::string_view file;
             if (part->size() != 2 || !text_of((*part)[1], file))

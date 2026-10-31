@@ -114,7 +114,7 @@ def reference(s):
     names = [f["name"] for f in r["reference"]["functions"]]
     expect(code == 0 and r["reference"]["schema"] == "baker.reference/1.5" and "spawn" in names,
            "reference --baker-json: the game's functions")
-    expect(r["shapes"]["schema"] == "baker.shapes/1.7" and r["tweaks"]["schema"] == "baker.tweaks/1.6",
+    expect(r["shapes"]["schema"] == "baker.shapes/1.8" and r["tweaks"]["schema"] == "baker.tweaks/1.6",
            "reference --baker-json: tweaks and shapes")
     code, out, _ = s.run("reference")
     expect(code == 0 and "spawn" in out, "reference: Markdown")
@@ -218,8 +218,38 @@ def renames(s):
     default.write_text(text)
 
 
+def assets(s):
+    """assets: every asset the stack names, baker.assets/1; check fails on a missing one (D288)."""
+    code, out, err = s.run("assets", agent="")
+    r = json.loads(out)
+    expect(code == 0 and r["schema"] == "baker.assets/1" and len(r["assets"]) == 1
+           and r["assets"][0]["from"]["path"] == "player.model" and r["assets"][0]["kind"] == "mesh"
+           and r["assets"][0]["target"] == "assets/hero.glb" and r["assets"][0]["exists"]
+           and r["assets"][0]["from"]["file"].endswith("default.dta") and r["assets"][0]["from"]["id"] == "",
+           f"assets lists the edge, found by listing its directory: {out} {err}")
+    code, out, err = s.run("assets", agent="(player (model \"assets/none.glb\"))\n")
+    r = json.loads(out)
+    expect(code == 1 and not r["assets"][0]["exists"] and r["assets"][0]["from"]["file"].endswith("agent.dta"),
+           f"a file that is not there: exists false, exit 1, from the layer that names it: {out}")
+    code, out, err = s.run("check", agent="(player (model \"assets/none.glb\"))\n")
+    r = json.loads(out)
+    expect(code == 1 and any('asset "assets/none.glb" of player.model is not there' in e["message"]
+                             for e in r["shape_errors"]), f"check fails on it: {err}")
+    code, out, err = s.run("check", agent="(player (model \"assets/hero.obj\"))\n")
+    r = json.loads(out)
+    expect(code == 1 and any('not a mesh (.glb)' in e["message"] for e in r["shape_errors"]),
+           f"an extension the kind does not list: {err}")
+    code, out, err = s.run("check", agent="#shape (player (icon (asset texture) (@optional)))\n"
+                                           "(player (icon \"assets/hero.glb\"))\n")
+    r = json.loads(out)
+    expect(code == 1 and any("declares no kind 'texture'" in e["message"] for e in r["shape_errors"]),
+           f"a kind the project does not declare: {err}")
+
+
 def rename(s):
     """rename OLD NEW: the key in the declaring layer, (@aka OLD), an ID, and every key_of (D287)."""
+    if sys.argv[3:] == ["shipping"]:
+        return  # refuses there, as `shipping` checks
     default = s.dir / "data" / "default.dta"
     text = default.read_text()
     added = ("#shape (wave (@at waves2) (@keyed) (foe (key_of foes)) (also (list (key_of foes)) (@optional)))\n"
@@ -384,7 +414,7 @@ def main():
         print(__doc__)
         return 2
     writes = shipping if sys.argv[3:] == ["shipping"] else diff_and_promote
-    for case in (check, views, aliases, renames, mint_ids, rename, reference, eval_json, writes, host_io, scenarios, command_line,
+    for case in (check, views, aliases, renames, mint_ids, rename, assets, reference, eval_json, writes, host_io, scenarios, command_line,
                  format_files):
         case(Stack(sys.argv[1], sys.argv[2]))
     print(f"{len(FAILURES)} failures" if FAILURES else "all passed")

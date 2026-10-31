@@ -104,7 +104,8 @@ Str scalar_type(Type t, baker::Symbol cxx, const Set& set, baker::Symbol shape,
         case Type::Bool: return "bool";
         case Type::Symbol:
         case Type::Key: return "baker::Symbol";
-        case Type::String: return "std::string_view";
+        case Type::String:
+        case Type::Asset: return "std::string_view";
         case Type::Curve: return "baker::Curve";
         case Type::Shape: {
             const Shape* nested = set.find(shape);
@@ -387,6 +388,7 @@ void write_view_reader(const Set& set, baker::Symbol shape, const ViewOptions& o
                 text += "view_detail::read_symbol(*f, " + mem + ", err, \"" + name + "\")";
                 break;
             case Type::String:
+            case Type::Asset:
                 text += "view_detail::read_string(*f, " + mem + ", err, \"" + name + "\")";
                 break;
             case Type::Curve:

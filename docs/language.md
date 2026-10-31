@@ -202,9 +202,9 @@ handler at every merge; the host kit's loop and `check` add it. A shipped cache 
 without metadata keeps `@id` and `@aka`: they are identity, not tool text.
 
 A renamed record keeps answering to its old key with `(@aka old)` (D285), which the kit's
-`rename OLD NEW` writes, with the new key and every `key_of` reference (D287): a layer that retunes `(weapons (laser ...))` merges into the record now
-named `plasma`, and a `(key_of weapons)` naming `laser` resolves to it (a key wins over an
-alias). A key that is also a sibling's alias is an error from `id_validator`. Aliases stay
+`rename OLD NEW` writes, with the new key and every `key_of` reference (D287): a layer
+that retunes `(weapons (laser ...))` merges into the record now named `plasma`, and a
+`(key_of weapons)` naming `laser` resolves to it (a key wins over an alias). A key that is also a sibling's alias is an error from `id_validator`. Aliases stay
 until someone removes them, since a shipped overlay may still name one; `check` lists an
 alias that no layer and no `key_of` names, as a finding. A stack with no alias pays
 nothing for them.
@@ -503,7 +503,7 @@ name (D84, D261). The session records it, and the tree never holds it:
 ```
 
 - **Types:** `int`, `float`, `bool`, `symbol`, `string`, `any`, `curve`, `(list T)`,
-  `(key_of TABLE)`, or another shape's name. A `curve` field's values are a curve (see
+  `(key_of TABLE)`, `(asset KIND)`, or another shape's name. A `curve` field's values are a curve (see
   Curves, above), and its `(@range lo hi)` holds every point's y. A list may give its count:
   `(position (list float 3))` holds exactly three values and `(tags (list symbol 1 4))` one to
   four, and any other count is an error at the field. A softer pack may narrow the count, never
@@ -555,6 +555,20 @@ name (D84, D261). The session records it, and the tree never holds it:
   removes is an error at each record that still names it, with the key it most likely
   meant: `'lazer' is not a key of weapons (laser?)`. With packs, a harder pack naming a
   softer pack's key is a warning, as for a call.
+- **Assets.** A field `(asset KIND)` holds the path of a file outside Baker, a string
+  relative to the project file's directory, and `(list (asset KIND))` several (D288). The
+  project file declares the kinds and the extensions each takes:
+
+  ```dta
+  (assets (mesh ".glb" ".fbx") (texture ".png" ".tga") (sound))
+  ```
+
+  `check` reports a kind the project does not declare, a path whose extension its kind
+  does not list (a kind listing none takes any file), and a file that is not there, found
+  by listing the file's directory once per run through the host's lister. The kit's
+  `assets` command writes every edge of the merged stack as `baker.assets/1` (see [the
+  assets document](assets-json.md)), for a pipeline to index forward or in reverse. A view
+  holds the path as a `std::string_view`. Baker never imports, stores or cooks an asset.
 - **Layers combine shapes by name**: a later layer's `#shape` of the same name adds a
   field or retunes one field's range, and one of a new name adds a shape. Its form is
   written whole, never with a layer verb. A layer received under `data_only` or

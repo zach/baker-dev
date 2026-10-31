@@ -10098,3 +10098,37 @@ not a load failure; `@renamed_from` is never applied at load; `rename` writes fi
 - **Tests:** the kit's, over the test stack with a `key_of` field, a list of keys and an
   overlay naming the record: the dry run's listing, the written files, `check` clean after,
   the overlay merging by the alias, and each refusal.
+
+## D288. Identity, step 5: `(asset KIND)`, the project's `(assets ...)`, and `assets`
+
+*`dev/identity-plan.md` step 5.*
+
+- **A field type, not a metadata word.** `(asset KIND)` and `(list (asset KIND))` on a
+  shape field, read beside `(key_of TABLE)`; the value is a string, relative to the
+  project file's directory. The view member is a `std::string_view`, read as a string is;
+  the digest spells `asset(KIND)`, so a kind change is drift, as a type change is. The
+  project file's `(assets (mesh ".glb" ".fbx") ...)` declares the kinds, each with the
+  extensions it takes, dotted; none takes any file. `baker.shapes/1.8` adds `"asset"` as a
+  type and `asset`, the kind, to each field.
+- **The shape set carries the kinds, when told.** `Set::add_asset_kinds` from the project;
+  the checker then reports a kind the set lacks and an extension the kind does not list, at
+  the field. A set never given kinds (the validator's, which has no project) checks only
+  that the value is a string: `check` and `assets` give the kinds, so the kit's loop does not
+  report every asset field of a stack whose project it never read, which it had, on stderr,
+  in every command.
+- **Existence is a directory listing.** `shape::asset_uses(tree, set)` lists every value
+  the checker reaches with its record's path and ID (the checker now keeps the instance it
+  is in, for the ID). The kit joins each target with the project's directory and lists the
+  directory once per run through the host's lister (`CommandHooks::list`), else the disk's
+  (plan §2.8: no new hook); a file the listing lacks is a shape error in `check`, with its
+  path, and `exists: false` in `assets`, which exits 1.
+- **`baker.assets/1`** (`docs/assets-json.md`): `root`, and one edge per value, sorted by
+  file, line, path: `from` (`file`, `line`, `path` dotted, `id`), `field`, `kind`,
+  `target`, `exists`. The merged stack is listed, so an overlay's replacement is the edge.
+- **Tests.** The shape tests: the two forms, the four errors (kind undeclared, extension,
+  not a string), the uses with path and ID, the JSON. The kit's: the test stack names
+  `assets/hero.glb` from the player's `(model (asset mesh))`; `assets` lists it as found;
+  an overlay naming a missing file is `exists: false`, exit 1, and fails `check`; an
+  extension the kind lacks and a kind the project lacks fail `check`. Also skips the kit's
+  `rename` test under shipping, where the command refuses (step 4's commit ran it there,
+  one failing test in that configuration; step 4's matrix was otherwise green).

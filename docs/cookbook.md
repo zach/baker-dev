@@ -139,6 +139,7 @@ and the game and every tool read it.
    (tool "build/bin/my_game")         ; for tools: the binary that answers the commands
    (console 4555)                     ; for tools: the port the game's console listens on
    (format (indent 3) (width 100))    ; how its files are laid out, by format and write-back
+   (assets (mesh ".glb" ".fbx"))      ; the kinds (asset KIND) fields name, and their files
    (scenarios "sim")                  ; for sim: scenarios and objectives (docs/sim-json.md)
    (objectives "metrics")
    (layers                            ; bottom to top

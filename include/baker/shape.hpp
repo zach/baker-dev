@@ -57,7 +57,7 @@
 
 namespace baker::shape {
 
-enum class Type : uint8_t { Any, Int, Float, Bool, Symbol, String, List, Shape, Key, Curve };
+enum class Type : uint8_t { Any, Int, Float, Bool, Symbol, String, List, Shape, Key, Curve, Asset };
 
 struct Field {
     baker::Symbol name;
@@ -65,6 +65,7 @@ struct Field {
     Type element = Type::Any;   // a List's elements
     baker::Symbol shape;        // a Shape's, or a List of shapes', name
     List<baker::Symbol> table;  // a Key's, or a List of keys', table: a path, as written
+    baker::Symbol asset;        // an Asset's, or a List of assets', kind (D288)
     // How many values a List holds: (list T N) exactly N, (list T N M) N to M; any number
     // when not declared.
     uint32_t min_count = 0, max_count = UINT32_MAX;
@@ -140,6 +141,13 @@ struct Report {
     [[nodiscard]] bool ok() const noexcept { return errors.empty(); }
 };
 
+// A kind of asset a stack's fields may name (D288): what the project file's (assets (KIND
+// ".ext" ...) ...) declares. A kind with no extensions takes any file.
+struct AssetKind {
+    baker::Symbol name;
+    List<baker::Symbol> extensions;  // each with its dot: ".glb"
+};
+
 // The shapes read from trees, for check() and for generated tuning panels (shapes()).
 class Set {
 public:
@@ -163,6 +171,14 @@ public:
     void add(const LoadSession& session, Report& report, baker::Symbol root = {});
     [[nodiscard]] std::span<const Shape> shapes() const noexcept;
     [[nodiscard]] const Shape* find(baker::Symbol name) const noexcept;
+    // The asset kinds (asset KIND) fields may name, from the project file (D288): once
+    // given (even none), check() reports a kind the set lacks, and a path whose extension
+    // its kind does not list. A set never given them (a validator's) checks only that an
+    // asset is a string; the kit's `check` and `assets` give them.
+    void add_asset_kinds(std::span<const AssetKind> kinds);
+    [[nodiscard]] bool kinds_known() const noexcept;
+    [[nodiscard]] std::span<const AssetKind> asset_kinds() const noexcept;
+    [[nodiscard]] const AssetKind* asset_kind(baker::Symbol name) const noexcept;
 
     struct State;
 
@@ -242,6 +258,22 @@ struct KeyUse {
 // Every key `tree` names, as check() finds the fields: what a tool renames with the record.
 // The table need not be in `tree` (an overlay names a base's keys); nothing is checked.
 [[nodiscard]] List<KeyUse> key_uses(const Array& tree, const Set& shapes);
+
+// An asset a field names (D288): every value of an `asset` field, or element of a list of
+// assets, that check() reaches, with the record that holds it. `target` points into the
+// tree: hold it while the list is used.
+struct AssetUse {
+    baker::Symbol file;
+    int32_t line = 0;
+    baker::Symbol field;      // the field's tag
+    baker::Symbol kind;       // the field's (asset KIND)
+    std::string_view target;  // the path as written, relative to the project's directory
+    baker::Symbol path;       // the record's path from the root, slash-separated, as errors give it
+    RecordId id;              // the record's (@id ...), or empty
+};
+// Every asset `tree` names, as check() finds the fields, in walk order: the edges the kit's
+// `assets` command writes (baker.assets/1). Nothing is checked.
+[[nodiscard]] List<AssetUse> asset_uses(const Array& tree, const Set& shapes);
 
 // Checks every array of `tree` that a shape of `shapes` governs, into `report`. With
 // `packs`, a key a harder pack's field names from a softer pack's table is a warning, as the

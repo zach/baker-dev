@@ -193,8 +193,9 @@ error, so a misspelling is caught.
 
 | Command | What it writes |
 |---|---|
-| `check [--baker-strict-views]` | [check's report](check-json.md); exit 1 on an error, a load problem, a shape error, or a call to an undefined function; a shape that governs no array is a shape warning, and so is a view the game compiled against another layout of its shape (`CommandHooks::views`), which `--baker-strict-views` makes an error, for a farm |
+| `check [--baker-strict-views]` | [check's report](check-json.md); exit 1 on an error, a load problem, a shape error (an asset that is not there is one), or a call to an undefined function; a shape that governs no array is a shape warning, and so is a view the game compiled against another layout of its shape (`CommandHooks::views`), which `--baker-strict-views` makes an error, for a farm |
 | `reference [--baker-json]` | the script vocabulary as Markdown, or `{"reference", "tweaks", "shapes"}` |
+| `assets` | every asset the merged stack names, as [`baker.assets/1`](assets-json.md), sorted by file, line and path; exit 1 when a file is not there |
 | `eval [--baker-seed N] [--baker-json] "{command}"...` | each command's result on the game reset with the seed; `--baker-json`: one reply line each |
 | `diff [--baker-layer L]` | what layer L (default `agent`) changes, value by value: a verb as `-> #append v`, and `stale` where a row's `(@was ...)` pin no longer names the value below |
 | `promote [--baker-from L] [--baker-to T] [--baker-write \| --baker-patch FILE]` | what promoting L into T would write; `--baker-write` writes; `--baker-patch` writes a unified diff and nothing else, after a line `# path: note` for each row's `(@note ...)`, which `git apply` skips |
@@ -227,8 +228,8 @@ through your file access, as `Live` does, for files under an engine's own roots.
   the game may use as its default while its own command line wins), and its scenarios and
   objectives (`(scenarios ...)`, `(objectives ...)`).
 - **Documents.** [The reference](reference-json.md), [check's report](check-json.md),
-  [the reply](reply-json.md) and [sim's results](sim-json.md) are versioned JSON. A field is added only with a new minor
-  version.
+  [the reply](reply-json.md), [sim's results](sim-json.md) and [the assets](assets-json.md)
+  are versioned JSON. A field is added only with a new minor version.
 - **The console.** One request per line, one JSON reply per line, to a running game.
   `{config.epoch}` says whether anything changed since a tool last asked.
 - **Commands.** Your game binary's own commands, run by the tool.
