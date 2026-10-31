@@ -10132,3 +10132,70 @@ not a load failure; `@renamed_from` is never applied at load; `rename` writes fi
   extension the kind lacks and a kind the project lacks fail `check`. Also skips the kit's
   `rename` test under shipping, where the command refuses (step 4's commit ran it there,
   one failing test in that configuration; step 4's matrix was otherwise green).
+
+## D289. Identity, step 6: the example, the docs, the record, and a merge fix the rows found
+
+*`dev/identity-plan.md` step 6, the last of W3.*
+
+- **The example.** `examples/content-tables` renames `heavy` to `slam` (its ID kept, its
+  alias keeping the content layer's `(heavy (hint ...))` merging in), declares `startup`
+  `(@renamed_from windup)` with wren's poke spelled the old way, and gives the jab an
+  `(icon (asset texture))` the project's `(assets (texture ".png"))` governs; the output
+  shows each. `docs/cookbook.md` has a section on the four moves; `docs/language.md`,
+  `docs/tools.md`, `docs/reference-json.md` and `docs/assets-json.md` carry the rest.
+- **The no-cost rows found a quadratic path.** `tools/bench_compare.py --base 31abe5a`
+  (main, before W3) put "Config layer, cache_dir, fresh cache" at 7.2 ms on main and 204 ms
+  after step 5 (ranges 2.7–15 and 29–387 ms): a layer replayed from a cache counted as
+  having aliases (a replay parses nothing, so D285 assumed so), and the merge's miss path
+  scanned the lower array's children per missed key, which for a wide layer whose keys
+  are all new is quadratic. Two fixes, both in step 6:
+  - On the indexed path (over 32 incoming keys) the aliases go into the tag index after
+    the keys, one pass over the existing children, and a hit whose tag differs is the
+    alias; the unindexed path keeps its scan, linear in the lower array a few times.
+  - The cache's record carries `(aliases N)`, the count of the load, and a replay sets it;
+    a cache written before counts as 1. The count is per top-level read (the parser resets
+    it), which step 2's comparison with the previous read's count had got wrong: a layer
+    with fewer aliases than the one below did not resolve by them. Tests cover both.
+  After the fix the row is 6.74 ms on main, 6.88 ms here (its 5x ranges overlap).
+- **The rows,** 5 runs a side on a quiet machine, medians (min–max), `**` where the
+  ranges do not overlap:
+
+  | benchmark | row | main (31abe5a) | W3 | change |
+  |---|---|---:|---:|---:|
+  | lookup | try_find (array), avg | 6.47 ns (6.42–6.53) | 9.6 ns (9.59–9.64) | +48.4% ** |
+  | lookup | find_float, avg | 10.5 ns | 10.5 ns | +0.1% |
+  | lookup | find<float>, avg | 9.36 ns | 11.9 ns | +27.1% ** |
+  | lookup | find_float("key19"_sym) | 13.0 ns | 13.4 ns | +3.1% |
+  | lookup | get<int>(Path), 4 segments | 22.2 ns | 21.6 ns | -2.7% ** |
+  | lookup | try_find, 50 children, linear | 15.2 ns | 13.7 ns | -10.0% ** |
+  | lookup | try_find, 1000 children, linear | 311.0 ns | 196.9 ns | -36.7% ** |
+  | layers | read_string | 74.4 us (73.3–74.5) | 78.5 us (78.0–78.9) | +5.5% ** |
+  | layers | push_layer (tree), no policy | 97.8 us | 96.0 us | -1.8% ** |
+  | layers | push_layer_text, no policy | 176.6 us | 176.7 us | +0.1% |
+  | layers | check_layer (tree) | 352.5 us | 350.7 us | -0.5% |
+  | cache | Config layer, cache_dir, fresh cache | 6.74 ms | 6.88 ms | +2.2% |
+  | cache | Config reload, unchanged small file | 2250 ns | 2256 ns | +0.2% |
+  | parse | parse: 4.2 MB in | 28.2 ms | 29.7 ms | +5.4% |
+
+  `tools/count_instructions.py --base 31abe5a`: `lookup` 209 = 209, `set` 685.5 to 678,
+  `merge` 1,221,746 to 1,214,539 (-0.59%), `check` -0.14%, `lookup_text` 380 to 372,
+  `parse` 1,894,330 to 1,897,732 (+0.18%: the alias test per closed array), the script
+  cases unchanged, `frame` 192.8 to 197 (+2.2%, untouched code: layout).
+- **What the rows say.** A lookup runs the same 209 instructions and reads 48% slower on
+  the small array while reading 10 to 37% faster on the wide ones: the find loop's
+  alignment moved, not its work (`baker-gaps.md` 47, to measure before W2 touches
+  lookups). Reading text is +0.18% instructions and +5% wall, as W1's +1% instructions
+  was +6% wall (gaps 45): the parser's wall time moves more than its count, and the
+  cause is still to be isolated there. Merges, checks and reloads cost what they did.
+- **Changelog lines for the next release.**
+  - Identity: `(@id ...)`, 32 hex digits minted by `format --baker-mint-ids TABLE`;
+    `Array::record_id()`, `find_by_id`, `id_validator` (two records, one ID).
+  - `(@aka old)`: a renamed record answers to its old key in overlays and `key_of`;
+    `check` lists an alias nothing names.
+  - `rename OLD NEW [--baker-write]`: the key, the alias, the ID and every `key_of`.
+  - `(@renamed_from old)` on a shape field: checked, read by views, rewritten by `format`.
+  - `(asset KIND)` fields with the project's `(assets ...)`; `check` finds a missing file;
+    the `assets` command writes `baker.assets/1`.
+  - `baker.shapes/1.8` (`renamed_from`, `asset`); `baker.format/1.1` (`rewrites`); a
+    cache records its alias count.
+  - Fixed: none shipped (the quadratic alias merge never reached a release).
