@@ -44,6 +44,13 @@ namespace view_detail {
 [[nodiscard]] Error no_record(const Array& root, const Path& path);
 [[nodiscard]] Error bad_element(const Array& list, uint32_t i, std::string_view type);
 void at_path(Error& err, const Path& path);
+// The first required field `seen` lacks a bit for, by its index in `names`.
+[[nodiscard]] inline std::string_view first_missing(
+    uint64_t seen, std::span<const std::string_view> names) noexcept {
+    for (size_t i = 0; i < names.size(); ++i)
+        if (!(seen & (uint64_t{1} << i))) return names[i];
+    return {};
+}
 
 // The field's one value, or a type error.
 [[nodiscard]] inline const Node* one(const Array& field, std::string_view shape,

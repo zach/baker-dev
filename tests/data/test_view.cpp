@@ -1,7 +1,7 @@
 // Views, the runtime side (D275): read_view over a record and over
 // a Config, each field type, the located errors, defaults, borrowing across a reload, and
-// that a read allocates nothing. The reader is tests/support/view_move.hpp, the model of
-// what the generator emits.
+// that a read allocates nothing. The readers are tests/shape/views/, the golden headers
+// the generator's test writes, so a change to the generator is tested here too.
 #include <doctest.h>
 #include <baker/config.hpp>
 #include <baker/parse.hpp>
@@ -9,7 +9,9 @@
 
 #include "alloc_counter.hpp"
 #include "ok.hpp"
-#include "view_move.hpp"
+#include "move_read.hpp"
+#include "scalars_read.hpp"
+#include "views.hpp"
 
 #include <map>
 #include <string>

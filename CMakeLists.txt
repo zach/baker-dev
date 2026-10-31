@@ -182,7 +182,7 @@ endif()
 # --- baker::shape: shapes declared in data, checked at load (spec §6, D84). Depends only
 #     on baker::data.
 if(BAKER_BUILD_SHAPE)
-  add_library(baker_shape src/shape/shape.cpp)
+  add_library(baker_shape src/shape/shape.cpp src/shape/views.cpp)
   add_library(baker::shape ALIAS baker_shape)
   baker_configure_library(baker_shape)
   target_link_libraries(baker_shape PUBLIC baker::data)
@@ -289,7 +289,7 @@ if(BAKER_BUILD_BENCH)
   target_link_libraries(baker_bench_cache PRIVATE baker::data baker_alloc_counter)
   add_executable(baker_bench_lookup bench/bench_lookup.cpp)
   target_link_libraries(baker_bench_lookup PRIVATE baker::data)
-  target_include_directories(baker_bench_lookup PRIVATE tests/support)
+  target_include_directories(baker_bench_lookup PRIVATE tests/shape/views)  # the golden views (D276)
   add_executable(baker_bench_layers bench/bench_layers.cpp)
   target_link_libraries(baker_bench_layers PRIVATE baker::data)
   if(BAKER_BUILD_SHAPE)  # the same, with shape::validator judging each candidate

@@ -9696,3 +9696,33 @@ model of what step 4 generates.*
   built once. A reader reaching the tag run (private today) is the next thing to try there.
 - **A read allocates nothing** (the data tests, under the counting allocator), and the
   public headers stay within D55's list (`check_headers.py`).
+
+## D276. Views, step 4: the generator, and its golden headers
+
+*`dev/views-plan.md` step 4. `src/shape/views.cpp`.*
+
+- **Which shapes.** `shape::view_shapes(set, listed, report)`: the shapes marked `(@view)`,
+  those the project lists, and every shape they nest, transitively, sorted by name. Its
+  errors are located: a listed or nested shape the set lacks; an `any` field (or a list of
+  `any`) not `(@view no)`; a shape that reaches itself through nesting, by value or in a
+  list, since a struct cannot hold itself and an include cycle would not compile; a
+  generated name that is not an identifier or is a keyword (`default` as a field name;
+  `(@cxx_name N)` is the way out); two shapes whose struct names collide after the case
+  rule (`boss_phase` and `boss__phase`); two fields whose member names collide; more than
+  64 required fields, the width of the reader's `seen` word.
+- **Names.** A struct is the shape's name in PascalCase, split at `_` (`boss_phase` to
+  `BossPhase`); a member keeps the field's name. `(@cxx_name N)` overrides either.
+- **Three writers,** deterministic for a set: `write_view_header` (the struct, with
+  `kShapeName` as `view_text` and `kShapeDigest` from `view_digest`; it includes
+  `<baker/view.hpp>`, `<baker/curve.hpp>` only for a curve field, and the struct headers
+  of the shapes it nests), `write_view_reader` (the `ViewReader<T>` of D275's form, with a
+  `kRequired` table and `first_missing`, and the `Convert<T>`; it includes the nested
+  readers), and `write_views_umbrella` (every struct header and `kViews`, a `ViewInfo` per
+  view). The file names are `<shape>.hpp`, `<shape>_read.hpp` and `views.hpp`.
+- **Golden files.** `tests/shape/views/` holds the three writers' output for the model
+  shapes (`vec2`, `move`, `scalars`); the shape tests compare, and rewrite them under
+  `BAKER_UPDATE_GOLDEN=1`. The data tests and `bench_lookup` read through those headers,
+  so the generator's output is also the code the runtime tests exercise, and
+  `tests/support/view_move.hpp` is gone.
+- **Costs.** Tool path only. The generated reader is D275's: no interning, no static
+  guards, nothing allocated.

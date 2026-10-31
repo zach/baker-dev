@@ -13,7 +13,8 @@
 #include <baker/parse.hpp>
 #include <baker/view_read.hpp>
 
-#include "view_move.hpp"
+#include "move_read.hpp"
+#include "scalars_read.hpp"
 
 #include <algorithm>
 #include <chrono>

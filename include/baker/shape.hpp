@@ -168,6 +168,35 @@ private:
 // `list(shape(NAME,DIGEST))`), and its (@cxx T) if any. Zero for a shape the set lacks.
 [[nodiscard]] uint64_t view_digest(const Set& shapes, baker::Symbol shape) noexcept;
 
+// --- Generating views (D276). What baker_bake --views writes; a tool may call it too. ---
+
+struct ViewOptions {
+    std::string_view ns = "baker_views";  // the namespace the structs are generated in
+};
+
+// The shapes views are generated for: those marked (@view) and those `listed` (the project
+// file's (views (shapes ...))), plus every shape they nest, sorted by name. Errors in
+// `report`, located at the shape or field: a listed shape the set lacks, a nested shape it
+// lacks, a field of type `any` not marked (@view no), a shape that nests itself, a generated
+// name that is not a C++ identifier or is a keyword, two shapes whose struct names collide,
+// a field whose member name collides with another's, and more than 64 required fields.
+[[nodiscard]] List<baker::Symbol> view_shapes(const Set& shapes,
+                                              std::span<const baker::Symbol> listed,
+                                              Report& report);
+
+// The generated text, deterministic for a set: the struct header of `shape` (its file is
+// <shape>.hpp, reaching <baker/view.hpp>, <baker/curve.hpp> for a curve field, and the
+// struct headers of the shapes it nests); its reader header (<shape>_read.hpp: the
+// ViewReader<T> and Convert<T>, reaching <baker/view_read.hpp>); and the umbrella over
+// `shapes` as view_shapes gives them (views.hpp: every struct header and kViews, a ViewInfo
+// per view, for check_views). Call view_shapes first: these assume its checks passed.
+void write_view_header(const Set& shapes, baker::Symbol shape, const ViewOptions& options,
+                       TextSink out);
+void write_view_reader(const Set& shapes, baker::Symbol shape, const ViewOptions& options,
+                       TextSink out);
+void write_views_umbrella(const Set& shapes, std::span<const baker::Symbol> views,
+                          const ViewOptions& options, TextSink out);
+
 // Checks every array of `tree` that a shape of `shapes` governs, into `report`. With
 // `packs`, a key a harder pack's field names from a softer pack's table is a warning, as the
 // one-way rule warns of a call (D80).

@@ -10,6 +10,10 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
+#include <fstream>
+#include <initializer_list>
+#include <iterator>
 #include <map>
 #include <string>
 #include <vector>
@@ -904,4 +908,124 @@ TEST_CASE("the contract set holds the named layers' shapes, outside every #ifdef
     const Symbol only[] = {Symbol("core.dta")};
     (void)shape::contract_set(session, only, r3);
     CHECK(r3.errors.empty());
+}
+
+// --- Generating views (D276): which shapes, the names, and the golden headers. ---
+
+namespace {
+
+// The shapes the golden headers and the data tests' reader are generated from.
+const char* const kViewShapes =
+    "#shape (vec2 (@view) (x float) (y float))\n"
+    "#shape (move (@at fighters * moves) (@keyed) (@view)\n"
+    "   (startup     int (@range 1 60) (@cxx uint16))\n"
+    "   (damage      float)\n"
+    "   (name        string (@optional))\n"
+    "   (button      symbol (@optional))\n"
+    "   (armored     bool (@optional))\n"
+    "   (cancel_into (list symbol) (@optional))\n"
+    "   (hitbox      vec2 (@optional))\n"
+    "   (points      (list vec2 1 4) (@optional))\n"
+    "   (ramp        curve (@optional))\n"
+    "   (on_hit      any (@view no)))\n"
+    "#shape (scalars (@view) (startup int (@cxx uint16)) (damage float) (name string)\n"
+    "   (button symbol) (armored bool))\n";
+
+std::string generated(const shape::Set& set, const std::string& file) {
+    std::string out;
+    const shape::ViewOptions o{.ns = "views_test"};
+    const auto base = file.substr(0, file.find('.'));
+    if (file == "views.hpp") {
+        const Symbol views[] = {Symbol("move"), Symbol("scalars"), Symbol("vec2")};
+        shape::write_views_umbrella(set, views, o, string_out(out));
+    } else if (base.ends_with("_read")) {
+        shape::write_view_reader(set, Symbol(base.substr(0, base.size() - 5)), o, string_out(out));
+    } else {
+        shape::write_view_header(set, Symbol(base), o, string_out(out));
+    }
+    return out;
+}
+
+}  // namespace
+
+TEST_CASE("view_shapes: the marked and listed shapes and what they nest, sorted; its errors") {
+    shape::Set set;
+    shape::Report report;
+    add_text(set,
+             "#shape (b (@view) (inner a))\n"
+             "#shape (a (x int))\n"
+             "#shape (c (y int))\n"
+             "#shape (d (z int))\n",
+             report);
+    REQUIRE(report.errors.empty());
+    const Symbol listed[] = {Symbol("c")};
+    const auto views = shape::view_shapes(set, listed, report);
+    CHECK(report.errors.empty());
+    REQUIRE(views.size() == 3);
+    CHECK(views[0] == Symbol("a"));  // nested by b, so generated too
+    CHECK(views[1] == Symbol("b"));
+    CHECK(views[2] == Symbol("c"));
+
+    const auto errors = [](std::string_view text, std::initializer_list<const char*> listed_names) {
+        shape::Set s;
+        shape::Report r;
+        add_text(s, text, r);
+        REQUIRE(r.errors.empty());
+        std::vector<Symbol> l;
+        for (const char* n : listed_names) l.emplace_back(n);
+        (void)shape::view_shapes(s, l, r);
+        return texts(r.errors);
+    };
+    const auto has = [](const std::vector<std::string>& e, std::string_view part) {
+        return std::any_of(e.begin(), e.end(),
+                           [&](const std::string& s) { return s.find(part) != std::string::npos; });
+    };
+    CHECK(has(errors("#shape (a (x int))", {"nope"}),
+              "the project lists a view of shape 'nope', which no contract layer declares"));
+    CHECK(has(errors("#shape (a (@view) (x any))", {}),
+              "field 'x' of shape 'a' is `any`, which no struct can hold: mark it (@view no)"));
+    CHECK(has(errors("#shape (a (@view) (x (list any)))", {}), "is `any`"));
+    CHECK(has(errors("#shape (a (@view) (b b))\n#shape (b (a a))", {}),
+              "shape 'a' nests itself, so its view cannot be a struct"));
+    CHECK(has(errors("#shape (a (@view) (b (list b)))\n#shape (b (a a))", {}), "nests itself"));
+    CHECK(has(errors("#shape (a (@view) (b c))", {}), "shape 'a' nests the unknown shape 'c'"));
+    CHECK(has(errors("#shape (a (@view) (default int))", {}),
+              "field 'default' of shape 'a' would generate the member `default`"));
+    // `class` cases to `Class`, which is fine; a member keeps its name, so `default` is not.
+    CHECK(errors("#shape (class (@view) (x int))", {}).empty());
+    CHECK(has(errors("#shape (a (@view) (x int) (y int (@cxx_name x)))", {}),
+              "generates the member `x`, which another field does too"));
+    CHECK(
+        has(errors("#shape (boss_phase (@view) (x int))\n#shape (boss__phase (@view) (y int))", {}),
+            "shapes 'boss__phase' and 'boss_phase' both generate `BossPhase`"));
+    CHECK(has(errors("#shape (a (@view) (x int (@cxx_name int)))", {}), "member `int`"));
+}
+
+TEST_CASE("the generated headers match their golden files (BAKER_UPDATE_GOLDEN=1 rewrites them)") {
+    shape::Set set;
+    shape::Report report;
+    add_text(set, kViewShapes, "fighters.dta", report);
+    REQUIRE(report.errors.empty());
+    const auto views = shape::view_shapes(set, {}, report);
+    REQUIRE(report.errors.empty());
+    REQUIRE(views.size() == 3);
+    const bool update = std::getenv("BAKER_UPDATE_GOLDEN") != nullptr;
+    for (const char* file : {"vec2.hpp", "vec2_read.hpp", "move.hpp", "move_read.hpp",
+                             "scalars.hpp", "scalars_read.hpp", "views.hpp"}) {
+        const std::string path = kDir + "/views/" + file;
+        const std::string text = generated(set, file);
+        if (update) {
+            std::ofstream(path) << text;
+            continue;
+        }
+        std::ifstream in(path);
+        REQUIRE_MESSAGE(in, path);
+        const std::string golden((std::istreambuf_iterator<char>(in)), {});
+        CHECK_MESSAGE(text == golden, file);
+    }
+    // The digest in the struct is the shape's.
+    char hex[32];
+    std::snprintf(hex, sizeof hex, "0x%016llxull",
+                  static_cast<unsigned long long>(shape::view_digest(set, Symbol("move"))));
+    CHECK(generated(set, "move.hpp").find(hex) != std::string::npos);
 }

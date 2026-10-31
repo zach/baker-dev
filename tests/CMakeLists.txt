@@ -43,6 +43,8 @@ add_executable(baker_data_tests
   data/test_write.cpp)
 target_link_libraries(baker_data_tests PRIVATE baker::data baker_parse_harness baker_doctest_main
                       baker_alloc_counter)
+# The golden view headers the shape tests generate (D276): the data tests read through them.
+target_include_directories(baker_data_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/shape/views)
 # White-box tests of internal helpers (text.hpp).
 target_include_directories(baker_data_tests PRIVATE ${PROJECT_SOURCE_DIR}/src ${PROJECT_SOURCE_DIR}/src/data support)
 if(BAKER_USE_EASTL)  # the white-box tests include src/data/text.hpp
