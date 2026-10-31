@@ -1,4 +1,4 @@
-; Both migrations, in either order, give the same text (D270).
+; Both migrations, in either order, give the same text (D274).
 (shapes
   (enemy (at /enemies/*)
     (desc "One enemy.")

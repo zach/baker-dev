@@ -9513,7 +9513,7 @@ shipping.*
   bytes a name, which the cookbook now says.
 
 
-## D270. The metadata migration reads #shape too
+## D274. The metadata migration reads #shape too
 
 *Reported by a live-ops host trying 0.7.0.* The two 0.7.0 migrators were written to run
 metadata first: `baker_migrate_metadata` found a shape's metadata inside a top-level
@@ -9532,7 +9532,7 @@ had an untagged value, `(hp int (range 1 100))`, so the miss was partial and eas
   `@at`, `@desc` and `@optional`. It fails on 0.7.0's migrator.
 - **Cost.** One test per bracket at the top level; the migrators are run once.
 
-## D271. The shape check's cost on push, back to 0.6.0's
+## D275. The shape check's cost on push, back to 0.6.0's
 
 *Reported by a live-ops host trying 0.7.0:* pushing an overlay under `shape::validator()`
 took about 16% longer than under 0.6.0 (0.44 to 0.51 ms with a checked report, 1.03 to 1.20

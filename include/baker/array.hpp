@@ -58,7 +58,7 @@
 #include <utility>
 
 // values() is in every walk's inner loop: inlined even where the caller is too large for the
-// compiler to inline it on its own (D271).
+// compiler to inline it on its own (D275).
 #if defined(_MSC_VER) && !defined(__clang__)
 #define BAKER_DETAIL_INLINE __forceinline
 #elif defined(__GNUC__) || defined(__clang__)

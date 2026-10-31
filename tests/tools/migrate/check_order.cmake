@@ -1,5 +1,5 @@
 # Runs the two migrations over SOURCE in both orders, into WORK, and fails unless the texts
-# match and the metadata inside the shape has its sigil (D270).
+# match and the metadata inside the shape has its sigil (D274).
 foreach(order "DECL;META" "META;DECL")
   string(REPLACE ";" "_" name "${order}")
   set(text "${SOURCE}")

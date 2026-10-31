@@ -440,7 +440,7 @@ struct Checker {
     Vec<Error>& warnings;
     // The tags of the arrays from the root to here: chain[0, depth). The Vec only grows, to
     // the deepest walk, so a step down is a store, not a push_back the compiler may leave out
-    // of line (D271).
+    // of line (D275).
     Vec<baker::Symbol> chain;
     size_t depth = 0;
     Vec<const Shape*> keyed;    // the (@keyed) shapes, which match by place, not by tag
