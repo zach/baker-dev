@@ -9588,3 +9588,56 @@ ms when the push checks again), and the same push without validators took no lon
 - **Elsewhere.** `tools/count_instructions.py` against main: every case unchanged but
   `check` and `check_pinned`, -0.08% (3,577,240 to 3,574,440 and 4,055,407 to 4,052,207),
   and `set`, +1 instruction (677 to 678).
+
+## D276. The migrations as a call: `tools::migrate_text`, and one `baker_migrate`
+
+*From the editor integration's requirement note 0027, which the owner chose to build.* 0.7.0
+changed how metadata and declarations are spelled, and its two migrators rewrote whole files
+from a shell. A tool working on one file at a time had no way to use their rules: an editor
+showed nothing for an old form in a project's own files (a check names them only for a
+candidate layer), a CI step had to run a migrator over the tree to know, and an agent writing
+from older examples had nothing to point it at the change.
+
+- **The call.** `tools::migrate_text(text, sink, options)` (`<baker/tools/migrate.hpp>`)
+  writes the migrated text to `sink` and returns `Migrated`: the findings in text order and
+  the tolerant read's errors. A `MigrationFinding` names its `Migration` (`Metadata` or
+  `Declarations`), its byte span (the form, or the tag a rename marks), a `warning` worded as
+  a check words it (`ErrorCode::Syntax`, its line, `options.file`), and its `edits`:
+  `TextEdit`s, a byte span replaced by text with static storage. `apply_findings(text,
+  findings, sink)` applies any of them together: one for a quick fix, all for the file.
+- **Granularity.** A metadata rename is a finding of its own, one `@`. A declaration is one
+  finding with all its edits: `(shapes (a ...) (b ...))` loses its opening, its close and its
+  gaps and re-indents its lines in one finding, since applying a part of that alone would
+  leave text that does not read.
+- **Edits never overlap,** within a finding or across findings, so any set applies: a
+  shape's renames sit inside the shapes it splits, and the split touches only the gaps
+  between them and the blanks at the start of their lines. Both migrations are found in one
+  call over one `read_structure`, so their order is gone as a question (D274).
+- **Left to a person.** What the migrators reported and left alone is a finding with no
+  edits whose warning says why: an array with no untagged value whose last child is tagged
+  with a metadata word, and, with `options.prose`, a top-level form tagged with one.
+- **Options.** `migrations`, a bit per `Migration`; `fixed_lines` for Baker text whose
+  lines are not its own (C++ string literals: a split puts the shapes a space apart, and
+  nothing is re-indented); `prose` for text quoted in a document. A split keeps the text's
+  line end, CRLF or LF; the old migrator wrote LF in either.
+- **The tool.** The owner chose one tool for both migrations over keeping the two 0.7.0
+  names: `baker_migrate` (`tools/migrate.cpp`) is the file loop, the C++ and Markdown runs
+  (`migrate_runs.hpp`, unchanged) and the report, around the call. `--only metadata` or
+  `--only declarations` picks one; `--check` exits 1 if anything would change, for a
+  pre-commit hook. `baker_migrate_metadata` and `baker_migrate_declarations` are gone; the
+  next release's changelog names the new tool for whoever has yet to migrate from 0.6.0.
+- **Parity.** Over the 131 files of 0.6.0 that hold Baker text (68 `.dta`, 55 C++ test
+  files with `--cpp`, 8 user docs with `--md`), `baker_migrate --write` gives byte for byte
+  what the two 0.7.0 tools gave run one after the other, and each `--only` what that tool
+  gave alone. A second run finds nothing to rewrite in any of them.
+- **Costs.** On a 2,116,620-byte file of that data, best of 10, Release: `migrate_text`
+  25.2 ms with 11,820 findings (`read_structure` alone 17.7 ms); 24.3 ms on the migrated
+  file, 30 findings left for review. The note asked for about 50 ms. A finding costs its
+  warning (an `Error`) and a `List` of its edits; the structure's children are kept in one
+  flat array, not a vector a bracket as the migrators did. Nothing here is on a game's path:
+  it is in `baker::tools`.
+- **Tests.** `tests/tools/test_migrate.cpp`: each migration's findings, words and edits;
+  one finding applied alone; a shape's metadata and its split in one pass and in either
+  order; a second call finds nothing; the cases left to a person; text that does not parse;
+  CRLF and fixed lines. The ctest `baker_migrate_order` runs the tool both ways and in one
+  pass.

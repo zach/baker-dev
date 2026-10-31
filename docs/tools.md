@@ -45,7 +45,8 @@ transport you choose carry Baker's tools: a socket, a pipe, an in-game console.
 `baker::tools` library, in `<baker/tools/...>` and namespace `baker::tools`: the reference
 and the check report as JSON, `explain`, `layer_effect` and `diff`, the console's
 `config.*` commands, the vocabulary declared from a reference (`DescribedTweaks`,
-`declare_type`, `declare_object`), `script_functions` and `read_structure`. A tool links it
+`declare_type`, `declare_object`), `script_functions`, `read_structure`, `format_text` and
+`migrate_text`. A tool links it
 directly; a game links it only through the host kit, which uses it. What a game runs on its
 own data stays in the core: `check`, `source`, write-back, the tweaks' JSON (so a data-only
 program can write it), `split_metadata` and `presented_kind`.
@@ -74,6 +75,23 @@ An editor works on text that rarely parses, and checks it on every pause:
   editor applies them without moving the cursor through unchanged text; `.begin` and
   `.end` lay out only the forms a selection touches. Formatting twice changes nothing. 2 MB
   takes about 60 ms.
+- **Old spellings, with their fixes.** `tools::migrate_text(text, sink)` finds each form a
+  language migration rewrites, writes the text with all of them rewritten to `sink`, and
+  returns them as findings. Each finding gives its migration (`Migration::Metadata`, the `@`
+  of metadata; `Migration::Declarations`, `#pack`, `#origin`, `#shape` and `[NAME ...]`
+  macros), its byte span, a warning worded as a check words it, and its edits: byte spans
+  of the text replaced, and nothing else changed. An editor shows the warnings in every file
+  of a project and offers a finding's edits as a quick fix (`apply_findings` with that one
+  finding), or all of them for the file; a CI step fails on any finding; an agent writing
+  from older examples is told what to change. What a migration will not decide, an array
+  whose children are all tagged and the last with a metadata word, is a finding with no
+  edits that says why. Text that does not parse gets the findings that can be located.
+  Migrating the result finds nothing to rewrite. 2 MB takes about 25 ms.
+
+  The `baker_migrate` tool (in `tools/`) runs it over files: `--write` rewrites them,
+  `--report` lists what would change, `--check` exits 1 if anything would, `--only metadata`
+  or `--only declarations` picks one, and `--cpp` and `--md` migrate the Baker text in C++
+  string literals and in Markdown.
 - **The house layout.** Three spaces a level and a hundred columns is `WriteOptions`'
   default, and the layout of a project without `(format ...)`. A Config opened from a
   project (`open_project`) writes in the project's layout: the forms promote and write-back

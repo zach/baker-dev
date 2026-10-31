@@ -196,7 +196,7 @@ and the tool commands a game runs from its `main`
 | `BAKER_BUILD_TESTS` | `ON` when top-level | The test suite |
 | `BAKER_BUILD_EXAMPLES` | `ON` when top-level | `examples/`, each run by CTest |
 | `BAKER_BUILD_HARNESS` | `OFF` | `examples/harness-imgui`; fetches Dear ImGui and GLFW |
-| `BAKER_BUILD_TOOLS` | `ON` when top-level | `baker_parse_corpus`, `baker_bake` |
+| `BAKER_BUILD_TOOLS` | `ON` when top-level | `baker_parse_corpus`, `baker_bake`, `baker_migrate` |
 | `BAKER_BUILD_BENCH` | `OFF` | `bench/` |
 | `BAKER_BUILD_FUZZERS` | `OFF` | libFuzzer targets (Clang) |
 | `BAKER_ATOMIC_REFCOUNT` | `ON` | `OFF` for single-threaded programs |
