@@ -1,6 +1,19 @@
 # Runs baker_migrate (MIGRATE) over SOURCE three ways, into WORK: one migration then the other,
 # in both orders, and both in one pass. Fails unless the three texts match and the metadata
-# inside the shape has its sigil (D274, D276).
+# inside the shape has its sigil (D274, D276). Then the same over a CRLF copy, whose line ends
+# the tool keeps on every platform.
+if(NOT CRLF)
+  file(READ "${SOURCE}" lf)
+  string(REPLACE "\r\n" "\n" lf "${lf}")
+  string(REPLACE "\n" "\r\n" crlf "${lf}")
+  file(WRITE "${WORK}/migrate_crlf.dta" "${crlf}")
+  execute_process(COMMAND "${CMAKE_COMMAND}" -DMIGRATE=${MIGRATE} -DSOURCE=${WORK}/migrate_crlf.dta
+                          -DWORK=${WORK} -DCRLF=1 -P "${CMAKE_CURRENT_LIST_FILE}"
+                  RESULT_VARIABLE rc)
+  if(NOT rc EQUAL 0)
+    message(FATAL_ERROR "the CRLF copy failed")
+  endif()
+endif()
 foreach(order "declarations;metadata" "metadata;declarations" "")
   string(REPLACE ";" "_" name "_${order}")
   set(text "${SOURCE}")
@@ -9,7 +22,7 @@ foreach(order "declarations;metadata" "metadata;declarations" "")
     set(steps "all")
   endif()
   foreach(step ${steps})
-    set(out "${WORK}/migrate${name}_${step}.dta")
+    set(out "${WORK}/migrate${CRLF}${name}_${step}.dta")
     if(step STREQUAL "all")
       set(only "")
     else()

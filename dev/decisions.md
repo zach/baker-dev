@@ -9640,4 +9640,6 @@ from older examples had nothing to point it at the change.
   one finding applied alone; a shape's metadata and its split in one pass and in either
   order; a second call finds nothing; the cases left to a person; text that does not parse;
   CRLF and fixed lines. The ctest `baker_migrate_order` runs the tool both ways and in one
-  pass.
+  pass, over the file and over a CRLF copy of it. The tool writes stdout in binary on Windows:
+  a text-mode stdout turned each `\r\n` of a CRLF checkout into `\r\r\n`, which MSVC's CI
+  caught once the split began keeping the text's line end.

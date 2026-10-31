@@ -38,6 +38,11 @@
 #include <string_view>
 #include <vector>
 
+#if defined(_WIN32)
+#include <fcntl.h>
+#include <io.h>
+#endif
+
 namespace {
 
 using namespace baker::migrate;
@@ -121,6 +126,11 @@ constexpr const char* kUsage =
 }  // namespace
 
 int main(int argc, char** argv) {
+#if defined(_WIN32)
+    // The text as migrated, byte for byte: a text-mode stdout would turn a CRLF text's \r\n
+    // into \r\r\n.
+    (void)_setmode(_fileno(stdout), _O_BINARY);
+#endif
     bool write = false, report = false, check = false;
     uint32_t migrations = 0;
     Mode mode = Mode::Dta;
