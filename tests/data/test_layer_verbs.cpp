@@ -270,12 +270,15 @@ TEST_CASE("the check reports each verb, a stale pin, and operands that change no
     CHECK(r.warnings[0].line() == 3);
     CHECK(r.warnings[1].line() == 4);
 
-    // A plain push of a layer sends the same warnings to the handler, and applies.
+    // A plain push of a layer sends the same warnings to the handler, and applies. A shipping
+    // build does not look for them (D267).
     std::vector<std::string> warned;
     moved.set_warning_handler([&](const Error& e) { warned.emplace_back(e.message()); });
     REQUIRE(moved.push_layer("agent", dir.write("agent.dta", agent)));
-    REQUIRE(warned.size() == 2);
-    CHECK(warned[0] == "'cpu.easy.reaction' was 30 when this row was written; the stack has 32");
+    REQUIRE(warned.size() == (kShipping ? 0 : 2));
+    if constexpr (!kShipping)
+        CHECK(warned[0] ==
+              "'cpu.easy.reaction' was 30 when this row was written; the stack has 32");
     CHECK(moved.get<int>("cpu.easy.reaction") == 26);
     CHECK_FALSE(moved.get<int>("menu.debug"));
 }
@@ -393,4 +396,29 @@ BAKER_DEV_TEST_CASE("promote deletes a removed key and writes a composed list re
     REQUIRE(w.refused.size() == 1);
     CHECK(has(w.refused[0].message(), "its verb moves keyed tuples"));
     CHECK(w.refused[0].line() == 1);
+}
+
+TEST_CASE("verbs over a long list: each dropped value once per operand, appends in order (D267)") {
+    // Two operands of one value drop its first two, wherever they are; a third operand
+    // finds none left.
+    CHECK(merged("(l a b a c a)", "(l #drop a a)") == "((l b c a))");
+    CHECK(merged("(l a b)", "(l #drop a a a)") == "((l b))");
+    CHECK(merged("(l 1 1.0 -0.0 0.0)", "(l #drop 1.0 0.0)") == "((l 1 -0.0))");
+    // Thousands of operands: the result, not the time, which the D-entry gives.
+    std::string base = "(l", drop = "(l #drop", append = "(l #append";
+    for (int i = 0; i < 4000; ++i) {
+        base += " " + std::to_string(i);
+        if (i % 2 == 0) drop += " " + std::to_string(i);
+        append += " " + std::to_string(4000 + i);
+    }
+    base += ")";
+    drop += ")";
+    append += ")";
+    const auto dropped = merge(*parse(base), *parse(drop));
+    REQUIRE(dropped->try_find("l"));
+    CHECK(dropped->try_find("l")->values().size() == 2000);
+    CHECK(*dropped->try_find("l")->values()[0].try_int() == 1);
+    const auto appended = merge(*parse(base), *parse(append));
+    CHECK(appended->try_find("l")->values().size() == 8000);
+    CHECK(*appended->try_find("l")->values()[4000].try_int() == 4000);
 }

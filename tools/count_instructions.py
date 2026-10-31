@@ -27,7 +27,7 @@ import sys
 
 CASES = {"parse": 200, "lookup": 20000, "lookup_text": 20000, "set": 20000, "merge": 20,
          "merge_pinned": 20, "merge_append": 20, "check": 20, "check_pinned": 20, "call": 20000,
-         "overload": 20000, "declared": 20000, "message": 20000, "message_loose": 20000, "handle_all": 2000,
+         "var": 20000, "overload": 20000, "declared": 20000, "message": 20000, "message_loose": 20000, "handle_all": 2000,
          "frame": 2000}
 REFS = re.compile(r"I\s+refs:\s+([\d,]+)")
 

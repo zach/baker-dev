@@ -53,6 +53,8 @@ enum class Marker : uint8_t { None, Remove, Append, Drop };
 // symbol in its slot, however it was spelled: a quoted '#remove' there is one (D143).
 // The verb of an array whose flag is set (merge.cpp).
 [[nodiscard]] Marker verb_in(const Array& a) noexcept;
+// A hash that agrees with structurally_equal: equal nodes hash the same (merge.cpp, D267).
+[[nodiscard]] uint64_t structural_hash(const Node& n, uint64_t h = 1) noexcept;
 [[nodiscard]] inline Marker verb_of(const Array& a) noexcept {
     return a.has_marker() ? verb_in(a) : Marker::None;
 }

@@ -219,3 +219,45 @@ TEST_CASE("a received layer's rows are held to its policy at the row's line") {
     REQUIRE(report->refusals.size() == 1);
     CHECK(report->refusals[0].line() == 2);
 }
+
+namespace {
+// Bytes live from one allocator.
+struct LiveBytes {
+    size_t live = 0;
+    baker::Allocator allocator() {
+        return {[](void* u, size_t size, size_t, baker::MemoryKind) -> void* {
+                    static_cast<LiveBytes*>(u)->live += size;
+                    return ::operator new(size);
+                },
+                [](void* u, void* p, size_t size, baker::MemoryKind) {
+                    static_cast<LiveBytes*>(u)->live -= size;
+                    ::operator delete(p);
+                },
+                this};
+    }
+};
+}  // namespace
+
+TEST_CASE("a file of rows holds about what the same file written nested holds (D267)") {
+    std::string rows, nested = "(world";
+    for (int i = 0; i < 500; ++i) {
+        const std::string n = std::to_string(i);
+        rows += "(/world.zone" + n + ".spawn.rate " + n + ")\n";
+        nested += " (zone" + n + " (spawn (rate " + n + ")))";
+    }
+    nested += ")\n";
+    auto held = [](const std::string& text) {
+        LiveBytes bytes;
+        const Allocator alloc = bytes.allocator();
+        LoadSession s;
+        s.allocator = &alloc;
+        const auto root = read_string(text, "w.dta", s);
+        REQUIRE(root);
+        return std::pair{bytes.live, to_string(**root)};
+    };
+    const auto [rows_bytes, rows_text] = held(rows);
+    const auto [nested_bytes, nested_text] = held(nested);
+    CHECK((rows_text == nested_text));
+    MESSAGE("rows " << rows_bytes << " B, nested " << nested_bytes << " B");
+    CHECK(rows_bytes <= nested_bytes * 5 / 4);  // 2.3 times before (D267)
+}

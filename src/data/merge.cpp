@@ -3,6 +3,10 @@
 #include "arena.hpp"
 #include "common/containers.hpp"
 
+#include <algorithm>
+#include <bit>
+#include <iterator>
+
 namespace baker {
 namespace detail {
 
@@ -15,6 +19,28 @@ Marker verb_in(const Array& a) noexcept {
     const size_t values = a.meta_first() ? a.meta_first() : a.size();  // the tag's too
     if (m == Marker::Remove ? values != 2 : values < 3) return Marker::None;
     return m;
+}
+
+// A hash that agrees with structurally_equal: equal nodes hash the same (floats by their bits).
+uint64_t structural_hash(const Node& n, uint64_t h) noexcept {
+    constexpr uint64_t k = 0x9E3779B97F4A7C15ull;
+    const auto mix = [&](uint64_t v) { h = std::rotl((h ^ v) * k, 27); };
+    mix(static_cast<uint64_t>(n.type()) + 1);
+    switch (n.type()) {
+        case Type::Int: mix(static_cast<uint64_t>(*n.try_int())); break;
+        case Type::Float: mix(n.float_bits()); break;
+        case Type::Symbol: mix(n.try_sym()->hash()); break;
+        case Type::Var: mix(n.var_name().hash()); break;
+        case Type::String: mix(symbol_hash(n.string()->view())); break;
+        case Type::Array:
+        case Type::Command:
+        case Type::Property:
+            mix(n.array()->size());
+            for (const Node& c : *n.array()) h = structural_hash(c, h);
+            break;
+        default: break;  // a function or an object: the compare decides
+    }
+    return h;
 }
 
 namespace {
@@ -84,13 +110,30 @@ size_t meta_start(const Vec<Node>& dst, size_t first) noexcept {
 // (key #append v...) or (key #drop v...) applied to dst's value run from `dst_first`: the
 // operands go after the run, before any metadata, or each removes the first node of the run
 // structurally equal to it (a tuple is restated as written). Spans move with their nodes.
+// Linear in the run and the operands: the run's end is found once, appends go in at once,
+// and a drop matches each node of the run against the operands through their hashes, which
+// removes the first c nodes equal to a value that c operands name, as dropping them one at
+// a time would. One at a time was quadratic: 16,000 operands took 0.8 s (D267).
 bool apply_verb(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const Array& src,
                 Marker verb, SourceMap* map, Arena* arena) {
-    bool changed = false;
     const size_t end = src.meta_first() ? src.meta_first() : src.size();
-    for (size_t j = 2; j < end; ++j) {
-        const size_t run = meta_start(dst, dst_first);
-        if (verb == Marker::Append) {
+    if (end <= 2) return false;
+    const size_t run = meta_start(dst, dst_first);
+    if (verb == Marker::Append) {
+        // Usually no operand holds a verb: the operands go in as they are, in one insert.
+        bool plain = true;
+        for (size_t j = 2; j < end && plain; ++j)
+            if (const Array* op = src[j].type() == Type::Array ? src[j].array() : nullptr)
+                plain = !op->has_marker();
+        if (plain && !spans) {
+            const Node* from = src.nodes().data();
+            dst.insert(dst.begin() + static_cast<ptrdiff_t>(run), from + 2, from + end);
+            return true;
+        }
+        Vec<Node> adds;
+        Vec<SourceSpan> add_spans;
+        adds.reserve(end - 2);
+        for (size_t j = 2; j < end; ++j) {
             Node n = src[j];
             if (const Array* op = src[j].type() == Type::Array ? src[j].array() : nullptr;
                 op && op->has_marker()) {  // an operand holding a verb is resolved too
@@ -98,24 +141,59 @@ bool apply_verb(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const 
                 if (!clean) continue;
                 n = Node(std::move(clean));
             }
-            dst.insert(dst.begin() + static_cast<ptrdiff_t>(run), std::move(n));
+            adds.push_back(std::move(n));
             if (spans) {
                 const SourceSpan* sp = map->span(src, j);
-                spans->insert(spans->begin() + static_cast<ptrdiff_t>(run),
-                              sp ? *sp : SourceSpan{});
+                add_spans.push_back(sp ? *sp : SourceSpan{});
             }
-            changed = true;
-            continue;
         }
-        for (size_t i = dst_first; i < run; ++i)
-            if (structurally_equal(dst[i], src[j])) {
-                dst.erase(dst.begin() + static_cast<ptrdiff_t>(i));
-                if (spans) spans->erase(spans->begin() + static_cast<ptrdiff_t>(i));
-                changed = true;
+        if (adds.empty()) return false;
+        dst.insert(dst.begin() + static_cast<ptrdiff_t>(run), std::make_move_iterator(adds.data()),
+                   std::make_move_iterator(adds.data() + adds.size()));
+        if (spans)
+            spans->insert(spans->begin() + static_cast<ptrdiff_t>(run), add_spans.data(),
+                          add_spans.data() + add_spans.size());
+        return true;
+    }
+    // The operands by hash, each used once.
+    struct Operand {
+        uint64_t hash;
+        uint32_t index;
+        bool used;
+    };
+    Vec<Operand> ops;
+    ops.reserve(end - 2);
+    for (size_t j = 2; j < end; ++j)
+        ops.push_back({structural_hash(src[j]), static_cast<uint32_t>(j), false});
+    std::sort(ops.begin(), ops.end(), [](const Operand& a, const Operand& b) {
+        return a.hash != b.hash ? a.hash < b.hash : a.index < b.index;
+    });
+    size_t kept = dst_first;
+    for (size_t i = dst_first; i < run; ++i) {
+        const uint64_t h = structural_hash(dst[i]);
+        auto it = std::lower_bound(ops.begin(), ops.end(), h,
+                                   [](const Operand& o, uint64_t v) { return o.hash < v; });
+        bool drop = false;
+        for (; it != ops.end() && it->hash == h; ++it)
+            if (!it->used && structurally_equal(dst[i], src[it->index])) {
+                it->used = true;
+                drop = true;
                 break;
             }
+        if (drop) continue;
+        if (kept != i) {
+            dst[kept] = std::move(dst[i]);
+            if (spans) (*spans)[kept] = (*spans)[i];
+        }
+        ++kept;
     }
-    return changed;
+    if (kept == run) return false;
+    dst.erase(dst.begin() + static_cast<ptrdiff_t>(kept),
+              dst.begin() + static_cast<ptrdiff_t>(run));
+    if (spans)
+        spans->erase(spans->begin() + static_cast<ptrdiff_t>(kept),
+                     spans->begin() + static_cast<ptrdiff_t>(run));
+    return true;
 }
 
 // The index of a wide array's tags, in a level's tables: the first child with each tag.

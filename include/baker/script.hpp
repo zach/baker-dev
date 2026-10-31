@@ -1053,18 +1053,15 @@ void eval_request(Context& ctx, std::string_view line, TextSink reply);
 
 namespace detail {
 // Whether argument `n` is read as written, not evaluated first: a literal, or anything once
-// the arguments are evaluated. A command, a [property] or a $variable is evaluated (D262). A
-// number reads only from an int or a float, so for one the test is left to the read.
+// the arguments are evaluated. A command, a [property] or a $variable is evaluated (D262).
+// The test is made for a number too: leaving it to the read saved 14 instructions and made
+// {add $x 1} 24% slower, a read that must fail first (D262, D267).
 [[nodiscard]] constexpr bool evaluated_first(Type t) noexcept {
     return t == Type::Command || t == Type::Property || t == Type::Var;
 }
 template <class T>
 [[nodiscard]] constexpr bool read_as_written(const Node& n, bool evaluated) noexcept {
-    if constexpr (std::is_arithmetic_v<T> && !std::is_same_v<T, bool>) {
-        return true;
-    } else {
-        return evaluated || !evaluated_first(n.type());
-    }
+    return evaluated || !evaluated_first(n.type());
 }
 }  // namespace detail
 

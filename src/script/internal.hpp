@@ -170,21 +170,76 @@ BAKER_COLD Expected<Node> fail(const Array& at, ErrorCode code, std::string_view
     return Node::func(nullptr);
 }
 
-// A call's evaluated arguments: eight on the stack, more from the Context's allocator, so a
-// call of nine counts against the Context's memory as the rest of it does (D61). Not a Vec:
-// an empty std::vector allocates in MSVC's debug library. Not a NodeBuffer: it costs 70
-// instructions a call.
+// Where calls of more arguments than ArgValues holds inline put them: blocks that never
+// move, used last in, first out as calls nest, and kept for the next call, so a call
+// allocates nothing once the Context has made the deepest it needs (D267). From the
+// Context's allocator.
+class SpillStack {
+public:
+    explicit SpillStack(const Allocator& alloc) noexcept : alloc_(&alloc) {}
+    ~SpillStack() {
+        while (first_) {
+            Block* next = first_->next;
+            detail::deallocate(*alloc_, first_, sizeof(Block) + first_->cap * sizeof(Node));
+            first_ = next;
+        }
+    }
+    SpillStack(const SpillStack&) = delete;
+    SpillStack& operator=(const SpillStack&) = delete;
+
+    // `n` unset nodes, after any taken and not yet given back.
+    [[nodiscard]] Node* push(size_t n) {
+        if (!top_ || top_->cap - top_->used < n) next_block(n);
+        Node* p = nodes(top_) + top_->used;
+        for (size_t i = 0; i < n; ++i) ::new (p + i) Node();
+        top_->used += n;
+        return p;
+    }
+    // Gives back the last `n` pushed.
+    void pop(size_t n) noexcept {
+        Node* p = nodes(top_) + top_->used - n;
+        for (size_t i = 0; i < n; ++i) p[i].~Node();
+        top_->used -= n;
+        if (top_->used == 0 && top_->prev) top_ = top_->prev;
+    }
+
+private:
+    struct alignas(Node) Block {
+        Block* prev;
+        Block* next;
+        size_t cap;
+        size_t used;
+    };
+    static Node* nodes(Block* b) noexcept { return reinterpret_cast<Node*>(b + 1); }
+    // The block after the top if it is free and large enough, else a new one there.
+    void next_block(size_t n) {
+        Block* after = top_ ? top_->next : first_;
+        if (!after || after->cap < n) {
+            const size_t cap = n > kBlock ? n : kBlock;
+            auto* b = static_cast<Block*>(
+                detail::allocate(*alloc_, sizeof(Block) + cap * sizeof(Node), alignof(Block)));
+            *b = Block{top_, after, cap, 0};
+            if (after) after->prev = b;
+            (top_ ? top_->next : first_) = b;
+            after = b;
+        }
+        top_ = after;
+    }
+    static constexpr size_t kBlock = 64;
+    const Allocator* alloc_;
+    Block* first_ = nullptr;
+    Block* top_ = nullptr;
+};
+
+// The arguments of a call that evaluates them all first (an overload set, a declared
+// function): eight on the stack, more on the Context's spill stack (D250, D267).
 class ArgValues {
 public:
-    ArgValues(const Allocator& alloc, size_t n) : alloc_(&alloc) {
-        if (n <= kInline) return;
-        data_ = static_cast<Node*>(detail::allocate(alloc, n * sizeof(Node), alignof(Node)));
-        for (; held_ < n; ++held_) ::new (data_ + held_) Node();
+    ArgValues(SpillStack& spill, size_t n) : spill_(&spill), n_(n) {
+        if (n > kInline) data_ = spill.push(n);
     }
     ~ArgValues() {
-        if (data_ == inline_) return;
-        for (size_t i = 0; i < held_; ++i) data_[i].~Node();
-        detail::deallocate(*alloc_, data_, held_ * sizeof(Node));
+        if (data_ != inline_) spill_->pop(n_);
     }
     ArgValues(const ArgValues&) = delete;
     ArgValues& operator=(const ArgValues&) = delete;
@@ -192,10 +247,10 @@ public:
 
 private:
     static constexpr size_t kInline = 8;
-    const Allocator* alloc_;
+    SpillStack* spill_;
+    size_t n_;
     Node inline_[kInline];
     Node* data_ = inline_;
-    size_t held_ = 0;
 };
 [[nodiscard]] inline bool is_unset(const Node& n) noexcept {
     return n.type() == Type::Func && !n.func_record();
@@ -328,6 +383,7 @@ struct Context::Impl {
     // Types and objects a tool declared from the reference, for check(): the types are the
     // Context's to free; an object is a name and its type.
     Vec<detail::TypeRecord*> declared_types{alloc};
+    SpillStack spill{alloc};  // ArgValues past eight (D267)
     Vec<std::pair<Symbol, Symbol>> declared_objects{alloc};
     [[nodiscard]] Symbol declared_object(Symbol name) const noexcept {
         for (const auto& [n, type] : declared_objects)

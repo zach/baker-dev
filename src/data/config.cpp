@@ -776,20 +776,23 @@ Expected<void> Config::Impl::push_read(Config& c, LayerState&& layer, LayerOptio
     const Rc<LoadSession> below = session_below(layers, *at);
     Vec<Error> read_warnings(alloc);
     if (auto r = read(layer, *below, nullptr, &read_warnings); !r) return r;
-    if (!opts.policy && warn && layer.root->has_marker()) {
-        // What a check would say of its verbs and pins, over the layers below it: one merge,
-        // only for a layer that holds either.
-        Ref<Array> stack = Array::make(0);
-        for (size_t i = 0; i < *at; ++i)
-            if (layers[i].options.enabled)
-                stack =
-                    detail::merge(*stack, *layers[i].root, MergePolicy::Overwrite, merge_scratch);
-        Vec<Node> v(alloc);
-        Vec<Error> found(alloc);
-        for (const Leaf& leaf : leaves_of(*layer.root))
-            row_warnings(*leaf.holder, leaf.path,
-                         value_nodes(*stack, Path(leaf.path), v) ? &v : nullptr, *stack, found);
-        for (const Error& w : found) warn(w);
+    // What a check would say of its verbs and pins, over the layers below it: one merge, only
+    // for a layer that holds either. Not in shipping, where nobody reads them: the merge, and
+    // the write-back code it reaches, stay out of a shipped game (D267).
+    if constexpr (!kShipping) {
+        if (!opts.policy && warn && layer.root->has_marker()) {
+            Ref<Array> stack = Array::make(0);
+            for (size_t i = 0; i < *at; ++i)
+                if (layers[i].options.enabled)
+                    stack = detail::merge(*stack, *layers[i].root, MergePolicy::Overwrite,
+                                          merge_scratch);
+            Vec<Node> v(alloc);
+            Vec<Error> found(alloc);
+            for (const Leaf& leaf : leaves_of(*layer.root))
+                row_warnings(*leaf.holder, leaf.path,
+                             value_nodes(*stack, Path(leaf.path), v) ? &v : nullptr, *stack, found);
+            for (const Error& w : found) warn(w);
+        }
     }
     if (opts.policy) {
         // A file has no report that holds: no check reads by path.

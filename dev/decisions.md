@@ -9429,3 +9429,51 @@ the shipping and record findings D268.*
   -0.2% and merge -0.1% (the parser's test is one compare now). The tick's check runs once
   a task, cold.
 
+## D267. The same review's cost findings
+
+*From D266's review; the owner chose to fix each with a clear fix, and for these: a spill
+stack per Context for calls of nine arguments or more, and the verb and pin warnings out of
+shipping.*
+
+- **`{add $x 1}` is fast again** (from D262). D262 left a number parameter's fast-path test
+  to the read, which saved instructions on a literal but made a `$var` or `{cmd}` argument
+  try a read that must fail first: 37.6 to 46.5 ns. The type test is back for every
+  parameter. `tools/bench_compare.py --bench call` against D266, five runs: `{add $x 1}`
+  47.2 to 38.0 ns (-19.4%), `{add {add 1 2} 3}` 76.6 to 67.1 ns (-12.4%), `{add 1 2}`
+  32.8 to 32.7 ns; `handle_all` 411 to 366 ns, which runs none of this (code layout, as
+  D257 measured the other way). Instructions: call 307 to 312, var 459 to 452.
+- **Count cases.** `tools/count`'s `overload` became one variadic native when D262 made
+  `{+}` one; it is a real set of two again (`{s2 1.5 2}`), and `var` counts `{add $x 1}`.
+  Their numbers before this entry are not comparable.
+- **Layer verbs are linear** (from D251). Each `#append` operand rescanned the run and
+  inserted alone; each `#drop` compared every node of the run; the check's warnings did
+  the same. Now `#append` finds the run's end once and inserts the operands together,
+  straight from the layer when none holds a verb; `#drop` sorts its operands by a hash
+  that agrees with `structurally_equal` and passes over the run once, removing the first c
+  nodes equal to a value c operands name, as one at a time did; the check finds each
+  operand by hash. Timed (best of 3, n values and n operands): at 16,000, merge `#append`
+  217 to 0.57 ms, `#drop` 217 to 2.9 ms, a check of the `#append` 917 to 3.7 ms; at
+  1,000, 0.68 to 0.01, 0.70 to 0.11 and 3.8 to 0.12 ms. `merge_append` counts +0.8%.
+- **The check's metadata walks** (from D248). Two walks of the candidate tree each interned
+  `Symbol("shapes")` at every array. One walk now finds both warnings, with the names
+  interned once: check -7.0% and check_pinned -9.0% in instructions; `check_layer_text`
+  484 to 468 us and `check_layer` 369 to 353 us (ranges overlap).
+- **Verb and pin warnings are not looked for in shipping** (the owner's choice). The merge
+  of the layers below that `push_layer` made for them is gone from a shipped game.
+  `config.cpp` links 2.9 KB less; `config_write.cpp` stays, as a push under a policy reaches
+  it through the check, and the linear verbs add 6.4 KB to `merge.cpp`: the minimal
+  shipping game of the TD review links 595 KB with `--gc-sections`, from 587 (D268).
+- **A file of rows is compacted** (from D249). The wrapper arrays each row makes, and the
+  levels the fold rebuilds, stayed in the arena: a file of rows held 2.3 times its nested
+  twin. When a top-level read saw rows, its tree is copied into a fresh arena (arrays that
+  macro expansion shared stay shared; another owner's arrays and strings are kept as they
+  are), and the first arena goes with the read. Not under a source map, which knows each
+  array by its address, so edit mode keeps the first. A define the file made still holds
+  the first arena through the session. Test: 500 rows of four segments hold 131 KB against
+  114 KB nested (1.15, block slack), checked at most 1.25.
+- **Nine arguments or more allocate nothing once warm** (from D250, the owner's choice). A
+  per-Context spill stack of blocks that never move, used last in, first out as calls
+  nest, and kept for the next call. Test: 1,000 nine-argument calls to an overload set and
+  a declared function, nested ones, and a 70-argument declared call, allocate nothing after
+  the first (the Context's allocator and the default both counted); before, 2,000.
+

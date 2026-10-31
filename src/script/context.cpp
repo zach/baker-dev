@@ -354,7 +354,7 @@ Expected<Node> Context::Impl::invoke_set(Symbol name, const Vec<detail::Overload
         Args args(self, command, command.begin() + first, n, 0, false, first, object);
         return invoke(o, args, command);
     }
-    ArgValues held(alloc, n);
+    ArgValues held(spill, n);
     Node* values = held.data();
     for (size_t i = 0; i < n; ++i) {
         auto r = eval(command[i + first]);
@@ -759,7 +759,7 @@ Expected<Node> call_declared(const void* callable, Args& args) {
     if (d.raw) return d.body(args);
     // Each argument evaluated once and held to its parameter, as a native's.
     const size_t n = args.size();
-    ArgValues held(args.context().allocator(), n);
+    ArgValues held(args.context().impl().spill, n);
     Node* values = held.data();
     for (size_t i = 0; i < n; ++i) {
         auto v = args.eval(i);
