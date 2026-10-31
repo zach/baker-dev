@@ -22,6 +22,11 @@
 // field may list the symbols it allows, (button symbol (@one_of light heavy kick special)). A curve
 // field's values are a curve (<baker/curve.hpp>), and its (@range lo hi) holds every point's y.
 //
+// A shape marked (@view) generates a C++ view, a struct read from its records
+// (D269, D277): a field marked (@view no) stays out of the struct, an
+// `any` field must be; (@cxx int64) picks the member's C++ type from a closed list, and
+// (@cxx_name N) names the struct or the member when the shape's own name cannot.
+//
 // (key_of TABLE) holds a symbol to the keys of a keyed table: (weapon (key_of weapons)) in
 // a unit names a child of (weapons (laser ...) (rifle ...)). TABLE is a dotted path, looked
 // up by its first segment outward from the record that refers to it, the nearest enclosing
@@ -44,6 +49,7 @@
 #include <baker/list.hpp>
 #include <baker/symbol.hpp>
 #include <baker/text.hpp>
+#include <baker/view.hpp>
 
 #include <cstdint>
 #include <span>
@@ -71,6 +77,13 @@ struct Field {
     // (@one_of light heavy kick): the symbols a symbol field's value may be, in the order
     // written; a field declared again adds to it. Empty: any symbol.
     List<baker::Symbol> one_of;
+    // For a view (D277): whether the field is in the struct ((@view no) leaves it out), the
+    // member's C++ type when (@cxx T) overrides the default (int8, int16, int32, int64,
+    // uint8, uint16, uint32, uint64 for an int; float, double for a float), and the member's
+    // name when (@cxx_name N) gives one. Empty: the defaults.
+    bool view = true;
+    baker::Symbol cxx;
+    baker::Symbol cxx_name;
     baker::Symbol file;
     int32_t line = 0;
 };
@@ -92,6 +105,8 @@ struct Shape {
     bool keyed = false;      // governs every child at `at`, whatever its tag
     List<Field> fields;
     List<Rule> rules;
+    bool view = false;       // (@view): generates a C++ view (D277)
+    baker::Symbol cxx_name;  // (@cxx_name N): the struct's name; empty: from the shape's
     baker::Symbol file;
     int32_t line = 0;
 
@@ -135,6 +150,66 @@ private:
     State* st_;
 };
 
+// --- Views (D269). ---
+
+// The shapes a project's contract layers declare, as one Set: each layer's #shape forms,
+// bottom to top, read through `session` and selected by the file each read began with
+// (Set::add's `root`). A view's shape set is one per build, so a #shape inside an #ifdef
+// or #ifndef branch of a contract layer's file, taken or skipped, is an error in `report`,
+// located; so is a malformed declaration, as Set::add reports it.
+[[nodiscard]] Set contract_set(const LoadSession& session, std::span<const baker::Symbol> roots,
+                               Report& report);
+
+// The digest a view generated from the shape asserts (kShapeDigest): symbol_hash's FNV-1a
+// 64 (D246) over the shape's layout and nothing else, so tuning metadata never moves it.
+// The text hashed, items joined by '\n': the shape's name; `keyed` if it is (@keyed);
+// then, for each field in the struct (not (@view no)), in declared order, its name, its
+// type spelled canonically (`int`, `list(float,3)`, `list(symbol,1,4)`, `key_of(a.b)`,
+// `shape(NAME,DIGEST)` with the nested shape's own digest in 16 hex digits, or
+// `list(shape(NAME,DIGEST))`), and its (@cxx T) if any. Zero for a shape the set lacks.
+[[nodiscard]] uint64_t view_digest(const Set& shapes, baker::Symbol shape) noexcept;
+
+// --- Generating views (D280). What baker_bake --views writes; a tool may call it too. ---
+
+struct ViewOptions {
+    std::string_view ns = "baker_views";  // the namespace the structs are generated in
+};
+
+// The shapes views are generated for: those marked (@view) and those `listed` (the project
+// file's (views (shapes ...))), plus every shape they nest, sorted by name. Errors in
+// `report`, located at the shape or field: a listed shape the set lacks, a nested shape it
+// lacks, a field of type `any` not marked (@view no), a shape that nests itself, a generated
+// name that is not a C++ identifier or is a keyword, two shapes whose struct names collide,
+// a field whose member name collides with another's, and more than 64 required fields.
+[[nodiscard]] List<baker::Symbol> view_shapes(const Set& shapes,
+                                              std::span<const baker::Symbol> listed,
+                                              Report& report);
+
+// The generated text, deterministic for a set: the struct header of `shape` (its file is
+// <shape>.hpp, reaching <baker/view.hpp>, <baker/curve.hpp> for a curve field, and the
+// struct headers of the shapes it nests); its reader header (<shape>_read.hpp: the
+// ViewReader<T> and Convert<T>, reaching <baker/view_read.hpp>); and the umbrella over
+// `shapes` as view_shapes gives them (views.hpp: every struct header and kViews, a ViewInfo
+// per view, for check_views). Call view_shapes first: these assume its checks passed.
+void write_view_header(const Set& shapes, baker::Symbol shape, const ViewOptions& options,
+                       TextSink out);
+void write_view_reader(const Set& shapes, baker::Symbol shape, const ViewOptions& options,
+                       TextSink out);
+void write_views_umbrella(const Set& shapes, std::span<const baker::Symbol> views,
+                          const ViewOptions& options, TextSink out);
+
+// Drift (D282): the views a game compiled against the shapes its stack declares. Each
+// compiled view (the generated kViews) is compared by name with the contract set's shape:
+// a digest that differs, a shape the set lacks, or, for a nameless view (a shipping build
+// keeps no names), a digest no shape's layout has, is a warning in `report`, located at
+// the shape when there is one, saying to regenerate the views. A tool makes them errors.
+void check_views(const Set& contract, std::span<const ViewInfo> compiled, Report& report);
+
+// The reads a Config's contract layers began with, for contract_set: each named layer's
+// own file, or, for a directory of layers, every file under it the stack read.
+[[nodiscard]] List<baker::Symbol> contract_roots(const Config& cfg,
+                                                 std::span<const baker::Symbol> contract_layers);
+
 // Checks every array of `tree` that a shape of `shapes` governs, into `report`. With
 // `packs`, a key a harder pack's field names from a softer pack's table is a warning, as the
 // one-way rule warns of a call (D80).
@@ -160,7 +235,7 @@ void each_ruled(
 // baker::script warns once that the shapes hold rules it cannot check.
 [[nodiscard]] Config::Validator validator();
 
-// The shapes of `shapes` as JSON (schema baker.shapes/1.5, docs/reference-json.md), sorted by
+// The shapes of `shapes` as JSON (schema baker.shapes/1.6, docs/reference-json.md), sorted by
 // name: each shape's place, keyed or not, and its fields with their types, ranges, steps,
 // kinds, documentation, and where they are declared, and its rules. For editors and agents.
 void write_json(const Set& shapes, TextSink out);

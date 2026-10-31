@@ -471,8 +471,9 @@ name (D84, D261). The session records it, and the tree never holds it:
   `(position (list float 3))` holds exactly three values and `(tags (list symbol 1 4))` one to
   four, and any other count is an error at the field. A softer pack may narrow the count, never
   widen it.
-- **Metadata:** `@range`, `@step`, `@kind`, `@desc`, `@note` (as a tweak's), and
-  `@optional`. A field without `@optional` is required. A word without the `@` after a
+- **Metadata:** `@range`, `@step`, `@kind`, `@desc`, `@note` (as a tweak's), `@optional`,
+  and, for a shape that generates a C++ view (Views, below), `@view`, `@cxx` and
+  `@cxx_name`. A field without `@optional` is required. A word without the `@` after a
   field's type, or a `@` word the grammar lacks, is an error. A shape may describe itself
   with its own `(@desc ...)` and `(@note ...)`, and its fields may be named anything,
   `at` and `desc` included. A `symbol` or `(list symbol)` field may list the
@@ -592,6 +593,54 @@ governs:
 - **Cost.** Rules run only in checks: one evaluation per rule and governed record, about
   half a microsecond for a two-value comparison, so 3,000 cards with two rules each is
   under 3 ms a reload. A shape set with no rules costs nothing more.
+
+### Views: a C++ struct from a shape
+
+A shape marked `(@view)` generates a C++ struct the game reads its records into, so the
+layout is written once, in the data, and the code never restates it (D269):
+
+```dta
+#shape (move (@at fighters * moves) (@keyed) (@view)
+   (startup     int (@range 1 60) (@cxx uint16))
+   (damage      float)
+   (cancel_into (list (key_of moves)) (@optional))
+   (on_hit      any (@optional) (@view no)))
+```
+
+```cpp
+#include "move_read.hpp"   // generated: game::Move, its reader and Convert<Move>
+auto jab = baker::read_view<game::Move>(cfg, "fighters.kestrel.moves.jab");
+if (jab) frames = jab->startup;              // uint16_t; damage is a float
+for (baker::Symbol into : jab->cancel_into) ...   // a ListView<Symbol> over the list
+```
+
+- **Members.** `int` is `int32_t`, `float` is `float`, `bool`, `symbol` and `(key_of T)` are
+  `baker::Symbol`, `string` is a `std::string_view`, `curve` a `baker::Curve`, another
+  shape its struct, nested, and `(list T)` a `baker::ListView<V>` over the list, which
+  converts each element as it is read and checks a declared count. `(@cxx int64)` picks a
+  member's C++ type for an `int` (`int8` to `uint64`) or a `float` (`float`, `double`);
+  `(@cxx_name N)` names a member or the struct when the data's name is not a C++ name. A
+  field marked `(@view no)` stays out of the struct and is read from the tree as before; an
+  `any` field must be. An absent `@optional` field reads as zero, `false` or empty: views
+  hold no `std::optional`.
+- **Reading.** `read_view<T>(cfg, path)` and `read_view<T>(record)` return an `Expected<T>`:
+  a value of the wrong type, outside its member's range, or a list of the wrong count is a
+  located error naming the field; a required field missing names it too. The generated
+  `Convert<T>` lets `get<T>` read a view as well. A view's strings and lists borrow from the
+  tree: hold the Config's `root()` while they are used, and read after `apply_edits()`.
+- **Generating.** The project file names the contract layers the views come from and the
+  namespace, `(views (layers core content) (namespace game))`; a field a mod or an overlay
+  adds is readable from the tree and never a member. `baker_generate_views(target PROJECT
+  file)` in CMake runs `baker_bake --views` whenever a contract file changes, and a header
+  is rewritten only when its text changed, so a tuning edit rebuilds nothing. A view's
+  shape set is one per build: a `#shape` inside an `#ifdef`, or a `dev_only` or `(when ...)`
+  contract layer, is refused (`docs/cookbook.md`, Views in the build).
+- **Drift.** Each struct carries a digest of its shape's layout (names, types and order,
+  never tuning metadata). `baker::shape::check_views` compares the compiled views with
+  the shapes a running stack declares, and the kit's `check` reports a mismatch as a
+  shape warning, or an error under `--baker-strict-views`.
+- A softer pack may not leave a field out of a view, change its C++ type or rename its
+  member (as it may not loosen a range). Views cost nothing unless generated and read.
 
 ## Script
 

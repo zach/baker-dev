@@ -193,7 +193,7 @@ error, so a misspelling is caught.
 
 | Command | What it writes |
 |---|---|
-| `check` | [check's report](check-json.md); exit 1 on an error, a load problem, a shape error, or a call to an undefined function; a shape that governs no array is a shape warning |
+| `check [--baker-strict-views]` | [check's report](check-json.md); exit 1 on an error, a load problem, a shape error, or a call to an undefined function; a shape that governs no array is a shape warning, and so is a view the game compiled against another layout of its shape (`CommandHooks::views`), which `--baker-strict-views` makes an error, for a farm |
 | `reference [--baker-json]` | the script vocabulary as Markdown, or `{"reference", "tweaks", "shapes"}` |
 | `eval [--baker-seed N] [--baker-json] "{command}"...` | each command's result on the game reset with the seed; `--baker-json`: one reply line each |
 | `diff [--baker-layer L]` | what layer L (default `agent`) changes, value by value: a verb as `-> #append v`, and `stale` where a row's `(@was ...)` pin no longer names the value below |

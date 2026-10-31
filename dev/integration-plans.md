@@ -672,3 +672,24 @@ Recorded in D153:
 - Start with E1–E3, then plan A.
 - Every integration, the MIT-only ones included, lives in its own repository.
 - E2's reply form and `bind_config_tools` ship in the published library.
+
+### Studio-side assets: `baker-assets` (2026-10-31)
+
+The owner's decisions after the schema-layer spec (`dev/schema-layer-spec.md`, D269):
+
+- **What it is.** An asset system in the mould of David Clyde's Onager: building, caching
+  and laying out a project's assets, with a host interface and a server for tools and
+  utility programs. It holds everything the schema-layer spec keeps out of Baker:
+  importing, cooking, and shared or farm-filled caches.
+- **Baker-first.** It is designed around Baker's data model throughout: records, shapes,
+  record IDs, `(asset KIND)` fields and `baker.assets/1`. It is not an engine-agnostic
+  core with Baker as one input.
+- **It waits for W3.** The repository starts once a Baker release includes asset
+  references (W3), and uses that release as the other repositories do.
+- **Its own repository, depending on Baker and never the reverse.** Its needs reach Baker
+  as requirement notes.
+- **Its server is its own.** `baker-editor` keeps its language server, and `baker-assets`
+  runs the build server. Its spec settles how a tool talks to both.
+- **For W3's plan.** `baker.assets/1` is the edge format this project will consume, so W3's
+  plan should design it for a pipeline: forward and reverse lookup, the record ID on every
+  edge, and whether an edge carries the target file's content hash.

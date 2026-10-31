@@ -9512,6 +9512,96 @@ shipping.*
   (D266 made it 678). One read at the default `max_new_symbols` keeps about 73.5 MB, 74
   bytes a name, which the cookbook now says.
 
+
+## D269. Shapes become the contract C++ is generated from; data stays the authority
+
+*The schema-layer spec (`dev/schema-layer-spec.md`), settled with the owner on 2026-10-30
+and 31 in a design session over 0.7.0; background in the owner's research docs on game
+asset systems, on Halo's tags and DataArray, and on Onager.*
+
+- **Direction.** A shape is the one declaration from which C++ views, baked tables and
+  dependency edges are generated. The data on disk stays self-describing: no file needs
+  matching code to be read, a missing field reads as its default, and an undeclared one is
+  a warning. Baker extends from programmer-owned config to content definitions that
+  designers and agents author, and does not move to a schema-first model in which code
+  owns the layout (the trade Halo's tags made and their architect regretted).
+- **Shape-first, not code-first.** Views are generated from shapes; C++26 reflection is
+  deferred to a later drift checker. Layers can extend shapes, which a code-first model
+  could not allow.
+- **Opt-in, from a contract stack.** A shape generates a view if it says `(@view)` or the
+  project file lists it, and only from the shapes of the project's named contract layers,
+  so an overlay or mod never changes a compiled struct. One shape set per build: a shape
+  that varies with defines is a generation error.
+- **The digest covers layout only** (field names, types, order), so tuning metadata never
+  forces a rebuild. Drift warns in development and fails `check --baker-strict-views`.
+- **A wrong-typed value is a located error** for the record read into a view; range and
+  `@one_of` stay validator warnings, and the validator stays optional.
+- **Lists are `baker::ListView<V>`,** over a tree's nodes or a table's packed storage,
+  since a tree list is a run of nodes and cannot be borrowed as a span. A field marked
+  `(@view no)` stays out of the struct and its digest, and is read from the tree; an `any`
+  field must carry it.
+- **Asset edges are `baker.assets/1`,** written by a host-kit command from the merged
+  stack: the reference JSON is written from a script Context that holds no data.
+- **Phases and order.** One spec, four phases shipped separately, built W1 (views), W3
+  (identity), W2 (baked tables), W4 (change records). Data forms and APIs may both break,
+  with migration by the formatter or a `tools/` migrator.
+- **Out of scope.** Shared or content-addressed caches (to be looked at again once W2
+  exists), paging, real-time collaboration, asset import or cooking, and a second language
+  for schemas.
+
+## D270. A record's identity is a 128-bit ID written inside it; references still name keys
+
+*Spec W3.*
+
+- **`(@id ...)`, 128 random bits in 32 hex digits, inside the record,** so identity travels
+  with the data and cannot be lost the way a sidecar file can. 128 bits over 64, though
+  `symbol_hash` (D246) is 64: IDs are minted independently by many tools and agents, and
+  may be merged across projects. Optional; tools mint one when they create a record.
+- **`key_of` keeps naming keys.** The ID anchors renames, change records and tools, and is
+  never written in a reference by hand: data stays readable.
+- **Renames leave `(@aka old)`,** kept until someone removes it, since shipped live-ops
+  overlays may name the old key and Baker cannot see them. `--drop-metadata` (D265) keeps
+  `@id` and `@aka`: they are identity, not tool text.
+- **Duplicates are a located error;** the formatter re-mints the newer copy.
+- **Spelling.** Every new form is metadata with `@` (D248), so a record may still have
+  fields named `id` or `aka`; `(asset KIND)` is a type, like `(key_of TABLE)`.
+
+## D271. Baked tables: literals only, rebuilt on every merge, one stack-wide image
+
+*Spec W2.*
+
+- **Array of the view struct,** looked up by key, alias or ID, with an index stable while
+  the table's keys are unchanged.
+- **Literals only in the first version.** A `{command}` in a view field is a bake error.
+  Folding commands bound as pure is deferred: nothing is marked pure today, and D8 recorded
+  pure commands as deliberately unbuilt.
+- **Rebuilt inside every merge and refcounted like trees,** so a reload never pulls a table
+  from under a reader and no separate swap point is needed. A live-ops overlay rebuilds the
+  tables it touches; nothing is patched in place, so development and live-ops share one
+  path.
+- **The shipped image is a stack-wide `.datb`.** Per-layer caches cannot hold a table built
+  from the merged contract stack, so `baker_bake` writes one cache for that stack, in the
+  existing container and under its rules, with the tables as a section. A section whose
+  view digest differs from the compiled view's is skipped, and that table is built in
+  memory from the tree. Tables of a shape whose `@at` has a `*` are one flat table,
+  grouped by parent and looked up by path below the table or by ID.
+
+## D272. Change records hold whole values; an agent's change set is a layer
+
+*Spec W4.*
+
+- **A change record holds the whole old and new values** as `Ref`s, the record ID, the
+  path, the layer written and the old value's source. Structural edits (add, remove,
+  rename, reorder) and the list verbs (D251) are change records too. The journal becomes a
+  capped view over the log.
+- **Transactions,** one per console command, tool action or promoted change set, are what
+  undo and redo step over.
+- **An agent's change set is layer text,** checked with `check_layer_text`, pushed, and
+  written to files by `promote`, which reuses the candidate-layer machinery whole. A stale
+  check is checked again at the push, as a `CheckStamp` push already is, rather than
+  refused on a digest mismatch: unrelated edits never bounce an agent's work.
+- **`baker.changes/1`** is the JSON form, beside `baker.check` and `baker.reference`.
+
 ## D273. Tweaks the data may leave out: `TweakMeta::optional`
 
 *From the baker-godot integration's requirement note 0021, which the owner chose to build.*
@@ -9643,3 +9733,239 @@ from older examples had nothing to point it at the change.
   pass, over the file and over a CRLF copy of it. The tool writes stdout in binary on Windows:
   a text-mode stdout turned each `\r\n` of a CRLF checkout into `\r\r\n`, which MSVC's CI
   caught once the split began keeping the text's line end.
+## D277. Views, step 1: a shape says `(@view)`, a field `(@view no)`, `(@cxx T)` or `(@cxx_name N)`
+
+*`dev/views-plan.md` step 1, the first of W1 (D269). The plan's open questions, answered by
+the owner on 2026-10-31: `baker_bake` is built whenever `baker::shape` is, as a target of
+its own (step 5); a curve field is a member by value in the light struct header, and step
+3's include-cost measurement decides whether it moves behind the reader header.*
+
+- **The grammar.** On a shape, `(@view)` marks it as generating a C++ view and `(@view
+  no)` unmarks it; `(@cxx_name N)` names the struct. On a field, `(@view no)` leaves it out
+  of the struct (and `(@view)` puts it back, for a later layer); `(@cxx T)` picks the
+  member's C++ type from a closed list (`int8` to `uint64` for an `int`, `float` or
+  `double` for a `float`; any other pairing is a located error); `(@cxx_name N)` names the
+  member. `N` is checked as a C++ identifier here; keywords and collisions are generation's,
+  since they depend on the whole set (step 4). `@cxx` on a shape is unknown metadata.
+- **In `Field` and `Shape`:** `Field::view` (default true), `Field::cxx`, `Field::cxx_name`,
+  `Shape::view` (default false), `Shape::cxx_name`. A field declared again keeps them
+  unless it restates them, as it keeps `optional`.
+- **The one-way rule** (D145) covers them: a softer pack that leaves a field out, changes
+  its C++ type or renames its member is refused with the usual warning, since a view's
+  layout is the harder pack's.
+- **`baker.shapes/1.6`** adds `view` and `cxx_name` to each shape and `view`, `cxx` and
+  `cxx_name` to each field (`docs/reference-json.md`).
+- **Costs.** None at load or lookup: the words are read in `Set::add`, which runs only
+  when the shape validator is installed or a tool reads the set. `Field` grows by 24 bytes
+  (a bool and two Symbols); it is a tool struct.
+- **For the next release's changelog** (written with W1's last step).
+
+## D278. Views, step 2: the contract set, and a view's digest
+
+*`dev/views-plan.md` step 2.*
+
+- **`shape::contract_set(session, roots, report)`** is the shape set views are generated
+  from: `Set::add` once per contract layer, bottom to top, selecting each layer's
+  declarations by the file its read began with (`ShapeDecl::root`). A shape only a layer
+  outside the contract declares, or a field one adds, stays out of it.
+- **One shape set per build** (D269). A `#shape` inside an `#ifdef` branch of a contract
+  file is a located `Refused` error, whether the branch was taken (its `ShapeDecl` lies in
+  a `ConditionalSection` of its file) or skipped. For the skipped case the parser records
+  each `#shape` directive it passes in a branch not read, as `LoadSession::skipped_shapes()`
+  (`SkippedShape {file, line, root}`): one string compare per directive line inside a
+  skipped branch, nowhere else. A cache replays a session's shapes and not its skipped
+  ones, which is fine: views are generated from text, never from a cache.
+- **`shape::view_digest(set, name)`** is `symbol_hash` (FNV-1a 64, D246) of the shape's
+  layout text, items joined by `\n`: the name; `keyed`; then each field in the struct (not
+  `(@view no)`), in order, as its name, its canonical type and its `@cxx` if any. Types
+  spell as `int`, `list(float,3)`, `list(symbol,1,4)`, `key_of(items.weapons)`,
+  `shape(vec,<16 hex digits of vec's digest>)`, `list(shape(...))`; a shape that nests
+  itself spells `shape(NAME,cycle)`. Tuning words (`@range`, `@step`, `@kind`, `@desc`,
+  `@note`, `@one_of`, `@optional`, `@at`, rules) and `@cxx_name` are left out, so tuning
+  never forces a rebuild, and a rename of a member is a regeneration, not drift. The
+  generator and the runtime call this one function. Golden values in the tests are
+  `symbol_hash` of the hand-written text.
+- **Costs.** None on any path but generation and `check_views`.
+
+## D279. Views, step 3: `<baker/view.hpp>`, `<baker/view_read.hpp>`, and what a reader costs
+
+*`dev/views-plan.md` step 3. The hand-written reader in `tests/support/view_move.hpp` is the
+model of what step 4 generates.*
+
+- **Two headers.** `<baker/view.hpp>` is what a struct header reaches: `ListView<V>`,
+  `ViewInfo`, `view_text` and the `ViewReader<T>` declaration. `<baker/view_read.hpp>`
+  is for the files that read: `read_view<T>(const Array&)`, `read_view<T>(const Config&,
+  path)`, the `view_detail` readers a generated `ViewReader<T>` calls, and `ListView`'s
+  reads. Measured with Clang 18 at -O2 (an empty unit takes 0.034 s): `fwd.hpp` 0.036 s,
+  `view.hpp` 0.21 s and 22,200 preprocessed lines, `view_read.hpp` 0.44 s, against
+  `array.hpp` 0.37 s and `config.hpp` 0.47 s. `symbol.hpp` alone is 0.22 s: the light
+  header is at the floor `<string_view>` sets, and dropping `error.hpp` from it gains
+  nothing. A struct with a curve field includes `<baker/curve.hpp>`, which reaches
+  `array.hpp` (the plan's Q2): no stack declares a curve field, so a `Curve` stays a member
+  by value and such a header costs what `array.hpp` costs.
+- **`ListView<V>`** is 16 bytes: the field's `Array` and a count, with a reserved word for
+  W2's packed form, so W2 changes no struct layout a game compiled. It converts on read,
+  `at(i)` with a located error naming the element, `operator[]` with `V{}` instead, and
+  iterates by value. A list of nested views is a `ListView` of them; `Values::read`
+  descends into each element, a tagged array whose children are the nested fields.
+- **`read_view<T>(const Config&, path)`** reads `root()`, so it sees the tree as of the last
+  `apply_edits()`, as every reader of views into the tree must (`Config::get`'s rule); an
+  error carries the path. The generated `Convert<T>` makes `get<T>` and nesting work the
+  usual way, with the usual `bool`.
+- **The reader walks the record once and dispatches on the tag's hash** (`switch` on
+  `Symbol::hash()` against `"name"_hash`, D246, then one string compare on the match, so
+  two names that share a hash cannot be confused). No literal interns and no static guards
+  in the reader. Its errors (`view_detail::wrong_type`, `out_of_range`, `bad_count`,
+  `missing`, `bad_element`) are built out of line in `src/data/view.cpp`.
+- **What it costs** (`bench_lookup`, GCC 13 -O2, this machine): a 10-field view of an
+  11-child record, with a nested view, two lists and a curve, 85.7 ns (95.7 ns with an
+  if-chain of `"x"_sym` compares, before the hash dispatch); the 5-scalar view of the same
+  record 40.7 ns; the same five fields read one `find` each 37.3 ns. So the one pass the
+  plan's §2.2 expected to beat F finds matches them at these sizes: each child costs its
+  array header's load (`tag()`), where a find scans the tag run. The value of a view in W1
+  is the struct, the defaults and the located errors; the per-frame path is W2's table,
+  built once. A reader reaching the tag run (private today) is the next thing to try there.
+- **A read allocates nothing** (the data tests, under the counting allocator), and the
+  public headers stay within D55's list (`check_headers.py`).
+
+## D280. Views, step 4: the generator, and its golden headers
+
+*`dev/views-plan.md` step 4. `src/shape/views.cpp`.*
+
+- **Which shapes.** `shape::view_shapes(set, listed, report)`: the shapes marked `(@view)`,
+  those the project lists, and every shape they nest, transitively, sorted by name. Its
+  errors are located: a listed or nested shape the set lacks; an `any` field (or a list of
+  `any`) not `(@view no)`; a shape that reaches itself through nesting, by value or in a
+  list, since a struct cannot hold itself and an include cycle would not compile; a
+  generated name that is not an identifier or is a keyword (`default` as a field name;
+  `(@cxx_name N)` is the way out); two shapes whose struct names collide after the case
+  rule (`boss_phase` and `boss__phase`); two fields whose member names collide; more than
+  64 required fields, the width of the reader's `seen` word.
+- **Names.** A struct is the shape's name in PascalCase, split at `_` (`boss_phase` to
+  `BossPhase`); a member keeps the field's name. `(@cxx_name N)` overrides either.
+- **Three writers,** deterministic for a set: `write_view_header` (the struct, with
+  `kShapeName` as `view_text` and `kShapeDigest` from `view_digest`; it includes
+  `<baker/view.hpp>`, `<baker/curve.hpp>` only for a curve field, and the struct headers
+  of the shapes it nests), `write_view_reader` (the `ViewReader<T>` of D279's form, with a
+  `kRequired` table and `first_missing`, and the `Convert<T>`; it includes the nested
+  readers), and `write_views_umbrella` (every struct header and `kViews`, a `ViewInfo` per
+  view). The file names are `<shape>.hpp`, `<shape>_read.hpp` and `views.hpp`.
+- **Golden files.** `tests/shape/views/` holds the three writers' output for the model
+  shapes (`vec2`, `move`, `scalars`); the shape tests compare, and rewrite them under
+  `BAKER_UPDATE_GOLDEN=1`. The data tests and `bench_lookup` read through those headers,
+  so the generator's output is also the code the runtime tests exercise, and
+  `tests/support/view_move.hpp` is gone.
+- **Costs.** Tool path only. The generated reader is D279's: no interning, no static
+  guards, nothing allocated.
+
+## D281. Views, step 5: the project's `(views ...)`, `baker_bake --views`, and `baker_generate_views`
+
+*`dev/views-plan.md` step 5, with its Q1 as the owner answered it.*
+
+- **The project file** gains `(views (layers core content) (shapes item) (namespace
+  game::data))` (`ProjectViews`): the contract layers, bottom to top, which must be the
+  project's own and neither `dev_only` nor under `(when COND)` (a located error otherwise);
+  views besides those marked `(@view)`; and the namespace, `baker_views` by default.
+- **`baker_bake --views OUT_DIR --project FILE [--depfile FILE] [--stamp FILE]`** reads the
+  contract layers through a session set up as the project's (`open_project`'s levels,
+  include directories and defines), a directory layer as each of its `.dta` files sorted,
+  then `contract_set`, `view_shapes` and the three writers. A header is written only when
+  its text changed, so a tuning edit rebuilds nothing that includes it; the depfile names
+  every file the reads touched (the tool wraps the session's reader to know), with the
+  stamp as its target; the stamp is touched on success, so a build's rule is up to date
+  while the headers keep their time stamps. Errors print located and exit 1.
+- **`baker_generate_views(target PROJECT file [OUTPUT dir])`** in `cmake/BakerViews.cmake`:
+  a custom command with the depfile, a target the game depends on, and the directory on the
+  game's include path. `BAKER_BAKE_EXECUTABLE` names a host-built tool for a cross-compile.
+- **`baker_bake` is built whenever the library is** (Q1), outside `BAKER_BUILD_TOOLS`, and
+  links `baker::shape` when that is built (`BAKER_BAKE_VIEWS`); without it `--views` says
+  so. Its two cache tests moved with it.
+- **Tests.** `tests/views/project` is generated through `baker_generate_views` into
+  `baker_views_generated`, which opens the project and reads a boss, a nested view, a
+  listed view through `get<T>`, a content layer's field in the struct and a mod's in the
+  tree only; `test_bake_views.py` runs the tool on a copy: every file written, the
+  depfile's names, a second run rewriting no header, a tuning edit rewriting none and a
+  layout edit one, and each refusal (a `#shape` under `#ifdef`, taken and skipped; an
+  unknown listed shape; a `dev_only` contract layer; an unknown contract layer).
+- **Costs.** Build time only: one tool run when a contract file changes.
+
+## D282. Views, step 6: drift, reported by `check` and by the game
+
+*`dev/views-plan.md` step 6.*
+
+- **`shape::check_views(contract, compiled, report)`** compares the views a game compiled
+  (the generated `kViews`) with the contract set: a view whose digest differs from its
+  shape's is a warning located at the shape, one naming a shape the set lacks a warning,
+  and, for a nameless view (a shipping build keeps no names, D256), a digest no shape's
+  layout has. Each says to regenerate the views. **`shape::contract_roots(cfg, layers)`**
+  gives `contract_set` its roots from a running Config: a file layer's own file, or every
+  file the stack read under a directory layer.
+- **The host kit.** `CommandHooks::views` is the game's `kViews`; `check` re-reads the
+  project for its `(views (layers ...))`, builds the contract set and reports drift as shape
+  warnings, printed `view warning:`, or as shape errors under `check --baker-strict-views`
+  (`CommandLine::strict_views`), which a farm sets. A game that registers views against a
+  project naming no contract layers gets one warning saying so. No JSON field is added:
+  `baker.check/1.5`'s `shape_warnings` and `shape_errors` carry them, by their message.
+- **The game, in development,** calls `contract_roots`, `contract_set` and `check_views`
+  after its load and sends the warnings where it likes; `examples/content-tables` shows it
+  (step 7). Nothing of this runs unless the game asks: a Config pays nothing.
+- **Tests.** The host test game is built with `baker_generate_views` over its stack and
+  registers `host_game::kViews`; `test_commands.py` edits the stack copy's shape layout and
+  sees the warning, then the error under the strict flag. The shape tests cover each
+  message and `contract_roots` over a file layer and a directory layer.
+
+## D283. Views, step 7: the example, the docs, and what W1 costs a stack that uses none of it
+
+*`dev/views-plan.md` step 7, and the end of W1 (D269). The owner asked for views on
+2026-10-31; steps 1 to 7 are D277 to D283.*
+
+- **`examples/content-tables`**: a fighters table whose shape is `(@view)`, generated by the
+  build (`baker_generate_views` in `examples/CMakeLists.txt`), read one record at a time and
+  as a whole table, with the content layer's field a member, a `(@view no)` command left in
+  the tree, the drift check after the load, and a wrong-typed value as a located error. The
+  docs: `docs/language.md` (Views: a C++ struct from a shape), `docs/cookbook.md` (Views in
+  the build), the README's feature list, `docs/tools.md` and `docs/check-json.md` for the
+  kit's flag. The stacks adopt views when a stack wants one; none was changed.
+- **Generated headers say `// clang-format off`**, since CI formats every tracked source
+  and the golden copies are tracked; a project that formats its build tree is spared too.
+- **The view rows** moved into `bench_view` (`tools/bench_compare.py --bench view`) and
+  `bench_lookup.cpp` went back to its 0.7.0 text: with the view rows in it, its `try_find`
+  rows read +50% (6.5 to 9.7 ns) and +55% at 1,000 children, on a library whose lookup
+  counts 209 instructions on both commits. A benchmark's translation unit is part of what
+  it measures; long-lived rows keep theirs. `bench_view` (GCC 13 -O2, this machine):
+  `read_view<Move>` 86.8 ns, `read_view<Scalars>` 41.9 ns, the five finds 37.3 ns (D279).
+- **The no-cost rows,** `tools/bench_compare.py --base b515446` (0.7.0), 7 runs a side on a
+  quiet machine for `lookup` and `layers`, 5 for `layers_shape` and `cache` while the
+  matrix built in another checkout (their ranges show it; `cache`'s rows span 5x within a
+  side and are not read):
+
+  | benchmark | row | 0.7.0 | W1 | change |
+  |---|---|---:|---:|---:|
+  | lookup | try_find (array), avg | 6.45 ns | 6.5 ns | +0.8% |
+  | lookup | find_float, avg | 10.3 ns | 10.3 ns | -0.2% |
+  | lookup | try_find, 1000 children, linear | 197.7 ns | 199.6 ns | +1.0% |
+  | layers | read_string | 72.2 us (71.8–72.4) | 76.7 us (76.3–77.0) | +6.2% ** |
+  | layers | push_layer_text, no policy | 171.8 us | 177.8 us | +3.5% ** |
+  | layers | push_layer (tree), no policy | 97.9 us | 98.0 us | +0.1% |
+  | layers | check_layer (tree) | 353.6 us | 359.7 us | +1.7% ** |
+  | layers_shape | push_layer (tree), no policy | 316.0 us | 308.1 us | -2.5% ** |
+  | layers_shape | check_layer_text | 706.1 us | 703.8 us | -0.3% |
+
+  `tools/count_instructions.py --base b515446`: `lookup` 209 = 209, `merge` and `check`
+  unchanged, `lookup_text` 372 to 380 (+2.2%), `parse` 1,874,727 to 1,894,330 (+1.05%).
+- **A regression, recorded and not yet isolated.** Reading text costs about 1% more
+  instructions and 4 to 6% more time. W1's only change on that path is D278's: a
+  `Vec<SkippedShape>` in the session's state, and one string compare per directive inside
+  a skipped `#ifdef` branch, which the benchmarks' texts do not have. Neither explains 20,000
+  instructions per 16 KB parse, so the cause is to be found with cachegrind's per-function
+  counts before W3 touches the parser again (`baker-gaps.md` 45). Accepted for W1: a merge,
+  a lookup and a check cost what they did, and no shipped read runs per frame.
+- **For the next release's changelog.** "**New: views.** A shape marked `(@view)` generates
+  a C++ struct, its reader and a digest of its layout, so a table's layout is written once,
+  in the data: `baker_generate_views(target PROJECT baker-project.dta)` in CMake runs
+  `baker_bake --views` whenever a contract file changes, `read_view<T>(cfg, path)` reads a
+  record with located errors, and `check` reports a struct compiled against another layout
+  (`--baker-strict-views` fails on it). `(@view no)` keeps a field in the tree, `(@cxx T)`
+  picks a member's C++ type, `(@cxx_name N)` a name; the project file's `(views (layers
+  ...) (shapes ...) (namespace ...))` names the contract. `baker.shapes/1.6` carries the
+  words. `baker_bake` is built whenever the library is; `BAKER_BUILD_TOOLS` keeps the rest."

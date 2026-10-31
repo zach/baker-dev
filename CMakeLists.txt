@@ -7,7 +7,7 @@ option(BAKER_BUILD_HOST       "Build baker::host (the host kit: watcher, console
 option(BAKER_BUILD_TESTS      "Build the test suite" ${PROJECT_IS_TOP_LEVEL})
 option(BAKER_ATOMIC_REFCOUNT  "Atomic refcounts (OFF: plain counters, single-threaded use only)" ON)
 option(BAKER_SHIPPING         "Freeze config and compile out dev instrumentation" OFF)
-option(BAKER_BUILD_TOOLS      "Build command-line tools (baker_parse_corpus, baker_bake, baker_migrate)" ${PROJECT_IS_TOP_LEVEL})
+option(BAKER_BUILD_TOOLS      "Build command-line tools (baker_parse_corpus, baker_migrate; baker_bake is always built)" ${PROJECT_IS_TOP_LEVEL})
 option(BAKER_BUILD_BENCH      "Build benchmarks" OFF)
 option(BAKER_BUILD_EXAMPLES   "Build the examples" ${PROJECT_IS_TOP_LEVEL})
 option(BAKER_BUILD_HARNESS    "Build examples/harness-imgui (fetches Dear ImGui and GLFW)" OFF)
@@ -138,6 +138,7 @@ add_library(baker_data
   src/data/clock.cpp
   src/data/array.cpp
   src/data/cache.cpp
+  src/data/view.cpp
   src/data/config.cpp
   src/data/config_loop.cpp
   src/data/config_write.cpp
@@ -181,7 +182,7 @@ endif()
 # --- baker::shape: shapes declared in data, checked at load (spec §6, D84). Depends only
 #     on baker::data.
 if(BAKER_BUILD_SHAPE)
-  add_library(baker_shape src/shape/shape.cpp)
+  add_library(baker_shape src/shape/shape.cpp src/shape/views.cpp)
   add_library(baker::shape ALIAS baker_shape)
   baker_configure_library(baker_shape)
   target_link_libraries(baker_shape PUBLIC baker::data)
@@ -238,6 +239,22 @@ if(BAKER_BUILD_SHAPE)
   target_link_libraries(baker INTERFACE baker::shape)
 endif()
 
+# baker_bake: the binary cache (D70) and, with baker::shape, the views (D281). Built whenever
+# the library is, so a game's baker_generate_views (cmake/BakerViews.cmake) has it.
+add_executable(baker_bake tools/baker_bake.cpp)
+target_link_libraries(baker_bake PRIVATE baker::data)
+if(BAKER_BUILD_SHAPE)
+  target_link_libraries(baker_bake PRIVATE baker::shape)
+  target_compile_definitions(baker_bake PRIVATE BAKER_BAKE_VIEWS=1)
+endif()
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/BakerViews.cmake)
+if(BAKER_BUILD_TESTS)
+  add_test(NAME baker_bake COMMAND baker_bake -D DEBUG
+    ${PROJECT_SOURCE_DIR}/tests/corpus/config_app.dta ${CMAKE_CURRENT_BINARY_DIR}/config_app.datb)
+  add_test(NAME baker_bake_drop_metadata COMMAND baker_bake --drop-metadata
+    ${PROJECT_SOURCE_DIR}/tests/corpus/config_app.dta ${CMAKE_CURRENT_BINARY_DIR}/config_app_lean.datb)
+endif()
+
 if(BAKER_BUILD_TESTS OR BAKER_BUILD_BENCH)
   # The allocation counter (it replaces operator new), compiled once for the tests and the
   # benchmarks (D137).
@@ -261,17 +278,11 @@ endif()
 if(BAKER_BUILD_TOOLS)
   add_executable(baker_parse_corpus tools/parse_corpus.cpp)
   target_link_libraries(baker_parse_corpus PRIVATE baker::data)
-  add_executable(baker_bake tools/baker_bake.cpp)
-  target_link_libraries(baker_bake PRIVATE baker::data)
   if(BAKER_BUILD_SCRIPT)  # the tolerant read of text is in baker::tools
     add_executable(baker_migrate tools/migrate.cpp)
     target_link_libraries(baker_migrate PRIVATE baker::tools baker::data)
   endif()
   if(BAKER_BUILD_TESTS)
-    add_test(NAME baker_bake COMMAND baker_bake -D DEBUG
-      ${PROJECT_SOURCE_DIR}/tests/corpus/config_app.dta ${CMAKE_CURRENT_BINARY_DIR}/config_app.datb)
-    add_test(NAME baker_bake_drop_metadata COMMAND baker_bake --drop-metadata
-      ${PROJECT_SOURCE_DIR}/tests/corpus/config_app.dta ${CMAKE_CURRENT_BINARY_DIR}/config_app_lean.datb)
     if(BAKER_BUILD_SCRIPT)  # the migrations in either order, or in one pass, give one text
       add_test(NAME baker_migrate_order COMMAND ${CMAKE_COMMAND}
         -DMIGRATE=$<TARGET_FILE:baker_migrate>
@@ -292,6 +303,9 @@ if(BAKER_BUILD_BENCH)
   target_link_libraries(baker_bench_cache PRIVATE baker::data baker_alloc_counter)
   add_executable(baker_bench_lookup bench/bench_lookup.cpp)
   target_link_libraries(baker_bench_lookup PRIVATE baker::data)
+  add_executable(baker_bench_view bench/bench_view.cpp)
+  target_link_libraries(baker_bench_view PRIVATE baker::data)
+  target_include_directories(baker_bench_view PRIVATE tests/shape/views)  # the golden views (D280)
   add_executable(baker_bench_layers bench/bench_layers.cpp)
   target_link_libraries(baker_bench_layers PRIVATE baker::data)
   if(BAKER_BUILD_SHAPE)  # the same, with shape::validator judging each candidate

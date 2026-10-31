@@ -34,6 +34,7 @@ add_executable(baker_data_tests
   data/test_version.cpp
   data/test_metadata.cpp
   data/test_rows.cpp
+  data/test_view.cpp
   data/test_layer_verbs.cpp
   data/test_declarations.cpp
   data/test_tweaks_json.cpp
@@ -42,6 +43,8 @@ add_executable(baker_data_tests
   data/test_write.cpp)
 target_link_libraries(baker_data_tests PRIVATE baker::data baker_parse_harness baker_doctest_main
                       baker_alloc_counter)
+# The golden view headers the shape tests generate (D280): the data tests read through them.
+target_include_directories(baker_data_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/shape/views)
 # White-box tests of internal helpers (text.hpp).
 target_include_directories(baker_data_tests PRIVATE ${PROJECT_SOURCE_DIR}/src ${PROJECT_SOURCE_DIR}/src/data support)
 if(BAKER_USE_EASTL)  # the white-box tests include src/data/text.hpp
@@ -120,6 +123,10 @@ if(TARGET baker::host)
   # The commands, through a game binary that uses them (D190).
   add_executable(baker_host_test_game host/game.cpp)
   target_link_libraries(baker_host_test_game PRIVATE baker::host)
+  if(BAKER_BUILD_SHAPE)  # the game registers the views its build generates (D282)
+    baker_generate_views(baker_host_test_game PROJECT ${CMAKE_CURRENT_SOURCE_DIR}/host/stack/baker-project.dta)
+    target_compile_definitions(baker_host_test_game PRIVATE BAKER_TEST_GAME_VIEWS=1)
+  endif()
   find_package(Python3 COMPONENTS Interpreter)
   if(Python3_FOUND)
     add_test(NAME baker_host_commands
@@ -190,6 +197,21 @@ endif()
 # Public headers reach only the allowed standard headers (std_*.hpp excepted), and each
 # compiles on its own (D55).
 find_package(Python3 COMPONENTS Interpreter)
+# Views generated from a project (D281): the headers a game's build makes, compiled and read.
+if(BAKER_BUILD_SHAPE)
+  add_executable(baker_views_generated views/read_views.cpp)
+  target_link_libraries(baker_views_generated PRIVATE baker::data)
+  baker_generate_views(baker_views_generated
+    PROJECT ${CMAKE_CURRENT_SOURCE_DIR}/views/project/baker-project.dta)
+  add_test(NAME baker_views_generated COMMAND baker_views_generated
+    ${CMAKE_CURRENT_SOURCE_DIR}/views/project/baker-project.dta)
+  if(Python3_FOUND)
+    add_test(NAME baker_bake_views COMMAND ${Python3_EXECUTABLE} -I
+      ${CMAKE_CURRENT_SOURCE_DIR}/views/test_bake_views.py $<TARGET_FILE:baker_bake>
+      ${CMAKE_CURRENT_SOURCE_DIR}/views/project)
+  endif()
+endif()
+
 if(Python3_FOUND)
   add_test(NAME baker_header_allowlist
            COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/check_headers.py)

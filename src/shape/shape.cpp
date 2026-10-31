@@ -29,7 +29,8 @@ namespace {
 struct Names {
     baker::Symbol at{"@at"}, range{"@range"}, step{"@step"}, kind{"@kind"}, desc{"@desc"},
         note{"@note"}, optional{"@optional"}, list{"list"}, any_tag{"*"}, keyed{"@keyed"},
-        one_of{"@one_of"}, key_of{"key_of"}, rule{"@rule"}, warn{"@warn"};
+        one_of{"@one_of"}, key_of{"key_of"}, rule{"@rule"}, warn{"@warn"}, view{"@view"},
+        cxx{"@cxx"}, cxx_name{"@cxx_name"}, no{"no"};
 };
 const Names& names() {
     static const Names n;
@@ -138,6 +139,37 @@ namespace {
 
 // Reads one field declaration: (name type (@range lo hi) (@step s) (@kind k) (@desc "")
 // (@note "") (@optional) (@one_of a b ...)).
+// (@view) or (@view no): true, false; anything else is not a view flag.
+std::optional<bool> view_flag(const Values& v) {
+    if (v.empty()) return true;
+    if (v.size() == 1 && v[0].is(names().no)) return false;
+    return std::nullopt;
+}
+
+// A C++ identifier: a letter or underscore, then letters, digits and underscores. Keywords
+// and collisions are generation's to find, since they depend on the whole set.
+bool identifier(std::string_view s) {
+    if (s.empty()) return false;
+    const auto word = [](char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+    };
+    if (!word(s[0])) return false;
+    for (const char c : s)
+        if (!word(c) && !(c >= '0' && c <= '9')) return false;
+    return true;
+}
+
+// The (@cxx T) a field's type allows: a closed list (D277).
+bool cxx_allowed(Type type, baker::Symbol cxx) {
+    static const baker::Symbol ints[] = {"int8",  "int16",  "int32",  "int64",
+                                         "uint8", "uint16", "uint32", "uint64"};
+    static const baker::Symbol floats[] = {"float", "double"};
+    const auto in = [&](std::span<const baker::Symbol> set) {
+        return std::find(set.begin(), set.end(), cxx) != set.end();
+    };
+    return (type == Type::Int && in(ints)) || (type == Type::Float && in(floats));
+}
+
 bool read_field(const Array& a, Field& f, Vec<Error>& errors) {
     auto bad = [&](std::string_view why) {
         errors.push_back(make_error(ErrorCode::Syntax, why, a.file(), a.line()));
@@ -209,6 +241,23 @@ bool read_field(const Array& a, Field& f, Vec<Error>& errors) {
             f.note = v.size() == 1 ? v[0].try_str().value_or("") : "";
         } else if (*tag == n.optional) {
             f.optional = true;
+        } else if (*tag == n.view) {
+            const auto flag = view_flag(v);
+            if (!flag) return bad("field " + quoted(f.name) + " is (@view) or (@view no)");
+            f.view = *flag;
+        } else if (*tag == n.cxx) {
+            const auto t = v.size() == 1 ? v[0].try_sym() : std::nullopt;
+            if (!t || !cxx_allowed(f.type, *t))
+                return bad("field " + quoted(f.name) +
+                           " (@cxx T): T is int8, int16, int32, "
+                           "int64, uint8, uint16, uint32 or uint64 for an int field, float or "
+                           "double for a float field");
+            f.cxx = *t;
+        } else if (*tag == n.cxx_name) {
+            const auto id = v.size() == 1 ? v[0].try_sym() : std::nullopt;
+            if (!id || !identifier(id->str()))
+                return bad("field " + quoted(f.name) + " (@cxx_name N): N is a C++ identifier");
+            f.cxx_name = *id;
         } else if (*tag == n.one_of) {
             const bool symbols =
                 f.type == Type::Symbol || (f.type == Type::List && f.element == Type::Symbol);
@@ -241,6 +290,10 @@ bool loosens(const Field& held, const Field& next) noexcept {
         !std::equal(next.table.begin(), next.table.end(), held.table.begin(), held.table.end()))
         return true;
     if (next.optional && !held.optional) return true;
+    // A view's layout is the harder pack's: a softer one may not leave a field out, change
+    // its C++ type, or rename its member.
+    if (next.view != held.view || next.cxx != held.cxx || next.cxx_name != held.cxx_name)
+        return true;
     if (next.min_count < held.min_count || next.max_count > held.max_count) return true;
     if (!held.one_of.empty() && next.one_of.size() > held.one_of.size()) return true;
     return held.ranged && (!next.ranged || next.min < held.min || next.max > held.max);
@@ -373,12 +426,36 @@ void Set::add(const LoadSession& session, Report& report, baker::Symbol root) {
                     *old = rule;
                     continue;
                 }
+                if (*tag == n.view) {
+                    const auto flag = view_flag(f->values());
+                    if (!flag)
+                        errors.push_back(
+                            make_error(ErrorCode::Syntax,
+                                       "shape " + quoted(*name) + " is (@view) or (@view no)",
+                                       f->file(), f->line()));
+                    else
+                        s.view = *flag;
+                    continue;
+                }
+                if (*tag == n.cxx_name) {
+                    const Values v = f->values();
+                    const auto id = v.size() == 1 ? v[0].try_sym() : std::nullopt;
+                    if (!id || !identifier(id->str()))
+                        errors.push_back(make_error(
+                            ErrorCode::Syntax,
+                            "shape " + quoted(*name) + " (@cxx_name N): N is a C++ identifier",
+                            f->file(), f->line()));
+                    else
+                        s.cxx_name = *id;
+                    continue;
+                }
                 if (tag->is_meta()) {  // a shape's own (@desc ...) and (@note ...) describe it
                     if (*tag != n.desc && *tag != n.note)
                         errors.push_back(make_error(
                             ErrorCode::Syntax,
                             "shape " + quoted(*name) + " has unknown metadata " + quoted(*tag) +
-                                ": (@at ...), (@keyed), (@rule ...), (@desc ...) or (@note ...)",
+                                ": (@at ...), (@keyed), (@rule ...), (@desc ...), (@note ...), "
+                                "(@view) or (@cxx_name N)",
                             f->file(), f->line()));
                     continue;
                 }
@@ -869,6 +946,133 @@ void check(const Array& tree, const Set& shapes, Report& report, const LoadSessi
     report.warnings = List<Error>({warnings.data(), warnings.size()});
 }
 
+// --- Views: the contract set and the digest (D278). ---
+
+namespace {
+
+void append_hex16(Str& out, uint64_t v) {
+    static constexpr char digits[] = "0123456789abcdef";
+    char buf[16];
+    for (int i = 15; i >= 0; --i, v >>= 4) buf[i] = digits[v & 0xF];
+    out += std::string_view(buf, 16);
+}
+
+void append_type_text(const Set& set, const Field& f, Str& out, Vec<baker::Symbol>& visiting);
+
+// The canonical text view_digest hashes, or empty for a shape the set lacks. `visiting`
+// holds the shapes being spelled, so a shape that nests itself ends as `shape(NAME,cycle)`.
+void digest_text(const Set& set, const Shape& s, Str& out, Vec<baker::Symbol>& visiting) {
+    visiting.push_back(s.name);
+    out += s.name.str();
+    if (s.keyed) out += "\nkeyed";
+    for (const Field& f : s.fields) {
+        if (!f.view) continue;
+        out += '\n';
+        out += f.name.str();
+        out += '\n';
+        append_type_text(set, f, out, visiting);
+        if (!f.cxx.empty()) {
+            out += '\n';
+            out += f.cxx.str();
+        }
+    }
+    visiting.pop_back();
+}
+
+void append_shape_ref(const Set& set, baker::Symbol name, Str& out, Vec<baker::Symbol>& visiting) {
+    out += "shape(";
+    out += name.str();
+    out += ',';
+    const Shape* nested = set.find(name);
+    if (!nested) {
+        out += "unknown";
+    } else if (std::find(visiting.begin(), visiting.end(), name) != visiting.end()) {
+        out += "cycle";
+    } else {
+        Str text;
+        digest_text(set, *nested, text, visiting);
+        append_hex16(out, baker::symbol_hash(text));
+    }
+    out += ')';
+}
+
+void append_element_text(const Set& set, const Field& f, Type t, Str& out,
+                         Vec<baker::Symbol>& visiting) {
+    switch (t) {
+        case Type::Shape: append_shape_ref(set, f.shape, out, visiting); return;
+        case Type::Key:
+            out += "key_of(";
+            out += table_path(f);
+            out += ')';
+            return;
+        default: out += type_text(t); return;
+    }
+}
+
+void append_type_text(const Set& set, const Field& f, Str& out, Vec<baker::Symbol>& visiting) {
+    if (f.type != Type::List) {
+        append_element_text(set, f, f.type, out, visiting);
+        return;
+    }
+    out += "list(";
+    append_element_text(set, f, f.element, out, visiting);
+    if (f.min_count != 0 || f.max_count != UINT32_MAX) {
+        out += ',';
+        out += detail::decimal(f.min_count);
+        if (f.max_count != f.min_count) {
+            out += ',';
+            out += detail::decimal(f.max_count);
+        }
+    }
+    out += ')';
+}
+
+}  // namespace
+
+uint64_t view_digest(const Set& shapes, baker::Symbol shape) noexcept {
+    const Shape* s = shapes.find(shape);
+    if (!s) return 0;
+    Str text;
+    Vec<baker::Symbol> visiting;
+    digest_text(shapes, *s, text, visiting);
+    return baker::symbol_hash(text);
+}
+
+Set contract_set(const LoadSession& session, std::span<const baker::Symbol> roots, Report& report) {
+    Set set;
+    for (const baker::Symbol root : roots) set.add(session, report, root);
+    Vec<Error> errors(report.errors.begin(), report.errors.end());
+    const auto in_contract = [&](baker::Symbol root) {
+        return std::find(roots.begin(), roots.end(), root) != roots.end();
+    };
+    // A declaration read inside a branch the read took: its line lies in a section of its
+    // file. The sections the session records are the branches taken.
+    for (const ShapeDecl& d : session.shapes()) {
+        if (!in_contract(d.root)) continue;
+        for (const ConditionalSection& c : session.conditional_sections()) {
+            if (c.file != d.file || d.line <= c.begin || d.line >= c.end) continue;
+            errors.push_back(make_error(
+                ErrorCode::Refused,
+                "shape " + quoted(d.form->tag()) + " is declared inside #" +
+                    (c.negated ? "ifndef " : "ifdef ") + Str(c.name.str()) +
+                    ": a view's shape set is one per build, so a contract layer declares "
+                    "its shapes outside every #ifdef",
+                d.file, d.line));
+            break;
+        }
+    }
+    for (const SkippedShape& s : session.skipped_shapes()) {
+        if (!in_contract(s.root)) continue;
+        errors.push_back(make_error(
+            ErrorCode::Refused,
+            "a #shape inside an #ifdef branch this build skipped: a view's shape set is one "
+            "per build, so a contract layer declares its shapes outside every #ifdef",
+            s.file, s.line));
+    }
+    report.errors = List<Error>({errors.data(), errors.size()});
+    return set;
+}
+
 void unused(const Array& tree, const Set& shapes, Report& report) {
     Vec<Error> errors, warnings(report.warnings.begin(), report.warnings.end()), ignored;
     Vec<bool> used(shapes.shapes().size(), false);
@@ -917,14 +1121,17 @@ void write_json(const Set& shapes, TextSink text) {
     for (const Shape& sh : shapes.shapes()) ss.push_back(&sh);
     std::sort(ss.begin(), ss.end(),
               [](const Shape* a, const Shape* b) { return a->name.str() < b->name.str(); });
-    Str out = "{\n  \"schema\": \"baker.shapes/1.5\",\n  \"shapes\": [";
+    Str out = "{\n  \"schema\": \"baker.shapes/1.6\",\n  \"shapes\": [";
     for (size_t i = 0; i < ss.size(); ++i) {
         const Shape& sh = *ss[i];
         out += i ? ",\n    {\"name\": " : "\n    {\"name\": ";
         detail::json_string(out, sh.name.str());
         out += ", \"at\": ";
         detail::json_names(out, sh.at.items());
-        out += Str(", \"keyed\": ") + (sh.keyed ? "true" : "false") + ", \"file\": ";
+        out += Str(", \"keyed\": ") + (sh.keyed ? "true" : "false") +
+               ", \"view\": " + (sh.view ? "true" : "false") + ", \"cxx_name\": ";
+        detail::json_string(out, sh.cxx_name.str());
+        out += ", \"file\": ";
         detail::json_string(out, sh.file.str());
         out += ", \"line\": " + detail::decimal(sh.line) + ", \"fields\": [";
         for (size_t j = 0; j < sh.fields.size(); ++j) {
@@ -959,6 +1166,10 @@ void write_json(const Set& shapes, TextSink text) {
             detail::json_string(out, f.note);
             out += ", \"one_of\": ";
             detail::json_names(out, f.one_of.items());
+            out += Str(", \"view\": ") + (f.view ? "true" : "false") + ", \"cxx\": ";
+            detail::json_string(out, f.cxx.str());
+            out += ", \"cxx_name\": ";
+            detail::json_string(out, f.cxx_name.str());
             out += ", \"file\": ";
             detail::json_string(out, f.file.str());
             out += ", \"line\": " + detail::decimal(f.line) + "}";

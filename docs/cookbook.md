@@ -11,6 +11,7 @@ this says how they fit a studio's day. Each pattern links the example that runs 
 - [Experiments and A/B comparison](#experiments-and-ab-comparison)
 - [Live ops](#live-ops)
 - [The binary cache in a build step](#the-binary-cache-in-a-build-step)
+- [Views in the build](#views-in-the-build)
 - [Linking a shipped game](#linking-a-shipped-game)
 - [Harness packs](#harness-packs)
 - [A developer console over `eval`](#a-developer-console-over-eval)
@@ -533,6 +534,49 @@ and one allocation each: a 6.2 MB tree in 2.3–2.5 ms (D79).
   its load made. It is build output: it detects damage, not tampering, so text from a
   source you do not trust goes through the parser. A `Cipher` (`LoadSession::cipher`)
   enciphers caches, if a game wants players not to edit them.
+
+## Views in the build
+
+A shape marked `(@view)` becomes a C++ struct (`docs/language.md`, Views). The build makes
+it, and keeps it current:
+
+```dta
+; baker-project.dta
+(project
+   (layers (core "core.dta") (content "content.dta") (mods (dir "mods") optional))
+   (views (layers core content) (shapes item) (namespace game)))
+```
+
+```cmake
+baker_generate_views(my_game PROJECT ${CMAKE_SOURCE_DIR}/data/baker-project.dta)
+```
+
+- **What it writes,** under the build tree and on `my_game`'s include path: `move.hpp` (the
+  struct and its digest, reaching only `<baker/view.hpp>`), `move_read.hpp` (its reader,
+  reaching `<baker/view_read.hpp>`, for the files that read), and `views.hpp` (every view,
+  and `game::kViews` for the drift check). Name a struct in many files and read it in one.
+- **The contract** is the layers `(views (layers ...))` names: a mod, an overlay or a
+  personal layer may add fields, which stay in the tree. `(shapes ...)` adds views for
+  shapes not marked `(@view)`. The contract layers are the same in every build, so a
+  `#shape` under `#ifdef` there, or a `dev_only` or `(when COND)` contract layer, is
+  refused.
+- **When it reruns.** `baker_bake --views` writes a depfile naming every file it read and
+  rewrites a header only when its text changed, so a `@range` or `@desc` edit rebuilds
+  nothing, and a new field rebuilds what includes the struct. A cross-compile sets
+  `BAKER_BAKE_EXECUTABLE` to a `baker_bake` built for the host.
+- **Drift.** In development, after the load:
+
+  ```cpp
+  baker::shape::Report report;
+  const auto roots = baker::shape::contract_roots(cfg, project.views.layers.items());
+  const auto contract = baker::shape::contract_set(cfg.read_session(), roots.items(), report);
+  baker::shape::check_views(contract, game::kViews, report);   // warnings: regenerate
+  ```
+
+  A game using the host kit sets `CommandHooks::views = game::kViews`, and `check` reports
+  the same as a shape warning; the farm runs `check --baker-strict-views`, which makes it
+  an error, so a designer's change to a layout never ships against stale code. A shipping
+  build keeps no view names, and matches by digest alone.
 
 ## Content packages: patches, DLC, and mods
 

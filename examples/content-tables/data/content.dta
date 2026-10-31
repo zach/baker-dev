@@ -1,0 +1,7 @@
+; Content: another fighter, and a field the content team adds to the shape. The content
+; layer is in the contract, so `hint` is a member of game::Move.
+#shape (move (hint string (@optional) (@desc "What the move is for")))
+
+(fighters
+   (wren (moves
+      (poke (startup 3) (damage 2) (button light) (hint "Safe at range")))))

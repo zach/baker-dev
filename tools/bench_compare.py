@@ -25,7 +25,7 @@ import subprocess
 import sys
 
 ROW = re.compile(r"^(?P<name>\S.*?)\s+(?P<value>-?\d+(?:\.\d+)?)\s*(?P<unit>ns|us|ms|s|MB/s)\b")
-BENCHES = ["parse", "cache", "lookup", "call", "layers", "layers_shape", "tasks"]
+BENCHES = ["parse", "cache", "lookup", "view", "call", "layers", "layers_shape", "tasks"]
 CMAKE_FLAGS = [
     "-G",
     "Ninja",
