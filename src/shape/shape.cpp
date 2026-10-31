@@ -438,7 +438,11 @@ struct Checker {
     const Set& set;
     Vec<Error>& errors;
     Vec<Error>& warnings;
-    Vec<baker::Symbol> chain;   // the tags of the arrays from the root to here
+    // The tags of the arrays from the root to here: chain[0, depth). The Vec only grows, to
+    // the deepest walk, so a step down is a store, not a push_back the compiler may leave out
+    // of line (D275).
+    Vec<baker::Symbol> chain;
+    size_t depth = 0;
     Vec<const Shape*> keyed;    // the (@keyed) shapes, which match by place, not by tag
     Vec<const Shape*> by_name;  // by Symbol::index(): the shape of that name (gap 20)
     // Arrays checked already as a field's value, below the instance being walked: a stack,
@@ -461,9 +465,18 @@ struct Checker {
         return name.index() < by_name.size() ? by_name[name.index()] : nullptr;
     }
 
+    void enter_tag(baker::Symbol tag) {
+        if (depth == chain.size())
+            grow(tag);
+        else
+            chain[depth] = tag;
+        ++depth;
+    }
+    BAKER_NOINLINE void grow(baker::Symbol tag) { chain.push_back(tag); }
+
     [[nodiscard]] Str path() const {
         Str p;
-        for (const baker::Symbol s : chain) p += (p.empty() ? "" : "/") + Str(s.str());
+        for (size_t i = 0; i < depth; ++i) p += (p.empty() ? "" : "/") + Str(chain[i].str());
         return p;
     }
     void report(Vec<Error>& to, ErrorCode code, std::string_view message, const Array& at) const {
@@ -474,7 +487,7 @@ struct Checker {
 
     [[nodiscard]] bool governs(const Shape& s) const {
         if (s.at.empty()) return true;
-        if (s.at.size() != chain.size() - 1) return false;  // the last is the array's own tag
+        if (s.at.size() != depth - 1) return false;  // the last is the array's own tag
         for (size_t i = 0; i < s.at.size(); ++i)
             if (s.at[i] != names().any_tag && s.at[i] != chain[i]) return false;
         return true;
@@ -493,7 +506,7 @@ struct Checker {
                        "a value that is not a field of shape " + quoted(s.name), a);
                 continue;
             }
-            chain.push_back(*tag);
+            enter_tag(*tag);
             if (const Field* field = s.field(*tag)) {
                 seen.push_back(*tag);
                 value(*f, *field);
@@ -503,7 +516,7 @@ struct Checker {
                            " (extra fields are allowed)",
                        *f);
             }
-            chain.pop_back();
+            --depth;
         }
         const auto mine = seen.begin() + static_cast<std::ptrdiff_t>(mark);
         for (const Field& field : s.fields)
@@ -760,7 +773,7 @@ struct Checker {
             const Array* c = n.array();
             if (!c) continue;
             const auto tag = !c->tag().empty() ? std::optional(c->tag()) : std::nullopt;
-            if (tag) chain.push_back(*tag);
+            if (tag) enter_tag(*tag);
             if constexpr (Keys) arrays.push_back(c);
             const size_t mark = nested.size();
             if (tag && std::find(nested.begin(), nested.end(), c) == nested.end()) {
@@ -772,7 +785,7 @@ struct Checker {
             if (c->height() > 1) walk<Keys>(*c);
             nested.resize(mark);  // what this array's instance checked lies below it
             if constexpr (Keys) arrays.pop_back();
-            if (tag) chain.pop_back();
+            if (tag) --depth;
         }
     }
 };
@@ -832,7 +845,7 @@ void each_ruled(const Array& tree, const Set& shapes, const RuleWalker::Visit& v
 namespace {
 void run(const Array& tree, const Set& shapes, Vec<Error>& errors, Vec<Error>& warnings,
          const LoadSession* packs, Vec<bool>* used) {
-    Checker checker{shapes, errors, warnings, {}, {}, {}, {}, {}, {}, packs, {}, false, used};
+    Checker checker{shapes, errors, warnings, {}, 0, {}, {}, {}, {}, {}, packs, {}, false, used};
     checker.arrays.push_back(&tree);
     for (const Shape& s : shapes.shapes()) {
         if (s.keyed && !s.at.empty()) checker.keyed.push_back(&s);

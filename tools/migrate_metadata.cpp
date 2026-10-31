@@ -15,7 +15,8 @@
 // 1. In every tagged array with at least one untagged value, the old rule names the metadata:
 //    the trailing run of children tagged range, step, desc, note, kind, group or one_of (a
 //    tweak's without_metadata). Each gets the sigil: (hit_pause 6 (@range 0 30)).
-// 2. Inside a top-level (shapes ...), the words shape.cpp reads as metadata: a shape's own
+// 2. Inside a top-level (shapes ...) or #shape (NAME ...), whichever of the two migrations
+//    ran first, the words shape.cpp reads as metadata: a shape's own
 //    (at ...), (keyed) and (rule "message" {expr} (warn)), whose (warn) gets it too, and its
 //    (desc "...") and (note "..."), told from a field named desc or note by the string where
 //    a field's type goes; a field's children after its type tagged range, step, kind, desc,
@@ -164,6 +165,12 @@ public:
             const std::vector<int32_t>& kids = tree_.children(b);
             if (tag && *tag == "shapes" && top) {
                 for (size_t i = 1; i < kids.size(); ++i) shape(kids[i]);
+                shapes_end = br.end;
+                continue;
+            }
+            if (top && br.declares >= 0 &&
+                tree_.span(tree_.s.tokens[static_cast<size_t>(br.declares)]) == "#shape") {
+                shape(~b);  // #shape (NAME ...), as baker_migrate_declarations writes it
                 shapes_end = br.end;
                 continue;
             }

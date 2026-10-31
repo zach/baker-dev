@@ -274,6 +274,12 @@ if(BAKER_BUILD_TOOLS)
       ${PROJECT_SOURCE_DIR}/tests/corpus/config_app.dta ${CMAKE_CURRENT_BINARY_DIR}/config_app.datb)
     add_test(NAME baker_bake_drop_metadata COMMAND baker_bake --drop-metadata
       ${PROJECT_SOURCE_DIR}/tests/corpus/config_app.dta ${CMAKE_CURRENT_BINARY_DIR}/config_app_lean.datb)
+    if(BAKER_BUILD_SCRIPT)  # either order of the two migrations gives the same text
+      add_test(NAME baker_migrate_order COMMAND ${CMAKE_COMMAND}
+        -DDECL=$<TARGET_FILE:baker_migrate_declarations> -DMETA=$<TARGET_FILE:baker_migrate_metadata>
+        -DSOURCE=${PROJECT_SOURCE_DIR}/tests/tools/migrate/shapes.dta -DWORK=${CMAKE_CURRENT_BINARY_DIR}
+        -P ${PROJECT_SOURCE_DIR}/tests/tools/migrate/check_order.cmake)
+    endif()
   endif()
 endif()
 
