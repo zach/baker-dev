@@ -169,8 +169,10 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT BAKER_SANITIZE AND NOT BAKE
     -P ${CMAKE_CURRENT_SOURCE_DIR}/codegen/check_tweak_text.cmake)
 endif()
 
-# A game built with another BAKER_SHIPPING than the library's fails to link (D266).
+# A game built with another BAKER_SHIPPING than the library's fails to link (D266). The game
+# is compiled and linked with the build's own flags (libc++'s -stdlib, for one).
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT BAKER_SANITIZE AND NOT BAKER_USE_EASTL)
+  separate_arguments(baker_link_flags UNIX_COMMAND "${CMAKE_CXX_FLAGS} ${CMAKE_EXE_LINKER_FLAGS}")
   add_test(NAME baker_config_mismatch COMMAND ${CMAKE_COMMAND}
     -DCXX=${CMAKE_CXX_COMPILER}
     -DSTD=${CMAKE_CXX_STANDARD}
@@ -179,6 +181,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT BAKER_SANITIZE AND NOT BAKE
     -DLIB=$<TARGET_FILE:baker_data>
     -DSHIPPING=$<BOOL:${BAKER_SHIPPING}>
     "-DDEFS=-DBAKER_STD_EXPECTED=${BAKER_STD_EXPECTED_VALUE};-DBAKER_ATOMIC_REFCOUNT=$<BOOL:${BAKER_ATOMIC_REFCOUNT}>"
+    "-DFLAGS=${baker_link_flags}"
     -DOUT=${CMAKE_CURRENT_BINARY_DIR}/tweak_game
     -P ${CMAKE_CURRENT_SOURCE_DIR}/link/check_config_mismatch.cmake)
 endif()
