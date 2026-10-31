@@ -192,6 +192,21 @@ endif()
 # Public headers reach only the allowed standard headers (std_*.hpp excepted), and each
 # compiles on its own (D55).
 find_package(Python3 COMPONENTS Interpreter)
+# Views generated from a project (D277): the headers a game's build makes, compiled and read.
+if(BAKER_BUILD_SHAPE)
+  add_executable(baker_views_generated views/read_views.cpp)
+  target_link_libraries(baker_views_generated PRIVATE baker::data)
+  baker_generate_views(baker_views_generated
+    PROJECT ${CMAKE_CURRENT_SOURCE_DIR}/views/project/baker-project.dta)
+  add_test(NAME baker_views_generated COMMAND baker_views_generated
+    ${CMAKE_CURRENT_SOURCE_DIR}/views/project/baker-project.dta)
+  if(Python3_FOUND)
+    add_test(NAME baker_bake_views COMMAND ${Python3_EXECUTABLE} -I
+      ${CMAKE_CURRENT_SOURCE_DIR}/views/test_bake_views.py $<TARGET_FILE:baker_bake>
+      ${CMAKE_CURRENT_SOURCE_DIR}/views/project)
+  endif()
+endif()
+
 if(Python3_FOUND)
   add_test(NAME baker_header_allowlist
            COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/check_headers.py)

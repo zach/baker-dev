@@ -7,7 +7,7 @@ option(BAKER_BUILD_HOST       "Build baker::host (the host kit: watcher, console
 option(BAKER_BUILD_TESTS      "Build the test suite" ${PROJECT_IS_TOP_LEVEL})
 option(BAKER_ATOMIC_REFCOUNT  "Atomic refcounts (OFF: plain counters, single-threaded use only)" ON)
 option(BAKER_SHIPPING         "Freeze config and compile out dev instrumentation" OFF)
-option(BAKER_BUILD_TOOLS      "Build command-line tools (baker_parse_corpus, baker_bake)" ${PROJECT_IS_TOP_LEVEL})
+option(BAKER_BUILD_TOOLS      "Build command-line tools (baker_parse_corpus, the migrators; baker_bake is always built)" ${PROJECT_IS_TOP_LEVEL})
 option(BAKER_BUILD_BENCH      "Build benchmarks" OFF)
 option(BAKER_BUILD_EXAMPLES   "Build the examples" ${PROJECT_IS_TOP_LEVEL})
 option(BAKER_BUILD_HARNESS    "Build examples/harness-imgui (fetches Dear ImGui and GLFW)" OFF)
@@ -239,6 +239,22 @@ if(BAKER_BUILD_SHAPE)
   target_link_libraries(baker INTERFACE baker::shape)
 endif()
 
+# baker_bake: the binary cache (D70) and, with baker::shape, the views (D277). Built whenever
+# the library is, so a game's baker_generate_views (cmake/BakerViews.cmake) has it.
+add_executable(baker_bake tools/baker_bake.cpp)
+target_link_libraries(baker_bake PRIVATE baker::data)
+if(BAKER_BUILD_SHAPE)
+  target_link_libraries(baker_bake PRIVATE baker::shape)
+  target_compile_definitions(baker_bake PRIVATE BAKER_BAKE_VIEWS=1)
+endif()
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/BakerViews.cmake)
+if(BAKER_BUILD_TESTS)
+  add_test(NAME baker_bake COMMAND baker_bake -D DEBUG
+    ${PROJECT_SOURCE_DIR}/tests/corpus/config_app.dta ${CMAKE_CURRENT_BINARY_DIR}/config_app.datb)
+  add_test(NAME baker_bake_drop_metadata COMMAND baker_bake --drop-metadata
+    ${PROJECT_SOURCE_DIR}/tests/corpus/config_app.dta ${CMAKE_CURRENT_BINARY_DIR}/config_app_lean.datb)
+endif()
+
 if(BAKER_BUILD_TESTS OR BAKER_BUILD_BENCH)
   # The allocation counter (it replaces operator new), compiled once for the tests and the
   # benchmarks (D137).
@@ -262,19 +278,11 @@ endif()
 if(BAKER_BUILD_TOOLS)
   add_executable(baker_parse_corpus tools/parse_corpus.cpp)
   target_link_libraries(baker_parse_corpus PRIVATE baker::data)
-  add_executable(baker_bake tools/baker_bake.cpp)
-  target_link_libraries(baker_bake PRIVATE baker::data)
   if(BAKER_BUILD_SCRIPT)  # the tolerant read of text is in baker::tools
     add_executable(baker_migrate_metadata tools/migrate_metadata.cpp)
     target_link_libraries(baker_migrate_metadata PRIVATE baker::tools baker::data)
     add_executable(baker_migrate_declarations tools/migrate_declarations.cpp)
     target_link_libraries(baker_migrate_declarations PRIVATE baker::tools baker::data)
-  endif()
-  if(BAKER_BUILD_TESTS)
-    add_test(NAME baker_bake COMMAND baker_bake -D DEBUG
-      ${PROJECT_SOURCE_DIR}/tests/corpus/config_app.dta ${CMAKE_CURRENT_BINARY_DIR}/config_app.datb)
-    add_test(NAME baker_bake_drop_metadata COMMAND baker_bake --drop-metadata
-      ${PROJECT_SOURCE_DIR}/tests/corpus/config_app.dta ${CMAKE_CURRENT_BINARY_DIR}/config_app_lean.datb)
   endif()
 endif()
 

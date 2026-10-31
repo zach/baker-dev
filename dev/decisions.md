@@ -9726,3 +9726,34 @@ model of what step 4 generates.*
   `tests/support/view_move.hpp` is gone.
 - **Costs.** Tool path only. The generated reader is D275's: no interning, no static
   guards, nothing allocated.
+
+## D277. Views, step 5: the project's `(views ...)`, `baker_bake --views`, and `baker_generate_views`
+
+*`dev/views-plan.md` step 5, with its Q1 as the owner answered it.*
+
+- **The project file** gains `(views (layers core content) (shapes item) (namespace
+  game::data))` (`ProjectViews`): the contract layers, bottom to top, which must be the
+  project's own and neither `dev_only` nor under `(when COND)` (a located error otherwise);
+  views besides those marked `(@view)`; and the namespace, `baker_views` by default.
+- **`baker_bake --views OUT_DIR --project FILE [--depfile FILE] [--stamp FILE]`** reads the
+  contract layers through a session set up as the project's (`open_project`'s levels,
+  include directories and defines), a directory layer as each of its `.dta` files sorted,
+  then `contract_set`, `view_shapes` and the three writers. A header is written only when
+  its text changed, so a tuning edit rebuilds nothing that includes it; the depfile names
+  every file the reads touched (the tool wraps the session's reader to know), with the
+  stamp as its target; the stamp is touched on success, so a build's rule is up to date
+  while the headers keep their time stamps. Errors print located and exit 1.
+- **`baker_generate_views(target PROJECT file [OUTPUT dir])`** in `cmake/BakerViews.cmake`:
+  a custom command with the depfile, a target the game depends on, and the directory on the
+  game's include path. `BAKER_BAKE_EXECUTABLE` names a host-built tool for a cross-compile.
+- **`baker_bake` is built whenever the library is** (Q1), outside `BAKER_BUILD_TOOLS`, and
+  links `baker::shape` when that is built (`BAKER_BAKE_VIEWS`); without it `--views` says
+  so. Its two cache tests moved with it.
+- **Tests.** `tests/views/project` is generated through `baker_generate_views` into
+  `baker_views_generated`, which opens the project and reads a boss, a nested view, a
+  listed view through `get<T>`, a content layer's field in the struct and a mod's in the
+  tree only; `test_bake_views.py` runs the tool on a copy: every file written, the
+  depfile's names, a second run rewriting no header, a tuning edit rewriting none and a
+  layout edit one, and each refusal (a `#shape` under `#ifdef`, taken and skipped; an
+  unknown listed shape; a `dev_only` contract layer; an unknown contract layer).
+- **Costs.** Build time only: one tool run when a contract file changes.
