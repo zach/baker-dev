@@ -116,6 +116,9 @@ struct Shape {
 struct Report {
     List<Error> errors;
     List<Error> warnings;  // fields a shape does not declare
+    // Keys that resolved through a record's (@aka ...) rather than its key (D285): what a
+    // tool lists as still in use, against aliases nothing names.
+    List<baker::Symbol> aliases_used;
 
     [[nodiscard]] bool ok() const noexcept { return errors.empty(); }
 };

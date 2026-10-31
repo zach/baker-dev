@@ -26,7 +26,13 @@ public:
         }
     }
     // detail::resolve, through find().
+    const Array* merged = nullptr;  // the stack, for a renamed record's aliases (D285)
     [[nodiscard]] bool resolve(const Array& root, const Path& path, detail::Resolved& out) {
+        if (resolve_plain(root, path, out)) return true;
+        return merged &&
+               detail::resolve_in_layer(root, path, merged, out) == detail::ResolveStatus::Ok;
+    }
+    [[nodiscard]] bool resolve_plain(const Array& root, const Path& path, detail::Resolved& out) {
         if (!path.valid()) return false;
         Values v(root.nodes(), &root);
         const Array* arr = &root;
@@ -263,6 +269,7 @@ LayerReport run_check(const Basis& b, std::string_view name, const Ref<Array>& c
                                       m->file(), m->line()));
     const Array& stack = b.root;
     Finder finder(alloc);
+    if (b.scratch.aliases) finder.merged = &stack;
     // supplier() and source_in(), through the finder: the enabled layer, from the top, whose
     // own tree holds the value, and where.
     auto below_source = [&](const Path& path) -> std::optional<Source> {
@@ -509,6 +516,7 @@ struct LayerChecker::State {
     LoadSession session{alloc};
     Vec<Config::Validator> validators{alloc};  // the any_thread ones
     bool left_out = false;                     // and there were others
+    bool aliases = false;                      // some layer has an (@aka ...) (D285)
     std::atomic<uint32_t> refs{1};
 };
 
@@ -539,6 +547,7 @@ namespace {
 template <class F>
 auto on_state(const LayerChecker::State& st, F&& check) {
     detail::MergeScratch scratch(st.alloc);
+    scratch.aliases = st.aliases;
     Vec<const Config::Validator*> validators(st.alloc);
     for (const Config::Validator& v : st.validators) validators.push_back(&v);
     const Basis b{
@@ -590,6 +599,8 @@ LayerChecker Config::checker(const Allocator& allocator) const {
     st.config = this;
     st.generation = impl_->generation;
     st.root = root_;
+    for (const LayerState& l : impl_->layers)
+        st.aliases = st.aliases || (l.options.enabled && l.aliases);
     for (const LayerState& l : impl_->layers)
         if (l.options.enabled) {
             st.layers.push_back(l.root);

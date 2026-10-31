@@ -64,6 +64,8 @@ struct SessionAccess {
     // Each name an #ifdef, #ifndef, #define or #undef named, in the order read; and the
     // files parsed, which a cache's replay leaves as they were.
     [[nodiscard]] static std::span<const Symbol> tested(const LoadSession& s) noexcept;
+    // Arrays with an (@aka ...) the session's reads made, this top-level read included (D285).
+    [[nodiscard]] static uint32_t aliases(const LoadSession& s) noexcept;
     [[nodiscard]] static uint64_t parses(const LoadSession& s) noexcept;
     // The #autorun commands the last top-level read added.
     [[nodiscard]] static std::span<const Node> new_autorun(const LoadSession& s) noexcept;

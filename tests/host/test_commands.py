@@ -93,6 +93,20 @@ def views(s):
     default.write_text(text)
 
 
+def aliases(s):
+    """An (@aka old) nothing names is a finding; a layer naming it merges into the record (D285)."""
+    code, out, err = s.run("check", agent="")
+    r = json.loads(out)
+    expect(code == 0 and any("alias 'hero' of player is named by no layer" in f["message"]
+                             for f in r["findings"]), f"an unused alias is a finding: {err}")
+    code, out, _ = s.run("check", agent="(hero (speed 4))\n")
+    r = json.loads(out)
+    expect(code == 0 and not any("alias 'hero'" in f["message"] for f in r["findings"]),
+           "a layer that names the old key uses the alias")
+    code, out, _ = s.run("eval", "{config.get player.speed}", agent="(hero (speed 4))\n")
+    expect(code == 0 and out == "4\n", f"and merges into the renamed record: {out!r}")
+
+
 def reference(s):
     code, out, _ = s.run("reference", "--baker-json", agent="")
     r = json.loads(out)
@@ -271,7 +285,7 @@ def main():
         print(__doc__)
         return 2
     writes = shipping if sys.argv[3:] == ["shipping"] else diff_and_promote
-    for case in (check, views, reference, eval_json, writes, host_io, scenarios, command_line,
+    for case in (check, views, aliases, reference, eval_json, writes, host_io, scenarios, command_line,
                  format_files):
         case(Stack(sys.argv[1], sys.argv[2]))
     print(f"{len(FAILURES)} failures" if FAILURES else "all passed")

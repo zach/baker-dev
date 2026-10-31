@@ -112,3 +112,74 @@ TEST_CASE("the validator over a stack without ids allocates little and reports n
     REQUIRE(cfg.push_layer_text("w", "(a (b (c 1)) (d 2))"));
     CHECK(reports == 0);
 }
+
+// --- Aliases: (@aka old) on a renamed record (D285). ---
+
+TEST_CASE("a layer that retunes a record by its old key merges into the renamed record") {
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer_text("base",
+                                "(weapons (plasma (@aka laser) (damage 3) (range 9))"
+                                "         (cannon (damage 9)))"));
+    REQUIRE(cfg.push_layer_text("overlay", "(weapons (laser (damage 5)))"));
+    CHECK(ok(cfg.get<int>("weapons.plasma.damage")) == 5);
+    CHECK(ok(cfg.get<int>("weapons.plasma.range")) == 9);
+    CHECK_FALSE(cfg.get<int>("weapons.laser.damage"));  // the old key is not a record
+    // The record keeps its new key even when the overlay restates it whole.
+    REQUIRE(cfg.push_layer_text("whole", "(weapons (laser (@aka laser) (damage 7) (range 9)))"));
+    CHECK(ok(cfg.get<int>("weapons.plasma.damage")) == 7);
+    CHECK_FALSE(cfg.root()->try_get("weapons.laser"));
+    // A key no record answers to is a new record, as before.
+    REQUIRE(cfg.push_layer_text("new", "(weapons (railgun (damage 20)))"));
+    CHECK(ok(cfg.get<int>("weapons.railgun.damage")) == 20);
+    // Removing the aliased layer: the overlay's key is then its own record.
+    REQUIRE(cfg.remove_layer("base"));
+    CHECK(ok(cfg.get<int>("weapons.laser.damage")) == 7);
+}
+
+TEST_CASE("an alias resolves through the indexed path too: a wide table") {
+    std::string base = "(items";
+    for (int i = 0; i < 40; ++i)
+        base += " (item" + std::to_string(i) + " (cost " + std::to_string(i) + "))";
+    base += " (gem (@aka ruby emerald) (cost 100)))";
+    std::string over = "(items";
+    for (int i = 0; i < 40; ++i)
+        over += " (item" + std::to_string(i) + " (cost " + std::to_string(i + 1) + "))";
+    over += " (emerald (cost 150)))";
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer_text("base", base));
+    REQUIRE(cfg.push_layer_text("over", over));
+    CHECK(ok(cfg.get<int>("items.gem.cost")) == 150);
+    CHECK(ok(cfg.get<int>("items.item39.cost")) == 40);
+    CHECK_FALSE(cfg.root()->try_get("items.emerald"));
+}
+
+TEST_CASE("a key that is also a sibling's alias is an error at both") {
+    Config cfg({.tweaks = nullptr});
+    std::vector<std::string> reported;
+    cfg.set_warning_handler([&](const Error& e) { reported.emplace_back(to_string(e)); });
+    cfg.add_validator(id_validator(), {.any_thread = true});
+    REQUIRE(cfg.push_layer_text("w",
+                                "(weapons (plasma (@aka laser) (damage 3))\n"
+                                "         (laser (damage 1)))"));
+    REQUIRE(reported.size() == 1);
+    CHECK(reported[0].find("'laser' is a key of this table and an alias of 'plasma' (w:1)") !=
+          std::string::npos);
+    CHECK(reported[0].find("w:2") != std::string::npos);
+    CHECK(reported[0].find("at weapons") != std::string::npos);
+}
+
+TEST_CASE("a stack without aliases resolves nothing by alias, and a shipped cache keeps them") {
+    LoadSession session;
+    auto root = ok(read_string("(weapons (plasma (@aka laser) (damage 3)))", "w.dta", session));
+    const Ref<Array> lean = without_metadata(*root);
+    CHECK(lean->try_get("weapons.plasma")->meta(Symbol("@aka")) != nullptr);
+}
+
+TEST_CASE("provenance follows the alias: source() names the layer that wrote the old key") {
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer_text("base", "(weapons (plasma (@aka laser) (damage 3) (range 9)))"));
+    REQUIRE(cfg.push_layer_text("overlay", "(weapons (laser (damage 5)))"));
+    const Source s = ok(cfg.source("weapons.plasma.damage"));
+    CHECK(s.layer == Symbol("overlay"));
+    CHECK(ok(cfg.source("weapons.plasma.range")).layer == Symbol("base"));
+}

@@ -117,6 +117,64 @@ void add_shapes(const Config& cfg, shape::Set& set, shape::Report& report) {
 }
 #endif
 
+#if BAKER_HOST_SHAPE
+// Every (@aka old) of the merged stack that no key_of resolved through and no layer's own
+// tree names as a key: a finding, since a shipped overlay may still name it (D285).
+void unused_aliases(const Config& cfg, const shape::Report& shaped, CheckReport& report) {
+    struct Alias {
+        Symbol old;
+        const Array* record;
+        Str path;
+    };
+    Vec<Alias> aliases;
+    Vec<Str> segments;
+    const auto walk = [&](auto&& self, const Array& a) -> void {
+        const uint32_t first = a.tag().empty() ? 0 : 1;
+        for (uint32_t i = first; i < a.size(); ++i) {
+            const Array* c = a[i].try_array();
+            if (!c) continue;
+            segments.push_back(c->tag().empty() ? detail::decimal(static_cast<int64_t>(i - first))
+                                                : Str(c->tag().str()));
+            if (c->meta_first())
+                if (const Array* aka = c->meta(Symbol("@aka")))
+                    for (const Node& old : aka->values())
+                        if (const auto s = old.try_sym()) {
+                            Str path;
+                            for (const Str& seg : segments) path += (path.empty() ? "" : "/") + seg;
+                            aliases.push_back({*s, c, path});
+                        }
+            self(self, *c);
+            segments.pop_back();
+        }
+    };
+    walk(walk, *cfg.root());
+    if (aliases.empty()) return;
+    Vec<Symbol> used(shaped.aliases_used.begin(), shaped.aliases_used.end());
+    const auto tags_of = [&](auto&& self, const Array& a) -> void {
+        const uint32_t first = a.tag().empty() ? 0 : 1;
+        for (uint32_t i = first; i < a.size(); ++i)
+            if (const Array* c = a[i].try_array()) {
+                if (!c->tag().empty()) used.push_back(c->tag());
+                self(self, *c);
+            }
+    };
+    for (const Symbol layer : cfg.layers())
+        if (const Ref<Array> root = cfg.layer_root(layer.str())) tags_of(tags_of, *root);
+    Vec<Error> findings(report.findings.begin(), report.findings.end());
+    for (const Alias& a : aliases) {
+        if (std::find(used.begin(), used.end(), a.old) != used.end()) continue;
+        Error e = make_error(ErrorCode::NotFound,
+                             "alias '" + Str(a.old.str()) + "' of " + a.path +
+                                 " is named by no layer or key_of: a shipped overlay may still "
+                                 "name it; drop the (@aka ...) once none does",
+                             a.record->file(), a.record->line());
+        e.set_path(a.path);
+        findings.push_back(e);
+    }
+    report.findings = List<Error>(std::span<const Error>(findings.data(), findings.size()));
+}
+#endif
+
 int report_check(CheckReport& report, const Loaded& l, const LoadSession* packs) {
     report.load = List<Error>(l.live.load_errors());
     tools::write_json(report, stdout_sink(), packs);
@@ -176,6 +234,7 @@ int check(const CommandLine& line, const CommandHooks& hooks) {
     add_shapes(cfg, shapes, shaped);
     shape::check(*cfg.root(), shapes, shaped);
     shape::unused(*cfg.root(), shapes, shaped);  // a shape at the wrong depth checks nothing
+    unused_aliases(cfg, shaped, report);         // an (@aka old) nothing names (D285)
     tools::check_rules(*cfg.root(), shapes, l.ctx, shaped);  // a broken rule fails the check
     for (const Error& e : shaped.errors) err("shape: " + Str(to_string(e)) + "\n");
     for (const Error& e : shaped.warnings) err("shape warning: " + Str(to_string(e)) + "\n");

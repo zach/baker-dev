@@ -2,7 +2,7 @@
 #shape (player (@view)
    (speed float (@range 0 10))
    (lives int))
-(player
+(player (@aka hero)
    (speed 3.5)   ; how fast
    (lives 3))
 (loot coin gem)

@@ -583,6 +583,7 @@ struct Checker {
                        "a value that is not a field of shape " + quoted(s.name), a);
                 continue;
             }
+            if (tag->is_meta()) continue;  // a record's own (@note ...), (@id ...): never a field
             enter_tag(*tag);
             if (const Field* field = s.field(*tag)) {
                 seen.push_back(*tag);
@@ -763,27 +764,45 @@ struct Checker {
         }
         return nullptr;
     }
-    // The table's child tagged `key`, the first as try_find() finds it.
+    // The table's child tagged `key`, the first as try_find() finds it, or the child that
+    // still answers to it, (@aka key) (D285): keys first, then aliases, so a key wins.
     const Array* in(const Array& table, baker::Symbol key) {
         auto [it, added] = tables.try_emplace(&table);
-        if (added)
+        if (added) {
             for (const Node& c : table.values())
                 if (const Array* e = c.try_array(); e && !e->tag().empty())
                     it->second.try_emplace(e->tag(), e);
+            for (const Node& c : table.values())
+                if (const Array* e = c.try_array(); e && e->meta_first())
+                    if (const Array* aka = e->meta(baker::detail::aka_tag()))
+                        for (const Node& old : aka->values())
+                            if (const auto s = old.try_sym()) it->second.try_emplace(*s, e);
+        }
         const auto found = it->second.find(key);
-        return found == it->second.end() ? nullptr : found->second;
+        if (found == it->second.end()) return nullptr;
+        if (found->second->tag() != key) aliases_used.push_back(key);
+        return found->second;
     }
-    // The table's key nearest `wrong` by edits, within two, or none: what a typo meant.
+    Vec<baker::Symbol> aliases_used;  // keys that resolved through an alias
+    // The table's key, or alias, nearest `wrong` by edits, within two, or none: what a typo
+    // meant.
     static std::optional<std::string_view> nearest(const Array& table, std::string_view wrong) {
         std::optional<std::string_view> best;
         size_t best_cost = 3;
+        const auto consider = [&](std::string_view name) {
+            const size_t cost = edits(wrong, name, best_cost);
+            if (cost < best_cost) {
+                best_cost = cost;
+                best = name;
+            }
+        };
         for (const Node& c : table.values())
             if (const Array* e = c.try_array(); e && !e->tag().empty()) {
-                const size_t cost = edits(wrong, e->tag().str(), best_cost);
-                if (cost < best_cost) {
-                    best_cost = cost;
-                    best = e->tag().str();
-                }
+                consider(e->tag().str());
+                if (e->meta_first())
+                    if (const Array* aka = e->meta(baker::detail::aka_tag()))
+                        for (const Node& old : aka->values())
+                            if (const auto s = old.try_sym()) consider(s->str());
             }
         return best;
     }
@@ -921,8 +940,9 @@ void each_ruled(const Array& tree, const Set& shapes, const RuleWalker::Visit& v
 
 namespace {
 void run(const Array& tree, const Set& shapes, Vec<Error>& errors, Vec<Error>& warnings,
-         const LoadSession* packs, Vec<bool>* used) {
-    Checker checker{shapes, errors, warnings, {}, 0, {}, {}, {}, {}, {}, packs, {}, false, used};
+         const LoadSession* packs, Vec<bool>* used, Vec<baker::Symbol>* aliases_used = nullptr) {
+    Checker checker{shapes, errors, warnings, {}, 0,     {},   {}, {},
+                    {},     {},     packs,    {}, false, used, {}};
     checker.arrays.push_back(&tree);
     for (const Shape& s : shapes.shapes()) {
         if (s.keyed && !s.at.empty()) checker.keyed.push_back(&s);
@@ -935,14 +955,19 @@ void run(const Array& tree, const Set& shapes, Vec<Error>& errors, Vec<Error>& w
         checker.walk<true>(tree);
     else
         checker.walk<false>(tree);
+    if (aliases_used)
+        aliases_used->insert(aliases_used->end(), checker.aliases_used.begin(),
+                             checker.aliases_used.end());
 }
 }  // namespace
 
 void check(const Array& tree, const Set& shapes, Report& report, const LoadSession* packs) {
     Vec<Error> errors(report.errors.begin(), report.errors.end());
     Vec<Error> warnings(report.warnings.begin(), report.warnings.end());
-    run(tree, shapes, errors, warnings, packs, nullptr);
+    Vec<baker::Symbol> aliases_used(report.aliases_used.begin(), report.aliases_used.end());
+    run(tree, shapes, errors, warnings, packs, nullptr, &aliases_used);
     report.errors = List<Error>({errors.data(), errors.size()});
+    report.aliases_used = List<baker::Symbol>({aliases_used.data(), aliases_used.size()});
     report.warnings = List<Error>({warnings.data(), warnings.size()});
 }
 

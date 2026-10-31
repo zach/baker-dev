@@ -192,6 +192,9 @@ Expected<List<ExplainEntry>> explain(const Config& cfg, const Path& path) {
         const Array* composes = nullptr;  // (key #append v...) or (key #drop v...)
         bool value = false, subtree = false;
     };
+    // A renamed record is spelled by an alias in a layer that retunes it by the old key (D285).
+    const Ref<Array> merged_root = cfg.root();
+    const Array* merged = merged_root.get();
     auto held = [&](const Array& tree) {
         Held h;
         detail::Resolved r;
@@ -207,15 +210,18 @@ Expected<List<ExplainEntry>> explain(const Config& cfg, const Path& path) {
         for (size_t k = 1; k <= path.size(); ++k) {
             if (path[k - 1].is_index) continue;
             const Path prefix = k == path.size() ? path : Path(detail::text_of(path, k));
-            if (detail::resolve(tree, prefix, r) != detail::ResolveStatus::Ok) return h;
+            if (detail::resolve_in_layer(tree, prefix, merged, r) != detail::ResolveStatus::Ok)
+                return h;
             if (r.array && detail::is_removal(*r.array)) {
                 h.marker = r.array;
                 return h;
             }
         }
-        if (detail::resolve(tree, path, r) != detail::ResolveStatus::Ok) return h;
+        Path spelled;  // as this layer writes it: by an alias, for a renamed record
+        if (detail::resolve_in_layer(tree, path, merged, r, &spelled) != detail::ResolveStatus::Ok)
+            return h;
         if (last_is_index(path) || (r.array && has_values(*r.array)))
-            h.value = value_nodes(tree, path, h.nodes);
+            h.value = value_nodes(tree, spelled, h.nodes);
         else
             h.subtree = true;
         return h;

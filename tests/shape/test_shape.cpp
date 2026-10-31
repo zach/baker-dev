@@ -1092,3 +1092,16 @@ TEST_CASE("contract_roots: a file layer's own file, and the files under a direct
     CHECK(report.errors.empty());
     CHECK(set.find("a")->field("y"));
 }
+
+// --- Aliases: a key_of resolves through (@aka old), and says so (D285). ---
+
+TEST_CASE("a key_of names a record by its alias, and the report lists the keys so resolved") {
+    const auto r = check_text(R"(#shape (unit (@at units) (@keyed) (weapon (key_of weapons)))
+        (weapons (plasma (@aka laser beam) (damage 3)) (cannon (damage 9)))
+        (units (scout (weapon laser)) (tank (weapon cannon)) (odd (weapon lazer))))");
+    const auto e = texts(r.errors);
+    REQUIRE(e.size() == 1);
+    CHECK(e[0].find("'lazer' is not a key of weapons (laser?)") != std::string::npos);
+    REQUIRE(r.aliases_used.size() == 1);
+    CHECK(r.aliases_used[0] == Symbol("laser"));
+}

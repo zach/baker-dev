@@ -201,6 +201,14 @@ records that share an ID (a copied record) and a malformed one, as errors to the
 handler at every merge; the host kit's loop and `check` add it. A shipped cache written
 without metadata keeps `@id` and `@aka`: they are identity, not tool text.
 
+A renamed record keeps answering to its old key with `(@aka old)` (D285), which the kit's
+`rename` writes: a layer that retunes `(weapons (laser ...))` merges into the record now
+named `plasma`, and a `(key_of weapons)` naming `laser` resolves to it (a key wins over an
+alias). A key that is also a sibling's alias is an error from `id_validator`. Aliases stay
+until someone removes them, since a shipped overlay may still name one; `check` lists an
+alias that no layer and no `key_of` names, as a finding. A stack with no alias pays
+nothing for them.
+
 ### Rows: a key by its path
 
 A layer usually changes a few values deep in the tree. A **row** names each by its path, as

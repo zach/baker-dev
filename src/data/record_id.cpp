@@ -82,6 +82,10 @@ Str dotted(const Vec<Str>& path) {
     return out;
 }
 
+Str quoted_key(Symbol s) {
+    return "'" + Str(s.str()) + "'";
+}
+
 Str slashed(const Vec<Str>& path) {
     Str out;
     for (const Str& seg : path) {
@@ -121,7 +125,38 @@ Config::Validator id_validator() {
         };
         Vec<Seen> seen;
         Vec<Str> segments;
+        Vec<Symbol> tags;
         walk(stack.root, segments, [&](const Array& a, const Vec<Str>& p) {
+            // A key that is also a sibling's alias (D285): both records answer to it.
+            tags.clear();
+            const uint32_t first = a.tag().empty() ? 0 : 1;
+            bool any_alias = false;
+            for (uint32_t i = first; i < a.size(); ++i)
+                if (const Array* c = a[i].try_array(); c && !c->tag().empty()) {
+                    tags.push_back(c->tag());
+                    any_alias = any_alias || (c->meta_first() && c->meta(detail::aka_tag()));
+                }
+            if (any_alias)
+                for (uint32_t i = first; i < a.size(); ++i) {
+                    const Array* c = a[i].try_array();
+                    const Array* aka = c && c->meta_first() ? c->meta(detail::aka_tag()) : nullptr;
+                    if (!aka) continue;
+                    for (const Node& old : aka->values()) {
+                        const auto s = old.try_sym();
+                        if (!s || std::find(tags.begin(), tags.end(), *s) == tags.end()) continue;
+                        const Array* other = a.try_find(*s);
+                        Error e = make_error(
+                            ErrorCode::Refused,
+                            quoted_key(*s) + " is a key of this table and an alias of " +
+                                quoted_key(c->tag()) + " (" + Str(c->file().str()) + ":" +
+                                detail::decimal(c->line()) +
+                                "): a record answers to it twice; drop the"
+                                " (@aka ...) or rename the record",
+                            other ? other->file() : a.file(), other ? other->line() : a.line());
+                        e.set_path(slashed(p));
+                        warn(e);
+                    }
+                }
             const Array* m = a.meta(detail::id_tag());
             if (!m) return true;
             const Values v = m->values();

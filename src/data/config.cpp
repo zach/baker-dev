@@ -262,6 +262,9 @@ Expected<void> Config::Impl::read(LayerState& layer, const LoadSession& before, 
     layer.tested.assign(tested.data() + from, tested.data() + tested.size());  // EASTL: pointers
     layer.tested_known =
         detail::SessionAccess::parses(*session) > detail::SessionAccess::parses(before);
+    layer.aliases =
+        detail::SessionAccess::aliases(*session) > detail::SessionAccess::aliases(before) ||
+        !layer.tested_known;
     layer.after = session;
     return {};
 }
@@ -531,6 +534,9 @@ void Config::Impl::put(Config& c, const Path& target, std::span<const Node> valu
 
 Ref<Array> Config::Impl::merged() const {
     Ref<Array> r = Array::make(0);
+    merge_scratch.aliases = false;
+    for (const LayerState& l : layers)
+        merge_scratch.aliases = merge_scratch.aliases || (l.options.enabled && l.aliases);
     for (const LayerState& l : layers)
         if (l.options.enabled)
             r = detail::merge(*r, *l.root, MergePolicy::Overwrite, merge_scratch);
@@ -556,6 +562,7 @@ void Config::Impl::commit(Config& c, ReloadRecord& rec, uint64_t& t) {
     ++generation;
     const Ref<Array> before = std::move(c.root_);
     c.root_ = merged();
+    merged_root = c.root_;
     c.scratch_dirty_ = false;
     refresh_read();
     if (!validators.empty()) {
@@ -1123,6 +1130,7 @@ Ref<Array> Config::with_edits() const {
 void Config::apply_edits() {
     if (!scratch_dirty_) return;
     root_ = impl_->merged();
+    impl_->merged_root = root_;
     scratch_dirty_ = false;
 }
 
@@ -1157,7 +1165,8 @@ Expected<Source> Config::source(const Path& path) const {
         for (size_t i = impl_->layers.size(); i-- > 0 && !at;) {
             detail::Resolved r;
             if (impl_->layers[i].options.enabled &&
-                detail::resolve(*impl_->layers[i].root, path, r) == detail::ResolveStatus::Ok)
+                detail::resolve_in_layer(*impl_->layers[i].root, path, impl_->alias_root(), r) ==
+                    detail::ResolveStatus::Ok)
                 at = i;
         }
     }

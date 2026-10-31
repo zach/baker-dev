@@ -56,6 +56,9 @@ struct LayerState {
     // again only if one changed. Unknown when a cache replayed it, which parses nothing.
     Vec<Symbol> tested;
     bool tested_known = false;
+    // Its tree holds an (@aka ...), or it was replayed from a cache, which counts none: the
+    // merge then resolves a key the stack lacks against the aliases below it (D285).
+    bool aliases = false;
     // A directory of layers (push_layer_dir): its own layer, which holds nothing, is `dir`'s
     // marker, and the layers found in it stand directly above, each with `group` its name.
     // The marker's deps are the directory itself, its order.dta, and the layer.dta files its
@@ -157,7 +160,7 @@ struct Leaf {
 void leaf_values(const Array& a, Vec<Node>& out);
 Vec<Node> leaf_values(const Array& a);
 // The array holding `path`'s value in `root` (its parent's, for an element), or null.
-const Array* row_at(const Array& root, const Path& path);
+const Array* row_at(const Array& root, const Path& path, const Array* merged = nullptr);
 // A layer row's verb as LayerEffectEntry::op names it: empty for a plain row.
 inline Symbol op_of(const Array& row) {
     const detail::Marker m = detail::verb_of(row);
@@ -264,6 +267,12 @@ struct Config::Impl {
     mutable Vec<Str> listed{alloc};  // the same for a directory's listing
     // Every merge's temporaries, reused: a merge allocates only the arrays it keeps (D127).
     mutable detail::MergeScratch merge_scratch{alloc};
+    // The merged tree as of the last commit or apply_edits: what a per-layer lookup consults
+    // for a renamed record's aliases (D285), only while some layer has one.
+    Ref<Array> merged_root;
+    [[nodiscard]] const Array* alias_root() const noexcept {
+        return merge_scratch.aliases ? merged_root.get() : nullptr;
+    }
     LoadSession base{alloc};  // the sessions the Config keeps are on its allocator (D129)
     LoadSession as_read{
         alloc};  // read_session(): the last file layer's session, as of the last merge
@@ -526,14 +535,17 @@ struct Config::Impl {
         for (size_t i = top; i-- > 0;) {
             if (i == skip || !layers[i].options.enabled || composes_at(i, path)) continue;
             detail::Resolved r;
-            if (detail::resolve(*layers[i].root, path, r) != detail::ResolveStatus::Ok) continue;
+            if (detail::resolve_in_layer(*layers[i].root, path, alias_root(), r) !=
+                detail::ResolveStatus::Ok)
+                continue;
             if (index || (r.array && has_values(*r.array))) return i;
         }
         return std::nullopt;
     }
     // Whether layer `i` composes `path`'s value: one flag test for a layer with no verb.
     [[nodiscard]] bool composes_at(size_t i, const Path& path) const {
-        const Array* row = layers[i].root->has_marker() ? row_at(*layers[i].root, path) : nullptr;
+        const Array* row =
+            layers[i].root->has_marker() ? row_at(*layers[i].root, path, alias_root()) : nullptr;
         return row && detail::composes(*row);
     }
     // A write of `path` into layer `from` would be appended to or dropped from again by a
@@ -543,7 +555,7 @@ struct Config::Impl {
                                                 size_t skip = SIZE_MAX) const {
         for (size_t i = layers.size(); i-- > from;)
             if (i != skip && layers[i].options.enabled && composes_at(i, path)) {
-                const Array& row = *row_at(*layers[i].root, path);
+                const Array& row = *row_at(*layers[i].root, path, alias_root());
                 return refused(quoted(path) + " is composed by layer '" + layers[i].name + "': " +
                                    detail::preview(Node(Ref<Array>(const_cast<Array*>(&row)))) +
                                    "; write the layer below it, or promote the layer",
@@ -554,7 +566,7 @@ struct Config::Impl {
 
     [[nodiscard]] Source source_in(const LayerState& l, const Path& path) const {
         detail::Resolved r;
-        if (detail::resolve(*l.root, path, r) != detail::ResolveStatus::Ok)
+        if (detail::resolve_in_layer(*l.root, path, alias_root(), r) != detail::ResolveStatus::Ok)
             return {Symbol(l.name), {}, 0};
         return located(l, *r.values.source());
     }

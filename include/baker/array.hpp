@@ -421,6 +421,13 @@ struct Resolved {
 };
 enum class ResolveStatus : uint8_t { Ok, Missing, Malformed };
 [[nodiscard]] ResolveStatus resolve(const Array& root, const Path& path, Resolved& out) noexcept;
+// resolve() over one layer's own tree, where a renamed record may be spelled by an alias
+// (D285): a segment the layer lacks is retried with the (@aka ...) names of the record at
+// that prefix in `merged` (the stack's merged tree; null: no retry). `spelled`, if given,
+// gets the path as the layer spells it.
+[[nodiscard]] ResolveStatus resolve_in_layer(const Array& layer, const Path& path,
+                                             const Array* merged, Resolved& out,
+                                             Path* spelled = nullptr);
 // get(path) on `root` failed; re-walks the path to say where and why. `values`, if given,
 // are the evaluated values that did not convert.
 [[nodiscard]] Error get_error(const Array& root, const Path& path, const ConvertInfo* info,

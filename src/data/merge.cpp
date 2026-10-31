@@ -334,6 +334,23 @@ bool merge_into(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const 
                 }
             }
         }
+        // A key the stack lacks may be a renamed record's old one: it merges into the
+        // record that still answers to it, (@aka old), which keeps its new key (D285).
+        bool via_alias = false;
+        if (found == dst.size() && !tag.empty() && scratch.aliases &&
+            policy == MergePolicy::Overwrite) {
+            for (size_t i = dst_first; i < dst.size() && !via_alias; ++i) {
+                const Array* da = dst[i].try_array();
+                const Array* aka = da && da->meta_first() ? da->meta(aka_tag()) : nullptr;
+                if (!aka) continue;
+                for (const Node& old : aka->values())
+                    if (old.is(tag)) {
+                        found = i;
+                        via_alias = true;
+                        break;
+                    }
+            }
+        }
         if (found == dst.size()) {
             Node added = src[j];
             if (policy == MergePolicy::Overwrite && sa->has_marker()) {
@@ -369,7 +386,7 @@ bool merge_into(Vec<Node>& dst, Vec<SourceSpan>* spans, size_t dst_first, const 
             merged.clear();
             continue;
         }
-        if (!map && same_nodes(merged, *sa)) {
+        if (!map && !via_alias && same_nodes(merged, *sa)) {
             dst[found] = src[j];  // the incoming array is the result: share it
         } else {
             // A rebuilt array is located where its values came from.

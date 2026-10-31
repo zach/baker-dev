@@ -175,10 +175,10 @@ Vec<Node> leaf_values(const Array& a) {
     return out;
 }
 
-const Array* row_at(const Array& root, const Path& path) {
+const Array* row_at(const Array& root, const Path& path, const Array* merged) {
     detail::Resolved r;
-    const bool ok = detail::resolve(root, last_is_index(path) ? parent_of(path) : path, r) ==
-                    detail::ResolveStatus::Ok;
+    const bool ok = detail::resolve_in_layer(root, last_is_index(path) ? parent_of(path) : path,
+                                             merged, r) == detail::ResolveStatus::Ok;
     return ok ? r.array : nullptr;
 }
 

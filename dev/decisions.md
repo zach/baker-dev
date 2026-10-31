@@ -9997,3 +9997,35 @@ not a load failure; `@renamed_from` is never applied at load; `rename` writes fi
   load"), the owner chose the validator.
 - **Costs.** None on a merge, lookup or reload without the validator. With it, one walk of
   the tree per merge, as the shape validator already does; measured with step 6's rows.
+
+## D285. Identity, step 2: aliases, `(@aka old)`
+
+*`dev/identity-plan.md` step 2.*
+
+- **The merge finds a renamed record on a miss.** A keyed child the lower array lacks is
+  looked for among its children's `(@aka ...)` values, and merges into the one that answers
+  to it, which keeps its new key (the incoming array is never shared as the result on such
+  a hit). Both lookup paths, the scan and the index past 32 keys, take it.
+- **Gated by what the reads counted.** The parser counts the arrays it closes that carry an
+  `(@aka ...)`; a layer records whether its read made any (or was replayed from a cache,
+  which parses nothing, and counts as having them); the Config's `MergeScratch` carries the
+  OR of its enabled layers' flags to every merge, and a `LayerChecker` copies it. So a stack
+  with no alias pays one bool test per miss, and nothing else. The marker bit (`kHasMarker`)
+  was not reused: its three users run verb-and-pin work (a dev-only check merge, per-leaf
+  staleness, `without_markers`' rebuild) that an alias must not trigger.
+- **`key_of` through an alias.** `shape::check`'s per-table index holds the keys first, then
+  each record's aliases, so a key wins; a key that resolved through an alias is listed in
+  `Report::aliases_used`. `id_validator` reports a key that is also a sibling's alias, at
+  the key, naming both.
+- **Provenance follows the alias.** A per-layer lookup (`supplier`, `source`, `explain`,
+  `layer_effect`, a candidate check's finder, write-back's `row_at`) resolves a path in a
+  layer's own tree through `detail::resolve_in_layer`: a segment the layer lacks is retried
+  with the aliases of the merged record at that prefix, so `source("player.speed")` names
+  the layer that wrote `(hero (speed 4))`, and `explain` and the console's `config.get`
+  see the value it set. The retry runs only on a miss, and only while a layer has aliases.
+  A record's own `(@...)` children are never fields to the shape check, which had reported
+  `@aka` as one.
+- **`check` lists an alias nothing names** as a finding: no `key_of` resolved through it and
+  no layer's own tree holds it as a key (a layer retuning by the old key counts as a use).
+- **Costs.** None on a merge without aliases; with them, a scan of the lower array's
+  children's metadata per missed key. Step 6 measures the push rows.
