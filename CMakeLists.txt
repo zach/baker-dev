@@ -7,7 +7,7 @@ option(BAKER_BUILD_HOST       "Build baker::host (the host kit: watcher, console
 option(BAKER_BUILD_TESTS      "Build the test suite" ${PROJECT_IS_TOP_LEVEL})
 option(BAKER_ATOMIC_REFCOUNT  "Atomic refcounts (OFF: plain counters, single-threaded use only)" ON)
 option(BAKER_SHIPPING         "Freeze config and compile out dev instrumentation" OFF)
-option(BAKER_BUILD_TOOLS      "Build command-line tools (baker_parse_corpus, baker_bake)" ${PROJECT_IS_TOP_LEVEL})
+option(BAKER_BUILD_TOOLS      "Build command-line tools (baker_parse_corpus, baker_bake, baker_migrate)" ${PROJECT_IS_TOP_LEVEL})
 option(BAKER_BUILD_BENCH      "Build benchmarks" OFF)
 option(BAKER_BUILD_EXAMPLES   "Build the examples" ${PROJECT_IS_TOP_LEVEL})
 option(BAKER_BUILD_HARNESS    "Build examples/harness-imgui (fetches Dear ImGui and GLFW)" OFF)
@@ -198,7 +198,7 @@ endif()
 if(BAKER_BUILD_SCRIPT)
   add_library(baker_tools src/tools/console.cpp src/tools/described.cpp src/tools/layers.cpp
               src/tools/reference.cpp src/tools/structure.cpp src/tools/tweaks.cpp
-              src/tools/format.cpp)
+              src/tools/format.cpp src/tools/migrate.cpp)
   add_library(baker::tools ALIAS baker_tools)
   baker_configure_library(baker_tools)
   target_link_libraries(baker_tools PUBLIC baker::script)
@@ -264,19 +264,17 @@ if(BAKER_BUILD_TOOLS)
   add_executable(baker_bake tools/baker_bake.cpp)
   target_link_libraries(baker_bake PRIVATE baker::data)
   if(BAKER_BUILD_SCRIPT)  # the tolerant read of text is in baker::tools
-    add_executable(baker_migrate_metadata tools/migrate_metadata.cpp)
-    target_link_libraries(baker_migrate_metadata PRIVATE baker::tools baker::data)
-    add_executable(baker_migrate_declarations tools/migrate_declarations.cpp)
-    target_link_libraries(baker_migrate_declarations PRIVATE baker::tools baker::data)
+    add_executable(baker_migrate tools/migrate.cpp)
+    target_link_libraries(baker_migrate PRIVATE baker::tools baker::data)
   endif()
   if(BAKER_BUILD_TESTS)
     add_test(NAME baker_bake COMMAND baker_bake -D DEBUG
       ${PROJECT_SOURCE_DIR}/tests/corpus/config_app.dta ${CMAKE_CURRENT_BINARY_DIR}/config_app.datb)
     add_test(NAME baker_bake_drop_metadata COMMAND baker_bake --drop-metadata
       ${PROJECT_SOURCE_DIR}/tests/corpus/config_app.dta ${CMAKE_CURRENT_BINARY_DIR}/config_app_lean.datb)
-    if(BAKER_BUILD_SCRIPT)  # either order of the two migrations gives the same text
+    if(BAKER_BUILD_SCRIPT)  # the migrations in either order, or in one pass, give one text
       add_test(NAME baker_migrate_order COMMAND ${CMAKE_COMMAND}
-        -DDECL=$<TARGET_FILE:baker_migrate_declarations> -DMETA=$<TARGET_FILE:baker_migrate_metadata>
+        -DMIGRATE=$<TARGET_FILE:baker_migrate>
         -DSOURCE=${PROJECT_SOURCE_DIR}/tests/tools/migrate/shapes.dta -DWORK=${CMAKE_CURRENT_BINARY_DIR}
         -P ${PROJECT_SOURCE_DIR}/tests/tools/migrate/check_order.cmake)
     endif()

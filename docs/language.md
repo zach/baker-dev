@@ -112,8 +112,9 @@ and the shape words below; `check` warns on any other `@` word, so a misspelt
 - **A lone `@`** is an ordinary symbol, so `('@' ...)` keys a record by the `@` key.
 - **Before the sigil**, metadata was told apart by its words and its place. `check` warns
   where an array holds a value and a child tagged `range`, `step`, `desc`, `note`, `kind`,
-  `group` or `one_of`, which now reads as a field; `baker_migrate_metadata` (in `tools/`)
-  rewrites such files, inserting the `@` and changing nothing else.
+  `group` or `one_of`, which now reads as a field; `baker_migrate` (in `tools/`) rewrites
+  such files, inserting the `@` and changing nothing else, and `tools::migrate_text` gives
+  each such place with its fix.
 
 ### Merging
 

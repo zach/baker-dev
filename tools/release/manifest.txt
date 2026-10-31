@@ -22,9 +22,8 @@ bench/**
 
 tools/baker_bake.cpp
 tools/parse_corpus.cpp
-# The migrations 0.7.0's changelog asks users to run, which the build makes.
-tools/migrate_metadata.cpp
-tools/migrate_declarations.cpp
+# baker_migrate, which rewrites data written for an older Baker; the build makes it.
+tools/migrate.cpp
 tools/migrate_runs.hpp
 tools/check_headers.py
 tools/check_tests.py

@@ -83,6 +83,7 @@ if(BAKER_BUILD_SCRIPT)
     tools/test_config_tools.cpp
     tools/test_described.cpp
     tools/test_format.cpp
+    tools/test_migrate.cpp
     tools/test_explain.cpp
     tools/test_layers.cpp
     tools/test_reference_json.cpp
