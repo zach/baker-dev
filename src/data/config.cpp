@@ -145,9 +145,10 @@ Expected<Ref<Array>> Config::Impl::read_through_cache(std::string_view path, con
         auto root = read_file(path, session);
         session.record_for_cache = false;
         Str bytes(alloc);
-        if (root && write_cache(options.cache_drop_metadata ? *without_metadata(**root) : **root,
-                                detail::str_out(bytes), &session))
-            (void)writer(cache, bytes);
+        session.drop_metadata = options.cache_drop_metadata;
+        const bool written = root && write_cache(**root, detail::str_out(bytes), &session);
+        session.drop_metadata = false;
+        if (written) (void)writer(cache, bytes);
         return root;
     }
 }

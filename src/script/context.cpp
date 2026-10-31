@@ -482,7 +482,7 @@ VarRef Context::var(Symbol name) {
     return VarRef(impl_->cell(name), name);
 }
 
-VarRef Context::global(Symbol name, Node initial, std::string_view doc) {
+VarRef Context::add_global(Symbol name, Node initial, std::string_view doc) {
     VarRef v = var(name);
     v = std::move(initial);
     for (Global& g : impl_->globals)
@@ -923,9 +923,8 @@ Expected<FuncRef> Context::declare(Symbol name, std::span<const OverloadDescript
     return ref;
 }
 
-FuncRef& FuncRef::doc(std::string_view text) {
+void FuncRef::set_doc(std::string_view text) {
     static_cast<Function*>(f_)->doc = text;
-    return *this;
 }
 
 FuncRef& FuncRef::status(Status status, Symbol replacement) {

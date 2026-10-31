@@ -1,5 +1,6 @@
-# A shipping build keeps none of a tweak's tool text: tweak_text.cpp at -O2 with
-# BAKER_SHIPPING=1 has no TOOL_TEXT literal in its assembly, and without it has all three,
+# A shipping build keeps none of a tweak's tool text, nor a function's or a global's doc
+# (D268): tweak_text.cpp at -O2 with
+# BAKER_SHIPPING=1 has no TOOL_TEXT literal in its assembly, and without it has all five,
 # so the test would see one (D256). Invoked by CTest with CXX, STD, SRC, INC, DEFS (;-list),
 # FLAGS (;-list), OUT.
 
@@ -17,11 +18,11 @@ function(count_text shipping out_var)
 endfunction()
 
 count_text(0 dev)
-if(NOT dev EQUAL 3)
-  message(FATAL_ERROR "a development build has ${dev} of the 3 tool texts; expected all")
+if(NOT dev EQUAL 5)
+  message(FATAL_ERROR "a development build has ${dev} of the 5 tool texts; expected all")
 endif()
 count_text(1 shipped)
 if(NOT shipped EQUAL 0)
   message(FATAL_ERROR "a shipping build carries ${shipped} of a tweak's tool texts; expected none")
 endif()
-message(STATUS "tool texts: 3 in development, none shipped")
+message(STATUS "tool texts: 5 in development, none shipped")

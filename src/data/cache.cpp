@@ -620,6 +620,21 @@ Node list(Vec<Node>& nodes) {
 }
 
 // The meta array for a load the session recorded, or null.
+// A shape's form without its notes, (@desc ...) and (@note ...), at any depth: what a cache
+// that drops metadata keeps of a #shape (D268).
+Node without_notes(const Node& n) {
+    const Array* a = n.type() == Type::Array ? n.array() : nullptr;
+    if (!a) return n;
+    Vec<Node> kept;
+    kept.reserve(a->size());
+    for (const Node& c : *a) {
+        const Symbol tag = tag_of(c);
+        if (tag == Symbol("@desc") || tag == Symbol("@note")) continue;
+        kept.push_back(without_notes(c));
+    }
+    return Node(Array::make_from({kept.data(), kept.size()}));
+}
+
 Ref<Array> record_of(const LoadSession& s) {
     using A = SessionAccess;
     if (!A::recorded(s)) return nullptr;
@@ -690,7 +705,8 @@ Ref<Array> record_of(const LoadSession& s) {
         definitions.push_back(list(entry));
     }
     for (const ShapeDecl& d : A::new_shapes(s)) {
-        Vec<Node> entry{Node(d.file), Node(int64_t{d.line}), Node(d.root), Node(d.form)};
+        Vec<Node> entry{Node(d.file), Node(int64_t{d.line}), Node(d.root),
+                        s.drop_metadata ? without_notes(d.form) : Node(d.form)};
         shapes.push_back(list(entry));
     }
     Vec<Node> meta{list(files),   list(before),      list(define),  list(undefine),
@@ -847,6 +863,10 @@ void replay(const Array& meta, LoadSession& s) {
 
 Expected<void> bytes_of(const Array& root, const LoadSession* session, Str& out) {
     Ref<Array> meta = session ? record_of(*session) : nullptr;
+    if (session && session->drop_metadata) {
+        const Ref<Array> kept = without_metadata(root);
+        return Writer().run(*kept, meta.get(), session->cipher, out);
+    }
     return Writer().run(root, meta.get(), session ? session->cipher : nullptr, out);
 }
 

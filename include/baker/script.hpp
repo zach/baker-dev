@@ -678,11 +678,17 @@ NativeDesc describe_native(F&& f, TypeList<P...>*) noexcept {
 class FuncRef {
 public:
     explicit FuncRef(void* function) noexcept : f_(function) {}
-    FuncRef& doc(std::string_view text);
+    // Inline, and nothing under BAKER_SHIPPING: a shipping build carries no doc text, the
+    // game's own included (D268).
+    FuncRef& doc(std::string_view text) {
+        if constexpr (!kShipping) set_doc(text);
+        return *this;
+    }
     // `replacement` names what to use instead of a Deprecated function.
     FuncRef& status(Status status, Symbol replacement = {});
 
 private:
+    void set_doc(std::string_view text);
     void* f_;
 };
 
@@ -880,7 +886,11 @@ public:
     // The variable `name`, created unset if new.
     [[nodiscard]] VarRef var(Symbol name);
     // A documented global: sets `name` to `initial` and lists it in the reference.
-    VarRef global(Symbol name, Node initial, std::string_view doc = {});
+    // `doc` is for the reference: a shipping build does not keep it (D268).
+    VarRef global(Symbol name, Node initial, std::string_view doc = {}) {
+        if constexpr (kShipping) return add_global(name, std::move(initial), {});
+        return add_global(name, std::move(initial), doc);
+    }
 
     // --- Objects (object.hpp: Object<T>, Binder<T>). ---
 
@@ -992,6 +1002,7 @@ public:
 private:
     friend struct detail::ToolsAccess;
     [[nodiscard]] Expected<FuncRef> add_overload(Symbol name, detail::Overload overload);
+    VarRef add_global(Symbol name, Node initial, std::string_view doc);
     // func(), out of line: everything a binding does but describe itself (D255).
     [[nodiscard]] Expected<FuncRef> add_native(Symbol name, const detail::NativeDesc& native);
     void add_type(const detail::TypeRecord& type);

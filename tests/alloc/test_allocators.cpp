@@ -22,6 +22,7 @@
 #include <string_view>
 
 extern std::atomic<size_t> g_default_allocations;  // main.cpp
+extern std::atomic<size_t> g_default_by_kind[baker::kMemoryKinds];
 
 namespace {
 
@@ -391,4 +392,40 @@ TEST_CASE("each allocation names its kind, and its free names the same (D258)") 
     CHECK(&baker::default_allocator(baker::MemoryKind::Symbols) ==
           &baker::default_allocator(baker::MemoryKind::Symbols));
     CHECK(baker::default_allocator(baker::MemoryKind::Symbols).kind == baker::MemoryKind::Symbols);
+}
+
+TEST_CASE(
+    "a read's buffers are its session's: what it takes from the default as Other does "
+    "not grow with the file (D268)") {
+    ByKind kinds;
+    const baker::Allocator alloc = kinds.allocator();
+    baker::LoadSession session(alloc);
+    session.allocator = &alloc;
+    std::string big = "(items";
+    for (int i = 0; i < 20000; ++i) big += " " + std::to_string(i);
+    big += ")\n#include extra.dta\n";
+    session.set_reader([&](std::string_view path, baker::TextSink out) {
+        if (path == "big.dta") {
+            out(big);
+            return true;
+        }
+        return read_text(path, out);
+    });
+    auto other_in = [&](const char* file) {
+        (void)baker::read_file(file, session);  // warm: the names interned once
+        const size_t before = g_default_by_kind[0].load();
+        bool ok = false;
+        {
+            const auto root = baker::read_file(file, session);
+            ok = root.has_value();
+        }
+        CHECK(ok);
+        return g_default_by_kind[0].load() - before;
+    };
+    const size_t small = other_in("base.dta");
+    const size_t large = other_in("big.dta");
+    MESSAGE("Other from the default: " << small << " for a small file, " << large
+                                       << " for 20,000 values");
+    CHECK(large <= small);  // a few paths, never a buffer the size of the text
+    CHECK(kinds.peak_of(baker::MemoryKind::Config) > big.size());  // the text, tagged
 }

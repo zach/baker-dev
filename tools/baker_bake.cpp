@@ -44,8 +44,8 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "%s\n", baker::to_string(root.error()).data());
         return 1;
     }
-    const baker::Ref<baker::Array> tree = drop_metadata ? baker::without_metadata(**root) : *root;
-    if (auto r = baker::write_cache(*tree, paths[1], &session); !r) {
+    session.drop_metadata = drop_metadata;  // the tree's metadata and the shapes' notes
+    if (auto r = baker::write_cache(**root, paths[1], &session); !r) {
         std::fprintf(stderr, "%s\n", baker::to_string(r.error()).data());
         return 1;
     }

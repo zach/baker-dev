@@ -1,5 +1,6 @@
 // Compiled to assembly by check_tweak_text.cmake: a shipping build carries none of a tweak's
 // tool text (D256).
+#include <baker/script.hpp>
 #include <baker/tweak.hpp>
 
 baker::Tweak<float> kBoxWidth{"box.width",
@@ -12,4 +13,10 @@ baker::Tweak<float> kBoxWidth{"box.width",
 
 float read_box_width() {
     return kBoxWidth;
+}
+
+// A function's and a global's doc text, which a shipping build drops too (D268).
+void bind_all(baker::Context& ctx) {
+    if (auto f = ctx.func("twice", [](int64_t x) { return 2 * x; })) f->doc("TOOL_TEXT_FUNC");
+    ctx.global("level", baker::Node(int64_t{1}), "TOOL_TEXT_GLOBAL");
 }

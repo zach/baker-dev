@@ -9476,4 +9476,39 @@ shipping.*
   nest, and kept for the next call. Test: 1,000 nine-argument calls to an overload set and
   a declared function, nested ones, and a 70-argument declared call, allocate nothing after
   the first (the Context's allocator and the default both counted); before, 2,000.
+## D268. The same review: what a shipping build carries, and the record
+
+*From D266's review: the findings on shipped text, memory kinds, and stale numbers.*
+
+- **Doc text is not kept in shipping.** `FuncRef::doc` and `MethodRef::doc` are inline and
+  store nothing under `BAKER_SHIPPING`; a property's doc and a global's (`global` is an
+  inline wrapper now) the same; the built-ins pass theirs through a `Doc` type that keeps
+  nothing in shipping. An optimized shipping build drops the literals where they are
+  written, the game's own included: `baker_tweak_shipping_text` now also counts a
+  function's and a global's doc (5 texts in development, 0 shipped), and the shipping
+  `libbaker_script.a` holds none of the built-ins' (it held 26, about 2 KB, each copied
+  into every Context). A shipping reference lists signatures and statuses without docs;
+  the tests that read docs expect them only outside shipping.
+- **`--drop-metadata` drops shapes' notes** (from D265). The cache's record kept each
+  `#shape` form as written, `(@desc ...)` included. `LoadSession::drop_metadata` now says
+  a cache written with the session leaves out the tree's metadata and the `@desc` and
+  `@note` of its shapes (their `@range` and the rest stay, for checking); `baker_bake
+  --drop-metadata` and `ConfigOptions::cache_drop_metadata` set it, where each had called
+  `without_metadata` itself. Test: a baked cache holds no shape note, and still its range.
+- **A read's buffers are its session's** (from D258). The parser's buffers, and the text
+  of each file a read takes in, came from the default allocator as `Other`; they take the
+  session's allocator, tagged `Config`, now. A path the session records is the exception:
+  a copy of a container keeps its source's allocator, so a path made with a parser's
+  tagged copy dangled once the session kept it (the first attempt crashed every test that
+  baked a cache), and paths stay on the default allocator. Test (`baker_alloc_tests`,
+  whose default allocator now counts by kind): a read takes 4 `Other` allocations from the
+  default for a small file and 4 for 20,000 values, and its text is the session's.
+- **Numbers corrected.** A minimal shipping game (the review's: a Config, a layer, a
+  Tweak, a function, an object, `eval`) links 908.6 KB of Baker code with GCC 13 at -O2
+  and 595.0 KB with sections and `--gc-sections`; the cookbook said 580 and 407 KB, from
+  before 0.6.0 (849 and 528 KB there, 900 and 587 at D265). Lookup timings since 0.6.0,
+  measured by the review: `find_float` +9.0%, `"key19"_sym` +8.4%, `get<float>` by
+  path +9.9%, against D248's +4 to 5%; `set` 632 to 667 instructions over the same span
+  (D266 made it 678). One read at the default `max_new_symbols` keeps about 73.5 MB, 74
+  bytes a name, which the cookbook now says.
 

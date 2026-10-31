@@ -371,11 +371,17 @@ TEST_CASE("the reference lists types, their methods and properties, and script c
     ctx.add_type<Hero>();
     ok(ctx.eval("{class Person (miss whoosh)} {class Goblin (hit ($n) 0)}"));
     const std::string ref = reference(ctx);
-    CHECK(ref.find("### `Person`\n\n"
-                   "- `{<Person> grow float32}` → float32: Grows by `amount`.\n"
-                   "- `{<Person> shrink float32}` → nothing\n"
-                   "- property `height`: float32\n"
-                   "- `{<Person> miss}` (script)\n") != std::string::npos);
+    // A shipping build keeps no doc text (D268).
+    CHECK(ref.find(kShipping ? "### `Person`\n\n"
+                               "- `{<Person> grow float32}` → float32\n"
+                               "- `{<Person> shrink float32}` → nothing\n"
+                               "- property `height`: float32\n"
+                               "- `{<Person> miss}` (script)\n"
+                             : "### `Person`\n\n"
+                               "- `{<Person> grow float32}` → float32: Grows by `amount`.\n"
+                               "- `{<Person> shrink float32}` → nothing\n"
+                               "- property `height`: float32\n"
+                               "- `{<Person> miss}` (script)\n") != std::string::npos);
     CHECK(ref.find("### `Hero`\n\nDerives from `Creature`.\n") != std::string::npos);
     CHECK(ref.find("### `Goblin` (script class)\n\n- `{<Goblin> hit $n}` (script)\n") !=
           std::string::npos);
@@ -395,10 +401,11 @@ TEST_CASE("the reference shows a method's status as it does a function's (D133)"
     Context ctx;
     ctx.add_type<Robot>();
     const std::string ref = reference(ctx);
-    CHECK(ref.find("- `{<Robot> fly}` → nothing *(stub)*\n"
-                   "- `{<Robot> stride int32}` → int32 *(provisional)*\n"
-                   "- `{<Robot> walk int32}` → int32 *(deprecated: use `stride`)*: Walks `n` "
-                   "steps.\n") != std::string::npos);
+    if constexpr (!kShipping)
+        CHECK(ref.find("- `{<Robot> fly}` → nothing *(stub)*\n"
+                       "- `{<Robot> stride int32}` → int32 *(provisional)*\n"
+                       "- `{<Robot> walk int32}` → int32 *(deprecated: use `stride`)*: Walks `n` "
+                       "steps.\n") != std::string::npos);
 }
 
 TEST_CASE("an object deleted during a call stays until the host's eval returns") {

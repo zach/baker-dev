@@ -298,8 +298,8 @@ public:
 class MethodRef {
 public:
     explicit MethodRef(detail::MethodEntry& m) noexcept : m_(&m) {}
-    MethodRef& doc(std::string_view text) {
-        detail::set_method_doc(*m_, text);
+    MethodRef& doc(std::string_view text) {  // kept only outside shipping (D268)
+        if constexpr (!kShipping) detail::set_method_doc(*m_, text);
         return *this;
     }
     MethodRef& status(Status status, Symbol replacement = {}) {
@@ -390,7 +390,7 @@ public:
                 return Values(std::span<const Node>(&v, 1), nullptr)
                     .read(0, static_cast<T&>(self).*(*static_cast<M C::*const*>(acc)));
             },
-            doc);
+            kShipping ? std::string_view() : doc);  // no doc text in shipping (D268)
     }
 
     // Declares that T derives from bound type B. Object<T, B> does this already; naming it
