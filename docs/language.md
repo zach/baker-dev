@@ -100,8 +100,8 @@ follows, and is never part of it.
 `player.speed` is `4.5` to every reader, and `player.tint` three numbers, so
 `get<std::array<float, 3>>("player.tint")` reads them; `values()` ends at the first
 metadata child, and `metadata()` lists the metadata. Baker's own readers use `@range`,
-`@step`, `@desc`, `@note`, `@kind`, `@group` and `@one_of` (tweaks and tuning panels, D88), and `@was` (a layer's pin, Merging)
-and the shape words below; `check` warns on any other `@` word, so a misspelt
+`@step`, `@desc`, `@note`, `@kind`, `@group` and `@one_of` (tweaks and tuning panels, D88), `@was` (a layer's pin, Merging),
+`@id` and `@aka` (a record's identity, Identity below) and the shape words below; `check` warns on any other `@` word, so a misspelt
 `(@rnage 0 10)` is found. A path reaches metadata like any child: `player.speed.@desc`.
 
 - **Metadata comes after the value.** `(x (@range 0 1) 5)` is an error at the array.
@@ -187,6 +187,43 @@ was 30 when this row was written; the stack has 32`, which a policy with `warnin
 turns into a refusal, and pushing the layer sends the same warning to the warning handler.
 `write_back_to(path, layer, true)` writes the pin, and `write_back` keeps the one a row
 has. A pin is metadata, so every reader of the value reads past it.
+
+### Identity
+
+A record may carry an identity, `(@id ...)`: 32 lowercase hex digits, the first `a` to `f`,
+minted by a tool when the record is made (the kit's `format --baker-mint-ids`) and written
+inside the record, so it travels with the data and survives a rename of the key (D284):
+
+```dta
+(weapons (laser (@id b3c9a7e5f214d68a1e2c3b4d5e6f7081) (damage 3)))
+```
+
+References keep naming keys (`key_of`); the ID is for tools, change records and renames.
+`Array::record_id()` reads one; `find_by_id(root, id, &path)` finds the record that carries
+it, by a walk of the tree. `baker::id_validator()`, added with `add_validator`, reports two
+records that share an ID (a copied record) and a malformed one, as errors to the warning
+handler at every merge; the host kit's loop and `check` add it. A shipped cache written
+without metadata keeps `@id` and `@aka`: they are identity, not tool text.
+
+A renamed record keeps answering to its old key with `(@aka old)` (D286), which the kit's
+`rename OLD NEW` writes, with the new key and every `key_of` reference (D288): a layer
+that retunes `(weapons (laser ...))` merges into the record now named `plasma`, and a
+`(key_of weapons)` naming `laser` resolves to it (a key wins over an alias). A key that is also a sibling's alias is an error from `id_validator`. Aliases stay
+until someone removes them, since a shipped overlay may still name one; `check` lists an
+alias that no layer and no `key_of` names, as a finding. A stack with no alias pays
+nothing for them.
+
+A renamed field is the shape's to remember: `(hp int (@renamed_from health))` says `hp`
+was `health` (D287). A record spelling the old name is checked as the field, with a
+warning from `check` saying so; a record with both names is an error, since the old one
+reaches no reader. The generated view reads either spelling, and `format` rewrites the old
+name to the new in every file of the stack, so a shipped overlay that still says `health`
+keeps working until it is next formatted. Nothing is renamed at load: `get<T>` reads the
+tree as written, and the migration happens once, in the text.
+
+IDs are minted by `format --baker-mint-ids TABLE`: every record of the table without one,
+or repeating another's (a copied record), gets a fresh one in the layer that declares it,
+written after its key. The library has no random source and mints none.
 
 ### Rows: a key by its path
 
@@ -470,14 +507,14 @@ name (D84, D261). The session records it, and the tree never holds it:
 ```
 
 - **Types:** `int`, `float`, `bool`, `symbol`, `string`, `any`, `curve`, `(list T)`,
-  `(key_of TABLE)`, or another shape's name. A `curve` field's values are a curve (see
+  `(key_of TABLE)`, `(asset KIND)`, or another shape's name. A `curve` field's values are a curve (see
   Curves, above), and its `(@range lo hi)` holds every point's y. A list may give its count:
   `(position (list float 3))` holds exactly three values and `(tags (list symbol 1 4))` one to
   four, and any other count is an error at the field. A softer pack may narrow the count, never
   widen it.
 - **Metadata:** `@range`, `@step`, `@kind`, `@desc`, `@note` (as a tweak's), `@optional`,
-  and, for a shape that generates a C++ view (Views, below), `@view`, `@cxx` and
-  `@cxx_name`. A field without `@optional` is required. A word without the `@` after a
+  `@renamed_from` (Identity, above), and, for a shape that generates a C++ view (Views,
+  below), `@view`, `@cxx` and `@cxx_name`. A field without `@optional` is required. A word without the `@` after a
   field's type, or a `@` word the grammar lacks, is an error. A shape may describe itself
   with its own `(@desc ...)` and `(@note ...)`, and its fields may be named anything,
   `at` and `desc` included. A `symbol` or `(list symbol)` field may list the
@@ -522,6 +559,20 @@ name (D84, D261). The session records it, and the tree never holds it:
   removes is an error at each record that still names it, with the key it most likely
   meant: `'lazer' is not a key of weapons (laser?)`. With packs, a harder pack naming a
   softer pack's key is a warning, as for a call.
+- **Assets.** A field `(asset KIND)` holds the path of a file outside Baker, a string
+  relative to the project file's directory, and `(list (asset KIND))` several (D289). The
+  project file declares the kinds and the extensions each takes:
+
+  ```dta
+  (assets (mesh ".glb" ".fbx") (texture ".png" ".tga") (sound))
+  ```
+
+  `check` reports a kind the project does not declare, a path whose extension its kind
+  does not list (a kind listing none takes any file), and a file that is not there, found
+  by listing the file's directory once per run through the host's lister. The kit's
+  `assets` command writes every edge of the merged stack as `baker.assets/1` (see [the
+  assets document](assets-json.md)), for a pipeline to index forward or in reverse. A view
+  holds the path as a `std::string_view`. Baker never imports, stores or cooks an asset.
 - **Layers combine shapes by name**: a later layer's `#shape` of the same name adds a
   field or retunes one field's range, and one of a new name adds a shape. Its form is
   written whole, never with a layer verb. A layer received under `data_only` or

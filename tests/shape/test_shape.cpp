@@ -340,7 +340,7 @@ TEST_CASE("a symbol field lists the symbols it allows, (one_of ...) (D203)") {
     CHECK_FALSE(check_text("#shape (s (n symbol (@one_of a 2)))").ok());
 }
 
-// --- As JSON, baker.shapes/1.6 (dev/tool-surface-plan.md §6, D203, D235, D245). ---
+// --- As JSON, baker.shapes/1.8 (dev/tool-surface-plan.md §6, D203, D235, D245, D287, D289). ---
 
 TEST_CASE("the shapes as JSON: each shape and its fields") {
     shape::Set shapes;
@@ -353,20 +353,22 @@ TEST_CASE("the shapes as JSON: each shape and its fields") {
     REQUIRE(report.errors.empty());
     std::string json;
     shape::write_json(shapes, string_out(json));
-    CHECK(json.rfind("{\n  \"schema\": \"baker.shapes/1.6\",\n  \"shapes\": [\n", 0) == 0);
+    CHECK(json.rfind("{\n  \"schema\": \"baker.shapes/1.8\",\n  \"shapes\": [\n", 0) == 0);
     CHECK(json.find(
               R"j({"name": "boss_phase", "at": ["bosses", "*", "phases"], "keyed": true, )j"
               R"j("view": false, "cxx_name": "", "file": "shapes.dta", "line": 1, "fields": [)j") !=
           std::string::npos);
     CHECK(
         json.find(
-            R"j({"name": "enter_at", "type": "float", "element": "", "count": null, "shape": "", "table": "", )j"
+            R"j({"name": "enter_at", "type": "float", "element": "", "count": null, "shape": "", "table": "", "asset": "", )j"
             R"j("optional": false, "range": [0.0, 1.0], "step": 0.05, "kind": "", )j"
             R"j("desc": "HP fraction", "note": "", "one_of": [], "view": true, "cxx": "", "cxx_name": "", )j"
+            R"j("renamed_from": [], )j"
             R"j("file": "shapes.dta", "line": 2})j") != std::string::npos);
-    CHECK(json.find(R"j({"name": "adds", "type": "list", "element": "symbol", "count": null, )j"
-                    R"j("shape": "", "table": "", "optional": true, "range": null,)j") !=
-          std::string::npos);
+    CHECK(
+        json.find(R"j({"name": "adds", "type": "list", "element": "symbol", "count": null, )j"
+                  R"j("shape": "", "table": "", "asset": "", "optional": true, "range": null,)j") !=
+        std::string::npos);
 }
 
 // --- Keys of a table, (key_of TABLE) (D235). ---
@@ -479,11 +481,85 @@ TEST_CASE("a key field in the shapes JSON names its table") {
     shape::write_json(shapes, string_out(json));
     CHECK(json.find(
               R"j({"name": "weapon", "type": "key", "element": "", "count": null, "shape": "", )j"
-              R"j("table": "items.weapons", )j") != std::string::npos);
+              R"j("table": "items.weapons", "asset": "", )j") != std::string::npos);
     CHECK(
         json.find(
             R"j({"name": "spares", "type": "list", "element": "key", "count": null, "shape": "", )j"
-            R"j("table": "weapons", )j") != std::string::npos);
+            R"j("table": "weapons", "asset": "", )j") != std::string::npos);
+}
+
+// --- Assets: (asset KIND) and the project's kinds (D289). ---
+
+TEST_CASE("an asset field holds a path of its kind; the uses are listed with their records") {
+    shape::Set set;
+    shape::Report report;
+    add_text(set,
+             "#shape (boss (@at bosses) (@keyed) (mesh (asset mesh)) (skins (list (asset texture)) "
+             "(@optional)) (sound (asset sound) (@optional)))\n",
+             "shapes.dta", report);
+    REQUIRE(report.errors.empty());
+    const shape::Shape* boss = set.find(Symbol("boss"));
+    REQUIRE(boss);
+    CHECK(boss->fields[0].type == shape::Type::Asset);
+    CHECK(boss->fields[0].asset == Symbol("mesh"));
+    CHECK(boss->fields[1].type == shape::Type::List);
+    CHECK(boss->fields[1].element == shape::Type::Asset);
+    CHECK(boss->fields[1].asset == Symbol("texture"));
+    const Symbol glb(".glb"), fbx(".fbx"), png(".png");
+    const Symbol mesh_ext[] = {glb, fbx};
+    const Symbol tex_ext[] = {png};
+    const shape::AssetKind kinds[] = {{Symbol("mesh"), List<Symbol>(mesh_ext)},
+                                      {Symbol("texture"), List<Symbol>(tex_ext)},
+                                      {Symbol("any"), {}}};
+    set.add_asset_kinds(kinds);
+    REQUIRE(set.asset_kinds().size() == 3);
+    CHECK(set.asset_kind(Symbol("mesh"))->extensions.size() == 2);
+
+    auto tree = ok(read_string(
+        "(bosses (dragon (@id a0000000000000000000000000000001) (mesh \"art/dragon.glb\")"
+        " (skins \"art/red.png\" \"art/blue.tga\"))"
+        " (golem (mesh \"art/golem.obj\") (sound \"snd/golem.wav\"))"
+        " (wisp (mesh 3)))",
+        "data.dta"));
+    shape::Report r;
+    shape::check(*tree, set, r);
+    const auto e = texts(r.errors);
+    const auto has = [&](std::string_view part) {
+        return std::any_of(e.begin(), e.end(),
+                           [&](const std::string& x) { return x.find(part) != std::string::npos; });
+    };
+    CHECK(has("'skins' is \"art/blue.tga\", not a texture (.png)"));
+    CHECK(has("'mesh' is \"art/golem.obj\", not a mesh (.glb or .fbx)"));
+    CHECK(has("'sound' is an (asset sound), and the project declares no kind 'sound'"));
+    CHECK(has("'mesh' is int, not asset"));
+    CHECK(e.size() == 4);
+    // The uses, every one, with the record's path and ID.
+    const auto uses = shape::asset_uses(*tree, set);
+    REQUIRE(uses.size() == 5);
+    CHECK(uses[0].target == "art/dragon.glb");
+    CHECK(uses[0].kind == Symbol("mesh"));
+    CHECK(uses[0].field == Symbol("mesh"));
+    CHECK(uses[0].path == Symbol("bosses/dragon/mesh"));
+    CHECK(uses[0].id == *RecordId::parse("a0000000000000000000000000000001"));
+    CHECK(uses[0].line == 1);
+    CHECK(uses[2].target == "art/blue.tga");
+    CHECK(uses[3].id.empty());
+    // The digest spells the kind; the JSON carries it.
+    std::string json;
+    shape::write_json(set, string_out(json));
+    CHECK(
+        json.find(
+            R"j("type": "asset", "element": "", "count": null, "shape": "", "table": "", "asset": "mesh")j") !=
+        std::string::npos);
+    CHECK(
+        json.find(
+            R"j("type": "list", "element": "asset", "count": null, "shape": "", "table": "", "asset": "texture")j") !=
+        std::string::npos);
+    // The declaration's errors.
+    shape::Set bad;
+    shape::Report rep;
+    add_text(bad, "#shape (s (x (asset)))", rep);
+    CHECK(!rep.errors.empty());
 }
 
 // --- Rules, read here and evaluated by baker::tools (D238). ---
@@ -699,6 +775,81 @@ TEST_CASE("a shape that governs nothing is named, where it is declared (D260)") 
           std::string::npos);
 }
 
+// --- Renamed fields: (@renamed_from old) (D287). ---
+
+TEST_CASE("a field spelled by a name its shape renamed is checked as the field, and listed") {
+    shape::Set set;
+    shape::Report report;
+    add_text(set,
+             "#shape (boss (@at bosses) (@keyed) (hp int (@range 1 100) (@renamed_from health "
+             "hit_points))\n"
+             "   (name string (@optional)))\n",
+             "shapes.dta", report);
+    REQUIRE(report.errors.empty());
+    const shape::Shape* boss = set.find(Symbol("boss"));
+    REQUIRE(boss);
+    REQUIRE(boss->fields[0].renamed_from.size() == 2);
+    CHECK(boss->renamed(Symbol("health")) == &boss->fields[0]);
+    CHECK(boss->renamed(Symbol("hit_points")) == &boss->fields[0]);
+    CHECK(boss->renamed(Symbol("hp")) == nullptr);
+
+    auto tree =
+        ok(read_string("(bosses (golem (health 40)) (dragon (hp 50)) (wisp (health 2) (hp 3))"
+                       " (ghost (hit_points 400)))",
+                       "data.dta"));
+    shape::Report r;
+    shape::check(*tree, set, r);
+    // The golem's health is the field, warned; the wisp has both, an error; the ghost's
+    // value is checked as hp, so its range holds.
+    const auto w = texts(r.warnings);
+    const auto e = texts(r.errors);
+    REQUIRE(w.size() == 2);
+    CHECK(w[0].find("'health' is now 'hp' (format rewrites it)") != std::string::npos);
+    CHECK(w[1].find("'hit_points' is now 'hp'") != std::string::npos);
+    REQUIRE(e.size() == 2);
+    CHECK(e[0].find("'health' was renamed 'hp', and the record has both") != std::string::npos);
+    const bool ranged = e[1].find("400") != std::string::npos;
+    CHECK(ranged);  // the ghost's 400 is checked as hp, so its range holds
+    // Each spelling, for format to rewrite, where the record spells it.
+    REQUIRE(r.renames.size() == 3);
+    CHECK(r.renames[0].old == Symbol("health"));
+    CHECK(r.renames[0].name == Symbol("hp"));
+    CHECK(r.renames[0].file == Symbol("data.dta"));
+    CHECK(r.renames[0].line == 1);
+    CHECK(r.renames[2].old == Symbol("hit_points"));
+    // No "has no hp": the old spelling counts as the field.
+    CHECK(std::none_of(e.begin(), e.end(),
+                       [](const std::string& x) { return x.find("has no") != std::string::npos; }));
+
+    // The declaration's own errors.
+    const auto errors = [](std::string_view text) {
+        shape::Set s;
+        shape::Report rep;
+        add_text(s, text, rep);
+        return texts(rep.errors);
+    };
+    const auto has = [](const std::vector<std::string>& v, std::string_view part) {
+        return std::any_of(v.begin(), v.end(),
+                           [&](const std::string& x) { return x.find(part) != std::string::npos; });
+    };
+    CHECK(has(errors("#shape (s (x int (@renamed_from)))"), "names the field's earlier names"));
+    CHECK(has(errors("#shape (s (x int (@renamed_from \"y\")))"), "holds field names, as symbols"));
+    CHECK(has(errors("#shape (s (x int (@renamed_from x)))"), "its own name"));
+    CHECK(has(errors("#shape (s (x int (@renamed_from y)) (y int))"),
+              "'x' is (@renamed_from y), and 'y' is a field of the shape"));
+    // Declared again, a field keeps its old names and adds the new list's.
+    shape::Set again;
+    shape::Report rep;
+    add_text(again, "#shape (s (x int (@renamed_from a)))\n#shape (s (x int (@renamed_from b)))\n",
+             rep);
+    REQUIRE(rep.errors.empty());
+    CHECK(again.find(Symbol("s"))->fields[0].renamed_from.size() == 2);
+    // In the JSON.
+    std::string json;
+    shape::write_json(again, string_out(json));
+    CHECK(json.find(R"j("renamed_from": ["a", "b"])j") != std::string::npos);
+}
+
 // --- Views: (@view), (@view no), (@cxx T), (@cxx_name N) (D277). ---
 
 TEST_CASE(
@@ -735,9 +886,12 @@ TEST_CASE(
     shape::write_json(set, string_out(json));
     CHECK(json.find(R"j("keyed": true, "view": true, "cxx_name": "MoveView", "file")j") !=
           std::string::npos);
-    CHECK(json.find(R"j("view": false, "cxx": "", "cxx_name": "", "file": "t.dta", "line": 4})j") !=
-          std::string::npos);
-    CHECK(json.find(R"j("view": true, "cxx": "uint16", "cxx_name": "", "file")j") !=
+    CHECK(
+        json.find(
+            R"j("view": false, "cxx": "", "cxx_name": "", "renamed_from": [], "file": "t.dta", "line": 4})j") !=
+        std::string::npos);
+    CHECK(json.find(
+              R"j("view": true, "cxx": "uint16", "cxx_name": "", "renamed_from": [], "file")j") !=
           std::string::npos);
 }
 
@@ -919,7 +1073,7 @@ const char* const kViewShapes =
     "#shape (vec2 (@view) (x float) (y float))\n"
     "#shape (move (@at fighters * moves) (@keyed) (@view)\n"
     "   (startup     int (@range 1 60) (@cxx uint16))\n"
-    "   (damage      float)\n"
+    "   (damage      float (@renamed_from hurt))\n"
     "   (name        string (@optional))\n"
     "   (button      symbol (@optional))\n"
     "   (armored     bool (@optional))\n"
@@ -1091,4 +1245,17 @@ TEST_CASE("contract_roots: a file layer's own file, and the files under a direct
     const shape::Set set = shape::contract_set(cfg.read_session(), r2.items(), report);
     CHECK(report.errors.empty());
     CHECK(set.find("a")->field("y"));
+}
+
+// --- Aliases: a key_of resolves through (@aka old), and says so (D286). ---
+
+TEST_CASE("a key_of names a record by its alias, and the report lists the keys so resolved") {
+    const auto r = check_text(R"(#shape (unit (@at units) (@keyed) (weapon (key_of weapons)))
+        (weapons (plasma (@aka laser beam) (damage 3)) (cannon (damage 9)))
+        (units (scout (weapon laser)) (tank (weapon cannon)) (odd (weapon lazer))))");
+    const auto e = texts(r.errors);
+    REQUIRE(e.size() == 1);
+    CHECK(e[0].find("'lazer' is not a key of weapons (laser?)") != std::string::npos);
+    REQUIRE(r.aliases_used.size() == 1);
+    CHECK(r.aliases_used[0] == Symbol("laser"));
 }

@@ -47,6 +47,7 @@
 #include <baker/allocator.hpp>
 #include <baker/node.hpp>
 #include <baker/path.hpp>
+#include <baker/record_id.hpp>
 
 #include <cassert>
 #include <cstddef>
@@ -420,6 +421,13 @@ struct Resolved {
 };
 enum class ResolveStatus : uint8_t { Ok, Missing, Malformed };
 [[nodiscard]] ResolveStatus resolve(const Array& root, const Path& path, Resolved& out) noexcept;
+// resolve() over one layer's own tree, where a renamed record may be spelled by an alias
+// (D286): a segment the layer lacks is retried with the (@aka ...) names of the record at
+// that prefix in `merged` (the stack's merged tree; null: no retry). `spelled`, if given,
+// gets the path as the layer spells it.
+[[nodiscard]] ResolveStatus resolve_in_layer(const Array& layer, const Path& path,
+                                             const Array* merged, Resolved& out,
+                                             Path* spelled = nullptr);
 // get(path) on `root` failed; re-walks the path to say where and why. `values`, if given,
 // are the evaluated values that did not convert.
 [[nodiscard]] Error get_error(const Array& root, const Path& path, const ConvertInfo* info,
@@ -573,6 +581,9 @@ public:
         const uint32_t m = meta_first();
         return m ? Metadata(data() + m, end()) : Metadata();
     }
+    // This record's identity, its (@id ...) (<baker/record_id.hpp>, D284); empty for none, or
+    // one that is malformed (id_validator reports those).
+    [[nodiscard]] RecordId record_id() const noexcept;
     // The metadata child tagged `tag` ("@range"), or null: a scan of the tag run from the
     // first metadata child, as try_find scans from the start.
     [[nodiscard]] const Array* meta(Symbol tag) const noexcept {

@@ -25,7 +25,8 @@ struct ViewReader<views_test::Move> {
                     seen |= uint64_t{1} << 0;
                     break;
                 case "damage"_hash:
-                    if (tag.str() != "damage") break;
+                case "hurt"_hash:
+                    if (tag.str() != "damage" && tag.str() != "hurt") break;
                     if (!view_detail::read_float(*f, out.damage, err, "move", "float")) return false;
                     seen |= uint64_t{1} << 1;
                     break;

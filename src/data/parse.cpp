@@ -193,6 +193,7 @@ struct LoadSession::State {
     Vec<Str> include_stack;
     uint64_t nodes = 0;
     bool had_rows = false;           // a file of this read held rows: compact its tree (D267)
+    uint32_t aliases = 0;            // arrays with an (@aka ...): the merge resolves by them (D286)
     detail::NewSymbols new_symbols;  // counted by the symbol table
     uint32_t includes = 0;
 };
@@ -476,6 +477,7 @@ private:
         // Metadata comes after the value. Inline, so an array without metadata pays one test;
         // a command's and a property's forms are positional and keep their order.
         if (arr->meta_first() && f.kind == Frame::Array && !metadata_placed(*arr, f)) return false;
+        if (arr->meta_first() && arr->meta(detail::aka_tag())) ++s_.st_->aliases;
         if (f.verb && !verb_placed(*arr, f)) return false;
         if (f.row) return wrap_row(std::move(arr), f, t.end);
         const SourceSpan span{file_, f.begin, t.end, {}};
@@ -1514,6 +1516,12 @@ std::span<const CacheFile> SessionAccess::files(const LoadSession& s) noexcept {
 const SessionAccess::Defines& SessionAccess::defines(const LoadSession& s) noexcept {
     return s.st_->defines;
 }
+uint32_t SessionAccess::aliases(const LoadSession& s) noexcept {
+    return s.st_->aliases;
+}
+void SessionAccess::set_aliases(LoadSession& s, uint32_t count) noexcept {
+    s.st_->aliases = count;
+}
 std::span<const Symbol> SessionAccess::tested(const LoadSession& s) noexcept {
     return {s.st_->tested.data(), s.st_->tested.size()};
 }
@@ -1752,6 +1760,7 @@ Expected<Ref<Array>> read_string(std::string_view text, std::string_view name,
         LoadSession::State& st = *session.st_;
         st.nodes = 0;
         st.had_rows = false;
+        st.aliases = 0;
         st.new_symbols = {0, session.limits.max_new_symbols, &st.nodes, session.limits.max_nodes};
         st.includes = 0;
         st.recorded = session.record_for_cache;

@@ -10012,3 +10012,232 @@ the most common list a game appends to, moves, items or waves, showed nothing be
   `#drop` from a check, `explain` and `diff`; a pin and an append judged against a list of
   records. `test_config_tools.cpp`: the console's `(value (0 0))` and `(value 0 0)`. The
   existing expectations of packed text changed to the values one after another.
+## D284. Identity, step 1: `(@id ...)`, `RecordId`, `find_by_id` and `id_validator`
+
+*`dev/identity-plan.md` step 1, the first of W3 (D270). The plan's open questions, answered
+by the owner on 2026-10-31: the ID is a bare symbol whose first digit is a letter (not a
+string, which the plan recommended for never being mis-lexed or interned; the owner took the
+bare form, with a symbol a record interned for good); duplicates are a validator's errors,
+not a load failure; `@renamed_from` is never applied at load; `rename` writes files as
+`format --baker-write` does.*
+
+- **The form.** `(@id b3c9a7e5f214d68a1e2c3b4d5e6f7081)`: 32 lowercase hex digits, the first
+  `a` to `f`. The letter first keeps the token a symbol: an all-digit one is "out of 64-bit
+  range" to the lexer and digits-`e`-digits a float. `RecordId::parse` accepts that form
+  alone, `write` gives it, and `valid()` says whether an ID's top nibble allows it, which
+  minting (step 3) guarantees.
+- **`<baker/record_id.hpp>`** reaches `<cstdint>`, `<optional>` and `<string_view>`;
+  `Array::record_id()` reads a record's `(@id ...)` (empty for none or malformed);
+  `find_by_id(root, id, &path)` walks the tree for the record, for tools; `@id` and `@aka`
+  are known metadata words, and `without_metadata` keeps them (D265): shipped overlays
+  resolve by them.
+- **`baker::id_validator()`** walks the merged tree at every merge, collects the IDs, and
+  reports a malformed `(@id ...)` and two records sharing an ID (located at the second,
+  naming both paths and the first's file and line, and the command that re-mints). The kit's
+  `Live` adds it beside the shape validator, so `check` and the loop report; a Config pays
+  nothing unless it adds it. Where the plan said the load would fail (the spec's "error at
+  load"), the owner chose the validator.
+- **Costs.** None on a merge, lookup or reload without the validator. With it, one walk of
+  the tree per merge, as the shape validator already does; measured with step 6's rows.
+
+## D286. Identity, step 2: aliases, `(@aka old)`
+
+*`dev/identity-plan.md` step 2.*
+
+- **The merge finds a renamed record on a miss.** A keyed child the lower array lacks is
+  looked for among its children's `(@aka ...)` values, and merges into the one that answers
+  to it, which keeps its new key (the incoming array is never shared as the result on such
+  a hit). Both lookup paths, the scan and the index past 32 keys, take it.
+- **Gated by what the reads counted.** The parser counts the arrays it closes that carry an
+  `(@aka ...)`; a layer records whether its read made any (or was replayed from a cache,
+  which parses nothing, and counts as having them); the Config's `MergeScratch` carries the
+  OR of its enabled layers' flags to every merge, and a `LayerChecker` copies it. So a stack
+  with no alias pays one bool test per miss, and nothing else. The marker bit (`kHasMarker`)
+  was not reused: its three users run verb-and-pin work (a dev-only check merge, per-leaf
+  staleness, `without_markers`' rebuild) that an alias must not trigger.
+- **`key_of` through an alias.** `shape::check`'s per-table index holds the keys first, then
+  each record's aliases, so a key wins; a key that resolved through an alias is listed in
+  `Report::aliases_used`. `id_validator` reports a key that is also a sibling's alias, at
+  the key, naming both.
+- **Provenance follows the alias.** A per-layer lookup (`supplier`, `source`, `explain`,
+  `layer_effect`, a candidate check's finder, write-back's `row_at`) resolves a path in a
+  layer's own tree through `detail::resolve_in_layer`: a segment the layer lacks is retried
+  with the aliases of the merged record at that prefix, so `source("player.speed")` names
+  the layer that wrote `(hero (speed 4))`, and `explain` and the console's `config.get`
+  see the value it set. The retry runs only on a miss, and only while a layer has aliases.
+  A record's own `(@...)` children are never fields to the shape check, which had reported
+  `@aka` as one.
+- **`check` lists an alias nothing names** as a finding: no `key_of` resolved through it and
+  no layer's own tree holds it as a key (a layer retuning by the old key counts as a use).
+- **Costs.** None on a merge without aliases; with them, a scan of the lower array's
+  children's metadata per missed key. Step 6 measures the push rows.
+
+## D287. Identity, step 3: `(@renamed_from old)` and `format --baker-mint-ids`
+
+*`dev/identity-plan.md` step 3.*
+
+- **The shape remembers a field's old names.** `(hp int (@renamed_from health))` on a
+  field; declared again, a field keeps the old names it had and adds the new list's. An
+  old name that is a field's name now is a declaration error, as is the field's own name.
+  `Shape::renamed(old)` finds the field; `baker.shapes/1.7` adds `renamed_from` to each
+  field (step 5's bump becomes 1.8).
+- **A record spelling the old name is checked as the field.** The checker's unknown-tag
+  branch tries the shape's renames before warning: the value is checked against the field,
+  the field counts as present, and the spelling is a warning naming both names, or an error
+  when the record has the new name too (then the old value reaches no reader). On the
+  merged tree, "both" also arises from a base renamed and an overlay not yet formatted,
+  which is the case worth an error: the overlay's value is lost until `format` runs. Each
+  spelling is listed in `Report::renames` with its file and line.
+- **The generated reader takes either spelling**: an old name is a second `case` label of
+  the field's, so the switch is one more label and one more compare on that field only. The
+  digest does not move (a layout is what it was), so a rename is not drift.
+- **`format` rewrites in the text.** The kit checks each enabled layer's own tree against
+  the stack's shapes (not the merged tree, so an overlay's spelling is found beside the
+  base's), takes the renames, and resolves each to the bracket of that file and line whose
+  tag spells the old name, through `read_structure`: a token edit, then the layout. A row's
+  path, `(/player.hp 5)`, is not a tag the structure spells, so it stays as written, and
+  `check` keeps warning. Named files without a loadable stack are laid out and nothing
+  more. `baker.format/1.1` adds `rewrites` to each file, and `--baker-check` lists a file
+  a rename would change.
+- **`--baker-mint-ids TABLE`.** Each record of the table (a path from the root; its direct
+  array children, metadata aside) gets an `(@id ...)` after its key when it has none, or a
+  fresh one when another record of the table already carries its ID (a copy), in the
+  lowest enabled layer that holds the record, where it is declared; an overlay's record is
+  never minted. The ID comes from `std::random_device` in `baker::host`, 128 bits with
+  the top nibble forced to `a`–`f`; the library mints none (plan §2.7).
+- **Tests.** The shape tests: the declaration forms and their errors, the three spellings
+  (warned, errored, range-checked under the old name), the renames list, the JSON. The
+  golden readers carry a renamed field, and the data tests read `(hurt 7)` as `damage`;
+  the views project's golem is spelled by its old name. The kit's tests rename across the
+  base and an overlay, count rewrites under `--baker-json`, and mint over a record without
+  an ID, a copy, and an overlay. Full matrix green (recorded below).
+
+## D288. Identity, step 4: `rename`
+
+*`dev/identity-plan.md` step 4.*
+
+- **`rename OLD NEW [--baker-write]`** in the host kit: the record at path OLD takes the key
+  NEW in the lowest enabled layer whose own tree holds it by that key (the declaring
+  layer), keeps OLD as `(@aka OLD)` after its last child (or in its `(@aka ...)`), and gets
+  an `(@id ...)` after its key if it has none; every `key_of` value naming it, in every
+  enabled layer, is rewritten. An overlay's own record keeps the old key: the alias
+  resolves it, and the overlay may be one the stack does not own. Without `--baker-write`
+  the edits are listed, one a line, and nothing is written.
+- **The references come from the shape library:** `shape::key_uses(tree, shapes)` lists
+  every `key` value and list-of-keys element the checker reaches, with the field's table
+  as written; the kit keeps those whose table path spells OLD's and whose key is OLD's.
+  An overlay's tree is listed alone, where the table is absent, so nothing is checked and
+  the use is still found.
+- **Edits are token edits over the structure,** as `format`'s rewrites are (D287): a
+  record's bracket found by its file, line and tag; a value token inside a field's bracket
+  by what it spells. A want no bracket spells (a record a row's path made, a macro's
+  expansion) refuses the whole rename, naming the place, and nothing is written. The
+  source map was not needed: the text's own structure says where a token is, and a record
+  assembled by `#include_dir` is edited in the file that holds it, which is right.
+- **Refusals:** NEW already a sibling's key or alias; OLD not in the stack; OLD declared by
+  no layer's own file by that key (built in code, or named through an alias); NEW not one
+  symbol. Shipping builds refuse the command, as `diff` and `promote`.
+- **Tests:** the kit's, over the test stack with a `key_of` field, a list of keys and an
+  overlay naming the record: the dry run's listing, the written files, `check` clean after,
+  the overlay merging by the alias, and each refusal.
+
+## D289. Identity, step 5: `(asset KIND)`, the project's `(assets ...)`, and `assets`
+
+*`dev/identity-plan.md` step 5.*
+
+- **A field type, not a metadata word.** `(asset KIND)` and `(list (asset KIND))` on a
+  shape field, read beside `(key_of TABLE)`; the value is a string, relative to the
+  project file's directory. The view member is a `std::string_view`, read as a string is;
+  the digest spells `asset(KIND)`, so a kind change is drift, as a type change is. The
+  project file's `(assets (mesh ".glb" ".fbx") ...)` declares the kinds, each with the
+  extensions it takes, dotted; none takes any file. `baker.shapes/1.8` adds `"asset"` as a
+  type and `asset`, the kind, to each field.
+- **The shape set carries the kinds, when told.** `Set::add_asset_kinds` from the project;
+  the checker then reports a kind the set lacks and an extension the kind does not list, at
+  the field. A set never given kinds (the validator's, which has no project) checks only
+  that the value is a string: `check` and `assets` give the kinds, so the kit's loop does not
+  report every asset field of a stack whose project it never read, which it had, on stderr,
+  in every command.
+- **Existence is a directory listing.** `shape::asset_uses(tree, set)` lists every value
+  the checker reaches with its record's path and ID (the checker now keeps the instance it
+  is in, for the ID). The kit joins each target with the project's directory and lists the
+  directory once per run through the host's lister (`CommandHooks::list`), else the disk's
+  (plan §2.8: no new hook); a file the listing lacks is a shape error in `check`, with its
+  path, and `exists: false` in `assets`, which exits 1.
+- **`baker.assets/1`** (`docs/assets-json.md`): `root`, and one edge per value, sorted by
+  file, line, path: `from` (`file`, `line`, `path` dotted, `id`), `field`, `kind`,
+  `target`, `exists`. The merged stack is listed, so an overlay's replacement is the edge.
+- **Tests.** The shape tests: the two forms, the four errors (kind undeclared, extension,
+  not a string), the uses with path and ID, the JSON. The kit's: the test stack names
+  `assets/hero.glb` from the player's `(model (asset mesh))`; `assets` lists it as found;
+  an overlay naming a missing file is `exists: false`, exit 1, and fails `check`; an
+  extension the kind lacks and a kind the project lacks fail `check`. Also skips the kit's
+  `rename` test under shipping, where the command refuses (step 4's commit ran it there,
+  one failing test in that configuration; step 4's matrix was otherwise green).
+
+## D290. Identity, step 6: the example, the docs, the record, and a merge fix the rows found
+
+*`dev/identity-plan.md` step 6, the last of W3.*
+
+- **The example.** `examples/content-tables` renames `heavy` to `slam` (its ID kept, its
+  alias keeping the content layer's `(heavy (hint ...))` merging in), declares `startup`
+  `(@renamed_from windup)` with wren's poke spelled the old way, and gives the jab an
+  `(icon (asset texture))` the project's `(assets (texture ".png"))` governs; the output
+  shows each. `docs/cookbook.md` has a section on the four moves; `docs/language.md`,
+  `docs/tools.md`, `docs/reference-json.md` and `docs/assets-json.md` carry the rest.
+- **The no-cost rows found a quadratic path.** `tools/bench_compare.py --base 31abe5a`
+  (main, before W3) put "Config layer, cache_dir, fresh cache" at 7.2 ms on main and 204 ms
+  after step 5 (ranges 2.7–15 and 29–387 ms): a layer replayed from a cache counted as
+  having aliases (a replay parses nothing, so D286 assumed so), and the merge's miss path
+  scanned the lower array's children per missed key, which for a wide layer whose keys
+  are all new is quadratic. Two fixes, both in step 6:
+  - On the indexed path (over 32 incoming keys) the aliases go into the tag index after
+    the keys, one pass over the existing children, and a hit whose tag differs is the
+    alias; the unindexed path keeps its scan, linear in the lower array a few times.
+  - The cache's record carries `(aliases N)`, the count of the load, and a replay sets it;
+    a cache written before counts as 1. The count is per top-level read (the parser resets
+    it), which step 2's comparison with the previous read's count had got wrong: a layer
+    with fewer aliases than the one below did not resolve by them. Tests cover both.
+  After the fix the row is 6.74 ms on main, 6.88 ms here (its 5x ranges overlap).
+- **The rows,** 5 runs a side on a quiet machine, medians (min–max), `**` where the
+  ranges do not overlap:
+
+  | benchmark | row | main (31abe5a) | W3 | change |
+  |---|---|---:|---:|---:|
+  | lookup | try_find (array), avg | 6.47 ns (6.42–6.53) | 9.6 ns (9.59–9.64) | +48.4% ** |
+  | lookup | find_float, avg | 10.5 ns | 10.5 ns | +0.1% |
+  | lookup | find<float>, avg | 9.36 ns | 11.9 ns | +27.1% ** |
+  | lookup | find_float("key19"_sym) | 13.0 ns | 13.4 ns | +3.1% |
+  | lookup | get<int>(Path), 4 segments | 22.2 ns | 21.6 ns | -2.7% ** |
+  | lookup | try_find, 50 children, linear | 15.2 ns | 13.7 ns | -10.0% ** |
+  | lookup | try_find, 1000 children, linear | 311.0 ns | 196.9 ns | -36.7% ** |
+  | layers | read_string | 74.4 us (73.3–74.5) | 78.5 us (78.0–78.9) | +5.5% ** |
+  | layers | push_layer (tree), no policy | 97.8 us | 96.0 us | -1.8% ** |
+  | layers | push_layer_text, no policy | 176.6 us | 176.7 us | +0.1% |
+  | layers | check_layer (tree) | 352.5 us | 350.7 us | -0.5% |
+  | cache | Config layer, cache_dir, fresh cache | 6.74 ms | 6.88 ms | +2.2% |
+  | cache | Config reload, unchanged small file | 2250 ns | 2256 ns | +0.2% |
+  | parse | parse: 4.2 MB in | 28.2 ms | 29.7 ms | +5.4% |
+
+  `tools/count_instructions.py --base 31abe5a`: `lookup` 209 = 209, `set` 685.5 to 678,
+  `merge` 1,221,746 to 1,214,539 (-0.59%), `check` -0.14%, `lookup_text` 380 to 372,
+  `parse` 1,894,330 to 1,897,732 (+0.18%: the alias test per closed array), the script
+  cases unchanged, `frame` 192.8 to 197 (+2.2%, untouched code: layout).
+- **What the rows say.** A lookup runs the same 209 instructions and reads 48% slower on
+  the small array while reading 10 to 37% faster on the wide ones: the find loop's
+  alignment moved, not its work (`baker-gaps.md` 47, to measure before W2 touches
+  lookups). Reading text is +0.18% instructions and +5% wall, as W1's +1% instructions
+  was +6% wall (gaps 45): the parser's wall time moves more than its count, and the
+  cause is still to be isolated there. Merges, checks and reloads cost what they did.
+- **Changelog lines for the next release.**
+  - Identity: `(@id ...)`, 32 hex digits minted by `format --baker-mint-ids TABLE`;
+    `Array::record_id()`, `find_by_id`, `id_validator` (two records, one ID).
+  - `(@aka old)`: a renamed record answers to its old key in overlays and `key_of`;
+    `check` lists an alias nothing names.
+  - `rename OLD NEW [--baker-write]`: the key, the alias, the ID and every `key_of`.
+  - `(@renamed_from old)` on a shape field: checked, read by views, rewritten by `format`.
+  - `(asset KIND)` fields with the project's `(assets ...)`; `check` finds a missing file;
+    the `assets` command writes `baker.assets/1`.
+  - `baker.shapes/1.8` (`renamed_from`, `asset`); `baker.format/1.1` (`rewrites`); a
+    cache records its alias count.
+  - Fixed: none shipped (the quadratic alias merge never reached a release).

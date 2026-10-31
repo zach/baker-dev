@@ -64,7 +64,7 @@ int main(int argc, char** argv) {
     std::printf("jab: startup %d, damage %.1f, button %s, cancels into", jab->startup, jab->damage,
                 jab->button.c_str());
     for (const baker::Symbol into : jab->cancel_into) std::printf(" %s", into.c_str());
-    std::printf("\n");
+    std::printf("; icon %.*s\n", static_cast<int>(jab->icon.size()), jab->icon.data());
 
     // The whole table: one pass over each fighter's moves, as a game fills its own arrays
     // at load. The content layer's field is a member; a field marked (@view no) stays in
@@ -84,6 +84,14 @@ int main(int argc, char** argv) {
                 return 1;
             }
             ++moves;
+            // A renamed record keeps its ID; a field spelled by its old name reads as the
+            // field (wren's poke says windup).
+            if (const baker::RecordId id = record->record_id(); !id.empty()) {
+                char hex[baker::RecordId::kDigits];
+                id.write(hex);
+                std::printf("%s.%s is %.32s, startup %d\n", fighter->tag().c_str(),
+                            record->tag().c_str(), hex, move->startup);
+            }
             if (!move->hint.empty())
                 std::printf("%s.%s: \"%.*s\"\n", fighter->tag().c_str(), record->tag().c_str(),
                             static_cast<int>(move->hint.size()), move->hint.data());

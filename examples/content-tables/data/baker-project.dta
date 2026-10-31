@@ -6,4 +6,5 @@
       (core "core.dta")
       (content "content.dta")
       (local "local.dta" optional dev_only))
+   (assets (texture ".png"))
    (views (layers core content) (namespace game)))

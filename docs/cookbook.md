@@ -139,6 +139,7 @@ and the game and every tool read it.
    (tool "build/bin/my_game")         ; for tools: the binary that answers the commands
    (console 4555)                     ; for tools: the port the game's console listens on
    (format (indent 3) (width 100))    ; how its files are laid out, by format and write-back
+   (assets (mesh ".glb" ".fbx"))      ; the kinds (asset KIND) fields name, and their files
    (scenarios "sim")                  ; for sim: scenarios and objectives (docs/sim-json.md)
    (objectives "metrics")
    (layers                            ; bottom to top
@@ -577,6 +578,33 @@ baker_generate_views(my_game PROJECT ${CMAKE_SOURCE_DIR}/data/baker-project.dta)
   the same as a shape warning; the farm runs `check --baker-strict-views`, which makes it
   an error, so a designer's change to a layout never ships against stale code. A shipping
   build keeps no view names, and matches by digest alone.
+
+## Renaming a record, a field, and naming a file
+
+Content changes its names. Baker keeps the old ones answering (`docs/language.md`,
+Identity), and the host kit's commands do the rewriting:
+
+- **A record.** `game rename fighters.kestrel.moves.heavy slam --baker-write` gives the
+  record its new key in the layer that declares it, keeps `(@aka heavy)` in it, mints an
+  `(@id ...)` if it had none, and rewrites every `(key_of ...)` value naming it in every
+  layer. An overlay that still says `(heavy (hint "Launches"))`, a mod you do not own,
+  merges into `slam` through the alias. `check` lists an alias nothing names any more, as a
+  finding, for the day you drop it.
+- **A field.** Declare the old name on the shape, `(startup int (@renamed_from windup))`:
+  a record that says `windup` is checked as `startup`, with a warning, and the generated
+  view reads it. `game format` rewrites `windup` to `startup` in every file of the stack.
+  Nothing is renamed at load.
+- **An ID for every record.** `game format --baker-mint-ids fighters.kestrel.moves` writes
+  an `(@id ...)` into each record of the table without one, or copied with another's, in
+  the layer that declares it. Tools and change records anchor on the ID; references keep
+  naming keys.
+- **A file outside Baker.** A field `(icon (asset texture))` holds a path relative to the
+  project file's directory; the project declares `(assets (texture ".png"))`. `check` fails
+  on an extension the kind does not list or a file that is not there, and `game assets`
+  writes every edge as `baker.assets/1` for the pipeline.
+
+`examples/content-tables` does all four: `slam` was `heavy`, `startup` was `windup`, the
+jab names its icon, and the output shows each.
 
 ## Content packages: patches, DLC, and mods
 

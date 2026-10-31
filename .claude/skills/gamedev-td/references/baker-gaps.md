@@ -188,7 +188,21 @@ One line each; the D-entries hold the measurements.
 45. **Reading text costs 1% more instructions since W1 (load).** `parse` 1,874,727 to
    1,894,330 instructions per 16 KB, `read_string` +6% wall; the only parser change is
    D278's skipped-shape record, which the texts do not exercise. Open: isolate with
-   cachegrind's per-function counts before W3 touches the parser (D283).
+   cachegrind's per-function counts (D283). W3 added one test per closed array (the alias
+   count, D286): `parse` 1,897,732, +0.18% over W1 (D290).
+46. **An alias costs a scan on a merge miss (load).** With any `(@aka ...)` in the stack,
+   a keyed child the lower array lacks scans the lower children's metadata (D286); without
+   one, a bool test per miss. The scan was quadratic for a wide layer whose keys were all
+   new, and a cache's replay counted as aliased, which made a cached 4 MB layer's load 30x
+   slower; W3 step 6 indexes the aliases once per merge on the indexed path and records the
+   count in the cache (D290). The unindexed path (32 or fewer incoming keys) still scans
+   the lower array per miss: linear in it, a few times. Accepted; reopen if a profile
+   shows it.
+47. **`try_find` on a small array reads 48% slower on the same 209 instructions (hot).**
+   After W3, `try_find (array), avg` 6.47 to 9.6 ns and `find<float>, avg` +27%, while
+   `try_find` over 50 to 1000 children is 10 to 37% faster and the instruction count of a
+   lookup is unchanged (D290): the find loop's alignment moved. Open: measure with
+   `-falign-loops` or the loop body isolated before W2 touches lookups.
 10. **Tooling in the core (tool).** Accepted as a standing rule (D100), then moved out:
    `baker::tools` holds what only tools call, and a minimal shipping game is 24.2 KB
    smaller with default flags, unchanged with `--gc-sections` (D231).

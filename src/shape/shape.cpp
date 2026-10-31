@@ -30,7 +30,7 @@ struct Names {
     baker::Symbol at{"@at"}, range{"@range"}, step{"@step"}, kind{"@kind"}, desc{"@desc"},
         note{"@note"}, optional{"@optional"}, list{"list"}, any_tag{"*"}, keyed{"@keyed"},
         one_of{"@one_of"}, key_of{"key_of"}, rule{"@rule"}, warn{"@warn"}, view{"@view"},
-        cxx{"@cxx"}, cxx_name{"@cxx_name"}, no{"no"};
+        cxx{"@cxx"}, cxx_name{"@cxx_name"}, renamed_from{"@renamed_from"}, no{"no"}, asset{"asset"};
 };
 const Names& names() {
     static const Names n;
@@ -62,6 +62,7 @@ std::string_view type_text(Type t) {
         case Type::Key: return "key";
         case Type::Any: return "any";
         case Type::Curve: return "curve";
+        case Type::Asset: return "asset";
     }
     return "any";
 }
@@ -79,6 +80,15 @@ void path_of(Values v, Vec<baker::Symbol>& out) {
         }
         out.emplace_back(text);
     }
+}
+
+// (asset KIND): the kind, or false if `a` is not that form (D289).
+bool asset_of(const Array& a, baker::Symbol& kind) {
+    if (a.size() != 2 || !a[0].is(names().asset)) return false;
+    const auto k = a[1].try_sym();
+    if (!k || k->empty() || k->is_meta()) return false;
+    kind = *k;
+    return true;
 }
 
 // (key_of TABLE): the table's path, or false if `a` is not that form.
@@ -100,12 +110,47 @@ const Field* Shape::field(baker::Symbol field_name) const noexcept {
     return nullptr;
 }
 
+const Field* Shape::renamed(baker::Symbol old) const noexcept {
+    for (const Field& f : fields)
+        for (const baker::Symbol r : f.renamed_from)
+            if (r == old) return &f;
+    return nullptr;
+}
+
 struct Set::State {
     Vec<Shape> shapes;
-    Vec<Vec<Field>> fields;  // parallel to shapes; Shape::fields is rebuilt from it
-    Vec<Vec<Rule>> rules;    // likewise, Shape::rules
-    Vec<Ref<Array>> keep;    // the declarations the fields' text points into
+    Vec<Vec<Field>> fields;    // parallel to shapes; Shape::fields is rebuilt from it
+    Vec<Vec<Rule>> rules;      // likewise, Shape::rules
+    Vec<Ref<Array>> keep;      // the declarations the fields' text points into
+    Vec<AssetKind> kinds;      // the project's (assets ...) (D289)
+    bool kinds_known = false;  // add_asset_kinds was called: a kind the set lacks is an error
 };
+
+void Set::add_asset_kinds(std::span<const AssetKind> kinds) {
+    st_->kinds_known = true;
+    for (const AssetKind& k : kinds) {
+        auto old = std::find_if(st_->kinds.begin(), st_->kinds.end(),
+                                [&](const AssetKind& x) { return x.name == k.name; });
+        if (old == st_->kinds.end())
+            st_->kinds.push_back(k);
+        else
+            *old = k;
+    }
+}
+
+bool Set::kinds_known() const noexcept {
+    return st_->kinds_known;
+}
+
+std::span<const AssetKind> Set::asset_kinds() const noexcept {
+    return {st_->kinds.data(), st_->kinds.size()};
+}
+
+const AssetKind* Set::asset_kind(baker::Symbol name) const noexcept {
+    for (const AssetKind& k : st_->kinds)
+        if (k.name == name) return &k;
+    return nullptr;
+}
 
 Set::Set() : st_(detail::create<State>(default_allocator(MemoryKind::Config))) {}
 Set::~Set() {
@@ -205,13 +250,18 @@ bool read_field(const Array& a, Field& f, Vec<Error>& errors) {
     } else if (elem && key_of(*elem, f.table)) {
         f.type = Type::List;
         f.element = Type::Key;
+    } else if (l && asset_of(*l, f.asset)) {
+        f.type = Type::Asset;
+    } else if (elem && asset_of(*elem, f.asset)) {
+        f.type = Type::List;
+        f.element = Type::Asset;
     } else if (list && (*l)[1].try_sym()) {
         f.type = Type::List;
         f.element = type_named(*(*l)[1].try_sym());
         if (f.element == Type::Shape) f.shape = *(*l)[1].try_sym();
     } else {
         return bad("field " + quoted(f.name) +
-                   " has a type that is not a symbol, (list T) or (key_of TABLE)");
+                   " has a type that is not a symbol, (list T), (key_of TABLE) or (asset KIND)");
     }
     const Names& n = names();
     for (uint32_t i = 2; i < a.size(); ++i) {
@@ -258,6 +308,23 @@ bool read_field(const Array& a, Field& f, Vec<Error>& errors) {
             if (!id || !identifier(id->str()))
                 return bad("field " + quoted(f.name) + " (@cxx_name N): N is a C++ identifier");
             f.cxx_name = *id;
+        } else if (*tag == n.renamed_from) {
+            // Declared again, a field keeps the old names it had and adds the new list's.
+            Vec<baker::Symbol> all(f.renamed_from.begin(), f.renamed_from.end());
+            if (v.empty())
+                return bad("field " + quoted(f.name) +
+                           " (@renamed_from OLD ...) names the field's earlier names");
+            for (const Node& s : v) {
+                const auto old = s.try_sym();
+                if (!old || old->empty() || old->is_meta())
+                    return bad("field " + quoted(f.name) +
+                               "'s (@renamed_from ...) holds field names, as symbols");
+                if (*old == f.name)
+                    return bad("field " + quoted(f.name) + " is (@renamed_from " + Str(old->str()) +
+                               "), its own name");
+                if (std::find(all.begin(), all.end(), *old) == all.end()) all.push_back(*old);
+            }
+            f.renamed_from = List<baker::Symbol>({all.data(), all.size()});
         } else if (*tag == n.one_of) {
             const bool symbols =
                 f.type == Type::Symbol || (f.type == Type::List && f.element == Type::Symbol);
@@ -287,6 +354,7 @@ namespace {
 // (@one_of ...).
 bool loosens(const Field& held, const Field& next) noexcept {
     if (next.type != held.type || next.element != held.element || next.shape != held.shape ||
+        next.asset != held.asset ||
         !std::equal(next.table.begin(), next.table.end(), held.table.begin(), held.table.end()))
         return true;
     if (next.optional && !held.optional) return true;
@@ -489,6 +557,16 @@ void Set::add(const LoadSession& session, Report& report, baker::Symbol root) {
         Shape& s = st_->shapes[i];
         s.fields = List<Field>({st_->fields[i].data(), st_->fields[i].size()});
         s.rules = List<Rule>({st_->rules[i].data(), st_->rules[i].size()});
+        // An old name that is a field's name now: a record spelling it could mean either.
+        for (const Field& f : s.fields)
+            for (const baker::Symbol old : f.renamed_from)
+                if (const Field* other = s.field(old))
+                    errors.push_back(make_error(ErrorCode::Syntax,
+                                                "shape " + quoted(s.name) + ": " + quoted(f.name) +
+                                                    " is (@renamed_from " + Str(old.str()) +
+                                                    "), and " + quoted(other->name) +
+                                                    " is a field of the shape",
+                                                f.file, f.line));
         if (s.keyed && s.at.empty())
             errors.push_back(make_error(
                 ErrorCode::Syntax,
@@ -573,6 +651,8 @@ struct Checker {
     // `a`'s fields, from `first`, against `s`.
     void instance(const Array& a, const Shape& s, uint32_t first) {
         if (used) (*used)[static_cast<size_t>(&s - set.shapes().data())] = true;
+        const Array* const outer = record;
+        record = &a;
         const size_t mark = seen.size();
         for (uint32_t i = first; i < a.size(); ++i) {
             const Array* f = a[i].try_array();
@@ -583,10 +663,30 @@ struct Checker {
                        "a value that is not a field of shape " + quoted(s.name), a);
                 continue;
             }
+            if (tag->is_meta()) continue;  // a record's own (@note ...), (@id ...): never a field
             enter_tag(*tag);
             if (const Field* field = s.field(*tag)) {
                 seen.push_back(*tag);
                 value(*f, *field);
+            } else if (const Field* renamed = s.renamed(*tag)) {
+                // The field under a name the shape renamed (D287): checked as the field, and
+                // listed for `format` to rewrite. With the new name in the record too, the
+                // value under the old one reaches no reader: an error.
+                renames.push_back({f->file(), f->line(), *tag, renamed->name});
+                const Array* twice = a.try_find(renamed->name);
+                if (twice)
+                    report(errors, ErrorCode::Syntax,
+                           quoted(*tag) + " was renamed " + quoted(renamed->name) +
+                               ", and the record has both (" + Str(twice->file().str()) + ":" +
+                               detail::decimal(twice->line()) + "): remove one, or run format",
+                           *f);
+                else
+                    report(
+                        warnings, ErrorCode::Syntax,
+                        quoted(*tag) + " is now " + quoted(renamed->name) + " (format rewrites it)",
+                        *f);
+                seen.push_back(renamed->name);
+                value(*f, *renamed);
             } else {
                 report(warnings, ErrorCode::NotFound,
                        quoted(*tag) + " is not a field of shape " + quoted(s.name) +
@@ -601,6 +701,7 @@ struct Checker {
                 report(errors, ErrorCode::NotFound,
                        quoted(s.name) + " has no " + quoted(field.name), a);
         seen.resize(mark);
+        record = outer;
     }
 
     // A nested shape's instance, `e`, from `first`: out of line, so that what it adds to the
@@ -666,6 +767,10 @@ struct Checker {
                        f);
                 continue;
             }
+            if (t == Type::Asset) {
+                asset(n, f, field);
+                continue;
+            }
             const auto x = n.try_float();
             if (field.ranged && x && (*x < field.min || *x > field.max))
                 report(errors, ErrorCode::Range,
@@ -716,9 +821,46 @@ struct Checker {
         }
     }
 
+    // An asset's path against its kind (D289): the kind declared, the extension one it lists.
+    BAKER_COLD void asset(const Node& n, const Array& f, const Field& field) {
+        const std::string_view target = *n.try_str();  // fits() took a string
+        if (asset_uses)
+            asset_uses->push_back({f.file(), f.line(), field.name, field.asset, target,
+                                   baker::Symbol(path()),
+                                   record ? record->record_id() : RecordId{}});
+        const AssetKind* kind = set.asset_kind(field.asset);
+        if (!kind) {
+            if (!set.kinds_known()) return;  // a validator's set: the kit's check knows them
+            report(errors, ErrorCode::NotFound,
+                   quoted(field.name) + " is an (asset " + Str(field.asset.str()) +
+                       "), and the project declares no kind " + quoted(field.asset) +
+                       ": (assets (" + Str(field.asset.str()) + " \".ext\" ...))",
+                   f);
+            return;
+        }
+        if (kind->extensions.empty()) return;
+        const size_t slash = target.find_last_of("/\\");
+        const std::string_view name =
+            slash == std::string_view::npos ? target : target.substr(slash + 1);
+        const size_t dot = name.rfind('.');
+        const std::string_view ext =
+            dot == std::string_view::npos ? std::string_view() : name.substr(dot);
+        for (const baker::Symbol e : kind->extensions)
+            if (e.str() == ext) return;
+        Str listed;
+        for (const baker::Symbol e : kind->extensions)
+            listed += (listed.empty() ? "" : " or ") + Str(e.str());
+        report(errors, ErrorCode::Type,
+               quoted(field.name) + " is \"" + Str(target) + "\", not a " + Str(field.asset.str()) +
+                   " (" + listed + ")",
+               f);
+    }
+
     // A key against its table: the nearest enclosing table of that path, the root last.
     BAKER_COLD void key(const Node& n, const Array& f, const Field& field) {
         const auto sym = n.try_sym();
+        if (sym && key_uses)
+            key_uses->push_back({f.file(), f.line(), field.name, field.table, *sym});
         if (!sym) {
             report(errors, ErrorCode::Type,
                    quoted(field.name) + " is " + Str(type_name(n.type())) + ", not a key of " +
@@ -763,27 +905,49 @@ struct Checker {
         }
         return nullptr;
     }
-    // The table's child tagged `key`, the first as try_find() finds it.
+    // The table's child tagged `key`, the first as try_find() finds it, or the child that
+    // still answers to it, (@aka key) (D286): keys first, then aliases, so a key wins.
     const Array* in(const Array& table, baker::Symbol key) {
         auto [it, added] = tables.try_emplace(&table);
-        if (added)
+        if (added) {
             for (const Node& c : table.values())
                 if (const Array* e = c.try_array(); e && !e->tag().empty())
                     it->second.try_emplace(e->tag(), e);
+            for (const Node& c : table.values())
+                if (const Array* e = c.try_array(); e && e->meta_first())
+                    if (const Array* aka = e->meta(baker::detail::aka_tag()))
+                        for (const Node& old : aka->values())
+                            if (const auto s = old.try_sym()) it->second.try_emplace(*s, e);
+        }
         const auto found = it->second.find(key);
-        return found == it->second.end() ? nullptr : found->second;
+        if (found == it->second.end()) return nullptr;
+        if (found->second->tag() != key) aliases_used.push_back(key);
+        return found->second;
     }
-    // The table's key nearest `wrong` by edits, within two, or none: what a typo meant.
+    Vec<baker::Symbol> aliases_used;      // keys that resolved through an alias
+    Vec<Renamed> renames;                 // fields spelled by an old name (D287)
+    Vec<KeyUse>* key_uses = nullptr;      // for key_uses(): every key named (D288)
+    Vec<AssetUse>* asset_uses = nullptr;  // for asset_uses(): every asset named (D289)
+    const Array* record = nullptr;        // the instance being checked, for its ID
+    // The table's key, or alias, nearest `wrong` by edits, within two, or none: what a typo
+    // meant.
     static std::optional<std::string_view> nearest(const Array& table, std::string_view wrong) {
         std::optional<std::string_view> best;
         size_t best_cost = 3;
+        const auto consider = [&](std::string_view name) {
+            const size_t cost = edits(wrong, name, best_cost);
+            if (cost < best_cost) {
+                best_cost = cost;
+                best = name;
+            }
+        };
         for (const Node& c : table.values())
             if (const Array* e = c.try_array(); e && !e->tag().empty()) {
-                const size_t cost = edits(wrong, e->tag().str(), best_cost);
-                if (cost < best_cost) {
-                    best_cost = cost;
-                    best = e->tag().str();
-                }
+                consider(e->tag().str());
+                if (e->meta_first())
+                    if (const Array* aka = e->meta(baker::detail::aka_tag()))
+                        for (const Node& old : aka->values())
+                            if (const auto s = old.try_sym()) consider(s->str());
             }
         return best;
     }
@@ -836,7 +1000,8 @@ struct Checker {
                 return Values({&n, 1}, nullptr).read(0, b);
             }
             case Type::Symbol: return n.type() == baker::Type::Symbol;
-            case Type::String: return n.type() == baker::Type::String;
+            case Type::String:
+            case Type::Asset: return n.type() == baker::Type::String;
             case Type::Key: return false;
             default: return true;
         }
@@ -921,8 +1086,11 @@ void each_ruled(const Array& tree, const Set& shapes, const RuleWalker::Visit& v
 
 namespace {
 void run(const Array& tree, const Set& shapes, Vec<Error>& errors, Vec<Error>& warnings,
-         const LoadSession* packs, Vec<bool>* used) {
-    Checker checker{shapes, errors, warnings, {}, 0, {}, {}, {}, {}, {}, packs, {}, false, used};
+         const LoadSession* packs, Vec<bool>* used, Vec<baker::Symbol>* aliases_used = nullptr,
+         Vec<Renamed>* renames = nullptr, Vec<KeyUse>* key_uses = nullptr,
+         Vec<AssetUse>* asset_uses = nullptr) {
+    Checker checker{shapes, errors, warnings, {},   0,  {}, {},       {},         {},     {},
+                    packs,  {},     false,    used, {}, {}, key_uses, asset_uses, nullptr};
     checker.arrays.push_back(&tree);
     for (const Shape& s : shapes.shapes()) {
         if (s.keyed && !s.at.empty()) checker.keyed.push_back(&s);
@@ -935,14 +1103,36 @@ void run(const Array& tree, const Set& shapes, Vec<Error>& errors, Vec<Error>& w
         checker.walk<true>(tree);
     else
         checker.walk<false>(tree);
+    if (aliases_used)
+        aliases_used->insert(aliases_used->end(), checker.aliases_used.begin(),
+                             checker.aliases_used.end());
+    if (renames) renames->insert(renames->end(), checker.renames.begin(), checker.renames.end());
 }
 }  // namespace
+
+List<AssetUse> asset_uses(const Array& tree, const Set& shapes) {
+    Vec<Error> errors, warnings;
+    Vec<AssetUse> uses;
+    run(tree, shapes, errors, warnings, nullptr, nullptr, nullptr, nullptr, nullptr, &uses);
+    return List<AssetUse>({uses.data(), uses.size()});
+}
+
+List<KeyUse> key_uses(const Array& tree, const Set& shapes) {
+    Vec<Error> errors, warnings;
+    Vec<KeyUse> uses;
+    run(tree, shapes, errors, warnings, nullptr, nullptr, nullptr, nullptr, &uses);
+    return List<KeyUse>({uses.data(), uses.size()});
+}
 
 void check(const Array& tree, const Set& shapes, Report& report, const LoadSession* packs) {
     Vec<Error> errors(report.errors.begin(), report.errors.end());
     Vec<Error> warnings(report.warnings.begin(), report.warnings.end());
-    run(tree, shapes, errors, warnings, packs, nullptr);
+    Vec<baker::Symbol> aliases_used(report.aliases_used.begin(), report.aliases_used.end());
+    Vec<Renamed> renames(report.renames.begin(), report.renames.end());
+    run(tree, shapes, errors, warnings, packs, nullptr, &aliases_used, &renames);
     report.errors = List<Error>({errors.data(), errors.size()});
+    report.aliases_used = List<baker::Symbol>({aliases_used.data(), aliases_used.size()});
+    report.renames = List<Renamed>({renames.data(), renames.size()});
     report.warnings = List<Error>({warnings.data(), warnings.size()});
 }
 
@@ -1003,6 +1193,11 @@ void append_element_text(const Set& set, const Field& f, Type t, Str& out,
         case Type::Key:
             out += "key_of(";
             out += table_path(f);
+            out += ')';
+            return;
+        case Type::Asset:
+            out += "asset(";
+            out += f.asset.str();
             out += ')';
             return;
         default: out += type_text(t); return;
@@ -1121,7 +1316,7 @@ void write_json(const Set& shapes, TextSink text) {
     for (const Shape& sh : shapes.shapes()) ss.push_back(&sh);
     std::sort(ss.begin(), ss.end(),
               [](const Shape* a, const Shape* b) { return a->name.str() < b->name.str(); });
-    Str out = "{\n  \"schema\": \"baker.shapes/1.6\",\n  \"shapes\": [";
+    Str out = "{\n  \"schema\": \"baker.shapes/1.8\",\n  \"shapes\": [";
     for (size_t i = 0; i < ss.size(); ++i) {
         const Shape& sh = *ss[i];
         out += i ? ",\n    {\"name\": " : "\n    {\"name\": ";
@@ -1152,6 +1347,8 @@ void write_json(const Set& shapes, TextSink text) {
             detail::json_string(out, f.shape.str());
             out += ", \"table\": ";
             detail::json_string(out, table_path(f));
+            out += ", \"asset\": ";
+            detail::json_string(out, f.asset.str());
             out += Str(", \"optional\": ") + (f.optional ? "true" : "false") + ", \"range\": ";
             if (f.ranged)
                 out +=
@@ -1170,6 +1367,8 @@ void write_json(const Set& shapes, TextSink text) {
             detail::json_string(out, f.cxx.str());
             out += ", \"cxx_name\": ";
             detail::json_string(out, f.cxx_name.str());
+            out += ", \"renamed_from\": ";
+            detail::json_names(out, f.renamed_from.items());
             out += ", \"file\": ";
             detail::json_string(out, f.file.str());
             out += ", \"line\": " + detail::decimal(f.line) + "}";

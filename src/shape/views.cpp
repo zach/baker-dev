@@ -104,7 +104,8 @@ Str scalar_type(Type t, baker::Symbol cxx, const Set& set, baker::Symbol shape,
         case Type::Bool: return "bool";
         case Type::Symbol:
         case Type::Key: return "baker::Symbol";
-        case Type::String: return "std::string_view";
+        case Type::String:
+        case Type::Asset: return "std::string_view";
         case Type::Curve: return "baker::Curve";
         case Type::Shape: {
             const Shape* nested = set.find(shape);
@@ -362,9 +363,14 @@ void write_view_reader(const Set& set, baker::Symbol shape, const ViewOptions& o
         if (!in_view(f)) continue;
         const Str fname = Str(f.name.str());
         const Str mem = "out." + member_name(f);
-        text += "                case \"" + fname +
-                "\"_hash:\n                    if (tag.str() != \"" + fname +
-                "\") break;\n                    if (!";
+        // An old name the shape renamed (D287) reads as the field: a case of its own.
+        text += "                case \"" + fname + "\"_hash:\n";
+        Str spelled = "tag.str() != \"" + fname + "\"";
+        for (const baker::Symbol old : f.renamed_from) {
+            text += "                case \"" + Str(old.str()) + "\"_hash:\n";
+            spelled += " && tag.str() != \"" + Str(old.str()) + "\"";
+        }
+        text += "                    if (" + spelled + ") break;\n                    if (!";
         switch (f.type) {
             case Type::Int:
                 text += "view_detail::read_int(*f, " + mem + ", err, \"" + name + "\", \"" +
@@ -382,6 +388,7 @@ void write_view_reader(const Set& set, baker::Symbol shape, const ViewOptions& o
                 text += "view_detail::read_symbol(*f, " + mem + ", err, \"" + name + "\")";
                 break;
             case Type::String:
+            case Type::Asset:
                 text += "view_detail::read_string(*f, " + mem + ", err, \"" + name + "\")";
                 break;
             case Type::Curve:

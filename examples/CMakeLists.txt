@@ -74,7 +74,7 @@ if(BAKER_BUILD_SHAPE)
     PROJECT ${CMAKE_CURRENT_SOURCE_DIR}/content-tables/data/baker-project.dta)
   if(baker_test_dev)
     baker_example_test(baker_example_content_tables baker_example_content_tables
-      "^views: 1, up to date${nl}jab: startup 4, damage 3[.]5, button light, cancels into heavy kick${nl}kestrel[.]heavy runs a command on a hit${nl}wren[.]poke: \"Safe at range\"${nl}4 moves read${nl}baker: field 'startup' of 'move' is not an int: fast .*fighters/kestrel/moves/jab"
+      "^views: 1, up to date${nl}jab: startup 4, damage 3[.]5, button light, cancels into slam kick; icon art/jab[.]png${nl}kestrel[.]slam is a7d2c41e9b06f58a3c1d2e4f60718293, startup 9${nl}kestrel[.]slam: \"Launches\"${nl}kestrel[.]slam runs a command on a hit${nl}wren[.]poke: \"Safe at range\"${nl}4 moves read${nl}baker: field 'startup' of 'move' is not an int: fast .*fighters/kestrel/moves/jab"
       ${CMAKE_CURRENT_SOURCE_DIR}/content-tables/data/baker-project.dta)
   endif()
 endif()

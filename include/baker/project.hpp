@@ -84,6 +84,14 @@ struct ProjectViews {
     ProjectPosition at{};
 };
 
+// (assets (mesh ".glb" ".fbx") (texture ".png")): the kinds an (asset KIND) field may name
+// (D289), each with the extensions it takes, dotted; a kind with none takes any file.
+struct ProjectAssetKind {
+    Symbol name;
+    List<Symbol> extensions;
+    ProjectPosition at{};
+};
+
 struct ProjectLayer {
     Symbol name;
     Symbol path;  // joined with the project file's directory, unless absolute
@@ -145,6 +153,7 @@ struct Project {
     // nothing.
     WriteOptions format{};
     ProjectViews views;
+    List<ProjectAssetKind> assets;  // (assets ...): empty when the file names none
 
     // The tool binary's path with `$build` resolved: `build_dir` if given (a tool's flag or
     // setting), else the project's (build ...), else "build" beside the project file. A
