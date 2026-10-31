@@ -54,6 +54,7 @@ int main(int argc, char** argv) {
     auto golem = baker::read_view<views_gen::Boss>(cfg, "bosses.golem");
     expect(golem && golem->pos.x == 0 && golem->tags.empty() && golem->hint.empty(),
            "absent optional fields read as their defaults");
+    expect(golem && golem->hp == 2500, "a field under its old name reads as the field");
     auto potion = cfg.get<views_gen::Item>("items.potion");
     expect(potion && potion->price == 12.5f && potion->stack == 20,
            "a listed view, through get<T>");

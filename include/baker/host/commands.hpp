@@ -98,6 +98,7 @@ struct CommandLine {
     bool write = false;                // promote --baker-write
     bool rows = false;                 // diff and promote --baker-rows: the change as rows
     bool check = false;                // format --baker-check: change nothing, list what would
+    std::string_view mint;             // format --baker-mint-ids TABLE: an ID for each record
     List<std::string_view> commands;   // eval's {commands}
     List<std::string_view> rest;       // every argument the kit does not read, in order
 };

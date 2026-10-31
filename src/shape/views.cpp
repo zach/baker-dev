@@ -362,9 +362,14 @@ void write_view_reader(const Set& set, baker::Symbol shape, const ViewOptions& o
         if (!in_view(f)) continue;
         const Str fname = Str(f.name.str());
         const Str mem = "out." + member_name(f);
-        text += "                case \"" + fname +
-                "\"_hash:\n                    if (tag.str() != \"" + fname +
-                "\") break;\n                    if (!";
+        // An old name the shape renamed (D286) reads as the field: a case of its own.
+        text += "                case \"" + fname + "\"_hash:\n";
+        Str spelled = "tag.str() != \"" + fname + "\"";
+        for (const baker::Symbol old : f.renamed_from) {
+            text += "                case \"" + Str(old.str()) + "\"_hash:\n";
+            spelled += " && tag.str() != \"" + Str(old.str()) + "\"";
+        }
+        text += "                    if (" + spelled + ") break;\n                    if (!";
         switch (f.type) {
             case Type::Int:
                 text += "view_detail::read_int(*f, " + mem + ", err, \"" + name + "\", \"" +

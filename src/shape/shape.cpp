@@ -30,7 +30,7 @@ struct Names {
     baker::Symbol at{"@at"}, range{"@range"}, step{"@step"}, kind{"@kind"}, desc{"@desc"},
         note{"@note"}, optional{"@optional"}, list{"list"}, any_tag{"*"}, keyed{"@keyed"},
         one_of{"@one_of"}, key_of{"key_of"}, rule{"@rule"}, warn{"@warn"}, view{"@view"},
-        cxx{"@cxx"}, cxx_name{"@cxx_name"}, no{"no"};
+        cxx{"@cxx"}, cxx_name{"@cxx_name"}, renamed_from{"@renamed_from"}, no{"no"};
 };
 const Names& names() {
     static const Names n;
@@ -97,6 +97,13 @@ bool key_of(const Array& a, List<baker::Symbol>& table) {
 const Field* Shape::field(baker::Symbol field_name) const noexcept {
     for (const Field& f : fields)
         if (f.name == field_name) return &f;
+    return nullptr;
+}
+
+const Field* Shape::renamed(baker::Symbol old) const noexcept {
+    for (const Field& f : fields)
+        for (const baker::Symbol r : f.renamed_from)
+            if (r == old) return &f;
     return nullptr;
 }
 
@@ -258,6 +265,23 @@ bool read_field(const Array& a, Field& f, Vec<Error>& errors) {
             if (!id || !identifier(id->str()))
                 return bad("field " + quoted(f.name) + " (@cxx_name N): N is a C++ identifier");
             f.cxx_name = *id;
+        } else if (*tag == n.renamed_from) {
+            // Declared again, a field keeps the old names it had and adds the new list's.
+            Vec<baker::Symbol> all(f.renamed_from.begin(), f.renamed_from.end());
+            if (v.empty())
+                return bad("field " + quoted(f.name) +
+                           " (@renamed_from OLD ...) names the field's earlier names");
+            for (const Node& s : v) {
+                const auto old = s.try_sym();
+                if (!old || old->empty() || old->is_meta())
+                    return bad("field " + quoted(f.name) +
+                               "'s (@renamed_from ...) holds field names, as symbols");
+                if (*old == f.name)
+                    return bad("field " + quoted(f.name) + " is (@renamed_from " + Str(old->str()) +
+                               "), its own name");
+                if (std::find(all.begin(), all.end(), *old) == all.end()) all.push_back(*old);
+            }
+            f.renamed_from = List<baker::Symbol>({all.data(), all.size()});
         } else if (*tag == n.one_of) {
             const bool symbols =
                 f.type == Type::Symbol || (f.type == Type::List && f.element == Type::Symbol);
@@ -489,6 +513,16 @@ void Set::add(const LoadSession& session, Report& report, baker::Symbol root) {
         Shape& s = st_->shapes[i];
         s.fields = List<Field>({st_->fields[i].data(), st_->fields[i].size()});
         s.rules = List<Rule>({st_->rules[i].data(), st_->rules[i].size()});
+        // An old name that is a field's name now: a record spelling it could mean either.
+        for (const Field& f : s.fields)
+            for (const baker::Symbol old : f.renamed_from)
+                if (const Field* other = s.field(old))
+                    errors.push_back(make_error(ErrorCode::Syntax,
+                                                "shape " + quoted(s.name) + ": " + quoted(f.name) +
+                                                    " is (@renamed_from " + Str(old.str()) +
+                                                    "), and " + quoted(other->name) +
+                                                    " is a field of the shape",
+                                                f.file, f.line));
         if (s.keyed && s.at.empty())
             errors.push_back(make_error(
                 ErrorCode::Syntax,
@@ -588,6 +622,25 @@ struct Checker {
             if (const Field* field = s.field(*tag)) {
                 seen.push_back(*tag);
                 value(*f, *field);
+            } else if (const Field* renamed = s.renamed(*tag)) {
+                // The field under a name the shape renamed (D286): checked as the field, and
+                // listed for `format` to rewrite. With the new name in the record too, the
+                // value under the old one reaches no reader: an error.
+                renames.push_back({f->file(), f->line(), *tag, renamed->name});
+                const Array* twice = a.try_find(renamed->name);
+                if (twice)
+                    report(errors, ErrorCode::Syntax,
+                           quoted(*tag) + " was renamed " + quoted(renamed->name) +
+                               ", and the record has both (" + Str(twice->file().str()) + ":" +
+                               detail::decimal(twice->line()) + "): remove one, or run format",
+                           *f);
+                else
+                    report(
+                        warnings, ErrorCode::Syntax,
+                        quoted(*tag) + " is now " + quoted(renamed->name) + " (format rewrites it)",
+                        *f);
+                seen.push_back(renamed->name);
+                value(*f, *renamed);
             } else {
                 report(warnings, ErrorCode::NotFound,
                        quoted(*tag) + " is not a field of shape " + quoted(s.name) +
@@ -784,6 +837,7 @@ struct Checker {
         return found->second;
     }
     Vec<baker::Symbol> aliases_used;  // keys that resolved through an alias
+    Vec<Renamed> renames;             // fields spelled by an old name (D286)
     // The table's key, or alias, nearest `wrong` by edits, within two, or none: what a typo
     // meant.
     static std::optional<std::string_view> nearest(const Array& table, std::string_view wrong) {
@@ -940,9 +994,10 @@ void each_ruled(const Array& tree, const Set& shapes, const RuleWalker::Visit& v
 
 namespace {
 void run(const Array& tree, const Set& shapes, Vec<Error>& errors, Vec<Error>& warnings,
-         const LoadSession* packs, Vec<bool>* used, Vec<baker::Symbol>* aliases_used = nullptr) {
+         const LoadSession* packs, Vec<bool>* used, Vec<baker::Symbol>* aliases_used = nullptr,
+         Vec<Renamed>* renames = nullptr) {
     Checker checker{shapes, errors, warnings, {}, 0,     {},   {}, {},
-                    {},     {},     packs,    {}, false, used, {}};
+                    {},     {},     packs,    {}, false, used, {}, {}};
     checker.arrays.push_back(&tree);
     for (const Shape& s : shapes.shapes()) {
         if (s.keyed && !s.at.empty()) checker.keyed.push_back(&s);
@@ -958,6 +1013,7 @@ void run(const Array& tree, const Set& shapes, Vec<Error>& errors, Vec<Error>& w
     if (aliases_used)
         aliases_used->insert(aliases_used->end(), checker.aliases_used.begin(),
                              checker.aliases_used.end());
+    if (renames) renames->insert(renames->end(), checker.renames.begin(), checker.renames.end());
 }
 }  // namespace
 
@@ -965,9 +1021,11 @@ void check(const Array& tree, const Set& shapes, Report& report, const LoadSessi
     Vec<Error> errors(report.errors.begin(), report.errors.end());
     Vec<Error> warnings(report.warnings.begin(), report.warnings.end());
     Vec<baker::Symbol> aliases_used(report.aliases_used.begin(), report.aliases_used.end());
-    run(tree, shapes, errors, warnings, packs, nullptr, &aliases_used);
+    Vec<Renamed> renames(report.renames.begin(), report.renames.end());
+    run(tree, shapes, errors, warnings, packs, nullptr, &aliases_used, &renames);
     report.errors = List<Error>({errors.data(), errors.size()});
     report.aliases_used = List<baker::Symbol>({aliases_used.data(), aliases_used.size()});
+    report.renames = List<Renamed>({renames.data(), renames.size()});
     report.warnings = List<Error>({warnings.data(), warnings.size()});
 }
 
@@ -1146,7 +1204,7 @@ void write_json(const Set& shapes, TextSink text) {
     for (const Shape& sh : shapes.shapes()) ss.push_back(&sh);
     std::sort(ss.begin(), ss.end(),
               [](const Shape* a, const Shape* b) { return a->name.str() < b->name.str(); });
-    Str out = "{\n  \"schema\": \"baker.shapes/1.6\",\n  \"shapes\": [";
+    Str out = "{\n  \"schema\": \"baker.shapes/1.7\",\n  \"shapes\": [";
     for (size_t i = 0; i < ss.size(); ++i) {
         const Shape& sh = *ss[i];
         out += i ? ",\n    {\"name\": " : "\n    {\"name\": ";
@@ -1195,6 +1253,8 @@ void write_json(const Set& shapes, TextSink text) {
             detail::json_string(out, f.cxx.str());
             out += ", \"cxx_name\": ";
             detail::json_string(out, f.cxx_name.str());
+            out += ", \"renamed_from\": ";
+            detail::json_names(out, f.renamed_from.items());
             out += ", \"file\": ";
             detail::json_string(out, f.file.str());
             out += ", \"line\": " + detail::decimal(f.line) + "}";

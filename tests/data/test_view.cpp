@@ -32,6 +32,7 @@ const char* const kFighters =
     "         (points (p (x 0) (y 0)) (p (x 3) (y 1)))\n"
     "         (ramp (0 0) (1 1)) (on_hit {do_hit}) (taunt \"ha\"))\n"
     "    (heavy (startup 9) (damage 12) (@note \"tuned\") (points (p (x 1) (y 1)) (@desc \"d\")))\n"
+    "    (old (startup 2) (hurt 7))\n"
     "    (bad_type (startup 4.5) (damage 1))\n"
     "    (bad_range (startup 70000) (damage 1))\n"
     "    (bad_float (startup 1) (damage 1e300))\n"
@@ -85,6 +86,15 @@ TEST_CASE("read_view reads every field type from a record, and defaults the abse
     CHECK(h.ramp.empty());
 }
 
+TEST_CASE("a field spelled by a name its shape renamed reads as the field (D286)") {
+    LoadSession session;
+    auto root = ok(read_string(kFighters, "f.dta", session));
+    const Array* old = root->try_get("fighters.kestrel.moves.old");
+    REQUIRE(old);
+    const Move m = ok(read_view<Move>(*old));  // (hurt 7) is damage, and damage is not missing
+    CHECK(m.damage == 7.0f);
+}
+
 TEST_CASE("a view's errors name the field, located where it is written") {
     LoadSession session;
     auto root = ok(read_string(kFighters, "f.dta", session));
@@ -96,7 +106,7 @@ TEST_CASE("a view's errors name the field, located where it is written") {
     };
     CHECK(fails("bad_type").find("field 'startup' of 'move' is not an int: 4.5") !=
           std::string::npos);
-    CHECK(fails("bad_type").find("f.dta:8") != std::string::npos);
+    CHECK(fails("bad_type").find("f.dta:9") != std::string::npos);
     CHECK(fails("bad_range").find("field 'startup' of 'move' is 70000, outside uint16") !=
           std::string::npos);
     CHECK(fails("bad_float").find("field 'damage' of 'move' is 1e") != std::string::npos);
@@ -104,7 +114,7 @@ TEST_CASE("a view's errors name the field, located where it is written") {
     CHECK(fails("bad_count").find("field 'points' of 'move' holds 5 values, not 1 to 4") !=
           std::string::npos);
     CHECK(fails("no_damage").find("'move' has no 'damage'") != std::string::npos);
-    CHECK(fails("no_damage").find("f.dta:13") != std::string::npos);
+    CHECK(fails("no_damage").find("f.dta:14") != std::string::npos);
     CHECK(fails("bad_nested").find("'vec2' has no 'y'") != std::string::npos);
     CHECK(fails("many").find("field 'startup' of 'move' is not an int: (startup 1 2)") !=
           std::string::npos);

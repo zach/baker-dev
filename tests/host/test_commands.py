@@ -7,6 +7,7 @@ CTest runs it. Each case works on a fresh copy, so the stack's own files are nev
 Exits 1 on a failure.
 """
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -113,7 +114,7 @@ def reference(s):
     names = [f["name"] for f in r["reference"]["functions"]]
     expect(code == 0 and r["reference"]["schema"] == "baker.reference/1.5" and "spawn" in names,
            "reference --baker-json: the game's functions")
-    expect(r["shapes"]["schema"] == "baker.shapes/1.6" and r["tweaks"]["schema"] == "baker.tweaks/1.6",
+    expect(r["shapes"]["schema"] == "baker.shapes/1.7" and r["tweaks"]["schema"] == "baker.tweaks/1.6",
            "reference --baker-json: tweaks and shapes")
     code, out, _ = s.run("reference")
     expect(code == 0 and "spawn" in out, "reference: Markdown")
@@ -175,7 +176,7 @@ def format_files(s):
            "format --baker-check lists an unformatted file and changes nothing")
     code, out, _ = s.run("format", "--baker-json", "data/messy.dta")
     r = json.loads(out)
-    expect(code == 0 and r["schema"] == "baker.format/1" and r["files"][0]["changed"]
+    expect(code == 0 and r["schema"] == "baker.format/1.1" and r["files"][0]["changed"]
            and len(r["files"][0]["edits"]) >= 2 and messy.read_text() == text,
            "format --baker-json gives the edits and changes nothing")
     code, _, _ = s.run("format", "data/messy.dta")
@@ -185,6 +186,61 @@ def format_files(s):
     messy.unlink()
     code, out, _ = s.run("format", "--baker-check")
     expect(code in (0, 1), "with no files, format takes the stack's own files")
+
+
+def renames(s):
+    """A field under a name its shape renamed: check warns, format rewrites it (D286)."""
+    shape = "#shape (player (lives int (@renamed_from hp)))\n"
+    code, out, err = s.run("check", agent=shape + "(player (hp 5))\n")
+    r = json.loads(out)
+    expect(code == 1 and any("'hp' was renamed 'lives', and the record has both" in e["message"]
+                             for e in r["shape_errors"]),
+           f"the base's new name and an overlay's old one: an error naming both: {err}")
+    default = s.dir / "data" / "default.dta"
+    text = default.read_text()
+    default.write_text(text.replace("(lives 3)", "(hp 3)"))
+    code, out, err = s.run("check", agent=shape)
+    r = json.loads(out)
+    expect(code == 0 and any("'hp' is now 'lives' (format rewrites it)" in w["message"]
+                             for w in r["shape_warnings"]), f"the old name alone is a warning: {err}")
+    code, out, _ = s.run("format", "--baker-json", "data/default.dta", agent=shape)
+    r = json.loads(out)
+    expect(code == 0 and r["files"][0]["rewrites"] == 1 and "(hp 3)" in default.read_text(),
+           "format --baker-json counts the rewrite and changes nothing")
+    code, out, _ = s.run("format", "--baker-check", "data/default.dta", agent=shape)
+    expect(code == 1 and "default.dta" in out, "--baker-check lists a file a rename would change")
+    code, out, err = s.run("format", "data/default.dta", agent=shape)
+    expect(code == 0 and "(lives 3)" in default.read_text() and "(hp 3)" not in default.read_text()
+           and "; how fast" in default.read_text(), f"format rewrites the old name, keeping the rest: {err}")
+    code, out, _ = s.run("check", agent=shape)
+    r = json.loads(out)
+    expect(code == 0 and not r["shape_warnings"], "after which check is quiet")
+    default.write_text(text)
+
+
+def mint_ids(s):
+    """format --baker-mint-ids TABLE: an ID for each record without one, in its declaring layer."""
+    default = s.dir / "data" / "default.dta"
+    text = default.read_text()
+    default.write_text(text + "(foes (grunt (hp 1)) (brute (@id a0000000000000000000000000000001) (hp 2))"
+                       " (copy (@id a0000000000000000000000000000001) (hp 2)) (@desc \"the foes\"))\n")
+    code, out, err = s.run("format", "--baker-mint-ids", "foes", "--baker-json", agent="(foes (grunt (hp 9)))\n")
+    r = json.loads(out)
+    by_file = {f["file"].rsplit("/", 1)[-1]: f for f in r["files"]}
+    expect(code == 0 and by_file["default.dta"]["rewrites"] == 2 and by_file["agent.dta"]["rewrites"] == 0,
+           f"two records need an ID: the one without, and the copy; the overlay none: {err} {out}")
+    code, out, err = s.run("format", "--baker-mint-ids", "foes", agent="(foes (grunt (hp 9)))\n")
+    after = default.read_text()
+    ids = re.findall(r"\(@id ([0-9a-f]{32})\)", after)
+    expect(code == 0 and len(ids) == 3 and len(set(ids)) == 3 and ids[1] == "a0000000000000000000000000000001"
+           and all(i[0] in "abcdef" for i in ids), f"each record has its own ID, the brute keeps its: {after}")
+    expect("(grunt (@id " in after and "(@desc \"the foes\")" in after, "written after the key; metadata is no record")
+    expect("(@id" not in (s.dir / "data" / "agent.dta").read_text(), "the overlay's record is not the declaring one")
+    code, out, err = s.run("format", "--baker-mint-ids", "foes", agent="")
+    expect(code == 0 and default.read_text() == after, "minted once, a second run changes nothing")
+    code, _, err = s.run("format", "--baker-mint-ids", "nosuch", agent="")
+    expect(code == 2 and "no layer of the stack has a table 'nosuch'" in err, "a table no layer has")
+    default.write_text(text)
 
 
 def shipping(s):
@@ -285,7 +341,7 @@ def main():
         print(__doc__)
         return 2
     writes = shipping if sys.argv[3:] == ["shipping"] else diff_and_promote
-    for case in (check, views, aliases, reference, eval_json, writes, host_io, scenarios, command_line,
+    for case in (check, views, aliases, renames, mint_ids, reference, eval_json, writes, host_io, scenarios, command_line,
                  format_files):
         case(Stack(sys.argv[1], sys.argv[2]))
     print(f"{len(FAILURES)} failures" if FAILURES else "all passed")

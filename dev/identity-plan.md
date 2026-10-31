@@ -140,7 +140,8 @@ result in its D-entry (D284 onward).
 4. **`rename`.** The command, its dry run and `--baker-write`, the refusals, `(@aka)` insertion,
    a renamed record minted an ID. Tests through the host test game on a stack copy.
 5. **Assets.** `(asset KIND)`, the project's `(assets ...)`, `shape::check`'s extension and
-   existence checks, the `assets` command, `docs/assets-json.md`, `baker.shapes/1.7`.
+   existence checks, the `assets` command, `docs/assets-json.md`, `baker.shapes/1.8` (1.7
+   went to step 3's `renamed_from`).
 6. **The example, the docs and the record.** `examples/content-tables` grows a rename and an
    asset field; `docs/language.md` (identity, aliases, assets), `docs/cookbook.md`,
    `docs/tools.md`; the no-cost rows (`layers`, `cache`, `parse` counts) and the gaps rows;

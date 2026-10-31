@@ -1,6 +1,6 @@
 #pragma once
 
-// A record's identity (dev/schema-layer-spec.md W3, D270, D284): 128 random bits written
+// A record's identity (D270, D284, the schema layer's W3): 128 random bits written
 // inside the record as metadata, so it travels with the data and survives a rename of the
 // record's key:
 //

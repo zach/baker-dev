@@ -10029,3 +10029,43 @@ not a load failure; `@renamed_from` is never applied at load; `rename` writes fi
   no layer's own tree holds it as a key (a layer retuning by the old key counts as a use).
 - **Costs.** None on a merge without aliases; with them, a scan of the lower array's
   children's metadata per missed key. Step 6 measures the push rows.
+
+## D286. Identity, step 3: `(@renamed_from old)` and `format --baker-mint-ids`
+
+*`dev/identity-plan.md` step 3.*
+
+- **The shape remembers a field's old names.** `(hp int (@renamed_from health))` on a
+  field; declared again, a field keeps the old names it had and adds the new list's. An
+  old name that is a field's name now is a declaration error, as is the field's own name.
+  `Shape::renamed(old)` finds the field; `baker.shapes/1.7` adds `renamed_from` to each
+  field (step 5's bump becomes 1.8).
+- **A record spelling the old name is checked as the field.** The checker's unknown-tag
+  branch tries the shape's renames before warning: the value is checked against the field,
+  the field counts as present, and the spelling is a warning naming both names, or an error
+  when the record has the new name too (then the old value reaches no reader). On the
+  merged tree, "both" also arises from a base renamed and an overlay not yet formatted,
+  which is the case worth an error: the overlay's value is lost until `format` runs. Each
+  spelling is listed in `Report::renames` with its file and line.
+- **The generated reader takes either spelling**: an old name is a second `case` label of
+  the field's, so the switch is one more label and one more compare on that field only. The
+  digest does not move (a layout is what it was), so a rename is not drift.
+- **`format` rewrites in the text.** The kit checks each enabled layer's own tree against
+  the stack's shapes (not the merged tree, so an overlay's spelling is found beside the
+  base's), takes the renames, and resolves each to the bracket of that file and line whose
+  tag spells the old name, through `read_structure`: a token edit, then the layout. A row's
+  path, `(/player.hp 5)`, is not a tag the structure spells, so it stays as written, and
+  `check` keeps warning. Named files without a loadable stack are laid out and nothing
+  more. `baker.format/1.1` adds `rewrites` to each file, and `--baker-check` lists a file
+  a rename would change.
+- **`--baker-mint-ids TABLE`.** Each record of the table (a path from the root; its direct
+  array children, metadata aside) gets an `(@id ...)` after its key when it has none, or a
+  fresh one when another record of the table already carries its ID (a copy), in the
+  lowest enabled layer that holds the record, where it is declared; an overlay's record is
+  never minted. The ID comes from `std::random_device` in `baker::host`, 128 bits with
+  the top nibble forced to `a`–`f`; the library mints none (plan §2.7).
+- **Tests.** The shape tests: the declaration forms and their errors, the three spellings
+  (warned, errored, range-checked under the old name), the renames list, the JSON. The
+  golden readers carry a renamed field, and the data tests read `(hurt 7)` as `damage`;
+  the views project's golem is spelled by its old name. The kit's tests rename across the
+  base and an overlay, count rewrites under `--baker-json`, and mint over a record without
+  an ID, a copy, and an overlay. Full matrix green (recorded below).

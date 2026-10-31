@@ -340,7 +340,7 @@ TEST_CASE("a symbol field lists the symbols it allows, (one_of ...) (D203)") {
     CHECK_FALSE(check_text("#shape (s (n symbol (@one_of a 2)))").ok());
 }
 
-// --- As JSON, baker.shapes/1.6 (dev/tool-surface-plan.md §6, D203, D235, D245). ---
+// --- As JSON, baker.shapes/1.7 (dev/tool-surface-plan.md §6, D203, D235, D245, D286). ---
 
 TEST_CASE("the shapes as JSON: each shape and its fields") {
     shape::Set shapes;
@@ -353,7 +353,7 @@ TEST_CASE("the shapes as JSON: each shape and its fields") {
     REQUIRE(report.errors.empty());
     std::string json;
     shape::write_json(shapes, string_out(json));
-    CHECK(json.rfind("{\n  \"schema\": \"baker.shapes/1.6\",\n  \"shapes\": [\n", 0) == 0);
+    CHECK(json.rfind("{\n  \"schema\": \"baker.shapes/1.7\",\n  \"shapes\": [\n", 0) == 0);
     CHECK(json.find(
               R"j({"name": "boss_phase", "at": ["bosses", "*", "phases"], "keyed": true, )j"
               R"j("view": false, "cxx_name": "", "file": "shapes.dta", "line": 1, "fields": [)j") !=
@@ -363,6 +363,7 @@ TEST_CASE("the shapes as JSON: each shape and its fields") {
             R"j({"name": "enter_at", "type": "float", "element": "", "count": null, "shape": "", "table": "", )j"
             R"j("optional": false, "range": [0.0, 1.0], "step": 0.05, "kind": "", )j"
             R"j("desc": "HP fraction", "note": "", "one_of": [], "view": true, "cxx": "", "cxx_name": "", )j"
+            R"j("renamed_from": [], )j"
             R"j("file": "shapes.dta", "line": 2})j") != std::string::npos);
     CHECK(json.find(R"j({"name": "adds", "type": "list", "element": "symbol", "count": null, )j"
                     R"j("shape": "", "table": "", "optional": true, "range": null,)j") !=
@@ -699,6 +700,81 @@ TEST_CASE("a shape that governs nothing is named, where it is declared (D260)") 
           std::string::npos);
 }
 
+// --- Renamed fields: (@renamed_from old) (D286). ---
+
+TEST_CASE("a field spelled by a name its shape renamed is checked as the field, and listed") {
+    shape::Set set;
+    shape::Report report;
+    add_text(set,
+             "#shape (boss (@at bosses) (@keyed) (hp int (@range 1 100) (@renamed_from health "
+             "hit_points))\n"
+             "   (name string (@optional)))\n",
+             "shapes.dta", report);
+    REQUIRE(report.errors.empty());
+    const shape::Shape* boss = set.find(Symbol("boss"));
+    REQUIRE(boss);
+    REQUIRE(boss->fields[0].renamed_from.size() == 2);
+    CHECK(boss->renamed(Symbol("health")) == &boss->fields[0]);
+    CHECK(boss->renamed(Symbol("hit_points")) == &boss->fields[0]);
+    CHECK(boss->renamed(Symbol("hp")) == nullptr);
+
+    auto tree =
+        ok(read_string("(bosses (golem (health 40)) (dragon (hp 50)) (wisp (health 2) (hp 3))"
+                       " (ghost (hit_points 400)))",
+                       "data.dta"));
+    shape::Report r;
+    shape::check(*tree, set, r);
+    // The golem's health is the field, warned; the wisp has both, an error; the ghost's
+    // value is checked as hp, so its range holds.
+    const auto w = texts(r.warnings);
+    const auto e = texts(r.errors);
+    REQUIRE(w.size() == 2);
+    CHECK(w[0].find("'health' is now 'hp' (format rewrites it)") != std::string::npos);
+    CHECK(w[1].find("'hit_points' is now 'hp'") != std::string::npos);
+    REQUIRE(e.size() == 2);
+    CHECK(e[0].find("'health' was renamed 'hp', and the record has both") != std::string::npos);
+    const bool ranged = e[1].find("400") != std::string::npos;
+    CHECK(ranged);  // the ghost's 400 is checked as hp, so its range holds
+    // Each spelling, for format to rewrite, where the record spells it.
+    REQUIRE(r.renames.size() == 3);
+    CHECK(r.renames[0].old == Symbol("health"));
+    CHECK(r.renames[0].name == Symbol("hp"));
+    CHECK(r.renames[0].file == Symbol("data.dta"));
+    CHECK(r.renames[0].line == 1);
+    CHECK(r.renames[2].old == Symbol("hit_points"));
+    // No "has no hp": the old spelling counts as the field.
+    CHECK(std::none_of(e.begin(), e.end(),
+                       [](const std::string& x) { return x.find("has no") != std::string::npos; }));
+
+    // The declaration's own errors.
+    const auto errors = [](std::string_view text) {
+        shape::Set s;
+        shape::Report rep;
+        add_text(s, text, rep);
+        return texts(rep.errors);
+    };
+    const auto has = [](const std::vector<std::string>& v, std::string_view part) {
+        return std::any_of(v.begin(), v.end(),
+                           [&](const std::string& x) { return x.find(part) != std::string::npos; });
+    };
+    CHECK(has(errors("#shape (s (x int (@renamed_from)))"), "names the field's earlier names"));
+    CHECK(has(errors("#shape (s (x int (@renamed_from \"y\")))"), "holds field names, as symbols"));
+    CHECK(has(errors("#shape (s (x int (@renamed_from x)))"), "its own name"));
+    CHECK(has(errors("#shape (s (x int (@renamed_from y)) (y int))"),
+              "'x' is (@renamed_from y), and 'y' is a field of the shape"));
+    // Declared again, a field keeps its old names and adds the new list's.
+    shape::Set again;
+    shape::Report rep;
+    add_text(again, "#shape (s (x int (@renamed_from a)))\n#shape (s (x int (@renamed_from b)))\n",
+             rep);
+    REQUIRE(rep.errors.empty());
+    CHECK(again.find(Symbol("s"))->fields[0].renamed_from.size() == 2);
+    // In the JSON.
+    std::string json;
+    shape::write_json(again, string_out(json));
+    CHECK(json.find(R"j("renamed_from": ["a", "b"])j") != std::string::npos);
+}
+
 // --- Views: (@view), (@view no), (@cxx T), (@cxx_name N) (D277). ---
 
 TEST_CASE(
@@ -735,9 +811,12 @@ TEST_CASE(
     shape::write_json(set, string_out(json));
     CHECK(json.find(R"j("keyed": true, "view": true, "cxx_name": "MoveView", "file")j") !=
           std::string::npos);
-    CHECK(json.find(R"j("view": false, "cxx": "", "cxx_name": "", "file": "t.dta", "line": 4})j") !=
-          std::string::npos);
-    CHECK(json.find(R"j("view": true, "cxx": "uint16", "cxx_name": "", "file")j") !=
+    CHECK(
+        json.find(
+            R"j("view": false, "cxx": "", "cxx_name": "", "renamed_from": [], "file": "t.dta", "line": 4})j") !=
+        std::string::npos);
+    CHECK(json.find(
+              R"j("view": true, "cxx": "uint16", "cxx_name": "", "renamed_from": [], "file")j") !=
           std::string::npos);
 }
 
@@ -919,7 +998,7 @@ const char* const kViewShapes =
     "#shape (vec2 (@view) (x float) (y float))\n"
     "#shape (move (@at fighters * moves) (@keyed) (@view)\n"
     "   (startup     int (@range 1 60) (@cxx uint16))\n"
-    "   (damage      float)\n"
+    "   (damage      float (@renamed_from hurt))\n"
     "   (name        string (@optional))\n"
     "   (button      symbol (@optional))\n"
     "   (armored     bool (@optional))\n"

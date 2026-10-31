@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <optional>
+#include <random>
 #include <tuple>
 
 #if BAKER_HOST_SHAPE
@@ -662,6 +663,167 @@ int run_scenarios(const CommandLine& line, const CommandHooks& hooks) {
 
 // Which objectives moved between two `sim --baker-results` directories, without running anything.
 // Lays out files as Baker writes them (tools::format_text), with the project's layout.
+// --- format's rewrites (D286): fields under a name their shape renamed, and record IDs. ---
+
+// A rewrite format wants, located as the tree locates the array (its file and line): resolved
+// to a byte edit once the file's text is read, at the bracket on that line whose tag spells
+// `tag`, in order.
+struct Want {
+    enum class Kind : uint8_t { Rename, InsertId, ReplaceId };
+    Kind kind;
+    Symbol file;
+    int32_t line;
+    Symbol tag;  // the field's old name, or the record's key
+    Str text;    // the field's name now, or the ID
+    bool done = false;
+};
+
+struct Rewrite {
+    uint32_t begin, end;
+    Str text;
+};
+
+// Whether the token spells `name`: as a symbol, or quoted.
+bool spells(std::string_view text, const tools::TextToken& t, Symbol name) {
+    const std::string_view s = text.substr(t.begin, t.end - t.begin);
+    if (t.kind == tools::TextTokenKind::Symbol) return s == name.str();
+    if (t.kind == tools::TextTokenKind::QuotedSymbol && s.size() >= 2)
+        return s.substr(1, s.size() - 2) == name.str();
+    return false;
+}
+
+// Resolves the wants of `file` against its text. A row's path, (/a.b 1), is not a tag the
+// structure spells, so a field a row names stays as written (check still warns).
+void resolve(std::string_view text, const tools::TextStructure& s, Symbol file, Vec<Want>& wants,
+             Vec<Rewrite>& out) {
+    const auto n = static_cast<int32_t>(s.brackets.size());
+    for (int32_t b = 0; b < n; ++b) {
+        const tools::TextBracket& br = s.brackets[static_cast<size_t>(b)];
+        if (br.tag < 0) continue;
+        const tools::TextToken& tag = s.tokens[static_cast<size_t>(br.tag)];
+        for (Want& w : wants) {
+            if (w.done || w.file != file || w.line != tag.line || !spells(text, tag, w.tag))
+                continue;
+            w.done = true;
+            if (w.kind == Want::Kind::Rename) {
+                out.push_back({tag.begin, tag.end, w.text});
+            } else if (w.kind == Want::Kind::InsertId) {
+                out.push_back({tag.end, tag.end, " (@id " + w.text + ")"});
+            } else {  // the record's (@id ...), whose value is replaced; absent: inserted
+                bool found = false;
+                for (int32_t c = b + 1; c < n && s.brackets[static_cast<size_t>(c)].begin < br.end;
+                     ++c) {
+                    const tools::TextBracket& cb = s.brackets[static_cast<size_t>(c)];
+                    if (cb.parent != b || cb.tag < 0) continue;
+                    const tools::TextToken& id_tag = s.tokens[static_cast<size_t>(cb.tag)];
+                    if (!spells(text, id_tag, "@id")) continue;
+                    const auto next = static_cast<size_t>(cb.tag) + 1;
+                    if (next < s.tokens.size() &&
+                        s.tokens[next].kind != tools::TextTokenKind::Close &&
+                        s.tokens[next].begin < cb.end)
+                        out.push_back({s.tokens[next].begin, s.tokens[next].end, w.text});
+                    else
+                        out.push_back({id_tag.end, id_tag.end, " " + w.text});
+                    found = true;
+                    break;
+                }
+                if (!found) out.push_back({tag.end, tag.end, " (@id " + w.text + ")"});
+            }
+            break;
+        }
+    }
+}
+
+Str splice(std::string_view text, Vec<Rewrite>& edits) {
+    std::stable_sort(edits.begin(), edits.end(),
+                     [](const Rewrite& a, const Rewrite& b) { return a.begin < b.begin; });
+    Str out;
+    uint32_t from = 0;
+    for (const Rewrite& e : edits) {
+        if (e.begin < from) continue;  // two wants at one token: the first wins
+        out += text.substr(from, e.begin - from);
+        out += e.text;
+        from = e.end;
+    }
+    out += text.substr(from);
+    return out;
+}
+
+// Whether `file`, as the tree names it, is the file named `path` on the command line.
+bool same_file(Symbol file, const Str& path) {
+    if (file.str() == path.view()) return true;
+    std::error_code ec;
+    return fs::equivalent(fs::path(Str(file.str()).c_str()), fs::path(path.c_str()), ec) && !ec;
+}
+
+#if BAKER_HOST_SHAPE
+// Every field the stack spells by a name its shape renamed: each enabled layer's own tree is
+// checked, not the merged one, so an overlay's spelling is found beside the base's. A layer
+// alone lacks most fields; only its renames are read.
+void want_renames(const Config& cfg, Vec<Want>& wants) {
+    shape::Set set;
+    shape::Report declared;
+    add_shapes(cfg, set, declared);
+    for (const Symbol layer : cfg.layers()) {
+        if (!cfg.layer_enabled(layer.str())) continue;
+        const Ref<Array> root = cfg.layer_root(layer.str());
+        if (!root) continue;
+        shape::Report r;
+        shape::check(*root, set, r);
+        for (const shape::Renamed& m : r.renames)
+            wants.push_back({Want::Kind::Rename, m.file, m.line, m.old, Str(m.name.str())});
+    }
+}
+#endif
+
+// A fresh ID from the system's random source: the library mints none (D284).
+Str mint_id() {
+    std::random_device rd;
+    const auto word = [&rd] { return (static_cast<uint64_t>(rd()) << 32) | rd(); };
+    RecordId id{word(), word()};
+    id.hi = (id.hi & 0x0fffffffffffffffULL) | (static_cast<uint64_t>(0xA + id.lo % 6) << 60);
+    char hex[RecordId::kDigits];
+    id.write(hex);
+    return Str(std::string_view(hex, RecordId::kDigits));
+}
+
+// An ID for each record of `table` (a path from the root) that has none, in the lowest
+// enabled layer holding the record, where it is declared; a record repeating another's ID (a
+// copy) gets its own. False if no layer has the table.
+bool want_ids(const Config& cfg, std::string_view table, Vec<Want>& wants) {
+    Vec<Symbol> declared;
+    Vec<RecordId> used;
+    bool found = false;
+    for (const Symbol layer : cfg.layers()) {
+        if (!cfg.layer_enabled(layer.str())) continue;
+        const Ref<Array> root = cfg.layer_root(layer.str());
+        const Array* t = root.get();
+        for (size_t at = 0; t && at <= table.size();) {
+            const size_t dot = std::min(table.find('.', at), table.size());
+            t = t->try_find(Symbol(table.substr(at, dot - at)));
+            at = dot + 1;
+        }
+        if (!t) continue;
+        found = true;
+        for (uint32_t i = t->tag().empty() ? 0 : 1; i < t->size(); ++i) {
+            const Array* r = (*t)[i].try_array();
+            if (!r || r->tag().empty() || r->tag().is_meta()) continue;
+            if (std::find(declared.begin(), declared.end(), r->tag()) != declared.end()) continue;
+            declared.push_back(r->tag());
+            const RecordId id = r->record_id();
+            if (!id.empty() && id.valid() &&
+                std::find(used.begin(), used.end(), id) == used.end()) {
+                used.push_back(id);
+                continue;
+            }
+            const bool has = r->meta("@id") != nullptr;
+            wants.push_back({has ? Want::Kind::ReplaceId : Want::Kind::InsertId, r->file(),
+                             r->line(), r->tag(), mint_id()});
+        }
+    }
+    return found;
+}
+
 int format(const CommandLine& line, const CommandHooks& hooks) {
     // The project that governs them: the one named, else the first file's, else here's.
     const std::string_view from = !line.project.empty() ? line.project
@@ -679,9 +841,16 @@ int format(const CommandLine& line, const CommandHooks& hooks) {
     }
     Vec<Str> files;
     for (const std::string_view f : line.rest) files.emplace_back(f);
+    // The stack, for its own files, for the shapes' renames and for the IDs. Named files
+    // without a stack are laid out and nothing more.
+    Loaded l(hooks);
+    bool loaded = false;
+    if (files.empty() || !project.empty() || hooks.built || !line.mint.empty()) {
+        loaded = load(l, line);
+        if (!loaded && (files.empty() || !line.mint.empty())) return kCommandError;
+        if (!loaded) err("format: the stack did not load, so no field is renamed\n");
+    }
     if (files.empty()) {  // the stack's own files, under the project's directory
-        Loaded l(hooks);
-        if (!load(l, line)) return kCommandError;
         const std::string_view dir = detail::parent_path(l.live.project_file().str());
         for (const StackFile& f : l.live.config().stack_files())
             if (f.present && (dir.empty() || f.path.str().starts_with(dir)) &&
@@ -689,22 +858,54 @@ int format(const CommandLine& line, const CommandHooks& hooks) {
                              [&](const Str& s) { return s.view() == f.path.str(); }))
                 files.emplace_back(f.path.str());
     }
+    Vec<Want> wants;
+    if (loaded) {
+#if BAKER_HOST_SHAPE
+        want_renames(l.live.config(), wants);
+#endif
+        if (!line.mint.empty() && !want_ids(l.live.config(), line.mint, wants)) {
+            err("format: no layer of the stack has a table '" + Str(line.mint) + "'\n");
+            return kCommandError;
+        }
+    }
     int status = 0;
-    Str json = R"({"schema": "baker.format/1", "files": [)";
+    Str json = R"({"schema": "baker.format/1.1", "files": [)";
     for (size_t i = 0; i < files.size(); ++i) {
         Str text, laid;
         if (!read_whole(files[i], text, hooks.reader)) {
             err("format: cannot read '" + files[i] + "'\n");
             return kCommandError;
         }
+        // The rewrites wanted in this file, by the names the tree gave it, then the layout.
+        Vec<Rewrite> rewrites;
+        if (!wants.empty()) {
+            Vec<std::pair<Symbol, bool>> matched;  // each name the wants give this file
+            std::optional<tools::TextStructure> s;
+            for (const Want& w : wants) {
+                if (w.done) continue;
+                auto m = std::find_if(matched.begin(), matched.end(),
+                                      [&](const auto& x) { return x.first == w.file; });
+                if (m == matched.end()) {
+                    matched.emplace_back(w.file, same_file(w.file, files[i]));
+                    m = matched.end() - 1;
+                }
+                if (!m->second) continue;
+                if (!s) s = tools::read_structure(text.view(), w.file);
+                resolve(text.view(), *s, w.file, wants, rewrites);
+            }
+        }
+        if (!rewrites.empty()) text = splice(text.view(), rewrites);
         const tools::Formatted r =
             tools::format_text(text.view(), detail::str_out(laid), {.layout = layout});
         for (const Error& e : r.errors) err("format: " + Str(describe(e)) + "\n");
         if (!r.errors.empty()) status = kCommandFailed;
+        const bool changed = r.changed() || !rewrites.empty();
         if (line.json) {
             json += i ? ",\n  {\"file\": " : "\n  {\"file\": ";
             detail::json_string(json, files[i].view());
-            json += Str(", \"changed\": ") + (r.changed() ? "true" : "false") + ", \"line_end\": ";
+            json += Str(", \"changed\": ") + (changed ? "true" : "false") +
+                    ", \"rewrites\": " + detail::decimal(static_cast<int64_t>(rewrites.size())) +
+                    ", \"line_end\": ";
             detail::json_string(json, r.line_end);
             json += ", \"edits\": [";
             for (size_t k = 0; k < r.edits.size(); ++k) {
@@ -715,7 +916,7 @@ int format(const CommandLine& line, const CommandHooks& hooks) {
             }
             json += "], \"errors\": " + Str(r.errors.empty() ? "0" : "1") + "}";
         }
-        if (!r.changed()) continue;
+        if (!changed) continue;
         if (line.check || line.json) {
             if (line.check) {
                 if (!line.json) out(files[i] + "\n");
@@ -727,6 +928,11 @@ int format(const CommandLine& line, const CommandHooks& hooks) {
         }
     }
     if (line.json) out(json + (files.empty() ? "]}\n" : "\n]}\n"));
+    const auto left =
+        std::count_if(wants.begin(), wants.end(), [](const Want& w) { return !w.done; });
+    if (left != 0)
+        err("format: " + detail::decimal(static_cast<int64_t>(left)) +
+            " rewrites are in files not named here, or at a row's path\n");
     return status;
 }
 
@@ -946,7 +1152,8 @@ std::string_view* text_option(CommandLine& line, std::string_view a) {
     const std::pair<std::string_view, std::string_view*> options[] = {
         {"project", &line.project}, {"layer", &line.layer},   {"from", &line.layer},
         {"to", &line.to},           {"patch", &line.patch},   {"output", &line.output},
-        {"results", &line.results}, {"before", &line.before}, {"after", &line.after}};
+        {"results", &line.results}, {"before", &line.before}, {"after", &line.after},
+        {"mint-ids", &line.mint}};
     for (const auto& [name, into] : options)
         if (a == name) return into;
     return nullptr;
@@ -1079,10 +1286,12 @@ std::string_view command_help() noexcept {
            "                                 compare reads\n"
            "  compare --baker-before DIR --baker-after DIR\n"
            "                                 which objectives moved: baker.compare/1\n"
-           "  format [--baker-check] [--baker-json] [FILE...]\n"
+           "  format [--baker-check] [--baker-json] [--baker-mint-ids TABLE] [FILE...]\n"
            "                                 lays out the files (no FILE: the stack's own) as\n"
-           "                                 Baker writes them; --baker-check: exit 1, listing\n"
-           "                                 each that would change\n"
+           "                                 Baker writes them, spelling each field by its\n"
+           "                                 shape's name; --baker-mint-ids: an (@id ...) for\n"
+           "                                 each record of TABLE without one; --baker-check:\n"
+           "                                 exit 1, listing each file that would change\n"
            "every command also takes --baker-output FILE: its output there, not on stdout\n";
 }
 

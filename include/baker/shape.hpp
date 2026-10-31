@@ -84,6 +84,9 @@ struct Field {
     bool view = true;
     baker::Symbol cxx;
     baker::Symbol cxx_name;
+    // (@renamed_from old ...): the names the field had (D286). check() warns at a record
+    // that spells one, the generated reader accepts it, and the kit's `format` rewrites it.
+    List<baker::Symbol> renamed_from;
     baker::Symbol file;
     int32_t line = 0;
 };
@@ -111,6 +114,17 @@ struct Shape {
     int32_t line = 0;
 
     [[nodiscard]] const Field* field(baker::Symbol field_name) const noexcept;
+    // The field `old` was renamed to, by its (@renamed_from ...); null for none (D286).
+    [[nodiscard]] const Field* renamed(baker::Symbol old) const noexcept;
+};
+
+// A field check() found under a name its shape renamed (D286): what the kit's `format`
+// rewrites, at the field's own array.
+struct Renamed {
+    baker::Symbol file;
+    int32_t line = 0;
+    baker::Symbol old;   // as the record spells it
+    baker::Symbol name;  // the field's name now
 };
 
 struct Report {
@@ -119,6 +133,9 @@ struct Report {
     // Keys that resolved through a record's (@aka ...) rather than its key (D285): what a
     // tool lists as still in use, against aliases nothing names.
     List<baker::Symbol> aliases_used;
+    // Fields spelled by a name their shape renamed (D286), in walk order; each is a warning
+    // too, or an error when the record has the new name as well.
+    List<Renamed> renames;
 
     [[nodiscard]] bool ok() const noexcept { return errors.empty(); }
 };
@@ -238,7 +255,7 @@ void each_ruled(
 // baker::script warns once that the shapes hold rules it cannot check.
 [[nodiscard]] Config::Validator validator();
 
-// The shapes of `shapes` as JSON (schema baker.shapes/1.6, docs/reference-json.md), sorted by
+// The shapes of `shapes` as JSON (schema baker.shapes/1.7, docs/reference-json.md), sorted by
 // name: each shape's place, keyed or not, and its fields with their types, ranges, steps,
 // kinds, documentation, and where they are declared, and its rules. For editors and agents.
 void write_json(const Set& shapes, TextSink out);
