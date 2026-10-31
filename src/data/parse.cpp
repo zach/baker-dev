@@ -615,7 +615,7 @@ private:
     BAKER_COLD bool fold(Vec<Node>& nodes, Vec<SourceSpan>* spans, size_t from, Str& path,
                          size_t depth) {
         if (fold_.empty()) fold_.reserve(s_.limits.max_depth + 2);  // a level never moves
-        if (fold_.size() <= depth) fold_.resize(depth + 1);
+        while (fold_.size() <= depth) fold_.emplace_back(alloc_);
         FoldLevel& l = fold_[depth];
         l.order.clear();
         // A key's #append and #drop rows stay apart, in the order written: the merge applies
@@ -1119,6 +1119,8 @@ private:
 
     // Where an included path may be: beside this file, then in each include directory.
     [[nodiscard]] Vec<Str> candidates_of(const Str& path) const {
+        // A path the session records is copied there, with its allocator: the default's,
+        // which outlives the session, not this parser's (D268).
         Vec<Str> candidates;
         if (is_absolute_path(path)) {
             candidates.push_back(normalize_path(path));
@@ -1167,7 +1169,7 @@ private:
     bool load(const Str& path, bool optional, int32_t line, uint32_t at, Ref<Array>& out,
               bool require = false) {
         if (!may_include(path, line, at)) return false;
-        Str text;
+        Str text(alloc_);
         const Str* found = nullptr;
         Vec<Str>& required = s_.st_->required;
         const Vec<Str> candidates = candidates_of(path);
@@ -1240,7 +1242,7 @@ private:
                             line, at);
         Vec<uint32_t> order;
         for (uint32_t i = 0; i < children.size(); ++i) order.push_back(i);
-        Str text;
+        Str text(alloc_);
         const Str order_file = normalize_path(join_path(dir, "order.dta"));
         if (read_recorded(order_file, text)) {
             Vec<std::string_view> names;
@@ -1305,16 +1307,19 @@ private:
     int32_t line_ = 1;
     SourceMap* map_;
     uint32_t size_;
-    Vec<Node> scratch_;
-    Vec<SourceSpan> spans_;  // parallel to scratch_ in edit mode
-    Vec<FrameInfo> frames_;
-    Vec<Cond> conds_;
-    int32_t pack_ = -1;      // the pack this file declared, as an index; -1 for none
-    int32_t pack_line_ = 0;  // where it declared it
-    bool origin_ = false;    // this file declared its origin
-    Vec<Symbol> warned_;     // macros this file has been warned about
-    size_t defs_from_ = 0;   // the session's definitions before this file
-    Vec<std::pair<Symbol, int32_t>> unpacked_;  // macros used before a #pack, and where
+    // The session's allocator, tagged Config, for the parser's own buffers: before the
+    // containers that take it (D268).
+    const Allocator alloc_{with_kind(*s_.st_->alloc, MemoryKind::Config)};
+    Vec<Node> scratch_{alloc_};
+    Vec<SourceSpan> spans_{alloc_};  // parallel to scratch_ in edit mode
+    Vec<FrameInfo> frames_{alloc_};
+    Vec<Cond> conds_{alloc_};
+    int32_t pack_ = -1;           // the pack this file declared, as an index; -1 for none
+    int32_t pack_line_ = 0;       // where it declared it
+    bool origin_ = false;         // this file declared its origin
+    Vec<Symbol> warned_{alloc_};  // macros this file has been warned about
+    size_t defs_from_ = 0;        // the session's definitions before this file
+    Vec<std::pair<Symbol, int32_t>> unpacked_{alloc_};  // macros used before a #pack, and where
     InternSite outer_site_;  // the intern site of the read that included this file
     struct RowSegment {
         Symbol name;
@@ -1327,6 +1332,7 @@ private:
     // A depth's buffers for the fold: the nodes by tag, each array's next with its tag, and
     // a joined array's children with their spans.
     struct FoldLevel {
+        explicit FoldLevel(const Allocator& a) : order(a), next(a), kids(a), spans(a) {}
         Vec<uint32_t> order, next;
         Vec<Node> kids;
         Vec<SourceSpan> spans;
@@ -1334,8 +1340,8 @@ private:
     static constexpr uint32_t kLater = 0x80000000u, kNoNext = 0x7FFFFFFFu;
     RowSegment row_[Path::kMaxSegments];  // the open row's key: rows do not nest
     size_t row_size_ = 0;
-    Vec<RowAt> rows_;  // the rows read, for the fold and its errors
-    Vec<FoldLevel> fold_;
+    Vec<RowAt> rows_{alloc_};  // the rows read, for the fold and its errors
+    Vec<FoldLevel> fold_{alloc_};
 };
 
 }  // namespace detail
@@ -1351,6 +1357,7 @@ void LoadSession::copy_options(const LoadSession& o) noexcept {
     cipher = o.cipher;
     text_only = o.text_only;
     refuse_includes = o.refuse_includes;
+    drop_metadata = o.drop_metadata;
     allocator = o.allocator;
 }
 LoadSession::LoadSession(const LoadSession& o)
@@ -1795,8 +1802,11 @@ Expected<Ref<Array>> read_string(std::string_view text, std::string_view name) {
 }
 
 Expected<Ref<Array>> read_file(std::string_view path, LoadSession& session) {
+    // The file's text is the session's, tagged (D268). Not its path: the session keeps a copy
+    // of that, and a copy keeps its allocator, which must outlive it.
+    const Allocator alloc = with_kind(*session.st_->alloc, MemoryKind::Config);
     const Str file = detail::normalize_path(path);
-    Str text;
+    Str text(alloc);
     if (!detail::read_with(session.st_->reader, file, text))
         return Unexpected(make_error(ErrorCode::Io, "cannot read '" + file + "'"));
     auto root = read_string(text, file, session);

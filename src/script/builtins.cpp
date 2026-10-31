@@ -267,10 +267,21 @@ constexpr auto ordered = [](const Number& a, const Number& b, Numbers more) {
     return chain(a.value, b.value, more.rest, cmp);
 };
 
+// A built-in's doc text: under BAKER_SHIPPING nothing, so the literal is dropped where it is
+// written, as the reference it is for is a tool's (D268).
+struct Doc {
+    constexpr Doc() = default;
+    constexpr Doc(
+        [[maybe_unused]] const char* text) noexcept {  // NOLINT(google-explicit-constructor)
+        if constexpr (!kShipping) view = text;
+    }
+    std::string_view view;
+};
+
 template <class F>
-void add(Context& ctx, Symbol name, F&& f, std::string_view doc = {}) {
+void add(Context& ctx, Symbol name, F&& f, Doc doc = {}) {
     auto r = ctx.func(name, std::forward<F>(f));
-    if (r && !doc.empty()) r->doc(doc);
+    if (r && !doc.view.empty()) r->doc(doc.view);
 }
 
 }  // namespace

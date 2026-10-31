@@ -602,8 +602,9 @@ How a game delivers content after it ships (dev/background/content-updates.md):
   read. `ParseLimits::max_new_symbols` (on the session's `limits`) caps the names a read
   may add that the program had not seen: past it the read fails with `ErrorCode::Limit`.
   The default, 1,048,576, suits the game's own data; set it far lower for text you do not
-  trust. A name already interned costs nothing, so reading the same overlay again counts
-  none (D253).
+  trust: at the default, one read can keep about 74 MB of names for the rest of the
+  session (about 74 bytes a name). A name already interned costs nothing, so reading the
+  same overlay again counts none (D253, D268).
 
 ## Linking a shipped game
 
@@ -628,14 +629,16 @@ pays only for what it links:
   ```
 
 A minimal game (load, read, a tweak, a function, an object, `eval`) built with
-`BAKER_SHIPPING` links 580 KB of Baker code, 41.5 KB of it tooling; with sections, 407
-KB, 4.8 KB of it tooling (the source maps that loading reaches).
+`BAKER_SHIPPING` links about 910 KB of Baker code with GCC 13 at -O2, and about 595 KB
+with sections (D268).
 
 A tweak's tool text stays out too. Under `BAKER_SHIPPING` a `Tweak` keeps only the
 metadata that decides its value (`range`, `one_of`, `choices`, `dev_only`): its `desc`,
 `kind`, `group` and `step` are not copied, so an optimized build drops their literals with
 the copy, and a `Tweak<float>` is 128 bytes, not 184. Metadata in the data still applies
-(D256).
+(D256). So does doc text: under `BAKER_SHIPPING`, `.doc(...)` on a function or a method,
+a property's and a global's doc, and the built-ins' docs are dropped where they are
+written, and a cache baked with `--drop-metadata` keeps no shape's notes (D268).
 
 Baker's memory comes from the allocators you give it: one to each `Config` and `Context`,
 and the default (`set_default_allocator`, before Baker first allocates) for what has no

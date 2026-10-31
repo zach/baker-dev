@@ -1249,7 +1249,10 @@ TEST_CASE("cache_drop_metadata: the caches a bake writes hold no metadata (D265)
     if constexpr (kShipping) return;  // shipping writes no caches
     TempDir dir;
     fs::create_directories(dir.path("cache"));
-    const std::string base = dir.write("base.dta", "(speed 3 (@range 0 10) (@desc \"Run\"))\n");
+    const std::string base =
+        dir.write("base.dta",
+                  "(speed 3 (@range 0 10) (@desc \"Run\"))\n"
+                  "#shape (enemy (hp int (@range 1 100) (@desc \"SHAPE_NOTE\")) (@note \"N\"))\n");
     const std::string cache_dir = dir.path("cache");
     Config bake({.edit_mode = false,
                  .tweaks = nullptr,
@@ -1262,4 +1265,13 @@ TEST_CASE("cache_drop_metadata: the caches a bake writes hold no metadata (D265)
     REQUIRE(game.push_layer("base", base));
     CHECK(game.get<int>("speed") == 3);
     CHECK(game.root()->try_find("speed")->metadata().empty());
+    // The shapes it declares keep their ranges, and lose their notes (D268).
+    std::string cache_bytes;
+    for (const auto& e : fs::directory_iterator(cache_dir)) {
+        std::ifstream in(e.path(), std::ios::binary);
+        cache_bytes.assign(std::istreambuf_iterator<char>(in), {});
+    }
+    REQUIRE_FALSE(cache_bytes.empty());
+    CHECK(cache_bytes.find("SHAPE_NOTE") == std::string::npos);
+    CHECK(cache_bytes.find("@range") != std::string::npos);
 }

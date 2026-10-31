@@ -176,12 +176,16 @@ TEST_CASE("documentation and status appear in the reference") {
     })).status(Provisional);
     ctx.global("game_time", 0, "Ticks since the level started.");
     const std::string ref = reference(ctx);
-    CHECK(ref.find("### `old_jump`\n\n- `{old_jump float32}` → float32\n\n*Native, deprecated: use "
-                   "`jump`.* Jumps.\n") != std::string::npos);
+    // A shipping build keeps no doc text (D268): the status alone.
+    CHECK(ref.find(kShipping ? "### `old_jump`\n\n- `{old_jump float32}` → float32\n\n*Native, "
+                               "deprecated: use `jump`.*\n"
+                             : "### `old_jump`\n\n- `{old_jump float32}` → float32\n\n*Native, "
+                               "deprecated: use `jump`.* Jumps.\n") != std::string::npos);
     CHECK(ref.find("- `{jump float32 [unevaluated]}` → float32\n\n*Native, provisional.*\n") !=
           std::string::npos);
-    CHECK(ref.find("## Globals\n\n### `$game_time`\n\nTicks since the level started.\n") !=
-          std::string::npos);
+    if constexpr (!kShipping)
+        CHECK(ref.find("## Globals\n\n### `$game_time`\n\nTicks since the level started.\n") !=
+              std::string::npos);
 }
 
 namespace {

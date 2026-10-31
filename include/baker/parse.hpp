@@ -249,6 +249,10 @@ public:
     // reach no other file. With text_only, for text from outside the game, such as a layer
     // a live game receives (Config::push_layer_text).
     bool refuse_includes = false;
+    // A cache written with this session leaves out metadata: the tree's (without_metadata)
+    // and the notes of the shapes it declares, @desc and @note; a shape keeps what checking
+    // reads. For a build that ships no tools (baker_bake --drop-metadata, D265, D268).
+    bool drop_metadata = false;
     // Where the trees read through this session come from: each read is one arena from
     // it (dev/decisions.md D64), which must outlive the tree. Null: the default allocator.
     const Allocator* allocator = nullptr;
