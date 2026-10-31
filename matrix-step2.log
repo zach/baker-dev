@@ -1,0 +1,15 @@
+format: 0 files to format
+eastl: 0 errors/warnings; 100% tests passed, 0 tests failed out of 25
+asan: 0 errors/warnings; 100% tests passed, 0 tests failed out of 23
+debug: 0 errors/warnings; 100% tests passed, 0 tests failed out of 26
+clang: 0 errors/warnings; 100% tests passed, 0 tests failed out of 26
+ship: 0 errors/warnings; 100% tests passed, 0 tests failed out of 23
+release: 0 errors/warnings; 100% tests passed, 0 tests failed out of 26
+plain: 0 errors/warnings; 100% tests passed, 0 tests failed out of 26
+harness: 2 errors/warnings; 
+cxx23: 0 errors/warnings; 100% tests passed, 0 tests failed out of 26
+data: 0 errors/warnings; 100% tests passed, 0 tests failed out of 14
+tidy: 0 findings
+release: prepared Baker 0.7.0: 280 files in /tmp/tmpj1aobqju/public
+prepared Baker 0.7.0: 280 files in /tmp/tmp1ovyt78w/public
+exit 0

@@ -9757,3 +9757,28 @@ model of what step 4 generates.*
   layout edit one, and each refusal (a `#shape` under `#ifdef`, taken and skipped; an
   unknown listed shape; a `dev_only` contract layer; an unknown contract layer).
 - **Costs.** Build time only: one tool run when a contract file changes.
+
+## D278. Views, step 6: drift, reported by `check` and by the game
+
+*`dev/views-plan.md` step 6.*
+
+- **`shape::check_views(contract, compiled, report)`** compares the views a game compiled
+  (the generated `kViews`) with the contract set: a view whose digest differs from its
+  shape's is a warning located at the shape, one naming a shape the set lacks a warning,
+  and, for a nameless view (a shipping build keeps no names, D256), a digest no shape's
+  layout has. Each says to regenerate the views. **`shape::contract_roots(cfg, layers)`**
+  gives `contract_set` its roots from a running Config: a file layer's own file, or every
+  file the stack read under a directory layer.
+- **The host kit.** `CommandHooks::views` is the game's `kViews`; `check` re-reads the
+  project for its `(views (layers ...))`, builds the contract set and reports drift as shape
+  warnings, printed `view warning:`, or as shape errors under `check --baker-strict-views`
+  (`CommandLine::strict_views`), which a farm sets. A game that registers views against a
+  project naming no contract layers gets one warning saying so. No JSON field is added:
+  `baker.check/1.5`'s `shape_warnings` and `shape_errors` carry them, by their message.
+- **The game, in development,** calls `contract_roots`, `contract_set` and `check_views`
+  after its load and sends the warnings where it likes; `examples/content-tables` shows it
+  (step 7). Nothing of this runs unless the game asks: a Config pays nothing.
+- **Tests.** The host test game is built with `baker_generate_views` over its stack and
+  registers `host_game::kViews`; `test_commands.py` edits the stack copy's shape layout and
+  sees the warning, then the error under the strict flag. The shape tests cover each
+  message and `contract_roots` over a file layer and a directory layer.

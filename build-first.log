@@ -1,0 +1,35 @@
+[0/2] Re-checking globbed directories...
+[1/34] Building CXX object CMakeFiles/baker_data.dir/src/data/allocator.cpp.o
+[2/34] Building CXX object CMakeFiles/baker_data.dir/src/data/arena.cpp.o
+[3/34] Building CXX object CMakeFiles/baker_data.dir/src/data/array.cpp.o
+[4/34] Building CXX object CMakeFiles/baker_data.dir/src/data/clock.cpp.o
+[5/34] Building CXX object CMakeFiles/baker_data.dir/src/data/curve.cpp.o
+[6/34] Building CXX object CMakeFiles/baker_data.dir/src/data/cache.cpp.o
+[7/34] Building CXX object CMakeFiles/baker_data.dir/src/data/config_loop.cpp.o
+[8/34] Building CXX object CMakeFiles/baker_data.dir/src/data/error.cpp.o
+[9/34] Building CXX object CMakeFiles/baker_data.dir/src/data/config_check.cpp.o
+[10/34] Building CXX object CMakeFiles/baker_data.dir/src/data/project.cpp.o
+[11/34] Building CXX object CMakeFiles/baker_data.dir/src/data/lookup.cpp.o
+[12/34] Building CXX object CMakeFiles/baker_data.dir/src/data/config.cpp.o
+[13/34] Building CXX object CMakeFiles/baker_data.dir/src/data/node.cpp.o
+[14/34] Building CXX object CMakeFiles/baker_data.dir/src/data/merge.cpp.o
+[15/34] Building CXX object CMakeFiles/baker_data.dir/src/data/list_dir.cpp.o
+[16/34] Building CXX object CMakeFiles/baker_data.dir/src/data/config_write.cpp.o
+[17/34] Building CXX object CMakeFiles/baker_data.dir/src/data/symbol.cpp.o
+[18/34] Building CXX object CMakeFiles/baker_data.dir/src/data/version.cpp.o
+[19/34] Building CXX object CMakeFiles/baker_data.dir/src/data/source_map.cpp.o
+[20/34] Building CXX object CMakeFiles/baker_data.dir/src/data/repeats.cpp.o
+[21/34] Building CXX object CMakeFiles/baker_alloc_counter.dir/tests/support/alloc_counter.cpp.o
+[22/34] Building CXX object CMakeFiles/baker_data.dir/src/data/write.cpp.o
+[23/34] Building CXX object CMakeFiles/baker_data.dir/src/data/text.cpp.o
+[24/34] Building CXX object CMakeFiles/baker_data.dir/src/data/tweak.cpp.o
+[25/34] Building CXX object tests/CMakeFiles/baker_doctest_main.dir/doctest_main.cpp.o
+[26/34] Building CXX object CMakeFiles/baker_data.dir/src/data/parse.cpp.o
+[27/34] Building CXX object CMakeFiles/baker_shape.dir/src/shape/shape.cpp.o
+[28/34] Building CXX object tests/CMakeFiles/baker_doctest.dir/doctest_impl.cpp.o
+[29/34] Building CXX object tests/CMakeFiles/baker_shape_tests.dir/shape/test_shape.cpp.o
+[30/34] Linking CXX static library tests/libbaker_doctest.a
+[31/34] Linking CXX static library tests/libbaker_doctest_main.a
+[32/34] Linking CXX static library libbaker_data.a
+[33/34] Linking CXX static library libbaker_shape.a
+[34/34] Linking CXX executable tests/baker_shape_tests

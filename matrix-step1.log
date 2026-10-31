@@ -1,0 +1,17 @@
+format: 0 files to format
+eastl: 0 errors/warnings; 100% tests passed, 0 tests failed out of 25
+asan: 0 errors/warnings; 100% tests passed, 0 tests failed out of 23
+debug: 0 errors/warnings; 100% tests passed, 0 tests failed out of 26
+clang: 0 errors/warnings; 100% tests passed, 0 tests failed out of 26
+ship: 0 errors/warnings; 100% tests passed, 0 tests failed out of 23
+release: 0 errors/warnings; 100% tests passed, 0 tests failed out of 26
+plain: 0 errors/warnings; 100% tests passed, 0 tests failed out of 26
+harness: 2 errors/warnings; 
+cxx23: 0 errors/warnings; 100% tests passed, 0 tests failed out of 26
+data: 0 errors/warnings; 100% tests passed, 0 tests failed out of 14
+tidy: 0 findings
+release: include/baker/shape.hpp:26: names dev/spec.md: // (dev/schema-layer-spec.md W1): a field marked (@view no) stays out of the struct, an
+include/baker/shape.hpp:26: names the development documents in dev/: // (dev/schema-layer-spec.md W1): a field marked (@view no) stays out of the struct, an
+src/shape/shape.cpp:162: names a decision number: // The (@cxx T) a field's type allows, D273's closed list.
+tests/shape/test_shape.cpp:697: names the development documents in dev/: // --- Views: (@view), (@view no), (@cxx T), (@cxx_name N) (dev/views-plan.md step 1). ---
+publish.py: 4 lines name what the release leaves out; reword them in baker-dev
