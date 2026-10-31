@@ -262,9 +262,7 @@ Expected<void> Config::Impl::read(LayerState& layer, const LoadSession& before, 
     layer.tested.assign(tested.data() + from, tested.data() + tested.size());  // EASTL: pointers
     layer.tested_known =
         detail::SessionAccess::parses(*session) > detail::SessionAccess::parses(before);
-    layer.aliases =
-        detail::SessionAccess::aliases(*session) > detail::SessionAccess::aliases(before) ||
-        !layer.tested_known;
+    layer.aliases = detail::SessionAccess::aliases(*session) > 0;  // this read's, or replayed
     layer.after = session;
     return {};
 }

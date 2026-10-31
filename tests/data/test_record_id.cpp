@@ -9,6 +9,8 @@
 
 #include "alloc_counter.hpp"
 #include "ok.hpp"
+#include "session.hpp"
+#include "temp_dir.hpp"
 
 #include <string>
 #include <vector>
@@ -173,6 +175,56 @@ TEST_CASE("a stack without aliases resolves nothing by alias, and a shipped cach
     auto root = ok(read_string("(weapons (plasma (@aka laser) (damage 3)))", "w.dta", session));
     const Ref<Array> lean = without_metadata(*root);
     CHECK(lean->try_get("weapons.plasma")->meta(Symbol("@aka")) != nullptr);
+}
+
+TEST_CASE("a layer with fewer aliases than the one below still resolves by them") {
+    // The count is per read: a comparison with the previous read's would miss these.
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer_text("a", "(x (@aka x1) (v 1)) (y (@aka y1) (v 2))"));
+    REQUIRE(cfg.push_layer_text("b", "(z (@aka z1) (v 3))"));
+    REQUIRE(cfg.push_layer_text("over", "(z1 (v 30)) (x1 (v 10))"));
+    CHECK(ok(cfg.get<int>("z.v")) == 30);
+    CHECK(ok(cfg.get<int>("x.v")) == 10);
+}
+
+TEST_CASE("a layer replayed from a cache keeps its aliases, and one without pays no scan") {
+    if constexpr (kShipping) return;  // a cache_dir Config writes caches in development only
+    test::TempDir dir;
+    const std::string base = dir.write("base.dta", "(weapons (plasma (@aka laser) (damage 3)))");
+    const std::string plain = dir.write("plain.dta", "(loot (coin (v 1)))");
+    const std::string cache_dir = dir.path("cache");
+    for (int pass = 0; pass < 2; ++pass) {  // the second pass replays both caches
+        Config cfg({.tweaks = nullptr, .cache_dir = cache_dir});
+        REQUIRE(cfg.push_layer("base", base));
+        REQUIRE(cfg.push_layer("plain", plain));
+        REQUIRE(cfg.push_layer_text("overlay", "(weapons (laser (damage 5)))"));
+        CHECK(ok(cfg.get<int>("weapons.plasma.damage")) == 5);
+    }
+    // A cache's record says how many arrays carry an alias: none for plain.dta.
+    LoadSession session;
+    session.record_for_cache = true;
+    auto root = ok(read_file(plain, session));
+    std::string bytes;
+    ok(write_cache(
+        *root,
+        TextSink{[](void* u, std::string_view t) { static_cast<std::string*>(u)->append(t); },
+                 &bytes},
+        &session));
+    LoadSession replay;
+    (void)ok(read_cache_bytes(bytes, "plain.datb", replay));
+    CHECK(detail::SessionAccess::aliases(replay) == 0);
+    LoadSession aliased;
+    aliased.record_for_cache = true;
+    root = ok(read_file(base, aliased));
+    bytes.clear();
+    ok(write_cache(
+        *root,
+        TextSink{[](void* u, std::string_view t) { static_cast<std::string*>(u)->append(t); },
+                 &bytes},
+        &aliased));
+    LoadSession replay2;
+    (void)ok(read_cache_bytes(bytes, "base.datb", replay2));
+    CHECK(detail::SessionAccess::aliases(replay2) == 1);
 }
 
 TEST_CASE("provenance follows the alias: source() names the layer that wrote the old key") {
