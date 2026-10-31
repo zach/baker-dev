@@ -100,8 +100,8 @@ follows, and is never part of it.
 `player.speed` is `4.5` to every reader, and `player.tint` three numbers, so
 `get<std::array<float, 3>>("player.tint")` reads them; `values()` ends at the first
 metadata child, and `metadata()` lists the metadata. Baker's own readers use `@range`,
-`@step`, `@desc`, `@note`, `@kind`, `@group` and `@one_of` (tweaks and tuning panels, D88), and `@was` (a layer's pin, Merging)
-and the shape words below; `check` warns on any other `@` word, so a misspelt
+`@step`, `@desc`, `@note`, `@kind`, `@group` and `@one_of` (tweaks and tuning panels, D88), `@was` (a layer's pin, Merging),
+`@id` and `@aka` (a record's identity, Identity below) and the shape words below; `check` warns on any other `@` word, so a misspelt
 `(@rnage 0 10)` is found. A path reaches metadata like any child: `player.speed.@desc`.
 
 - **Metadata comes after the value.** `(x (@range 0 1) 5)` is an error at the array.
@@ -183,6 +183,23 @@ was 30 when this row was written; the stack has 32`, which a policy with `warnin
 turns into a refusal, and pushing the layer sends the same warning to the warning handler.
 `write_back_to(path, layer, true)` writes the pin, and `write_back` keeps the one a row
 has. A pin is metadata, so every reader of the value reads past it.
+
+### Identity
+
+A record may carry an identity, `(@id ...)`: 32 lowercase hex digits, the first `a` to `f`,
+minted by a tool when the record is made (the kit's `format --baker-mint-ids`) and written
+inside the record, so it travels with the data and survives a rename of the key (D284):
+
+```dta
+(weapons (laser (@id b3c9a7e5f214d68a1e2c3b4d5e6f7081) (damage 3)))
+```
+
+References keep naming keys (`key_of`); the ID is for tools, change records and renames.
+`Array::record_id()` reads one; `find_by_id(root, id, &path)` finds the record that carries
+it, by a walk of the tree. `baker::id_validator()`, added with `add_validator`, reports two
+records that share an ID (a copied record) and a malformed one, as errors to the warning
+handler at every merge; the host kit's loop and `check` add it. A shipped cache written
+without metadata keeps `@id` and `@aka`: they are identity, not tool text.
 
 ### Rows: a key by its path
 

@@ -9969,3 +9969,31 @@ model of what step 4 generates.*
   picks a member's C++ type, `(@cxx_name N)` a name; the project file's `(views (layers
   ...) (shapes ...) (namespace ...))` names the contract. `baker.shapes/1.6` carries the
   words. `baker_bake` is built whenever the library is; `BAKER_BUILD_TOOLS` keeps the rest."
+
+## D284. Identity, step 1: `(@id ...)`, `RecordId`, `find_by_id` and `id_validator`
+
+*`dev/identity-plan.md` step 1, the first of W3 (D270). The plan's open questions, answered
+by the owner on 2026-10-31: the ID is a bare symbol whose first digit is a letter (not a
+string, which the plan recommended for never being mis-lexed or interned; the owner took the
+bare form, with a symbol a record interned for good); duplicates are a validator's errors,
+not a load failure; `@renamed_from` is never applied at load; `rename` writes files as
+`format --baker-write` does.*
+
+- **The form.** `(@id b3c9a7e5f214d68a1e2c3b4d5e6f7081)`: 32 lowercase hex digits, the first
+  `a` to `f`. The letter first keeps the token a symbol: an all-digit one is "out of 64-bit
+  range" to the lexer and digits-`e`-digits a float. `RecordId::parse` accepts that form
+  alone, `write` gives it, and `valid()` says whether an ID's top nibble allows it, which
+  minting (step 3) guarantees.
+- **`<baker/record_id.hpp>`** reaches `<cstdint>`, `<optional>` and `<string_view>`;
+  `Array::record_id()` reads a record's `(@id ...)` (empty for none or malformed);
+  `find_by_id(root, id, &path)` walks the tree for the record, for tools; `@id` and `@aka`
+  are known metadata words, and `without_metadata` keeps them (D265): shipped overlays
+  resolve by them.
+- **`baker::id_validator()`** walks the merged tree at every merge, collects the IDs, and
+  reports a malformed `(@id ...)` and two records sharing an ID (located at the second,
+  naming both paths and the first's file and line, and the command that re-mints). The kit's
+  `Live` adds it beside the shape validator, so `check` and the loop report; a Config pays
+  nothing unless it adds it. Where the plan said the load would fail (the spec's "error at
+  load"), the owner chose the validator.
+- **Costs.** None on a merge, lookup or reload without the validator. With it, one walk of
+  the tree per merge, as the shape validator already does; measured with step 6's rows.

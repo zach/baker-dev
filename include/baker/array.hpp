@@ -47,6 +47,7 @@
 #include <baker/allocator.hpp>
 #include <baker/node.hpp>
 #include <baker/path.hpp>
+#include <baker/record_id.hpp>
 
 #include <cassert>
 #include <cstddef>
@@ -573,6 +574,9 @@ public:
         const uint32_t m = meta_first();
         return m ? Metadata(data() + m, end()) : Metadata();
     }
+    // This record's identity, its (@id ...) (<baker/record_id.hpp>, D284); empty for none, or
+    // one that is malformed (id_validator reports those).
+    [[nodiscard]] RecordId record_id() const noexcept;
     // The metadata child tagged `tag` ("@range"), or null: a scan of the tag run from the
     // first metadata child, as try_find scans from the start.
     [[nodiscard]] const Array* meta(Symbol tag) const noexcept {

@@ -137,8 +137,8 @@ void find_code(const Array& a, Vec<Symbol>& tags, Vec<Error>& out) {
 
 // The metadata a data file's arrays carry, as Baker's readers spell them.
 bool known_metadata(Symbol tag) noexcept {
-    static const Symbol words[] = {"@range", "@step",  "@desc",   "@note",
-                                   "@kind",  "@group", "@one_of", "@was"};
+    static const Symbol words[] = {"@range", "@step",   "@desc", "@note", "@kind",
+                                   "@group", "@one_of", "@was",  "@id",   "@aka"};
     return std::find(std::begin(words), std::end(words), tag) != std::end(words);
 }
 

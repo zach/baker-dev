@@ -147,6 +147,13 @@ struct LayerPolicy {
 
 struct LayerReport;
 
+// Identity (<baker/record_id.hpp>, D284). find_by_id: the array below `root` whose (@id ...)
+// is `id`, with its dotted path in `path` if given; null for none. A walk of the tree: for
+// tools, not a frame. id_validator: for Config::add_validator, reports two records that
+// share an ID (located at the second, naming both) and a malformed (@id ...), as errors to
+// the warning handler; the kit's check runs it. A Config pays nothing unless it adds it.
+[[nodiscard]] const Array* find_by_id(const Array& root, RecordId id, Path* path = nullptr);
+
 // What a validator judges (Config::add_validator): the merged tree, the trees it was merged
 // from, and what their files declared. Valid for the call only.
 struct ValidatorStack {
@@ -691,5 +698,7 @@ private:
     bool visible_pending_ = false;  // a reload waits for mark_visible
     Impl* impl_;
 };
+
+[[nodiscard]] Config::Validator id_validator();
 
 }  // namespace baker
