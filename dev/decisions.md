@@ -9655,3 +9655,44 @@ its own (step 5); a curve field is a member by value in the light struct header,
   generator and the runtime call this one function. Golden values in the tests are
   `symbol_hash` of the hand-written text.
 - **Costs.** None on any path but generation and `check_views`.
+
+## D275. Views, step 3: `<baker/view.hpp>`, `<baker/view_read.hpp>`, and what a reader costs
+
+*`dev/views-plan.md` step 3. The hand-written reader in `tests/support/view_move.hpp` is the
+model of what step 4 generates.*
+
+- **Two headers.** `<baker/view.hpp>` is what a struct header reaches: `ListView<V>`,
+  `ViewInfo`, `view_text` and the `ViewReader<T>` declaration. `<baker/view_read.hpp>`
+  is for the files that read: `read_view<T>(const Array&)`, `read_view<T>(const Config&,
+  path)`, the `view_detail` readers a generated `ViewReader<T>` calls, and `ListView`'s
+  reads. Measured with Clang 18 at -O2 (an empty unit takes 0.034 s): `fwd.hpp` 0.036 s,
+  `view.hpp` 0.21 s and 22,200 preprocessed lines, `view_read.hpp` 0.44 s, against
+  `array.hpp` 0.37 s and `config.hpp` 0.47 s. `symbol.hpp` alone is 0.22 s: the light
+  header is at the floor `<string_view>` sets, and dropping `error.hpp` from it gains
+  nothing. A struct with a curve field includes `<baker/curve.hpp>`, which reaches
+  `array.hpp` (the plan's Q2): no stack declares a curve field, so a `Curve` stays a member
+  by value and such a header costs what `array.hpp` costs.
+- **`ListView<V>`** is 16 bytes: the field's `Array` and a count, with a reserved word for
+  W2's packed form, so W2 changes no struct layout a game compiled. It converts on read,
+  `at(i)` with a located error naming the element, `operator[]` with `V{}` instead, and
+  iterates by value. A list of nested views is a `ListView` of them; `Values::read`
+  descends into each element, a tagged array whose children are the nested fields.
+- **`read_view<T>(const Config&, path)`** reads `root()`, so it sees the tree as of the last
+  `apply_edits()`, as every reader of views into the tree must (`Config::get`'s rule); an
+  error carries the path. The generated `Convert<T>` makes `get<T>` and nesting work the
+  usual way, with the usual `bool`.
+- **The reader walks the record once and dispatches on the tag's hash** (`switch` on
+  `Symbol::hash()` against `"name"_hash`, D246, then one string compare on the match, so
+  two names that share a hash cannot be confused). No literal interns and no static guards
+  in the reader. Its errors (`view_detail::wrong_type`, `out_of_range`, `bad_count`,
+  `missing`, `bad_element`) are built out of line in `src/data/view.cpp`.
+- **What it costs** (`bench_lookup`, GCC 13 -O2, this machine): a 10-field view of an
+  11-child record, with a nested view, two lists and a curve, 85.7 ns (95.7 ns with an
+  if-chain of `"x"_sym` compares, before the hash dispatch); the 5-scalar view of the same
+  record 40.7 ns; the same five fields read one `find` each 37.3 ns. So the one pass the
+  plan's §2.2 expected to beat F finds matches them at these sizes: each child costs its
+  array header's load (`tag()`), where a find scans the tag run. The value of a view in W1
+  is the struct, the defaults and the located errors; the per-frame path is W2's table,
+  built once. A reader reaching the tag run (private today) is the next thing to try there.
+- **A read allocates nothing** (the data tests, under the counting allocator), and the
+  public headers stay within D55's list (`check_headers.py`).

@@ -138,6 +138,7 @@ add_library(baker_data
   src/data/clock.cpp
   src/data/array.cpp
   src/data/cache.cpp
+  src/data/view.cpp
   src/data/config.cpp
   src/data/config_loop.cpp
   src/data/config_write.cpp
@@ -288,6 +289,7 @@ if(BAKER_BUILD_BENCH)
   target_link_libraries(baker_bench_cache PRIVATE baker::data baker_alloc_counter)
   add_executable(baker_bench_lookup bench/bench_lookup.cpp)
   target_link_libraries(baker_bench_lookup PRIVATE baker::data)
+  target_include_directories(baker_bench_lookup PRIVATE tests/support)
   add_executable(baker_bench_layers bench/bench_layers.cpp)
   target_link_libraries(baker_bench_layers PRIVATE baker::data)
   if(BAKER_BUILD_SHAPE)  # the same, with shape::validator judging each candidate
