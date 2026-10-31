@@ -244,10 +244,12 @@ struct ErasedCallable {
     void (*destroy)(void* object) noexcept = nullptr;
 };
 
-// A callable with no state, which invoke makes for each call instead of reading one.
+// A callable with no state, which invoke makes for each call instead of reading one. Trivially
+// default-constructible, so it can be made as a constant: a functor whose default constructor
+// its author wrote is boxed like one with state (D266).
 template <class Fn>
-inline constexpr bool kStateless =
-    std::is_empty_v<Fn> && std::is_trivially_copyable_v<Fn> && std::is_default_constructible_v<Fn>;
+inline constexpr bool kStateless = std::is_empty_v<Fn> && std::is_trivially_copyable_v<Fn> &&
+                                   std::is_trivially_default_constructible_v<Fn>;
 
 template <class F>
 ErasedCallable erase_callable(F&& f) noexcept {
@@ -921,9 +923,12 @@ public:
     // runaway {func} from a mod or a live overlay spends it too. When the last step is
     // spent, the hook, if set, is asked for more: it returns how many it grants (it may check
     // the time, or sample the call stack, as a profiler would), and 0 ends the call that ran
-    // out with a Limit error, which unwinds as any error does. Without a hook the call fails
-    // at once. The steps left stay at 0 until set again, so the scripts that follow fail
-    // too: set them once a frame, or before each command a console runs. The default,
+    // out with a Limit error, which unwinds as any error does. The hook sees steps_left() at
+    // 0, and its grant adds to a budget it sets; a call it makes cannot ask it again. Without
+    // a hook the call fails at once. The steps left stay at 0 until set again, so the scripts
+    // that follow fail too: set them once a frame, or before each command a console runs. A
+    // Scheduler's tick stops there: the task that ran out has the error, and the tasks after
+    // it run at the next tick, in order (D266). The default,
     // kUnlimitedSteps, is never spent in practice. Costs one decrement a call; a build with
     // BAKER_STEP_BUDGET off (kStepBudget false) compiles the check out, and then
     // set_step_budget and set_step_hook do nothing and steps_left is kUnlimitedSteps.

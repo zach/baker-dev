@@ -44,6 +44,23 @@ inline constexpr bool kShipping = true;
 inline constexpr bool kShipping = false;
 #endif
 
+// The game and Baker must agree on BAKER_SHIPPING and BAKER_ATOMIC_REFCOUNT: both change the
+// layout of types the two share. CMake's targets pass Baker's choice on; a game built
+// another way defines them as Baker was built. A mismatch fails at link time (D266): MSVC
+// names both values, and elsewhere a tweak's registration names the configuration the
+// game was compiled with, which a library built the other way lacks.
+#if defined(_MSC_VER) && defined(BAKER_SHIPPING) && BAKER_SHIPPING
+#pragma detect_mismatch("BAKER_SHIPPING", "1")
+#elif defined(_MSC_VER)
+#pragma detect_mismatch("BAKER_SHIPPING", "0")
+#endif
+namespace detail {
+struct ConfiguredForShipping {};
+struct ConfiguredForDevelopment {};
+using Configuration =
+    std::conditional_t<kShipping, ConfiguredForShipping, ConfiguredForDevelopment>;
+}  // namespace detail
+
 enum class ErrorCode : uint8_t {
     Syntax,     // malformed text
     Range,      // a value out of its representable range
@@ -128,8 +145,11 @@ private:
 // A fatal error: Baker cannot go on. An allocator returned null, an array or a string passed
 // 4 GB, the value of an Expected that holds an error was read, a symbol collision went to the
 // default handler. The handler gets a message, and after it the current Context's script call
-// stack, innermost first, when a script call is running: for an engine's crash reporter. It
-// must not return; if it does, Baker aborts. The message is built in a buffer on the stack,
+// stack, innermost first, when a script call is running: for an engine's crash reporter. The
+// stack is that of this thread's current Context (Context::current: the last made on the
+// thread, or one a Context::Scope sets); a Context whose calls run on a job thread is made
+// current there with a Scope, or the stack is another thread's (D266). The handler must not
+// return; if it does, Baker aborts. The message is built in a buffer on the stack,
 // since what failed may be the allocator, and is cut at 4 KB. Returns the handler it replaces;
 // null restores the default, which writes the message to stderr.
 using FatalHandler = void (*)(std::string_view message);
@@ -178,3 +198,5 @@ template <class E>
 #endif
 
 }  // namespace baker
+
+#undef BAKER_DETAIL_COLD  // used above only

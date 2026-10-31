@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <baker/array.hpp>
 
 #include "arena.hpp"
@@ -71,6 +72,14 @@ bool is_meta_child(const Node& n) noexcept {
 }
 }  // namespace
 
+// A boundary the 13 bits cannot name: the first metadata child past them (D266). Cold: an
+// array of more than 8,190 values before its metadata.
+uint32_t Array::meta_first_far() const noexcept {
+    for (uint32_t i = kMetaFar; i < size_; ++i)
+        if (is_meta_child(data()[i])) return i;
+    return 0;
+}
+
 void Array::finish(int verb) noexcept {
     uint16_t h = 0;
     uint16_t below = 0;       // the children's flags, for kHasMarker (D143)
@@ -92,11 +101,9 @@ void Array::finish(int verb) noexcept {
     // A verb stands in the first value slot, which the parser knows; a pin is metadata.
     if (verb < 0) verb = size_ >= 2 && data()[1].type() == Type::Symbol ? -1 : 0;
     if (verb || first_meta) below = static_cast<uint16_t>(below | marker_flag(verb, first_meta));
-    // sort_for_lookup() runs this again, so the old boundary goes first. Past the 13 bits,
-    // metadata would read as values: the parser refuses such an array.
-    flags_ = static_cast<uint16_t>((flags_ & kFlagBits) | (below & kHasMarker));
-    if (first_meta <= kMaxMetaFirst)
-        flags_ = static_cast<uint16_t>(flags_ | (first_meta << kMetaShift));
+    // sort_for_lookup() runs this again, so the old boundary goes first.
+    flags_ = static_cast<uint16_t>((flags_ & kFlagBits) | (below & kHasMarker) |
+                                   (std::min(first_meta, kMetaFar) << kMetaShift));
 }
 
 #if defined(_MSC_VER)
@@ -131,15 +138,18 @@ void Array::set(size_t i, Node node) noexcept {
         flags_ = static_cast<uint16_t>(flags_ | kHasMarker);
     }
     tag_run()[i] = tag_key(node);
-    // The boundary moves only if this slot is, or was, the first metadata child.
-    const uint32_t m = meta_first();
+    // The boundary moves only if this slot is, or was, the first metadata child. The far
+    // marker compares right against any slot below it, so only a slot past it scans.
+    uint32_t m = flags_ >> kMetaShift;
+    if (m == kMetaFar && i >= kMetaFar) [[unlikely]]
+        m = meta_first_far();
     const bool meta = i > 0 && is_meta_child(node);
     if (meta ? (m == 0 || i < m) : (m != 0 && i == m)) {
         auto first = meta ? static_cast<uint32_t>(i) : 0;
         for (auto k = static_cast<uint32_t>(i) + 1; !first && k < size_; ++k)
             if (is_meta_child(data()[k])) first = k;
-        flags_ = static_cast<uint16_t>((flags_ & kFlagBits) |
-                                       ((first <= kMaxMetaFirst ? first : 0) << kMetaShift));
+        flags_ =
+            static_cast<uint16_t>((flags_ & kFlagBits) | (std::min(first, kMetaFar) << kMetaShift));
     }
     detail::Owner& owner = detail::owner_of(this);
     if (owner.kind != detail::kArena) {

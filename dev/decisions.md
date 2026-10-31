@@ -9369,3 +9369,63 @@ option dropping `@` children".*
 - **Fuzzing.** libFuzzer under ASan and UBSan, built as CI's fuzz job, on the stack through
   D265, seeded with D262's corpus: 100,000 executions, the bar the owner set for each step on
   2026-10-30, with no crash, leak or sanitizer report.
+
+## D266. A TD review of what followed 0.6.0: the correctness findings
+
+*The owner asked for a TD review (`.claude/skills/gamedev-td`) of main from 0.6.0's
+preparation (a4fd630) to 59613cb, D246 to D265. Three reviewers measured the data and load
+path, the script call path, and what a game pays to build and ship. The owner chose to fix
+every finding with a clear fix; this entry is the correctness ones. The costs are D267 and
+the shipping and record findings D268.*
+
+- **A shipping flag that differs between game and library now fails to link** (from D256).
+  `TweakBase` keeps less under `BAKER_SHIPPING`, so a game compiled shipping against a
+  library built otherwise linked silently and wrote past the tweak in `attach()` before
+  `main`; at 0.6.0 the same mismatch had run. Now `TweakBase::attach` takes a tag,
+  `detail::ConfiguredForShipping` or `ConfiguredForDevelopment`, that the inline `Tweak`
+  constructor fills from the game's own macro, and the library defines only its own: a
+  mismatch is "undefined reference to `TweakBase::attach(ConfiguredForShipping)`". MSVC
+  also gets `#pragma detect_mismatch` for `BAKER_SHIPPING` and `BAKER_ATOMIC_REFCOUNT`,
+  which names both values. `baker_config_mismatch` links a one-tweak game both ways against
+  the built `baker_data`: the same configuration links, the other fails on the tag. A
+  game built with CMake gets Baker's defines through the targets, as before; error.hpp
+  says what a game built otherwise must define.
+- **A spent step budget stops the tick** (from D257). An error ends a task, and once the
+  budget was spent every later call failed, so one runaway task ended every task after it
+  in the tick, for good. Now the task that ran out has the error, and the tick stops: the
+  rest of its ready tasks go back to wait a tick, in order, and run once the host sets a
+  budget. The owner chose this over parking the task that ran out, or a budget per task.
+  The tick stops when the budget ran out and the hook gave none, or when it is 0 with no
+  hook to ask, so a task that spends the last step exactly does not cost the next one.
+- **The hook sees the budget.** `steps-- == 0` had wrapped the count before the hook ran,
+  so it saw `kUnlimitedSteps`, script it ran spent from that, and a budget it set was
+  overwritten by its return. Now the count is 0 while the hook runs, its grant adds to
+  what it set, and a call it makes runs on that and cannot ask the hook again.
+- **Metadata past child 8,190** (from D248). The boundary is kept in 13 bits; the parser
+  refused metadata past them, but a merge or an `#append` could grow an array past them,
+  and then the metadata read as values (a list of 8,000 with a `(@desc)`, appended to by
+  500: `get<vector<int>>` failed). Now 0x1FFF marks a boundary past the bits, and a scan
+  from there finds it (`meta_first_far`, out of line); the parser's limit is gone.
+  `values()` tests "no metadata" first, as before, so an array without any pays nothing
+  new. Test: 8,189 to 9,000 values before `(@range)`, read, and the merge above.
+- **The host's Reader and Lister run outside the read's thread-locals** (from D253 and
+  D247). The new-name counter and the intern site stayed set across the host's call, so a
+  host that switched fibers there and ran another read counted that read's names into
+  this one, and could leave the thread's counter pointing into a read that had ended
+  (valgrind: a write into a freed LoadSession). `detail::HostCallScope` clears both for
+  the call and restores them. Test: a Reader that interns 20 names and runs a second read
+  leaves a read capped at 8 untouched; it failed without the scope.
+- **An empty functor with a written default constructor binds again** (from D255).
+  `kStateless` required only `is_default_constructible`, and `static constexpr F kMade{}`
+  refused such a functor. It is `is_trivially_default_constructible` now; captureless
+  lambdas still qualify (a static_assert in the test).
+- **The fatal stack's thread is documented** (D252). It is the stack of the thread's current
+  Context; a Context whose calls run on a job thread is made current there with
+  `Context::Scope`. Telling which thread runs a call would put bookkeeping on every call.
+- **`BAKER_DETAIL_COLD` is undefined** at the end of error.hpp, so it does not leak.
+- **Cost.** `tools/count_instructions.py` against 59613cb: call unchanged (307), lookup
+  208 to 209 and lookup_text 371 to 372 (the far test, only for arrays with metadata), set
+  667 to 678 (`Array::set` tests the far marker, and the code around it moved), parse
+  -0.2% and merge -0.1% (the parser's test is one compare now). The tick's check runs once
+  a task, cold.
+

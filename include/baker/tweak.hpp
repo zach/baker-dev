@@ -200,8 +200,9 @@ protected:
     ~TweakBase() = default;
 
     // Registers with the registry, binding at once if its config is loaded. Called by
-    // Tweak<T> once its value exists.
-    void attach();
+    // Tweak<T> once its value exists. The tag is the configuration this file was compiled
+    // with: Baker defines only its own, so a game built otherwise fails to link (D266).
+    void attach(detail::Configuration = {});
     void detach() noexcept;
 
 private:

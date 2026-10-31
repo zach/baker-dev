@@ -550,8 +550,11 @@ public:
     // kept in flags_ by finish(), set() and sort_for_lookup(), so this is a compare and a
     // subspan.
     [[nodiscard]] Values values() const noexcept {
-        if (const uint32_t m = meta_first())
-            return {std::span<const Node>(data() + 1, m - 1), this};
+        // No metadata first, the common case, as one test; then a boundary the 13 bits hold.
+        if (const uint32_t m = flags_ >> kMetaShift) {
+            const uint32_t end = m != kMetaFar ? m : meta_first_far();
+            return {std::span<const Node>(data() + 1, end - 1), this};
+        }
         return {size_ ? nodes().subspan(1) : std::span<const Node>(), this};
     }
     // The metadata children, (@range 0 1) (@desc "..."): each child from the first metadata
@@ -573,10 +576,18 @@ public:
         return nullptr;
     }
     // The index of the first metadata child, or 0 for none (slot 0 is the tag's and is never
-    // metadata). The parser refuses metadata past child kMaxMetaFirst, which the 13 bits it
-    // is kept in cannot name; written_infix took the fourteenth (D262).
-    [[nodiscard]] uint32_t meta_first() const noexcept { return flags_ >> kMetaShift; }
-    static constexpr uint32_t kMaxMetaFirst = 0x1FFF;
+    // metadata). Kept in 13 bits (written_infix took the fourteenth, D262): a boundary past
+    // kMaxMetaFirst is kept as kMetaFar, and found by a scan from there (D266).
+    [[nodiscard]] uint32_t meta_first() const noexcept {
+        const uint32_t m = flags_ >> kMetaShift;
+        if (m == kMetaFar) [[unlikely]]
+            return meta_first_far();
+        return m;
+    }
+    static constexpr uint32_t kMaxMetaFirst = 0x1FFE;
+    static constexpr uint32_t kMetaFar = 0x1FFF;
+
+    [[nodiscard]] uint32_t meta_first_far() const noexcept;
 
     // Replaces the node at `i` (must be in range). Arrays may be shared, e.g. by macro
     // expansion, so the change is visible through every reference. Clears sorted mode.

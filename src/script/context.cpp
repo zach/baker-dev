@@ -500,6 +500,7 @@ void Context::set_stack_budget(size_t bytes) noexcept {
 
 void Context::set_step_budget(uint64_t steps) noexcept {
     impl_->steps = steps;
+    impl_->steps_out = steps == 0;
 }
 
 uint64_t Context::steps_left() const noexcept {
@@ -511,10 +512,21 @@ void Context::set_step_hook(StepHook hook, void* user) noexcept {
     impl_->step_user = user;
 }
 
-// The decrement that found 0 wrapped: put it back, and spend one of what the hook grants.
+// The decrement that found 0 wrapped: back to 0, so the hook sees what is left and a budget
+// it sets stands; its grant adds to that. A call the hook makes runs on what it set, and
+// cannot ask the hook again. Then one step for the call that asked (D266).
 BAKER_COLD bool Context::Impl::more_steps() {
-    steps = step_hook ? step_hook(step_user, self) : 0;
-    if (steps == 0) return false;
+    steps = 0;
+    if (step_hook && !in_step_hook) {
+        in_step_hook = true;
+        const uint64_t granted = step_hook(step_user, self);
+        in_step_hook = false;
+        steps = steps > kUnlimitedSteps - granted ? kUnlimitedSteps : steps + granted;
+    }
+    if (steps == 0) {
+        steps_out = true;
+        return false;
+    }
     --steps;
     return true;
 }

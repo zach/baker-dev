@@ -42,13 +42,17 @@ bool read_disk_file(std::string_view path, TextSink out) {
 
 bool read_with(const LoadSession::Reader& reader, std::string_view path, Str& text) {
     text.clear();
+    const HostCallScope host;
     return reader(path, detail::str_out(text));
 }
 
 uint64_t list_with(const LoadSession::Lister& lister, std::string_view dir, Vec<Str>& entries,
                    const Allocator& alloc) {
     entries.clear();
-    if (!lister(dir, [&](std::string_view p) { entries.emplace_back(p, alloc); })) return 0;
+    {
+        const HostCallScope host;
+        if (!lister(dir, [&](std::string_view p) { entries.emplace_back(p, alloc); })) return 0;
+    }
     std::sort(entries.begin(), entries.end());
     Str all(alloc);
     for (const Str& e : entries) all.append(e).append("\n");
@@ -467,13 +471,9 @@ private:
         record(arr, f.start, f.begin, t.end);
         truncate(f.start);
         if (arr->height() > s_.limits.max_depth) return too_deep(f.line, f.begin);
-        // Metadata comes after the value. Inline, so an array without metadata, and with no
-        // more children than the boundary can name (kMaxMetaFirst, 13 bits), pays one test; a
-        // command's and a property's forms are positional and keep their order.
-        static_assert(Array::kMaxMetaFirst == (1u << 13) - 1);
-        if ((arr->meta_first() | (arr->size() >> 13)) && f.kind == Frame::Array &&
-            !metadata_placed(*arr, f))
-            return false;
+        // Metadata comes after the value. Inline, so an array without metadata pays one test;
+        // a command's and a property's forms are positional and keep their order.
+        if (arr->meta_first() && f.kind == Frame::Array && !metadata_placed(*arr, f)) return false;
         if (f.verb && !verb_placed(*arr, f)) return false;
         if (f.row) return wrap_row(std::move(arr), f, t.end);
         const SourceSpan span{file_, f.begin, t.end, {}};
@@ -991,19 +991,12 @@ private:
     }
 
     // In the parenthesized array `a` just closed, every child after the first metadata
-    // child, (@tag ...), is a tagged array: a field or more metadata, never a value. Metadata
-    // past child kMaxMetaFirst, which the boundary cannot name, is refused. Located at the
-    // array: a child's own place is not known once macros have spliced theirs in.
+    // child, (@tag ...), is a tagged array: a field or more metadata, never a value. Located
+    // at the array: a child's own place is not known once macros have spliced theirs in.
     BAKER_COLD bool metadata_placed(const Array& a, const FrameInfo& f) {
         const uint32_t m = a.meta_first();
-        for (uint32_t i = m ? m + 1 : Array::kMaxMetaFirst + 1; i < a.size(); ++i) {
-            const Symbol tag = detail::tag_of(a[i]);
-            if (m ? !tag.empty() : !tag.is_meta()) continue;
-            if (!m)
-                return fail(ErrorCode::Limit,
-                            "metadata past child " + detail::decimal(Array::kMaxMetaFirst) + ": " +
-                                preview(a[i]),
-                            f.line, f.begin);
+        for (uint32_t i = m + 1; i < a.size(); ++i) {
+            if (!detail::tag_of(a[i]).empty()) continue;
             return fail(
                 ErrorCode::Syntax,
                 "metadata comes after the value: move " + preview(a[m]) + " after " + preview(a[i]),
