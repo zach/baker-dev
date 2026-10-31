@@ -9512,3 +9512,50 @@ shipping.*
   (D266 made it 678). One read at the default `max_new_symbols` keeps about 73.5 MB, 74
   bytes a name, which the cookbook now says.
 
+
+## D270. The metadata migration reads #shape too
+
+*Reported by a live-ops host trying 0.7.0.* The two 0.7.0 migrators were written to run
+metadata first: `baker_migrate_metadata` found a shape's metadata inside a top-level
+`(shapes ...)`, and `baker_migrate_declarations` turns that form into `#shape (NAME ...)`.
+Run the other way round, the metadata tool saw no `(shapes ...)`, left a shape's
+`(optional)`, `(at ...)`, `(desc ...)` and the rest without the sigil, and said nothing:
+its `--report` counted none. Rule 1 still caught a field's trailing metadata where the field
+had an untagged value, `(hp int (range 1 100))`, so the miss was partial and easy to overlook.
+
+- **Fix.** A top-level bracket the structure read marks as `#shape`'s form
+  (`TextBracket::declares`) gets the same rewrite as each shape inside `(shapes ...)`. Either
+  order now gives the same text, and a person who ran them in the wrong order runs the
+  metadata migration again; a second run of either changes nothing, as before.
+- **Test.** `baker_migrate_order` (ctest) runs both orders over
+  `tests/tools/migrate/shapes.dta`, fails unless the texts match, and checks the shape's
+  `@at`, `@desc` and `@optional`. It fails on 0.7.0's migrator.
+- **Cost.** One test per bracket at the top level; the migrators are run once.
+
+## D271. The shape check's cost on push, back to 0.6.0's
+
+*Reported by a live-ops host trying 0.7.0:* pushing an overlay under `shape::validator()`
+took about 16% longer than under 0.6.0 (0.44 to 0.51 ms with a checked report, 1.03 to 1.20
+ms when the push checks again), and the same push without validators took no longer.
+
+- **Measured.** A driver of `bench/bench_layers.cpp`'s case (2,000 shaped records, an
+  overlay retuning 400 prices, the shape spelled as each version reads it), counted under
+  cachegrind on 0.6.0 and on main, N and 2N operations apart. The validator's share of one
+  `check_layer_text` went from 2.41 to 2.86 M instructions (+19%), of one
+  `push_layer_text` under a policy from 7.23 to 8.58 M (+19%).
+- **Cause.** Callgrind put it in two calls per field that 0.6.0 had inlined into the
+  checker's walk. `Vec<Symbol>::push_back` onto the checker's chain of tags, about 26
+  instructions a call and 840,000 calls over 20 pushes, which GCC now leaves out of line;
+  and `Array::values()`, whose test for metadata (D248, D266) made it large enough that GCC
+  stopped inlining it into the checker's `instance`, about 22 instructions a call.
+- **Fix.**
+  - The chain is a stack with a depth: the Vec grows only to the deepest walk, out of
+    line, and a step down is a store.
+  - `values()` is forced inline (`BAKER_DETAIL_INLINE`, defined and undefined in
+    `array.hpp`): it is a compare, a rarely taken call and a span, and every walk calls it.
+    Trying a branchless form instead cost more (13.84 M a push against 13.69 M).
+- **Result.** The validator's share of a check is 2.43 M instructions (+0.8% on 0.6.0), of a
+  push 7.28 M (+0.7%), of a push with a held report 7.28 M (against 7.23 M). Without
+  validators, a push is 6.04 M against 0.6.0's 5.73 M, as before this change: the parse and
+  merge of the metadata rules, which the host's wall-clock numbers did not separate from
+  noise.

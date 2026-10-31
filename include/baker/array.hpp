@@ -57,6 +57,16 @@
 #include <type_traits>
 #include <utility>
 
+// values() is in every walk's inner loop: inlined even where the caller is too large for the
+// compiler to inline it on its own (D271).
+#if defined(_MSC_VER) && !defined(__clang__)
+#define BAKER_DETAIL_INLINE __forceinline
+#elif defined(__GNUC__) || defined(__clang__)
+#define BAKER_DETAIL_INLINE [[gnu::always_inline]] inline
+#else
+#define BAKER_DETAIL_INLINE inline
+#endif
+
 namespace baker {
 
 class Array;
@@ -549,7 +559,7 @@ public:
     // (color 0.9 0.5 0.2 (@range 0 1)) is three numbers to every reader; the boundary is
     // kept in flags_ by finish(), set() and sort_for_lookup(), so this is a compare and a
     // subspan.
-    [[nodiscard]] Values values() const noexcept {
+    [[nodiscard]] BAKER_DETAIL_INLINE Values values() const noexcept {
         // No metadata first, the common case, as one test; then a boundary the 13 bits hold.
         if (const uint32_t m = flags_ >> kMetaShift) {
             const uint32_t end = m != kMetaFar ? m : meta_first_far();
@@ -987,3 +997,5 @@ template <class... Ts>
 }
 
 }  // namespace baker
+
+#undef BAKER_DETAIL_INLINE  // used above only
