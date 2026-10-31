@@ -606,8 +606,7 @@ TEST_CASE("a cache as deep as the parse allows reads back: past the loader's 256
     CHECK((*back)->height() == (*deep)->height());
 }
 
-TEST_CASE(
-    "the written-infix flag rides the cache, so a cached tree prints as it was written (D262)") {
+TEST_CASE("the written-infix flag rides the cache, so a cached tree prints as it was written") {
     auto root = ok(read_string("(pass {0.3 <= $value <= 0.7})\n{$i += 1}", "t.dta"));
     auto cached = ok(read_cache_bytes(bytes_of(*root)));
     CHECK(structurally_equal(*root, *cached));
