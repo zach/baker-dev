@@ -207,7 +207,7 @@ struct Counted {
 
 }  // namespace
 
-TEST_CASE("a call of more arguments than fit on the stack spills into the Context's memory") {
+TEST_CASE("a call of more arguments than fit on the stack allocates nothing once warm (D267)") {
     Counted counted;
     Context ctx(counted.allocator);
     // An overload set evaluates every argument first; a declared function holds each.
@@ -238,7 +238,24 @@ TEST_CASE("a call of more arguments than fit on the stack spills into the Contex
         (void)ctx.eval((*declared)[0]);
     }
     if (test::counting_allocations()) CHECK(scope.count() == 0);  // none from the default
-    CHECK(counted.allocations - before == 2000);                  // one spill a call
+    CHECK(counted.allocations - before == 0);  // the spill stack is the Context's, and kept
+    // Nested: a 9-argument call whose arguments make 9-argument calls, each in its own place.
+    const auto nested =
+        ok(read_string("{s9 {s9 1 1 1 1 1 1 1 1 1} 2 3 4 5 6 7 8 {s9 1 2 3 4 5 6 7 8 9}}", "t"));
+    CHECK(ok(ctx.eval((*nested)[0])).try_int() == 9 + 35 + 45);
+    // Wider than a block: its own block, kept as well.
+    static const std::vector<ParamDescription> kSeventy(70, kInt[0]);
+    static const OverloadDescription kWide[] = {{.params = kSeventy}};
+    ok(ctx.declare("d70", kWide, [](Args& args) -> Expected<Node> {
+        return Node(static_cast<int64_t>(args.size()));
+    }));
+    std::string wide = "{d70";
+    for (int i = 0; i < 70; ++i) wide += " 1";
+    const auto wide_call = ok(read_string(wide + "}", "t"));
+    CHECK(ok(ctx.eval((*wide_call)[0])).try_int() == 70);
+    const size_t warm = counted.allocations;
+    for (int k = 0; k < 100; ++k) (void)ctx.eval((*wide_call)[0]);
+    CHECK(counted.allocations == warm);
 }
 
 TEST_CASE(

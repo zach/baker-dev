@@ -214,9 +214,18 @@ int main(int argc, char** argv) {
         baker::Context ctx;
         if (!ctx.func("add", [](int64_t a, int64_t b) { return a + b; })) return 2;
         return eval_n(ctx, "{add 1 2}", n);
-    } else if (which == "overload") {  // {+ 1.5 2}: the built-in overload set, promoted
+    } else if (which == "var") {  // {add $x 1}: an argument evaluated before the read
         baker::Context ctx;
-        return eval_n(ctx, "{+ 1.5 2}", n);
+        if (!ctx.func("add", [](int64_t a, int64_t b) { return a + b; })) return 2;
+        if (!ctx.eval("{set $x 2}")) return 2;
+        return eval_n(ctx, "{add $x 1}", n);
+    } else if (which == "overload") {  // {s2 1.5 2}: an overload set of two, the second taken
+        // {+} was this case until D262 made it one variadic native (D267).
+        baker::Context ctx;
+        if (!ctx.func("s2", [](int64_t a, int64_t b) { return a + b; })) return 2;
+        if (!ctx.func("s2", [](double a, int64_t b) { return a + static_cast<double>(b); }))
+            return 2;
+        return eval_n(ctx, "{s2 1.5 2}", n);
 #if BAKER_COUNT_DECLARED
     } else if (which == "declared") {  // {add 1 2} declared from a description, with a body
         baker::Context ctx;

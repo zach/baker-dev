@@ -52,8 +52,11 @@ public:
     // can count this arena (Array::set passes false).
     void adopt(Node* slot, Node&& n, bool building = true);
 
-    // The arena an owner of kind kArena is.
+    // The arena an owner of kind kArena is, and the other way.
     [[nodiscard]] static Arena& of(Owner& owner) noexcept;
+    [[nodiscard]] Owner& owner() noexcept { return head_.owner; }
+    // The allocator its blocks come from.
+    [[nodiscard]] const Allocator& allocator() const noexcept { return alloc_; }
 
     // The creator's count, as a scoped handle.
     class Handle {

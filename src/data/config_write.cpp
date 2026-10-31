@@ -208,9 +208,23 @@ void row_warnings(const Array& row, std::string_view path, const Vec<Node>* belo
     const Array* run = row_at(stack, Path(path));
     const auto there = run ? run->values().nodes() : std::span<const Node>();
     const Values operands = row.values();
+    // The run by hash, so each operand is found in it in log time, not by a scan (D267).
+    struct Held {
+        uint64_t hash;
+        const Node* node;
+    };
+    Vec<Held> held;
+    held.reserve(there.size());
+    for (const Node& n : there) held.push_back({detail::structural_hash(n), &n});
+    std::sort(held.begin(), held.end(),
+              [](const Held& a, const Held& b) { return a.hash < b.hash; });
     for (const Node& v : operands.nodes().subspan(1)) {
-        const bool has = std::any_of(there.begin(), there.end(),
-                                     [&](const Node& n) { return structurally_equal(n, v); });
+        const uint64_t h = detail::structural_hash(v);
+        bool has = false;
+        for (auto it = std::lower_bound(held.begin(), held.end(), h,
+                                        [](const Held& x, uint64_t want) { return x.hash < want; });
+             !has && it != held.end() && it->hash == h; ++it)
+            has = structurally_equal(*it->node, v);
         if (verb == detail::Marker::Append && has)
             warn("already has " + detail::preview(v) + "; #append adds another");
         if (verb == detail::Marker::Drop && !has) warn("has no " + detail::preview(v) + " to drop");

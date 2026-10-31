@@ -191,6 +191,7 @@ struct LoadSession::State {
     // Per top-level read.
     Vec<Str> include_stack;
     uint64_t nodes = 0;
+    bool had_rows = false;           // a file of this read held rows: compact its tree (D267)
     detail::NewSymbols new_symbols;  // counted by the symbol table
     uint32_t includes = 0;
 };
@@ -584,6 +585,7 @@ private:
         }
         frames_.back().row = true;
         rows_.push_back({t.line, t.begin});
+        s_.st_->had_rows = true;
         return push(Node(row_[row_size_ - 1].name),
                     {file_, row_[row_size_ - 1].begin, row_[row_size_ - 1].end, {}});
     }
@@ -1680,12 +1682,62 @@ size_t first_block(std::string_view text) noexcept {
 
 }  // namespace
 
+namespace {
+// The tree a read built in `from`, copied into an arena of its own: an array or a string of
+// `from` is copied once (an array that macro expansion shared stays shared), and one of
+// another owner, a define from an earlier file, is kept as it is.
+class Compactor {
+public:
+    Compactor(detail::Arena& from, const Allocator& alloc)
+        : from_(&from.owner()), to_(detail::Arena::create(alloc)) {}
+
+    Ref<Array> array(const Array& a) {
+        if (const auto it = done_.find(&a); it != done_.end()) return it->second;
+        Vec<Node> kids;
+        kids.reserve(a.size());
+        for (const Node& n : a) kids.push_back(node(n));
+        Ref<Array> copy = to_->make_array(kids, a.file(), a.line());
+        if (a.written_infix()) copy->set_written_infix(true);
+        if (a.sorted_for_lookup()) copy->sort_for_lookup();
+        done_.emplace(&a, copy);
+        return copy;
+    }
+
+private:
+    Node node(const Node& n) {
+        switch (n.type()) {
+            case Type::String:
+                if (&detail::owner_of(n.string()) != from_) return n;
+                return Node(to_->make_string(n.string()->view()));
+            case Type::Array:
+            case Type::Command:
+            case Type::Property: {
+                const Array* a = n.array();
+                if (&detail::owner_of(a) != from_) return n;
+                return Node(array(*a), n.type());
+            }
+            default: return n;
+        }
+    }
+
+    detail::Owner* from_;
+    detail::Arena::Handle to_;
+    HashMap<const Array*, Ref<Array>> done_;
+};
+
+Ref<Array> compact(const Array& root, detail::Arena& from) {
+    Compactor c(from, from.allocator());
+    return c.array(root);
+}
+}  // namespace
+
 Expected<Ref<Array>> read_string(std::string_view text, std::string_view name,
                                  LoadSession& session) {
     const bool top = session.st_->include_stack.empty();
     if (top) {
         LoadSession::State& st = *session.st_;
         st.nodes = 0;
+        st.had_rows = false;
         st.new_symbols = {0, session.limits.max_new_symbols, &st.nodes, session.limits.max_nodes};
         st.includes = 0;
         st.recorded = session.record_for_cache;
@@ -1729,6 +1781,11 @@ Expected<Ref<Array>> read_string(std::string_view text, std::string_view name,
     Ref<Array> root;
     Error err;
     if (!parser.run(root, err)) return Unexpected(std::move(err));
+    // Rows build each key's arrays twice, a wrapper per segment and then the joined level,
+    // and the first copies stay in the arena: a file of rows held 2.3 times what the same
+    // file written nested holds. Its tree goes into an arena of its own, and the first goes
+    // with the read (D267). Not under a source map, which knows each array by its address.
+    if (top && session.st_->had_rows && !session.source_map) root = compact(*root, *arena);
     return root;
 }
 

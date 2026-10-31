@@ -142,32 +142,34 @@ bool known_metadata(Symbol tag) noexcept {
     return std::find(std::begin(words), std::end(words), tag) != std::end(words);
 }
 
-// The first array in `a`, in reading order, that holds a value and a child tagged with
-// one of the words metadata had before the sigil, (range 0 10): a field now. Shapes are
-// left to their own reader, which refuses the old words.
-const Array* bare_metadata(const Array& a) {
+// The first array, in reading order, that holds a value and a child tagged with one of the
+// words metadata had before the sigil, (range 0 10): a field now (bare). And the first
+// metadata child whose word Baker does not read, (@rnage 0 10) (unknown). Shapes are left to
+// their own reader, which refuses the old words. One walk for both, and the names interned
+// once: interning "shapes" at every array was most of check's cost (D267).
+struct MetadataFinds {
+    const Array* bare = nullptr;
+    const Array* unknown = nullptr;
+};
+void find_metadata(const Array& a, MetadataFinds& f) {
+    static const Symbol shapes("shapes");
     static const Symbol words[] = {"range", "step", "desc", "note", "kind", "group", "one_of"};
-    if (a.tag() == Symbol("shapes")) return nullptr;
-    const bool valued = !a.tag().empty() && has_values(a);
-    for (size_t i = 0; i < a.size(); ++i) {  // from 0: a file's root has no tag
+    if (a.tag() == shapes) return;
+    if (!f.unknown)
+        for (const Array& m : a.metadata())
+            if (!known_metadata(m.tag())) {
+                f.unknown = &m;
+                break;
+            }
+    const bool valued = !f.bare && !a.tag().empty() && has_values(a);
+    for (size_t i = 0; i < a.size() && !(f.bare && f.unknown); ++i) {  // from 0: a root
         const Array* c = a[i].try_array();
         if (!c) continue;
-        if (valued && std::find(std::begin(words), std::end(words), c->tag()) != std::end(words))
-            return c;
-        if (const Array* found = bare_metadata(*c)) return found;
+        if (valued && !f.bare &&
+            std::find(std::begin(words), std::end(words), c->tag()) != std::end(words))
+            f.bare = c;
+        find_metadata(*c, f);
     }
-    return nullptr;
-}
-
-// The first metadata child in `a` whose word Baker does not read, (@rnage 0 10).
-const Array* unknown_metadata(const Array& a) {
-    if (a.tag() == Symbol("shapes")) return nullptr;
-    for (const Array& m : a.metadata())
-        if (!known_metadata(m.tag())) return &m;
-    for (size_t i = 0; i < a.size(); ++i)
-        if (const Array* c = a[i].try_array())
-            if (const Array* found = unknown_metadata(*c)) return found;
-    return nullptr;
 }
 
 bool under(const Path& path, const Path& prefix) noexcept {
@@ -244,14 +246,16 @@ LayerReport run_check(const Basis& b, std::string_view name, const Ref<Array>& c
     old_form(tree.try_find("shapes"), "(shapes ...)", "each shape with #shape (NAME ...)");
     // One warning of each per layer, at the first: an unmigrated or misspelt file is
     // noticed at its first check.
-    if (const Array* m = bare_metadata(tree))
+    MetadataFinds finds;
+    find_metadata(tree, finds);
+    if (const Array* m = finds.bare)
         warnings.push_back(make_error(ErrorCode::Syntax,
                                       "(" + Str(m->tag().str()) +
                                           " ...) beside a value reads as a field; if it is "
                                           "metadata, write (@" +
                                           Str(m->tag().str()) + " ...)",
                                       m->file(), m->line()));
-    if (const Array* m = unknown_metadata(tree))
+    if (const Array* m = finds.unknown)
         warnings.push_back(make_error(ErrorCode::Syntax,
                                       "unknown metadata (" + Str(m->tag().str()) +
                                           " ...): Baker reads @range, @step, @desc, @note, "
