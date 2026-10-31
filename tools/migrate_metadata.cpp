@@ -1,18 +1,18 @@
 // Spells metadata with the sigil: (range 0 10) after a value becomes (@range 0 10).
 //
-//   baker_migrate_metadata stacks/duel/data/default.dta         print the rewritten text
+//   baker_migrate_metadata data/default.dta                     print the rewritten text
 //   baker_migrate_metadata --write $(git ls-files '*.dta')      rewrite in place
 //   baker_migrate_metadata --report $(git ls-files '*.dta')     what would change, for review
 //   baker_migrate_metadata --write --cpp tests/data/test_config.cpp   DTA in C++ literals
 //   baker_migrate_metadata --write --md docs/language.md              DTA in Markdown
 //
-// The at-metadata rule (dev/syntax-at-metadata-design.md): a tagged child whose tag begins
+// The at-metadata rule: a tagged child whose tag begins
 // with '@' is metadata, never a value and never a field. The text is read by the parser's
 // own lexer, tolerantly (baker::tools::read_structure), as tokens and brackets by byte span:
 // nothing is parsed, expanded or reformatted, and the only change is an '@' before a tag, so
 // comments, layout and macros stay as written. Three rewrites:
 //
-// 1. In every tagged array with at least one untagged value, D218's rule names the metadata:
+// 1. In every tagged array with at least one untagged value, the old rule names the metadata:
 //    the trailing run of children tagged range, step, desc, note, kind, group or one_of (a
 //    tweak's without_metadata). Each gets the sigil: (hit_pause 6 (@range 0 30)).
 // 2. Inside a top-level (shapes ...), the words shape.cpp reads as metadata: a shape's own
@@ -24,7 +24,8 @@
 //    between the parameters and the body.
 //
 // What it will not decide, it reports: a tagged array with no untagged value whose last
-// child is tagged with a metadata word, (limits (min 0) (step 0.5)), is D218's ambiguity; it
+// child is tagged with a metadata word, (limits (min 0) (step 0.5)), is the old rule's
+// ambiguity; it
 // reads as all value today and under the rule, so nothing is renamed and a person decides.
 // In --md, a top-level form tagged with a metadata word, `(range 0 10)` in prose, is
 // reported too: it names metadata without a value, so no rule can tell.
@@ -61,7 +62,7 @@ using baker::tools::TextTokenKind;
 template <size_t N>
 using Words = std::array<std::string_view, N>;
 
-// D218: the trailing run a tweak leaves out of its value (tweak.cpp, without_metadata).
+// The old rule: the trailing run a tweak left out of its value (tweak.cpp, without_metadata).
 constexpr Words<7> kMeta = {"range", "step", "desc", "note", "kind", "group", "one_of"};
 // What shape.cpp's read_field reads after a field's type.
 constexpr Words<7> kField = {"range", "step", "kind", "desc", "note", "optional", "one_of"};
@@ -256,7 +257,7 @@ private:
 
     Tree tree_;
     bool prose_;
-    std::vector<bool> done_;  // arrays renamed already, which D218 does not read again
+    std::vector<bool> done_;  // arrays renamed already, which the old rule does not read again
 };
 
 // The renames a whole file needs, by offset in the file, over its runs of DTA.
