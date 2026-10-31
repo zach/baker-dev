@@ -1,4 +1,4 @@
-# The vocabulary as JSON: `baker.reference/1.5`, `baker.tweaks/1.5`, `baker.shapes/1.5`
+# The vocabulary as JSON: `baker.reference/1.5`, `baker.tweaks/1.6`, `baker.shapes/1.5`
 
 Three documents describe what a program's data and script may say, for editors, agents,
 and other tools that should not scrape the Markdown reference:
@@ -6,7 +6,7 @@ and other tools that should not scrape the Markdown reference:
 | Document | Written by | Library |
 |---|---|---|
 | `baker.reference/1.5` | `baker::tools::write_reference_json(ctx, sink, &session)` | `baker::tools` |
-| `baker.tweaks/1.5` | `baker::write_json(registry, sink)` | `baker::data` |
+| `baker.tweaks/1.6` | `baker::write_json(registry, sink)` | `baker::data` |
 | `baker.shapes/1.5` | `baker::shape::write_json(shapes, sink)` | `baker::shape` |
 
 They are separate so that a data-only program can write its tweaks and the script library
@@ -109,7 +109,7 @@ editor, a CI job) can register each function from its overloads with
 - A property has `name`, `type` and `doc`.
 - `handlers` names the script handlers that `{class}` or `{extend}` attached.
 
-## `baker.tweaks/1.5`
+## `baker.tweaks/1.6`
 
 `tweaks` lists every tweak in the registry, by path. Each one has:
 
@@ -127,6 +127,7 @@ editor, a CI job) can register each function from its overloads with
 | `range` | `[min, max]`, or `null` |
 | `step`, `desc`, `kind`, `group` | metadata; the data's wins over the code's |
 | `dev_only` | the code's flag: a shipping build keeps the default |
+| `optional` | the code's flag: the data may leave the tweak out, its default being the value, and `check` does not warn that the data lacks it (added in 1.6) |
 | `one_of` | the symbols, or a string tweak's strings, the value may be, in order: the data's `(@one_of ...)`, else the code's; `[]`: any (added in 1.1; strings in 1.3) |
 | `choices` | the integers an integer tweak may be, each `{"value", "name"}`: the data's `(@one_of (0 easy) (1 normal))`, else the code's `TweakMeta::choices`; `[]`: any (added in 1.3) |
 | `source` | while bound: `{layer, file, line}`; otherwise `null` |

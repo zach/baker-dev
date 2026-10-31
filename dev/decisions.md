@@ -9512,3 +9512,30 @@ shipping.*
   (D266 made it 678). One read at the default `max_new_symbols` keeps about 73.5 MB, 74
   bytes a name, which the cookbook now says.
 
+## D269. Tweaks the data may leave out: `TweakMeta::optional`
+
+*From the baker-godot integration's requirement note 0021, which the owner chose to build.*
+A host that keeps its content in its engine's asset files (cards, items, enemies, a file
+each) binds their values as tweaks so a layer can retune them by name, and the data holds
+only what layers change. `check_tweaks` warned once for each bound value the data does not
+mention: the integration's three cards gave a dozen warnings, a deckbuilder of 400 records
+would give thousands, and a real one (a constant the data dropped) is lost among them.
+
+- **The flag.** `TweakMeta::optional`: the data may leave the tweak out, its default being
+  the value. `check_tweaks` makes no "the data has no ..." warning for it; a value the data
+  does supply is held to the tweak's type, range, `one_of` and choices as ever, and a key
+  no tweak reads beside its siblings still warns. `TweakBase::optional()` reads it.
+  Unmarked tweaks warn as before.
+- **The reference.** `baker.tweaks/1.6` adds `"optional"` to each tweak, and
+  `tools::DescribedTweak::optional` takes it back, so a tool checking without the game
+  agrees with the game.
+- **Shipping.** Nothing kept: `ShippedTweakMeta::optional` is a constant false, as its tool
+  text is (D256), so a shipping build's check warns as for any tweak. Checking is a
+  development and build-step tool.
+- **Costs.** None on a read: the flag is read once per tweak per check. Marking several
+  thousand tweaks at load is the flag in each one's `TweakMeta`, nothing else.
+- **Tests.** `test_tweaks_json.cpp`: two marked tweaks and one unmarked, with no data only
+  the unmarked one warns; a marked value out of range is an error; a misspelt sibling warns;
+  the JSON says `"optional": true` and `false`. `test_described.cpp`: the same through
+  described tweaks.
+

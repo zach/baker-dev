@@ -78,7 +78,7 @@ def reference(s):
     names = [f["name"] for f in r["reference"]["functions"]]
     expect(code == 0 and r["reference"]["schema"] == "baker.reference/1.5" and "spawn" in names,
            "reference --baker-json: the game's functions")
-    expect(r["shapes"]["schema"] == "baker.shapes/1.5" and r["tweaks"]["schema"] == "baker.tweaks/1.5",
+    expect(r["shapes"]["schema"] == "baker.shapes/1.5" and r["tweaks"]["schema"] == "baker.tweaks/1.6",
            "reference --baker-json: tweaks and shapes")
     code, out, _ = s.run("reference")
     expect(code == 0 and "spawn" in out, "reference: Markdown")

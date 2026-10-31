@@ -67,6 +67,13 @@ static baker::Tweak<float> kJumpHeight{"player.jump.height", 1.2f,
 - **`dev_only`** marks a tweak a shipped build must not take from data: under
   `BAKER_SHIPPING` it keeps its default, and `set()` is refused. Use it for cheats and
   debug switches.
+- **`optional`** marks a tweak the data may leave out: its default, from your own content
+  (an asset file's values bound as tweaks so layers can retune them by name), is the value,
+  and a layer supplies one only to change it. `check` then does not warn that the data lacks
+  it, which for a library of records would be a warning per field; it still holds a value a
+  layer does supply to the tweak's type, range and allowed values, and still warns of a
+  misspelt sibling. The reference's JSON names it. Leave it off for a constant the data
+  must carry. It is for checking only: a shipping build keeps no flag (D269).
 - **Tests** give a tweak its own `TweakRegistry` and Config, so they do not share the
   global one.
 
