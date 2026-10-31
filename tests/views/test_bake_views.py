@@ -42,7 +42,8 @@ def main(tool, source):
                      "vec2_read.hpp", "views.hpp", "views.d", "views.stamp"]:
             expect((out / name).exists(), f"{name} is written")
         dep = (out / "views.d").read_text().replace("\\", "/")
-        expect(dep.startswith(str(out / "views.stamp") + ":"), "the depfile's target is the stamp")
+        expect(dep.startswith(str(out / "views.stamp").replace("\\", "/") + ":"),
+               "the depfile's target is the stamp")
         for name in ["baker-project.dta", "core.dta", "content.dta"]:
             expect(name in dep, f"the depfile names {name}")
         expect("extra.dta" not in dep, "a layer outside the contract is not read")
