@@ -383,7 +383,7 @@ TEST_CASE("a described curve tweak holds data to a curve, and its range to each 
     CHECK(findings("(falloff wobbly (0 1))").size() == 1);
 }
 
-TEST_CASE("a described tweak the data may leave out is not missing to the tool's check (D269)") {
+TEST_CASE("a described tweak the data may leave out is not missing to the tool's check (D273)") {
     if constexpr (kShipping) return;  // a shipping build keeps no flag
     TweakRegistry tool;
     DescribedTweaks described(tool);

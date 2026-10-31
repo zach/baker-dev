@@ -9512,7 +9512,7 @@ shipping.*
   (D266 made it 678). One read at the default `max_new_symbols` keeps about 73.5 MB, 74
   bytes a name, which the cookbook now says.
 
-## D269. Tweaks the data may leave out: `TweakMeta::optional`
+## D273. Tweaks the data may leave out: `TweakMeta::optional`
 
 *From the baker-godot integration's requirement note 0021, which the owner chose to build.*
 A host that keeps its content in its engine's asset files (cards, items, enemies, a file

@@ -73,7 +73,7 @@ static baker::Tweak<float> kJumpHeight{"player.jump.height", 1.2f,
   it, which for a library of records would be a warning per field; it still holds a value a
   layer does supply to the tweak's type, range and allowed values, and still warns of a
   misspelt sibling. The reference's JSON names it. Leave it off for a constant the data
-  must carry. It is for checking only: a shipping build keeps no flag (D269).
+  must carry. It is for checking only: a shipping build keeps no flag (D273).
 - **Tests** give a tweak its own `TweakRegistry` and Config, so they do not share the
   global one.
 

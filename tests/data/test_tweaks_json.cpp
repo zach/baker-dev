@@ -237,7 +237,7 @@ TEST_CASE(
 
 TEST_CASE(
     "a tweak the data may leave out: no warning that it is missing, every other check kept "
-    "(D269)") {
+    "(D273)") {
     if constexpr (kShipping) return;  // a shipping build keeps no flag: its check warns as ever
     TweakRegistry reg;
     // Values a content file supplies: the data overrides a few.
