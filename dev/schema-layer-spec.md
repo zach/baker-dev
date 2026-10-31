@@ -218,9 +218,10 @@ table they were read from. They stay valid while the reader holds that tree's or
 
 **Reading.** Each view gets a generated reader and a `Convert<T>`.
 
-- `baker::read_view<T>(const Array& record) -> Expected<T>`, and `Config::view<T>(path)`
-  over it, read one record. A value of the wrong type is a located error: the field's file
-  and line, the record's path, and the field.
+- `baker::read_view<T>(const Array& record) -> Expected<T>` reads one record; a value of
+  the wrong type is a located error naming the field's file and line and the field.
+  `baker::read_view<T>(const Config&, path)` reads the record at a path and adds the path
+  to the error.
 - The generated `Convert<T>` lets `get<T>` and nested views read a view the usual way,
   with the usual `bool` result.
 - Range and `@one_of` violations are not read errors. The shape validator reports them as
@@ -257,8 +258,10 @@ Items are separated by `\n`. `@range`, `@step`, `@desc`, `@note`, `@kind`, `@one
 baker_bake --views OUT_DIR --project FILE [--depfile FILE]
 ```
 
-- It reads the project's contract stack, writes one header per viewed shape and an
-  umbrella `views.hpp`, and writes a file only if its text changed. A tuning edit in a
+- It reads the project's contract stack and writes, for each viewed shape, a light header
+  with the struct (reaching only `<baker/view.hpp>`) and a reader header with its
+  `ViewReader<T>` and `Convert<T>` (reaching `<baker/array.hpp>`), plus an umbrella
+  `views.hpp`; a file is written only if its text changed (`dev/views-plan.md` §2.3). A tuning edit in a
   file that also declares shapes therefore rebuilds nothing.
 - `--depfile` lists every file the contract stack read, `#include`s and directories
   included.
