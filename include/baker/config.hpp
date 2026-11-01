@@ -146,6 +146,8 @@ struct LayerPolicy {
 };
 
 struct LayerReport;
+struct TableSpec;  // table.hpp
+class BakedTable;
 
 // Identity (<baker/record_id.hpp>, D284). find_by_id: the array below `root` whose (@id ...)
 // is `id`, with its dotted path in `path` if given; null for none. A walk of the tree: for
@@ -618,6 +620,12 @@ public:
     using ValidatorId = uint32_t;
     ValidatorId add_validator(Validator validator, ValidatorOptions options = {});
     void remove_validator(ValidatorId id);
+    // Baked tables (<baker/table.hpp>, D292): add_table<T>(cfg) registers one, built from
+    // the merged tree now and at every change that touches its records; table<T>(cfg) reads
+    // it. Refused: a spec registered twice (by digest), or one whose records' place has no
+    // `*`-free keyed parent to find.
+    Expected<void> add_table(const TableSpec& spec);
+    [[nodiscard]] Ref<const BakedTable> table_block(uint64_t digest) const noexcept;
     void freeze() noexcept { frozen_ = true; }
     [[nodiscard]] bool frozen() const noexcept { return frozen_; }
 

@@ -2,6 +2,7 @@
 // clang-format off
 #pragma once
 
+#include "item.hpp"
 #include "move.hpp"
 #include "scalars.hpp"
 #include "vec2.hpp"
@@ -12,6 +13,7 @@
 namespace views_test {
 
 inline constexpr baker::ViewInfo kViews[] = {
+    {Item::kShapeName, Item::kShapeDigest},
     {Move::kShapeName, Move::kShapeDigest},
     {Scalars::kShapeName, Scalars::kShapeDigest},
     {Vec2::kShapeName, Vec2::kShapeDigest},

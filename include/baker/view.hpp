@@ -52,6 +52,8 @@ enum class ViewFixupKind : uint8_t {
 // Reads one record or list element into the view at `out`, as ViewReader<T>::read does:
 // what a Struct fix-up carries, so a table builder reads nested views without knowing T.
 using ViewRead = bool (*)(const Array& record, void* out, Error* err);
+// Constructs a default view at `out`: new (out) T{}.
+using ViewInit = void (*)(void* out);
 struct ViewFixup {
     uint32_t offset = 0;
     ViewFixupKind kind = ViewFixupKind::Symbol;
@@ -61,6 +63,7 @@ struct ViewFixup {
     uint32_t element_size = 0;          // List: sizeof(V)
     std::span<const ViewFixup> nested;  // Struct, or a List of structs: that view's fixups()
     ViewRead read = nullptr;            // Struct, or a List of structs: that view's reader
+    ViewInit init = nullptr;            // and its default constructor
 };
 
 // Tool text a view carries: its name. Shipping keeps none of it (D256).

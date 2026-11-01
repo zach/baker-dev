@@ -24,6 +24,7 @@ add_executable(baker_data_tests
   data/test_layer_check.cpp
   data/test_layer_dir.cpp
   data/test_include_dir.cpp
+  data/test_table.cpp
   data/test_received_layers.cpp
   data/test_symbol_collision.cpp
   data/test_symbol_hash.cpp
@@ -149,6 +150,7 @@ endif()
 if(BAKER_BUILD_SCRIPT)
   # Its own binary, because main installs the default allocator before anything runs (D61).
   add_executable(baker_alloc_tests alloc/main.cpp alloc/test_allocators.cpp)
+  target_include_directories(baker_alloc_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/shape/views)
   target_link_libraries(baker_alloc_tests PRIVATE baker::tools baker_doctest baker_alloc_counter)
   add_test(NAME baker_alloc_tests COMMAND baker_alloc_tests)
 endif()

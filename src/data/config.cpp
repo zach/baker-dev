@@ -573,6 +573,7 @@ void Config::Impl::commit(Config& c, ReloadRecord& rec, uint64_t& t) {
     merged_root = c.root_;
     c.scratch_dirty_ = false;
     refresh_read();
+    if (!tables.empty()) build_tables(*c.root_, false);
     if (!validators.empty()) {
         const ValidatorStack stack{*c.root_, stack_layers(), as_read};
         for (const Check& v : validators) v.fn(stack, warn);
@@ -1141,6 +1142,37 @@ void Config::apply_edits() {
     root_ = impl_->merged();
     impl_->merged_root = root_;
     scratch_dirty_ = false;
+    if (!impl_->tables.empty()) impl_->build_tables(*root_, false);
+}
+
+// --- Baked tables (D292) ---
+
+void Config::Impl::build_tables(const Array& root, bool all) {
+    for (detail::TableSlot& slot : tables) {
+        if (!all && slot.built && detail::table_sources_unchanged(slot, root, alloc)) continue;
+        slot.built = detail::build_table(slot, root, alloc, warn);
+    }
+}
+
+Expected<void> Config::add_table(const TableSpec& spec) {
+    for (const detail::TableSlot& s : impl_->tables)
+        if (s.spec.digest == spec.digest)
+            return Unexpected(refused("a table of shape " +
+                                      Str(spec.name.empty() ? "?" : spec.name) +
+                                      " is registered already"));
+    detail::TableSlot slot(impl_->alloc);
+    slot.spec = spec;
+    if (auto r = detail::parse_table_at(spec, slot); !r) return r;
+    impl_->tables.push_back(std::move(slot));
+    impl_->tables.back().built =
+        detail::build_table(impl_->tables.back(), *root_, impl_->alloc, impl_->warn);
+    return {};
+}
+
+Ref<const BakedTable> Config::table_block(uint64_t digest) const noexcept {
+    for (const detail::TableSlot& s : impl_->tables)
+        if (s.spec.digest == digest) return s.built;
+    return nullptr;
 }
 
 Config::ScratchHit Config::scratch_values(const Path& path, Values& out) const noexcept {

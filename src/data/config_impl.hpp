@@ -10,6 +10,7 @@
 #include "common/containers.hpp"
 #include "merge.hpp"
 #include "session.hpp"
+#include "table_build.hpp"
 #include "text.hpp"
 
 #include <atomic>
@@ -296,6 +297,12 @@ struct Config::Impl {
         ValidatorOptions options;
     };
     Vec<Check> validators{alloc};
+    // Baked tables (D292): each registered spec, its current block, and the arrays it was
+    // built from, so a change that shares them rebuilds nothing.
+    Vec<detail::TableSlot> tables{alloc};
+    // Builds or rebuilds each table from `root`: all of them when `all`, else those whose
+    // source arrays `root` does not share.
+    void build_tables(const Array& root, bool all);
     // The enabled layers' trees, for the validators' stack (ValidatorStack::layers): refilled
     // at each merge, its capacity kept.
     mutable Vec<Ref<Array>> enabled_roots{alloc};

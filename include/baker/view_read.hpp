@@ -164,6 +164,10 @@ template <class T>
 [[nodiscard]] bool read_erased(const Array& record, void* out, Error* err) noexcept {
     return ViewReader<T>::read(record, *static_cast<T*>(out), err);
 }
+template <class T>
+void init_erased(void* out) noexcept {
+    new (out) T{};
+}
 
 }  // namespace view_detail
 

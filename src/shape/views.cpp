@@ -349,17 +349,22 @@ Str fixups_text(const Set& set, const Shape& s, const ViewOptions& o) {
         if (const Shape* n = f.shape.empty() ? nullptr : set.find(f.shape)) {
             const Str nn = Str(o.ns) + "::" + struct_name(*n);
             nested_fixups = nn + "::fixups()";
-            nested_read = "&baker::view_detail::read_erased<" + nn + ">";
+            nested_read = "&baker::view_detail::read_erased<" + nn +
+                          ">, &baker::view_detail::init_erased<" + nn + ">";
         }
+        // Every member of the fix-up spelled, so no build warns of a missing initializer.
+        const Str none = ", baker::ViewFixup::Element::Int32, 0, {}, nullptr, nullptr}";
         if (f.type == Type::Symbol || f.type == Type::Key) {
-            fixups.push_back("{" + offset + ", baker::ViewFixupKind::Symbol}");
+            fixups.push_back("{" + offset + ", baker::ViewFixupKind::Symbol" + none);
         } else if (f.type == Type::String || f.type == Type::Asset) {
-            fixups.push_back("{" + offset + ", baker::ViewFixupKind::String}");
+            fixups.push_back("{" + offset + ", baker::ViewFixupKind::String" + none);
         } else if (f.type == Type::Curve) {
-            fixups.push_back("{" + offset + ", baker::ViewFixupKind::Curve}");
+            fixups.push_back("{" + offset + ", baker::ViewFixupKind::Curve" + none);
         } else if (f.type == Type::Shape) {
-            fixups.push_back("{" + offset + ", baker::ViewFixupKind::Struct, {}, 0, " +
-                             nested_fixups + ", " + nested_read + "}");
+            fixups.push_back(
+                "{" + offset +
+                ", baker::ViewFixupKind::Struct, baker::ViewFixup::Element::Struct, 0, " +
+                nested_fixups + ", " + nested_read + "}");
         } else if (f.type == Type::List) {
             const char* element = "Int32";
             switch (f.element) {
@@ -378,7 +383,7 @@ Str fixups_text(const Set& set, const Shape& s, const ViewOptions& o) {
                              "baker::ViewFixup::Element::" + element + ", sizeof(" +
                              scalar_type(f.element, {}, set, f.shape, o) + "), " +
                              (nested ? nested_fixups : Str("{}")) + ", " +
-                             (nested ? nested_read : Str("nullptr")) + "}");
+                             (nested ? nested_read : Str("nullptr, nullptr")) + "}");
         }
     }
     Str text = "\nnamespace " + Str(o.ns) + " {\n\n";
@@ -421,8 +426,10 @@ void write_view_reader(const Set& set, baker::Symbol shape, const ViewOptions& o
             text += (i ? ", \"" : "\"") + Str(required[i]->name.str()) + "\"";
         text += "};\n";
     }
-    text += "    static bool read(const Array& record, " + sn +
-            "& out, Error* err) noexcept {\n        using namespace baker::literals;\n";
+    text +=
+        "    static bool read(const Array& record, " + sn +
+        "& out, Error* err) noexcept {\n        using namespace baker::literals;\n"
+        "        bool failed = false;  // the first failed field's error is kept; the rest read\n";
     if (!required.empty()) text += "        uint64_t seen = 0;\n";
     text +=
         "        for (const Node& n : record.nodes().subspan(1)) {\n"
@@ -476,7 +483,9 @@ void write_view_reader(const Set& set, baker::Symbol shape, const ViewOptions& o
                 break;
             case Type::Any: text += "false"; break;
         }
-        text += ") return false;\n";
+        text +=
+            ") {\n                        failed = true;\n                        err = nullptr;\n"
+            "                    }\n";
         if (!f.optional) {
             text += "                    seen |= uint64_t{1} << " +
                     detail::decimal(static_cast<int64_t>(bit)) + ";\n";
@@ -494,7 +503,7 @@ void write_view_reader(const Set& set, baker::Symbol shape, const ViewOptions& o
                 "\", view_detail::first_missing(seen, kRequired));\n            return false;\n    "
                 "    }\n";
     }
-    text += "        return true;\n    }\n};\n\ntemplate <>\nstruct Convert<" + sn +
+    text += "        return !failed;\n    }\n};\n\ntemplate <>\nstruct Convert<" + sn +
             "> {\n    static constexpr std::string_view name = \"" + name +
             "\";\n    static bool from(const Values& v, " + sn +
             "& out) noexcept {\n        return v.source() && ViewReader<" + sn +

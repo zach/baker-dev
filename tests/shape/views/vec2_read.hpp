@@ -14,6 +14,7 @@ struct ViewReader<views_test::Vec2> {
     static constexpr std::string_view kRequired[] = {"x", "y"};
     static bool read(const Array& record, views_test::Vec2& out, Error* err) noexcept {
         using namespace baker::literals;
+        bool failed = false;  // the first failed field's error is kept; the rest read
         uint64_t seen = 0;
         for (const Node& n : record.nodes().subspan(1)) {
             const Array* f = n.try_array();
@@ -22,12 +23,18 @@ struct ViewReader<views_test::Vec2> {
             switch (tag.hash()) {
                 case "x"_hash:
                     if (tag.str() != "x") break;
-                    if (!view_detail::read_float(*f, out.x, err, "vec2", "float")) return false;
+                    if (!view_detail::read_float(*f, out.x, err, "vec2", "float")) {
+                        failed = true;
+                        err = nullptr;
+                    }
                     seen |= uint64_t{1} << 0;
                     break;
                 case "y"_hash:
                     if (tag.str() != "y") break;
-                    if (!view_detail::read_float(*f, out.y, err, "vec2", "float")) return false;
+                    if (!view_detail::read_float(*f, out.y, err, "vec2", "float")) {
+                        failed = true;
+                        err = nullptr;
+                    }
                     seen |= uint64_t{1} << 1;
                     break;
                 default: break;
@@ -37,7 +44,7 @@ struct ViewReader<views_test::Vec2> {
             if (err) *err = view_detail::missing(record, "vec2", view_detail::first_missing(seen, kRequired));
             return false;
         }
-        return true;
+        return !failed;
     }
 };
 

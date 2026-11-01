@@ -10270,3 +10270,42 @@ binary; Q2 a non-literal view field reads as its default with a located error; Q
   the generator wrote for `move` against `offsetof` and `sizeof`.
 - **Costs.** None at load or lookup: the lists are `constexpr` data the linker keeps only
   where a table is registered; a tree-backed list tests one word it tested before.
+
+## D292. Baked tables, step 2: `Table<T>` in memory
+
+*`dev/tables-plan.md` step 2.*
+
+- **`Table<T>` is a handle, not a `Ref<const Table<T>>`.** The block is a type-erased
+  `BakedTable` the Config owns through a `Ref`; `Table<T>` wraps that `Ref` and types the
+  rows. The spec's `Ref<const Table<T>>` would have cast a `BakedTable` to a derived type it
+  never was; the handle reads the same (`moves[i]`, `moves.index_of(...)`) and copies as a
+  `Ref` does. `add_table<T>(cfg)` hands the Config a `TableSpec` (digest, `kAt`, `sizeof`,
+  `alignof`, the fix-up list, an erased constructor and reader); `table<T>(cfg)` finds the
+  block by digest, so shipping, which keeps no view names, reads the same way.
+- **One block, two passes.** The builder walks the merged tree along `kAt` (`*` matching
+  any tag) for the governing arrays, in tree order; each child array with a tag is a row.
+  Pass one reads each record into a temporary row and measures the pool through the
+  fix-up list (strings, curve points, list elements, nested views' own); then one
+  allocation holds the header, the rows, the pool, each row's tags and ID, and the three
+  indices; pass two reads each row in place and relocates it. A list's elements are
+  converted once into a packed `V[]` (`ListView::packed`), a nested element read through
+  the fix-up's reader and constructor.
+- **The indices.** Keys: the FNV hash of a row's wildcard tags and key, sorted, verified on
+  a hit against the row's own tags; an `(@aka ...)` adds an entry flagged as an alias
+  whose key it keeps. IDs: sorted `(RecordId, row)`. Parents: `(last wildcard tag, first,
+  count)`, one per governing array.
+- **Rebuilt by identity, in `commit` and `apply_edits`.** A slot keeps the governing
+  arrays it was built from; a new root that holds the same objects (the merge shares what
+  it did not change, D75) keeps the block. A Config with no slot pays one empty test.
+- **The generated reader reads on past a failed field.** `ViewReader<T>::read` kept
+  returning at the first failure, which left a record's later fields at their defaults;
+  now it keeps the first error, reads the rest, and returns false. `read_view` is
+  unchanged for its callers (an error is an error); a table's row keeps every good field.
+- **Tests.** The data tests build from the golden `move` and a new wildcard-free `item`
+  view: rows, packed lists, nested views and curves relocated (a string's bytes are the
+  table's, not the tree's), every `index_of`, `children_of`, a rebuild under a retune with
+  a held handle keeping its block, stable then renumbered indices, a live edit at
+  `apply_edits`, late registration, a second registration refused, a non-literal field
+  with a located error, and a read that allocates nothing; the allocation gate builds and
+  rebuilds a table through a counting allocator with no `operator new`.
+- **Costs.** None without a registered table. Step 5 measures the reads.

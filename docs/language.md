@@ -699,6 +699,43 @@ for (baker::Symbol into : jab->cancel_into) ...   // a ListView<Symbol> over the
 - A softer pack may not leave a field out of a view, change its C++ type or rename its
   member (as it may not loosen a range). Views cost nothing unless generated and read.
 
+### Tables: a keyed shape's records, packed
+
+A viewed `(@keyed)` shape's records can be read as one packed array of its struct, built
+from the merged tree once per change instead of walked per read (D292):
+
+```cpp
+#include "move_read.hpp"
+#include <baker/table.hpp>
+
+baker::add_table<game::Move>(cfg);               // before the load; or register_tables(cfg)
+cfg.push_layer(...);
+baker::Table<game::Move> moves = baker::table<game::Move>(cfg);
+if (auto i = moves.index_of("kestrel.jab")) {   // the path below the table
+    const game::Move& jab = moves[*i];           // one indexed load; at(i) checks
+    for (baker::Symbol into : jab.cancel_into) ...  // a packed list, the table's own
+}
+for (uint32_t i : moves.children_of("kestrel"_sym)) ...   // one parent's records
+```
+
+- **One block.** The rows, in the merged tree's order and grouped by parent, then a pool
+  the rows' strings, lists and curves point into, then the indices: by key (an alias of a
+  renamed record resolves too), by `(@id ...)`, and by parent. A `Table<T>` handle keeps
+  the block it was given: a reload that rebuilds the table takes nothing from a reader
+  holding the old one. The block comes from the Config's allocator.
+- **Finding a row.** `index_of(key)` for a shape whose `(@at ...)` has no `*`;
+  `index_of("kestrel.jab")` or a `Path` for the tags the `*` segments stand for and then
+  the key; `index_of(id)`; `children_of(parent)` is a contiguous range. `key_of(i)` and
+  `id_of(i)` read back. An index is stable across a reload while the table's set of
+  records is unchanged; a record added, removed or reordered renumbers what follows it.
+- **Rebuilt by identity.** Every merge, reload and `apply_edits()` rebuilds a table whose
+  governing arrays the new tree does not share, and no other; a Config with no table
+  registered builds none. Registering after the load builds at once.
+- **Literals only.** A view field holding a `{command}`, a `$variable` or a value of the
+  wrong type reads as the member's default, with a located error to the warning handler;
+  the record's other fields still read, and the kit's `check` fails. A field marked
+  `(@view no)` is never in the table.
+
 ## Script
 
 Commands are arrays in braces: `{function args...}`, or `{object method args...}`. A
