@@ -305,6 +305,10 @@ struct LayerEffectEntry {
     bool shadowed = false;  // a higher enabled layer (or scratch) overrides this path
     Symbol op;              // the row's verb: #append, #drop or #remove; empty for a value
     bool stale = false;     // the row's (@was ...) pin is not `below`
+    // The layer's children after this row, in its array, with its tag: each merges into this
+    // row's record rather than adding to a list, and a check warns (D291). 0 for a key written
+    // once.
+    uint32_t folded = 0;
     // A declaration the layer's read made, not a value: #shape, #pack or #origin. `path` is
     // then the shape's or pack's name, or the file an origin describes; `values` its form,
     // alone; `below` the same declaration from a layer below, if any (D261).

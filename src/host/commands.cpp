@@ -538,6 +538,7 @@ void print_rows(const Config& cfg, std::string_view layer, const List<LayerEffec
         row += e.below ? "was " + values_text(*e.below, composes(e)) : Str("new");
         if (e.shadowed) row += ", shadowed";
         if (e.stale) row += ", stale";
+        if (e.folded) row += ", " + detail::decimal(e.folded) + " more folded into it";
         out(row + "\n");
     }
 }
@@ -588,7 +589,8 @@ int print_effect(const Config& cfg, std::string_view layer, std::string_view hea
             (e.below ? values_text(*e.below, verb) : Str("(new)")) + " -> " +
             (verb ? Str(e.op.str()) + " " : Str()) + values_text(e.values) + "  (" +
             Str(e.source.file.str()) + ":" + detail::decimal(e.source.line) + ")" +
-            (e.shadowed ? "  shadowed" : "") + (e.stale ? "  stale" : "") + "\n");
+            (e.shadowed ? "  shadowed" : "") + (e.stale ? "  stale" : "") +
+            (e.folded ? "  folded " + detail::decimal(e.folded) : Str()) + "\n");
     }
     return 0;
 }

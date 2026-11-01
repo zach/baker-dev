@@ -16,6 +16,7 @@ struct DiffEntry {
     std::optional<Source> source_a, source_b;
     Symbol op_a, op_b;  // each row's verb, as LayerEffectEntry::op
     Symbol declares;    // a declaration's directive, as LayerEffectEntry::declares
+    uint32_t folded_a = 0, folded_b = 0;  // each row's, as LayerEffectEntry::folded
 };
 
 // How one contributor to a path's value stands in the merged value (explain).

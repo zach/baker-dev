@@ -304,3 +304,60 @@ TEST_CASE("a pin and a verb's warnings read a list of records as the list below 
         held = held || w.message().find("already") != std::string::npos;
     CHECK(held);
 }
+
+TEST_CASE(
+    "a layer over a list of same-tagged records: the check warns, and effect and diff say "
+    "what folded (D291)") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer(
+        "default", dir.write("default.dta",
+                             "(opening (build infantry) (build infantry) (build tank))\n"
+                             "(units (a 1) (b 2))\n(items (sword 1))\n(order infantry tank)\n")));
+    // Alone, the bottom layer keeps its list as written.
+    CHECK(to_string(*cfg.root()->try_get("opening")) ==
+          "(opening (build infantry) (build infantry) (build tank))");
+
+    // A layer that restates the list in a new order: the check says it folds.
+    const char* reorder = "(opening (build tank) (build infantry) (build infantry))\n";
+    const auto r = ok(cfg.check_layer("agent", parse(reorder), {}));
+    REQUIRE(r.warnings.size() == 1);
+    const Error& w = r.warnings[0];
+    CHECK(std::string(w.message()).find("'opening' below holds 3 (build ...)") == 0);
+    CHECK(std::string(w.message()).find("#append") != std::string::npos);
+    CHECK(w.path() == "opening.build");
+    CHECK(w.line() == 1);
+    REQUIRE(r.effect.size() == 1);
+    CHECK(r.effect[0].folded == 2);
+
+    // Records with values the layer itself writes twice, where the key exists below.
+    const auto twice = ok(cfg.check_layer("agent", parse("(units (a 3) (a 4))\n"), {}));
+    REQUIRE(twice.warnings.size() == 1);
+    CHECK(std::string(twice.warnings[0].message()).find("the layer writes 2 (a ...) in 'units'") ==
+          0);
+
+    // Quiet: a plain list restated, a verb on it, a table split across rows, a new key, a
+    // record set once.
+    for (const char* quiet : {"(order tank infantry)\n", "(order #append cavalry)\n",
+                              "(items (bow 2))\n(items (axe 3))\n", "(waves (wave 1) (wave 2))\n",
+                              "(units (a 5))\n", "(opening #append (build cavalry))\n"}) {
+        CAPTURE(quiet);
+        CHECK(ok(cfg.check_layer("agent", parse(quiet), {})).warnings.empty());
+    }
+
+    // Pushed, the stack reads the old list; effect and diff say the layer's rows folded.
+    REQUIRE(cfg.push_layer("agent", dir.write("agent.dta", reorder)));
+    CHECK(to_string(*cfg.root()->try_get("opening")) ==
+          "(opening (build infantry) (build infantry) (build tank))");
+    const auto effect = ok(tools::layer_effect(cfg, "agent"));
+    REQUIRE(effect.size() == 1);
+    CHECK(effect[0].folded == 2);
+    // The first rows match (tank against infantry differs anyway); a layer whose first row is
+    // the same but whose folded rows differ is a difference too.
+    REQUIRE(cfg.push_layer("same_first",
+                           dir.write("same_first.dta", "(opening (build tank) (build tank))\n")));
+    const auto d = ok(tools::diff(cfg, "agent", "same_first"));
+    REQUIRE(d.size() == 1);
+    CHECK(d[0].folded_a == 2);
+    CHECK(d[0].folded_b == 1);
+}

@@ -124,6 +124,18 @@ recursively; everything else (the values) replaces what was below. So
 `(width 3)` over `(width 2 (@range 0 10))` gives `(width 3 (@range 0 10))`: a layer changes
 a value without restating its metadata. A tag the lower tree lacks is added.
 
+**A list of records that repeats a tag.** `(opening (build infantry) (build infantry) (build
+tank))` reads whole, as written, in the layer that writes it. A layer over it merges by tag,
+so its `(build ...)` merges into the first of the three, and a layer that restates the list,
+`(opening (build tank) (build infantry) (build infantry))`, folds all its rows into that one
+record: the stack reads the old list. A list a layer may change is written as plain values,
+`(opening infantry infantry tank)`, which a layer restates whole or extends with `#append`
+and `#drop`. A check of the layer warns at its row, naming the path and the tag (D291),
+`layer_effect` gives the row's `folded` count (its later rows of the same tag), and `diff`
+tells two layers apart by their folded rows too. Quiet: a key new to the stack (added
+whole), and a table split across rows, `(items (bow 2))` and `(items (axe 3))`, whose keys
+merge one by one as written.
+
 **Removing a key.** In a Config layer, `(key #remove)` removes `key`, and everything under it,
 from the layers below (D143):
 

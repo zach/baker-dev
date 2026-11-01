@@ -223,6 +223,7 @@ Expected<void> bind_config_tools(Context& ctx, Config& cfg, const ConfigToolOpti
                 add_source(f, e.source, false);
                 f.push_back(tagged("shadowed", Node(int64_t{e.shadowed})));
                 if (e.stale) f.push_back(tagged("stale", Node(int64_t{1})));
+                if (e.folded) f.push_back(tagged("folded", Node(int64_t{e.folded})));
                 out.push_back(list(f));
             }
             return list(out);
@@ -230,7 +231,8 @@ Expected<void> bind_config_tools(Context& ctx, Config& cfg, const ConfigToolOpti
         "What a layer changes: each path, its values (value v...), one child each, its verb "
         "(op) if it composes or removes, the values below it (under a verb, the list it "
         "changes), its file and line, whether a layer above shadows it, and (stale 1) when its "
-        "(@was ...) pin no longer names the values below.");
+        "(@was ...) pin no longer names the values below, and (folded N) when N more of the "
+        "layer's children with the row's tag merge into its record.");
     bind(
         "config.diff",
         [tools](Name a, Name b) -> Expected<Node> {
@@ -245,12 +247,15 @@ Expected<void> bind_config_tools(Context& ctx, Config& cfg, const ConfigToolOpti
                 if (!d.op_a.empty()) f.push_back(tagged("op_a", Node(d.op_a)));
                 if (d.b) f.push_back(tagged("b", *d.b));
                 if (!d.op_b.empty()) f.push_back(tagged("op_b", Node(d.op_b)));
+                if (d.folded_a) f.push_back(tagged("folded_a", Node(int64_t{d.folded_a})));
+                if (d.folded_b) f.push_back(tagged("folded_b", Node(int64_t{d.folded_b})));
                 out.push_back(list(f));
             }
             return list(out);
         },
         "The paths two layers set differently, with each one's values, one child each (absent: "
-        "not set), and verb (op_a, op_b).");
+        "not set), verb (op_a, op_b), and the children each folds into its record (folded_a, "
+        "folded_b).");
 
     if constexpr (!kShipping) {
         // --- Live edits and telemetry: development builds only. ---
