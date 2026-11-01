@@ -43,6 +43,8 @@ namespace view_detail {
 [[nodiscard]] Error missing(const Array& record, std::string_view shape, std::string_view field);
 [[nodiscard]] Error no_record(const Array& root, const Path& path);
 [[nodiscard]] Error bad_element(const Array& list, uint32_t i, std::string_view type);
+// Element i of a packed list of `size` (a baked table's), which is past it (D291).
+[[nodiscard]] Error past_packed(uint32_t i, uint32_t size);
 void at_path(Error& err, const Path& path);
 // The first required field `seen` lacks a bit for, by its index in `names`.
 [[nodiscard]] inline std::string_view first_missing(
@@ -157,6 +159,12 @@ template <class T>
     return ViewReader<T>::read(field, out, err);
 }
 
+// ViewReader<T>::read behind a ViewRead pointer, for a fix-up list (D291).
+template <class T>
+[[nodiscard]] bool read_erased(const Array& record, void* out, Error* err) noexcept {
+    return ViewReader<T>::read(record, *static_cast<T*>(out), err);
+}
+
 }  // namespace view_detail
 
 // Reads the record at `path` as a T, from the tree as of the last apply_edits(). An error
@@ -173,6 +181,10 @@ template <class T>
 
 template <class V>
 Expected<V> ListView<V>::at(uint32_t i) const noexcept {
+    if (packed_) {
+        if (i < size_) return static_cast<const V*>(data_)[i];
+        return Unexpected(view_detail::past_packed(i, size_));
+    }
     const auto* list = static_cast<const Array*>(data_);
     V out{};
     if (i < size_ && list->values().read(i, out)) return out;
@@ -181,6 +193,7 @@ Expected<V> ListView<V>::at(uint32_t i) const noexcept {
 
 template <class V>
 V ListView<V>::operator[](uint32_t i) const noexcept {
+    if (packed_) return i < size_ ? static_cast<const V*>(data_)[i] : V{};
     const auto* list = static_cast<const Array*>(data_);
     V out{};
     if (i < size_) (void)list->values().read(i, out);

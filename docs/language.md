@@ -677,7 +677,9 @@ for (baker::Symbol into : jab->cancel_into) ...   // a ListView<Symbol> over the
   `(@cxx_name N)` names a member or the struct when the data's name is not a C++ name. A
   field marked `(@view no)` stays out of the struct and is read from the tree as before; an
   `any` field must be. An absent `@optional` field reads as zero, `false` or empty: views
-  hold no `std::optional`.
+  hold no `std::optional`. Beside the digest, a struct carries `kAt` (its shape's `(@at
+  ...)`, as written), `kKeyed`, and `fixups()`, the members that point outside the struct,
+  which a baked table relocates into its own pool (Tables, below).
 - **Reading.** `read_view<T>(cfg, path)` and `read_view<T>(record)` return an `Expected<T>`:
   a value of the wrong type, outside its member's range, or a list of the wrong count is a
   located error naming the field; a required field missing names it too. The generated

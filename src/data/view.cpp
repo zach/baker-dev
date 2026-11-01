@@ -62,6 +62,12 @@ Error no_record(const Array& root, const Path& path) {
     return e;
 }
 
+Error past_packed(uint32_t i, uint32_t size) {
+    return make_error(ErrorCode::Range, "element " + detail::decimal(i) +
+                                            " is past the packed list's " + detail::decimal(size) +
+                                            " elements");
+}
+
 Error bad_element(const Array& list, uint32_t i, std::string_view type) {
     const Values v = list.values();
     const Str article = type == "int" ? "an " : "a ";

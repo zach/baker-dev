@@ -6,6 +6,8 @@
 #include "vec2_read.hpp"
 #include <baker/view_read.hpp>
 
+#include <cstddef>
+
 namespace baker {
 
 template <>
@@ -78,3 +80,19 @@ struct Convert<views_test::Move> {
 };
 
 }  // namespace baker
+
+namespace views_test {
+
+inline constexpr baker::ViewFixup kMoveFixups[] = {
+    {offsetof(views_test::Move, name), baker::ViewFixupKind::String},
+    {offsetof(views_test::Move, button), baker::ViewFixupKind::Symbol},
+    {offsetof(views_test::Move, cancel_into), baker::ViewFixupKind::List, baker::ViewFixup::Element::Symbol, sizeof(baker::Symbol), {}, nullptr},
+    {offsetof(views_test::Move, hitbox), baker::ViewFixupKind::Struct, {}, 0, views_test::Vec2::fixups(), &baker::view_detail::read_erased<views_test::Vec2>},
+    {offsetof(views_test::Move, points), baker::ViewFixupKind::List, baker::ViewFixup::Element::Struct, sizeof(views_test::Vec2), views_test::Vec2::fixups(), &baker::view_detail::read_erased<views_test::Vec2>},
+    {offsetof(views_test::Move, ramp), baker::ViewFixupKind::Curve},
+};
+constexpr std::span<const baker::ViewFixup> views_test::Move::fixups() noexcept {
+    return kMoveFixups;
+}
+
+}  // namespace views_test

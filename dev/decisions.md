@@ -10241,3 +10241,32 @@ not a load failure; `@renamed_from` is never applied at load; `rename` writes fi
   - `baker.shapes/1.8` (`renamed_from`, `asset`); `baker.format/1.1` (`rewrites`); a
     cache records its alias count.
   - Fixed: none shipped (the quadratic alias merge never reached a release).
+
+## D291. Baked tables, step 1: the fix-up lists, `kAt`, and packed lists
+
+*`dev/tables-plan.md` step 1, the first of W2 (D269). The plan's open questions, answered
+by the owner before this step: Q1 the image is written by the kit's `bake` on the game's
+binary; Q2 a non-literal view field reads as its default with a located error; Q3
+`register_tables` in a generated `tables.hpp`.*
+
+- **The seam between the library and the generated struct is a fix-up list.** Each
+  generated view declares `static constexpr std::span<const ViewFixup> fixups()`, defined
+  in its reader header (`<shape>_read.hpp`), where `offsetof` sees a complete type and
+  `ViewReader<T>` exists: one entry per member that points outside the struct, by offset
+  and kind (`Symbol`, `String`, `Curve`, `List` with its element type, `Int32`, `Float`,
+  `Bool`, `Symbol`, `String`, `Curve` or `Struct`, and `sizeof(V)`; `Struct` with the
+  nested view's own list and its reader behind a `ViewRead` pointer, `read_erased<V>`).
+  A view with none returns an empty span and defines no array. With it the table builder,
+  writer and loader are type-erased in `baker::data`: they never see `T`, only bytes, the
+  list, and the reader pointers for nested views. The struct header stays light: a file
+  that only names a view reaches no reader.
+- **`kAt` and `kKeyed`** on the struct: the shape's `(@at ...)` as written (`*` kept) and
+  whether it is keyed, so a table finds its records without the shape set at run time.
+  `kAt` is data, not tool text, so shipping keeps it.
+- **`ListView<V>::packed(elements, size)`** uses the word W1 reserved: a list over a
+  table's converted `V[]`, read directly; `elements()` gives the span, empty for a list
+  that reads from the tree. `at()` past the end is a located-free range error.
+- **Golden headers** regenerated; the data tests read a packed list and check the lists
+  the generator wrote for `move` against `offsetof` and `sizeof`.
+- **Costs.** None at load or lookup: the lists are `constexpr` data the linker keeps only
+  where a table is registered; a tree-backed list tests one word it tested before.

@@ -5,6 +5,8 @@
 #include "scalars.hpp"
 #include <baker/view_read.hpp>
 
+#include <cstddef>
+
 namespace baker {
 
 template <>
@@ -63,3 +65,15 @@ struct Convert<views_test::Scalars> {
 };
 
 }  // namespace baker
+
+namespace views_test {
+
+inline constexpr baker::ViewFixup kScalarsFixups[] = {
+    {offsetof(views_test::Scalars, name), baker::ViewFixupKind::String},
+    {offsetof(views_test::Scalars, button), baker::ViewFixupKind::Symbol},
+};
+constexpr std::span<const baker::ViewFixup> views_test::Scalars::fixups() noexcept {
+    return kScalarsFixups;
+}
+
+}  // namespace views_test

@@ -5,6 +5,8 @@
 #include "vec2.hpp"
 #include <baker/view_read.hpp>
 
+#include <cstddef>
+
 namespace baker {
 
 template <>
@@ -48,3 +50,11 @@ struct Convert<views_test::Vec2> {
 };
 
 }  // namespace baker
+
+namespace views_test {
+
+constexpr std::span<const baker::ViewFixup> views_test::Vec2::fixups() noexcept {
+    return {};
+}
+
+}  // namespace views_test
