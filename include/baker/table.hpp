@@ -100,7 +100,9 @@ public:
     // record's (@aka ...) resolves to it.
     [[nodiscard]] std::optional<uint32_t> index_of(Symbol key) const noexcept;
     // The row at `path` below the table: the tags the shape's `*` segments stand for, then
-    // the key, as "kestrel.jab" or {"kestrel", "jab"}.
+    // the key, as "kestrel.jab" or {"kestrel", "jab"}. The text form parses the path and
+    // interns its names on every call (a tool's, or a one-off); a hot read holds a Path, a
+    // Symbol or a RecordId and looks up by that (D295).
     [[nodiscard]] std::optional<uint32_t> index_of(std::string_view path) const noexcept;
     [[nodiscard]] std::optional<uint32_t> index_of(const char* path) const noexcept {
         return index_of(std::string_view(path));

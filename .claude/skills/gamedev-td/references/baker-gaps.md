@@ -183,8 +183,10 @@ One line each; the D-entries hold the measurements.
    record once and dispatches on each child's tag hash (D279): 40.7 ns for five scalar
    fields against 37.3 ns for five finds, because each child costs its array header's load
    where a find scans the tag run. Accepted for W1: the view is the struct and the located
-   errors; the per-frame path is W2's table, built once. A reader over the tag run (private
-   today) is the next thing to measure there.
+   errors; the per-frame path is W2's table, built once: a row read by index is 0.67 ns
+   and six instructions, by a held path 24 ns, by ID 7 ns, against 97 ns for the tree's
+   `try_get` and find (D295). Closed for the per-frame path; the reader stays the load
+   path's.
 45. **Reading text costs 1% more instructions since W1 (load).** `parse` 1,874,727 to
    1,894,330 instructions per 16 KB, `read_string` +6% wall; the only parser change is
    D278's skipped-shape record, which the texts do not exercise. Open: isolate with
@@ -203,6 +205,15 @@ One line each; the D-entries hold the measurements.
    `try_find` over 50 to 1000 children is 10 to 37% faster and the instruction count of a
    lookup is unchanged (D290): the find loop's alignment moved. Open: measure with
    `-falign-loops` or the loop body isolated before W2 touches lookups.
+48. **`children_of` scans the parents (hot).** A table's parent ranges are one entry per
+   governing array, found by a linear scan over their tags (D292); 13 ns for 8 parents.
+   A table with hundreds of parents wants a sorted run of tags beside the ranges. Open:
+   measure on a stack with that shape before W4.
+49. **The key index's entries are 24 bytes (hot).** `index_of` binary-searches `(hash,
+   Symbol, row, alias)` entries, so each probe reads a line that holds one key (D292);
+   7 ns by ID, 25 ns by a held path. Keys together (the hashes alone, the rest beside)
+   would halve the lines a probe touches. Accepted for W2: a read holds the index; open
+   if a profile names it.
 10. **Tooling in the core (tool).** Accepted as a standing rule (D100), then moved out:
    `baker::tools` holds what only tools call, and a minimal shipping game is 24.2 KB
    smaller with default flags, unchanged with `--gc-sections` (D231).

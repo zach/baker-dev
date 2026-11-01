@@ -169,6 +169,17 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT BAKER_SANITIZE AND NOT BAKE
     -DOUT=${CMAKE_CURRENT_BINARY_DIR}/tweak_read.s
     -DARCH=${CMAKE_SYSTEM_PROCESSOR}
     -P ${CMAKE_CURRENT_SOURCE_DIR}/codegen/check_tweak_read.cmake)
+  if(BAKER_BUILD_SHAPE)  # the golden view the table read compiles against (D295)
+    add_test(NAME baker_table_codegen COMMAND ${CMAKE_COMMAND}
+      -DCXX=${CMAKE_CXX_COMPILER}
+      -DSTD=${CMAKE_CXX_STANDARD}
+      -DSRC=${CMAKE_CURRENT_SOURCE_DIR}/codegen/table_read.cpp
+      "-DINC=${PROJECT_SOURCE_DIR}/include;${CMAKE_CURRENT_SOURCE_DIR}/shape/views"
+      "-DDEFS=-DBAKER_STD_EXPECTED=${BAKER_STD_EXPECTED_VALUE};-DBAKER_ATOMIC_REFCOUNT=$<BOOL:${BAKER_ATOMIC_REFCOUNT}>"
+      "-DFLAGS=${baker_codegen_flags}"
+      -DOUT=${CMAKE_CURRENT_BINARY_DIR}/table_read.s
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/codegen/check_table_read.cmake)
+  endif()
   add_test(NAME baker_tweak_shipping_text COMMAND ${CMAKE_COMMAND}
     -DCXX=${CMAKE_CXX_COMPILER}
     -DSTD=${CMAKE_CXX_STANDARD}

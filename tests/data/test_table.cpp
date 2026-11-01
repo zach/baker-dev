@@ -308,7 +308,9 @@ TEST_CASE("an image's table that does not match the compiled view is skipped, wi
     REQUIRE(add_table<Item>(cfg));
     REQUIRE(open_project(cfg, project));
     REQUIRE(warnings.size() == 1);
-    CHECK(warnings[0].find("no table for move") != std::string::npos);
+    // Shipping keeps no view names: the warning then names "a view".
+    CHECK(warnings[0].find(kShipping ? "no table for a view" : "no table for move") !=
+          std::string::npos);
     CHECK(warnings[0].find("built from the tree") != std::string::npos);
     CHECK(table<Move>(cfg).size() == 4);  // built from the tree
     CHECK(table<Item>(cfg).size() == 2);  // the image's

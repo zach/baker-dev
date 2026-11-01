@@ -726,7 +726,8 @@ for (uint32_t i : moves.children_of("kestrel"_sym)) ...   // one parent's record
 - **Finding a row.** `index_of(key)` for a shape whose `(@at ...)` has no `*`;
   `index_of("kestrel.jab")` or a `Path` for the tags the `*` segments stand for and then
   the key; `index_of(id)`; `children_of(parent)` is a contiguous range. `key_of(i)` and
-  `id_of(i)` read back. An index is stable across a reload while the table's set of
+  `id_of(i)` read back. The text form parses and interns on every call: a read that runs
+  every frame holds the `Path`, the `Symbol` or the `RecordId`, or better, the index. An index is stable across a reload while the table's set of
   records is unchanged; a record added, removed or reordered renumbers what follows it.
 - **Rebuilt by identity.** Every merge, reload and `apply_edits()` rebuilds a table whose
   governing arrays the new tree does not share, and no other; a Config with no table
