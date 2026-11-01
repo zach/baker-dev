@@ -1,6 +1,6 @@
-# D295: reading a baked table's row by index compiles to loads and arithmetic, no call and no
+# Reading a baked table's row by index compiles to loads and arithmetic, no call and no
 # branch (the handle, the block's rows pointer and row size, the row, the member); finding a
-# row by key is one call into the table's index. Compiles table_read.cpp at -O2 to assembly
+# row by key is one call into the table's index (D295). Compiles table_read.cpp at -O2 to assembly
 # and inspects read_damage_by_index() and find_by_key().
 # Invoked by CTest with CXX, STD, SRC, INC (;-list), DEFS (;-list), FLAGS (;-list), OUT.
 
