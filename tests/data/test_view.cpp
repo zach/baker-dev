@@ -95,6 +95,43 @@ TEST_CASE("a field spelled by a name its shape renamed reads as the field (D287)
     CHECK(m.damage == 7.0f);
 }
 
+TEST_CASE("a packed list, a baked table's, reads its elements directly (D292)") {
+    const Symbol names[] = {Symbol("heavy"), Symbol("kick")};
+    const auto list = ListView<Symbol>::packed(names, 2);
+    CHECK(list.is_packed());
+    CHECK(list.size() == 2);
+    CHECK(list[1] == Symbol("kick"));
+    CHECK(list[2] == Symbol());
+    CHECK(ok(list.at(0)) == Symbol("heavy"));
+    CHECK_FALSE(list.at(2));
+    CHECK(text(list.at(2).error()).find("past the packed list's 2") != std::string::npos);
+    int n = 0;
+    for (const Symbol s : list) n += s.empty() ? 0 : 1;
+    CHECK(n == 2);
+    CHECK(list.elements().size() == 2);
+    const ListView<float> from_tree;
+    CHECK(from_tree.elements().empty());
+    // The generated fix-up lists name what a table relocates, with the nested views' own.
+    const auto fixups = views_test::Move::fixups();
+    REQUIRE(fixups.size() == 6);
+    CHECK(fixups[0].kind == ViewFixupKind::String);
+    CHECK(fixups[0].offset == offsetof(views_test::Move, name));
+    CHECK(fixups[2].kind == ViewFixupKind::List);
+    CHECK(fixups[2].element == ViewFixup::Element::Symbol);
+    CHECK(fixups[2].read == nullptr);
+    CHECK(fixups[2].element_size == sizeof(Symbol));
+    CHECK(fixups[3].kind == ViewFixupKind::Struct);
+    CHECK(fixups[3].nested.empty());  // vec2 has two floats
+    CHECK(fixups[3].read != nullptr);
+    CHECK(fixups[4].element == ViewFixup::Element::Struct);
+    CHECK(fixups[4].element_size == sizeof(views_test::Vec2));
+    CHECK(fixups[5].kind == ViewFixupKind::Curve);
+    CHECK(views_test::Move::kAt == "fighters * moves");
+    CHECK(views_test::Move::kKeyed);
+    CHECK(views_test::Vec2::fixups().empty());
+    CHECK(views_test::Vec2::kAt.empty());
+}
+
 TEST_CASE("a view's errors name the field, located where it is written") {
     LoadSession session;
     auto root = ok(read_string(kFighters, "f.dta", session));

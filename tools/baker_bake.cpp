@@ -10,9 +10,9 @@
 // leaves out every (@...) child, for a shipped build that reads no metadata (D265).
 //
 // --views reads the project's contract layers ((views (layers ...)) in the project file),
-// and writes OUT_DIR/<shape>.hpp, <shape>_read.hpp and views.hpp for each view, a file only
-// when its text changed; --depfile writes a Make-style dependency line naming every file
-// read, and --stamp touches a file when done, for a build's rule (cmake/BakerViews.cmake).
+// and writes OUT_DIR/<shape>.hpp, <shape>_read.hpp, views.hpp and tables.hpp for each view,
+// a file only when its text changed; --depfile writes a Make-style dependency line naming every
+// file read, and --stamp touches a file when done, for a build's rule (cmake/BakerViews.cmake).
 // Exits 1 on any error, naming it.
 
 #include <baker/cache.hpp>
@@ -159,9 +159,11 @@ int bake_views(baker::LoadSession& session, const std::string& out_dir,
         if (int r = write(std::string(v.str()) + ".hpp", header)) return r;
         if (int r = write(std::string(v.str()) + "_read.hpp", reader)) return r;
     }
-    std::string umbrella;
+    std::string umbrella, tables;
     baker::shape::write_views_umbrella(set, views.items(), options, baker::string_out(umbrella));
     if (int r = write("views.hpp", umbrella)) return r;
+    baker::shape::write_tables_header(set, views.items(), options, baker::string_out(tables));
+    if (int r = write("tables.hpp", tables)) return r;
     if (!depfile.empty()) {
         // Make syntax: the stamp (or the umbrella) depends on every file read; a space in
         // a path is escaped.

@@ -37,6 +37,35 @@ struct ViewInfo {
     uint64_t digest = 0;
 };
 
+// A member of a view that points outside the struct (D292): what a baked table relocates
+// into its pool, and an image fixes up at load. The generated kFixups lists each, by its
+// offset in the struct; a nested struct's members are listed through the nested type's own
+// list, and a list's elements through the element kind.
+enum class ViewFixupKind : uint8_t {
+    Symbol,  // a baker::Symbol: fixed up from an image's symbol table
+    String,  // a std::string_view: its bytes go to the pool
+    Curve,   // a baker::Curve: its points go to the pool as CurvePoint[]
+    List,    // a baker::ListView<V>: its elements go to the pool as V[], each fixed up as
+             // `element` says, with `nested` for a V that is a view
+    Struct,  // a nested view: `nested` is its kFixups
+};
+// Reads one record or list element into the view at `out`, as ViewReader<T>::read does:
+// what a Struct fix-up carries, so a table builder reads nested views without knowing T.
+using ViewRead = bool (*)(const Array& record, void* out, Error* err);
+// Constructs a default view at `out`: new (out) T{}.
+using ViewInit = void (*)(void* out);
+struct ViewFixup {
+    uint32_t offset = 0;
+    ViewFixupKind kind = ViewFixupKind::Symbol;
+    // List: the elements' type. Int32, Float and Bool are copied; the rest as above.
+    enum class Element : uint8_t { Int32, Float, Bool, Symbol, String, Curve, Struct };
+    Element element = Element::Int32;
+    uint32_t element_size = 0;          // List: sizeof(V)
+    std::span<const ViewFixup> nested;  // Struct, or a List of structs: that view's fixups()
+    ViewRead read = nullptr;            // Struct, or a List of structs: that view's reader
+    ViewInit init = nullptr;            // and its default constructor
+};
+
 // Tool text a view carries: its name. Shipping keeps none of it (D256).
 [[nodiscard]] constexpr std::string_view view_text(std::string_view text) noexcept {
     return kShipping ? std::string_view() : text;
@@ -44,7 +73,8 @@ struct ViewInfo {
 
 // A list field of a view, (attacks (list symbol)): a view over the list's values, converting
 // each as it is read. It borrows: from the tree, while a Ref to it is held (a reload never
-// takes a held tree away), or, in a baked table, from the table. 16 bytes.
+// takes a held tree away), or, in a baked table, from the table's packed V[] (D292), which
+// it reads directly. 16 bytes.
 template <class V>
 class ListView {
 public:
@@ -82,11 +112,25 @@ public:
         v.size_ = size;
         return v;
     }
+    // For a baked table: over `size` converted elements the table owns.
+    [[nodiscard]] static ListView packed(const V* elements, uint32_t size) noexcept {
+        ListView v;
+        v.data_ = elements;
+        v.size_ = size;
+        v.packed_ = 1;
+        return v;
+    }
+    [[nodiscard]] bool is_packed() const noexcept { return packed_ != 0; }
+    // The packed elements, or an empty span over a list that reads from the tree.
+    [[nodiscard]] std::span<const V> elements() const noexcept {
+        return packed_ ? std::span<const V>(static_cast<const V*>(data_), size_)
+                       : std::span<const V>();
+    }
 
 private:
-    const void* data_ = nullptr;  // the field's Array; a baked table's packed V[] later (W2)
+    const void* data_ = nullptr;  // the field's Array, or, packed, the table's V[]
     uint32_t size_ = 0;
-    uint32_t packed_ = 0;  // reserved for W2: 1 when data_ is V[]
+    uint32_t packed_ = 0;  // 1 when data_ is V[]
 };
 static_assert(sizeof(ListView<float>) == 16);
 

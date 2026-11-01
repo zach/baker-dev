@@ -99,6 +99,7 @@ struct CommandLine {
     bool rows = false;                 // diff and promote --baker-rows: the change as rows
     bool check = false;                // format --baker-check: change nothing, list what would
     std::string_view mint;             // format --baker-mint-ids TABLE: an ID for each record
+    std::string_view stack;            // bake --baker-stack FILE: the stack image to write
     List<std::string_view> commands;   // eval's {commands}
     List<std::string_view> rest;       // every argument the kit does not read, in order
 };
@@ -121,6 +122,9 @@ struct CommandHooks {
     // the shape the project's contract layers declare, and reports one generated from
     // another layout as a shape warning, or an error under --baker-strict-views.
     std::span<const ViewInfo> views{};
+    // Registers the game's baked tables (the generated register_tables, D294) with each
+    // command's Config before its load, so check reports a record a table cannot bake.
+    Callback<Expected<void>(Config&)> tables{};
     // Resets the game's state with a seed, before eval runs its commands and before each
     // run of a scenario.
     Callback<void(Context&, uint64_t seed)> reset{};
@@ -131,6 +135,9 @@ struct CommandHooks {
     // them reading, which check reports as a load problem. The project's scenarios and
     // objectives are checked without it.
     Callback<Expected<List<Ref<Array>>>(const Config&)> extra_trees{};
+    // How each command's Config is made: its caches, its stack image (D295). The defaults
+    // read text.
+    ConfigOptions config = ConfigOptions{.tweaks = nullptr};
     // The stack when there is no project file, and how it opens: a check or a simulation
     // leaves out one person's own layer (`.skip = {"local"}`).
     const Project* built = nullptr;

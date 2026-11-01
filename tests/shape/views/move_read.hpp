@@ -6,6 +6,8 @@
 #include "vec2_read.hpp"
 #include <baker/view_read.hpp>
 
+#include <cstddef>
+
 namespace baker {
 
 template <>
@@ -13,6 +15,7 @@ struct ViewReader<views_test::Move> {
     static constexpr std::string_view kRequired[] = {"startup", "damage"};
     static bool read(const Array& record, views_test::Move& out, Error* err) noexcept {
         using namespace baker::literals;
+        bool failed = false;  // the first failed field's error is kept; the rest read
         uint64_t seen = 0;
         for (const Node& n : record.nodes().subspan(1)) {
             const Array* f = n.try_array();
@@ -21,42 +24,69 @@ struct ViewReader<views_test::Move> {
             switch (tag.hash()) {
                 case "startup"_hash:
                     if (tag.str() != "startup") break;
-                    if (!view_detail::read_int(*f, out.startup, err, "move", "uint16")) return false;
+                    if (!view_detail::read_int(*f, out.startup, err, "move", "uint16")) {
+                        failed = true;
+                        err = nullptr;
+                    }
                     seen |= uint64_t{1} << 0;
                     break;
                 case "damage"_hash:
                 case "hurt"_hash:
                     if (tag.str() != "damage" && tag.str() != "hurt") break;
-                    if (!view_detail::read_float(*f, out.damage, err, "move", "float")) return false;
+                    if (!view_detail::read_float(*f, out.damage, err, "move", "float")) {
+                        failed = true;
+                        err = nullptr;
+                    }
                     seen |= uint64_t{1} << 1;
                     break;
                 case "name"_hash:
                     if (tag.str() != "name") break;
-                    if (!view_detail::read_string(*f, out.name, err, "move")) return false;
+                    if (!view_detail::read_string(*f, out.name, err, "move")) {
+                        failed = true;
+                        err = nullptr;
+                    }
                     break;
                 case "button"_hash:
                     if (tag.str() != "button") break;
-                    if (!view_detail::read_symbol(*f, out.button, err, "move")) return false;
+                    if (!view_detail::read_symbol(*f, out.button, err, "move")) {
+                        failed = true;
+                        err = nullptr;
+                    }
                     break;
                 case "armored"_hash:
                     if (tag.str() != "armored") break;
-                    if (!view_detail::read_bool(*f, out.armored, err, "move")) return false;
+                    if (!view_detail::read_bool(*f, out.armored, err, "move")) {
+                        failed = true;
+                        err = nullptr;
+                    }
                     break;
                 case "cancel_into"_hash:
                     if (tag.str() != "cancel_into") break;
-                    if (!view_detail::read_list(*f, out.cancel_into, err, "move", 0, UINT32_MAX)) return false;
+                    if (!view_detail::read_list(*f, out.cancel_into, err, "move", 0, UINT32_MAX)) {
+                        failed = true;
+                        err = nullptr;
+                    }
                     break;
                 case "hitbox"_hash:
                     if (tag.str() != "hitbox") break;
-                    if (!view_detail::read_nested(*f, out.hitbox, err)) return false;
+                    if (!view_detail::read_nested(*f, out.hitbox, err)) {
+                        failed = true;
+                        err = nullptr;
+                    }
                     break;
                 case "points"_hash:
                     if (tag.str() != "points") break;
-                    if (!view_detail::read_list(*f, out.points, err, "move", 1, 4)) return false;
+                    if (!view_detail::read_list(*f, out.points, err, "move", 1, 4)) {
+                        failed = true;
+                        err = nullptr;
+                    }
                     break;
                 case "ramp"_hash:
                     if (tag.str() != "ramp") break;
-                    if (!view_detail::read_curve(*f, out.ramp, err, "move")) return false;
+                    if (!view_detail::read_curve(*f, out.ramp, err, "move")) {
+                        failed = true;
+                        err = nullptr;
+                    }
                     break;
                 default: break;
             }
@@ -65,7 +95,7 @@ struct ViewReader<views_test::Move> {
             if (err) *err = view_detail::missing(record, "move", view_detail::first_missing(seen, kRequired));
             return false;
         }
-        return true;
+        return !failed;
     }
 };
 
@@ -78,3 +108,19 @@ struct Convert<views_test::Move> {
 };
 
 }  // namespace baker
+
+namespace views_test {
+
+inline constexpr baker::ViewFixup kMoveFixups[] = {
+    {offsetof(views_test::Move, name), baker::ViewFixupKind::String, baker::ViewFixup::Element::Int32, 0, {}, nullptr, nullptr},
+    {offsetof(views_test::Move, button), baker::ViewFixupKind::Symbol, baker::ViewFixup::Element::Int32, 0, {}, nullptr, nullptr},
+    {offsetof(views_test::Move, cancel_into), baker::ViewFixupKind::List, baker::ViewFixup::Element::Symbol, sizeof(baker::Symbol), {}, nullptr, nullptr},
+    {offsetof(views_test::Move, hitbox), baker::ViewFixupKind::Struct, baker::ViewFixup::Element::Struct, 0, views_test::Vec2::fixups(), &baker::view_detail::read_erased<views_test::Vec2>, &baker::view_detail::init_erased<views_test::Vec2>},
+    {offsetof(views_test::Move, points), baker::ViewFixupKind::List, baker::ViewFixup::Element::Struct, sizeof(views_test::Vec2), views_test::Vec2::fixups(), &baker::view_detail::read_erased<views_test::Vec2>, &baker::view_detail::init_erased<views_test::Vec2>},
+    {offsetof(views_test::Move, ramp), baker::ViewFixupKind::Curve, baker::ViewFixup::Element::Int32, 0, {}, nullptr, nullptr},
+};
+constexpr std::span<const baker::ViewFixup> views_test::Move::fixups() noexcept {
+    return kMoveFixups;
+}
+
+}  // namespace views_test

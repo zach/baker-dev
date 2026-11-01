@@ -10,6 +10,7 @@
 #include "common/containers.hpp"
 #include "merge.hpp"
 #include "session.hpp"
+#include "table_build.hpp"
 #include "text.hpp"
 
 #include <atomic>
@@ -283,6 +284,8 @@ struct Config::Impl {
     ConfigOptions options;
     WriteOptions layout{};           // of the text it writes (D263)
     Str cache_dir{alloc};            // options.cache_dir views this
+    Str stack_image{alloc};          // options.stack_image views this
+    bool hold_tables = false;        // while an image's layers push: no build per push
     mutable Str scan{alloc};         // changed()'s buffer, kept so that a poll allocates nothing
     mutable Vec<Str> listed{alloc};  // the same for a directory's listing
     // Every merge's temporaries, reused: a merge allocates only the arrays it keeps (D127).
@@ -307,6 +310,12 @@ struct Config::Impl {
         ValidatorOptions options;
     };
     Vec<Check> validators{alloc};
+    // Baked tables (D293): each registered spec, its current block, and the arrays it was
+    // built from, so a change that shares them rebuilds nothing.
+    Vec<detail::TableSlot> tables{alloc};
+    // Builds or rebuilds each table from `root`: all of them when `all`, else those whose
+    // source arrays `root` does not share.
+    void build_tables(const Array& root, bool all);
     // The enabled layers' trees, for the validators' stack (ValidatorStack::layers): refilled
     // at each merge, its capacity kept.
     mutable Vec<Ref<Array>> enabled_roots{alloc};

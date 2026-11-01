@@ -107,6 +107,11 @@ Expected<void> Live::open(const LiveOptions& options) {
         return Unexpected(std::move(e));
     }
 
+    if (options.tables)
+        if (auto r = options.tables(im.cfg); !r) {
+            im.problem(r.error());
+            return Unexpected(std::move(r).error());
+        }
     im.cfg.add_validator(check_validator(im.ctx, {.packs = &im.cfg.read_session()}));
 #if BAKER_HOST_SHAPE
     im.cfg.add_validator(shape::validator(), {.any_thread = true});

@@ -24,6 +24,7 @@ add_executable(baker_data_tests
   data/test_layer_check.cpp
   data/test_layer_dir.cpp
   data/test_include_dir.cpp
+  data/test_table.cpp
   data/test_received_layers.cpp
   data/test_symbol_collision.cpp
   data/test_symbol_hash.cpp
@@ -149,6 +150,7 @@ endif()
 if(BAKER_BUILD_SCRIPT)
   # Its own binary, because main installs the default allocator before anything runs (D61).
   add_executable(baker_alloc_tests alloc/main.cpp alloc/test_allocators.cpp)
+  target_include_directories(baker_alloc_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/shape/views)
   target_link_libraries(baker_alloc_tests PRIVATE baker::tools baker_doctest baker_alloc_counter)
   add_test(NAME baker_alloc_tests COMMAND baker_alloc_tests)
 endif()
@@ -167,6 +169,17 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT BAKER_SANITIZE AND NOT BAKE
     -DOUT=${CMAKE_CURRENT_BINARY_DIR}/tweak_read.s
     -DARCH=${CMAKE_SYSTEM_PROCESSOR}
     -P ${CMAKE_CURRENT_SOURCE_DIR}/codegen/check_tweak_read.cmake)
+  if(BAKER_BUILD_SHAPE)  # the golden view the table read compiles against (D296)
+    add_test(NAME baker_table_codegen COMMAND ${CMAKE_COMMAND}
+      -DCXX=${CMAKE_CXX_COMPILER}
+      -DSTD=${CMAKE_CXX_STANDARD}
+      -DSRC=${CMAKE_CURRENT_SOURCE_DIR}/codegen/table_read.cpp
+      "-DINC=${PROJECT_SOURCE_DIR}/include;${CMAKE_CURRENT_SOURCE_DIR}/shape/views"
+      "-DDEFS=-DBAKER_STD_EXPECTED=${BAKER_STD_EXPECTED_VALUE};-DBAKER_ATOMIC_REFCOUNT=$<BOOL:${BAKER_ATOMIC_REFCOUNT}>"
+      "-DFLAGS=${baker_codegen_flags}"
+      -DOUT=${CMAKE_CURRENT_BINARY_DIR}/table_read.s
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/codegen/check_table_read.cmake)
+  endif()
   add_test(NAME baker_tweak_shipping_text COMMAND ${CMAKE_COMMAND}
     -DCXX=${CMAKE_CXX_COMPILER}
     -DSTD=${CMAKE_CXX_STANDARD}

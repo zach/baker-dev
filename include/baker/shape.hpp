@@ -231,6 +231,12 @@ void write_view_header(const Set& shapes, baker::Symbol shape, const ViewOptions
                        TextSink out);
 void write_view_reader(const Set& shapes, baker::Symbol shape, const ViewOptions& options,
                        TextSink out);
+// tables.hpp (D294): register_tables(Config&), which adds a baked table for every view of a
+// (@keyed) shape (<baker/table.hpp>, add_table<T>), reaching each one's reader header; a
+// file that only names a view includes views.hpp and never this. Empty: a function that
+// registers nothing.
+void write_tables_header(const Set& shapes, std::span<const baker::Symbol> views,
+                         const ViewOptions& options, TextSink out);
 void write_views_umbrella(const Set& shapes, std::span<const baker::Symbol> views,
                           const ViewOptions& options, TextSink out);
 

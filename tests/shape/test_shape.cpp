@@ -1083,14 +1083,16 @@ const char* const kViewShapes =
     "   (ramp        curve (@optional))\n"
     "   (on_hit      any (@view no)))\n"
     "#shape (scalars (@view) (startup int (@cxx uint16)) (damage float) (name string)\n"
-    "   (button symbol) (armored bool))\n";
+    "   (button symbol) (armored bool))\n"
+    "#shape (item (@at items) (@keyed) (@view) (price float) (tag string (@optional))\n"
+    "   (sizes (list int) (@optional)))\n";
 
 std::string generated(const shape::Set& set, const std::string& file) {
     std::string out;
     const shape::ViewOptions o{.ns = "views_test"};
     const auto base = file.substr(0, file.find('.'));
     if (file == "views.hpp") {
-        const Symbol views[] = {Symbol("move"), Symbol("scalars"), Symbol("vec2")};
+        const Symbol views[] = {Symbol("item"), Symbol("move"), Symbol("scalars"), Symbol("vec2")};
         shape::write_views_umbrella(set, views, o, string_out(out));
     } else if (base.ends_with("_read")) {
         shape::write_view_reader(set, Symbol(base.substr(0, base.size() - 5)), o, string_out(out));
@@ -1162,10 +1164,11 @@ TEST_CASE("the generated headers match their golden files (BAKER_UPDATE_GOLDEN=1
     REQUIRE(report.errors.empty());
     const auto views = shape::view_shapes(set, {}, report);
     REQUIRE(report.errors.empty());
-    REQUIRE(views.size() == 3);
+    REQUIRE(views.size() == 4);
     const bool update = std::getenv("BAKER_UPDATE_GOLDEN") != nullptr;
-    for (const char* file : {"vec2.hpp", "vec2_read.hpp", "move.hpp", "move_read.hpp",
-                             "scalars.hpp", "scalars_read.hpp", "views.hpp"}) {
+    for (const char* file :
+         {"vec2.hpp", "vec2_read.hpp", "move.hpp", "move_read.hpp", "scalars.hpp",
+          "scalars_read.hpp", "item.hpp", "item_read.hpp", "views.hpp"}) {
         const std::string path = kDir + "/views/" + file;
         const std::string text = generated(set, file);
         if (update) {

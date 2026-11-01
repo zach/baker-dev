@@ -306,8 +306,12 @@ void write_view_header(const Set& set, baker::Symbol shape, const ViewOptions& o
     Vec<baker::Symbol> nested;
     nested_shapes(s, nested);
     for (const baker::Symbol n : nested) text += "#include \"" + Str(n.str()) + ".hpp\"\n";
-    text += "\n#include <cstdint>\n#include <string_view>\n\nnamespace " + Str(o.ns) + " {\n\n";
-    text += "struct " + struct_name(s) + " {\n";
+    text +=
+        "\n#include <cstdint>\n#include <span>\n#include "
+        "<string_view>\n\nnamespace " +
+        Str(o.ns) + " {\n\n";
+    const Str sn = struct_name(s);
+    text += "struct " + sn + " {\n";
     for (const Field& f : s.fields) {
         if (!in_view(f)) continue;
         text += "    " + member_type(f, set, o) + " " + member_name(f);
@@ -320,8 +324,80 @@ void write_view_header(const Set& set, baker::Symbol shape, const ViewOptions& o
     text += "\n    static constexpr std::string_view kShapeName = baker::view_text(\"" +
             Str(s.name.str()) + "\");\n    static constexpr uint64_t kShapeDigest = 0x";
     append_hex16(text, view_digest(set, shape));
-    text += "ull;\n};\n\n}  // namespace " + Str(o.ns) + "\n";
+    // Where the shape's records are, and the members a table relocates (D292).
+    Str at;
+    for (const baker::Symbol seg : s.at) at += (at.empty() ? "" : " ") + Str(seg.str());
+    text += "ull;\n    static constexpr std::string_view kAt = \"" + at +
+            "\";\n    static constexpr bool kKeyed = " + (s.keyed ? "true" : "false") +
+            ";\n    // The members a baked table relocates (D292): defined in " +
+            Str(s.name.str()) +
+            "_read.hpp.\n    static constexpr std::span<const baker::ViewFixup> fixups() "
+            "noexcept;\n};\n\n}  // namespace " +
+            Str(o.ns) + "\n";
     out(text);
+}
+
+// The fix-up list of `s` (D292), as its reader header defines it: the members that point
+// outside the struct, and, for a nested view, its own list and reader.
+Str fixups_text(const Set& set, const Shape& s, const ViewOptions& o) {
+    const Str sn = Str(o.ns) + "::" + struct_name(s);
+    Vec<Str> fixups;
+    for (const Field& f : s.fields) {
+        if (!in_view(f)) continue;
+        const Str offset = "offsetof(" + sn + ", " + member_name(f) + ")";
+        Str nested_fixups = "{}", nested_read = "nullptr";
+        if (const Shape* n = f.shape.empty() ? nullptr : set.find(f.shape)) {
+            const Str nn = Str(o.ns) + "::" + struct_name(*n);
+            nested_fixups = nn + "::fixups()";
+            nested_read = "&baker::view_detail::read_erased<" + nn +
+                          ">, &baker::view_detail::init_erased<" + nn + ">";
+        }
+        // Every member of the fix-up spelled, so no build warns of a missing initializer.
+        const Str none = ", baker::ViewFixup::Element::Int32, 0, {}, nullptr, nullptr}";
+        if (f.type == Type::Symbol || f.type == Type::Key) {
+            fixups.push_back("{" + offset + ", baker::ViewFixupKind::Symbol" + none);
+        } else if (f.type == Type::String || f.type == Type::Asset) {
+            fixups.push_back("{" + offset + ", baker::ViewFixupKind::String" + none);
+        } else if (f.type == Type::Curve) {
+            fixups.push_back("{" + offset + ", baker::ViewFixupKind::Curve" + none);
+        } else if (f.type == Type::Shape) {
+            fixups.push_back(
+                "{" + offset +
+                ", baker::ViewFixupKind::Struct, baker::ViewFixup::Element::Struct, 0, " +
+                nested_fixups + ", " + nested_read + "}");
+        } else if (f.type == Type::List) {
+            const char* element = "Int32";
+            switch (f.element) {
+                case Type::Float: element = "Float"; break;
+                case Type::Bool: element = "Bool"; break;
+                case Type::Symbol:
+                case Type::Key: element = "Symbol"; break;
+                case Type::String:
+                case Type::Asset: element = "String"; break;
+                case Type::Curve: element = "Curve"; break;
+                case Type::Shape: element = "Struct"; break;
+                default: break;
+            }
+            const bool nested = f.element == Type::Shape;
+            fixups.push_back("{" + offset + ", baker::ViewFixupKind::List, " +
+                             "baker::ViewFixup::Element::" + element + ", sizeof(" +
+                             scalar_type(f.element, {}, set, f.shape, o) + "), " +
+                             (nested ? nested_fixups : Str("{}")) + ", " +
+                             (nested ? nested_read : Str("nullptr, nullptr")) + "}");
+        }
+    }
+    Str text = "\nnamespace " + Str(o.ns) + " {\n\n";
+    if (fixups.empty()) {
+        text += "constexpr std::span<const baker::ViewFixup> " + sn +
+                "::fixups() noexcept {\n    return {};\n}\n";
+    } else {
+        text += "inline constexpr baker::ViewFixup k" + struct_name(s) + "Fixups[] = {\n";
+        for (const Str& f : fixups) text += "    " + f + ",\n";
+        text += "};\nconstexpr std::span<const baker::ViewFixup> " + sn +
+                "::fixups() noexcept {\n    return k" + struct_name(s) + "Fixups;\n}\n";
+    }
+    text += "\n}  // namespace " + Str(o.ns) + "\n";
+    return text;
 }
 
 void write_view_reader(const Set& set, baker::Symbol shape, const ViewOptions& o, TextSink out) {
@@ -337,7 +413,8 @@ void write_view_reader(const Set& set, baker::Symbol shape, const ViewOptions& o
     nested_shapes(s, nested);
     for (const baker::Symbol n : nested) text += "#include \"" + Str(n.str()) + "_read.hpp\"\n";
     text +=
-        "#include <baker/view_read.hpp>\n\nnamespace baker {\n\ntemplate <>\nstruct ViewReader<" +
+        "#include <baker/view_read.hpp>\n\n#include <cstddef>\n\nnamespace baker {\n\ntemplate "
+        "<>\nstruct ViewReader<" +
         sn + "> {\n";
     // The required fields, in order: a bit each in `seen`.
     Vec<const Field*> required;
@@ -349,8 +426,10 @@ void write_view_reader(const Set& set, baker::Symbol shape, const ViewOptions& o
             text += (i ? ", \"" : "\"") + Str(required[i]->name.str()) + "\"";
         text += "};\n";
     }
-    text += "    static bool read(const Array& record, " + sn +
-            "& out, Error* err) noexcept {\n        using namespace baker::literals;\n";
+    text +=
+        "    static bool read(const Array& record, " + sn +
+        "& out, Error* err) noexcept {\n        using namespace baker::literals;\n"
+        "        bool failed = false;  // the first failed field's error is kept; the rest read\n";
     if (!required.empty()) text += "        uint64_t seen = 0;\n";
     text +=
         "        for (const Node& n : record.nodes().subspan(1)) {\n"
@@ -404,7 +483,9 @@ void write_view_reader(const Set& set, baker::Symbol shape, const ViewOptions& o
                 break;
             case Type::Any: text += "false"; break;
         }
-        text += ") return false;\n";
+        text +=
+            ") {\n                        failed = true;\n                        err = nullptr;\n"
+            "                    }\n";
         if (!f.optional) {
             text += "                    seen |= uint64_t{1} << " +
                     detail::decimal(static_cast<int64_t>(bit)) + ";\n";
@@ -422,11 +503,12 @@ void write_view_reader(const Set& set, baker::Symbol shape, const ViewOptions& o
                 "\", view_detail::first_missing(seen, kRequired));\n            return false;\n    "
                 "    }\n";
     }
-    text += "        return true;\n    }\n};\n\ntemplate <>\nstruct Convert<" + sn +
+    text += "        return !failed;\n    }\n};\n\ntemplate <>\nstruct Convert<" + sn +
             "> {\n    static constexpr std::string_view name = \"" + name +
             "\";\n    static bool from(const Values& v, " + sn +
             "& out) noexcept {\n        return v.source() && ViewReader<" + sn +
             ">::read(*v.source(), out, nullptr);\n    }\n};\n\n}  // namespace baker\n";
+    text += fixups_text(set, s, o);
     out(text);
 }
 
@@ -450,6 +532,27 @@ void write_views_umbrella(const Set& set, std::span<const baker::Symbol> views,
         text += "};\n";
     }
     text += "\n}  // namespace " + Str(o.ns) + "\n";
+    out(text);
+}
+
+void write_tables_header(const Set& set, std::span<const baker::Symbol> views, const ViewOptions& o,
+                         TextSink out) {
+    Str text =
+        "// Generated by baker_bake --views: register_tables, a baked table for every keyed "
+        "view (D294). Do not edit.\n// clang-format off\n#pragma once\n\n";
+    Vec<const Shape*> keyed;
+    for (const baker::Symbol v : views)
+        if (const Shape* s = set.find(v); s && s->keyed) keyed.push_back(s);
+    for (const Shape* s : keyed) text += "#include \"" + Str(s->name.str()) + "_read.hpp\"\n";
+    text +=
+        "#include <baker/table.hpp>\n\nnamespace " + Str(o.ns) +
+        " {\n\n// Registers every keyed view's table with `cfg`, before its load; the first "
+        "refusal, if any.\ninline baker::Expected<void> register_tables(baker::Config& cfg) {\n";
+    for (const Shape* s : keyed)
+        text += "    if (auto r = baker::add_table<" + Str(o.ns) + "::" + struct_name(*s) +
+                ">(cfg); !r) return r;\n";
+    if (keyed.empty()) text += "    (void)cfg;\n";
+    text += "    return {};\n}\n\n}  // namespace " + Str(o.ns) + "\n";
     out(text);
 }
 

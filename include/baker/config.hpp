@@ -130,6 +130,10 @@ struct ConfigOptions {
     // Config whose directory ships to a build that reads no metadata (D265). A tree it reads
     // from such a cache has none either.
     bool cache_drop_metadata = false;
+    // A stack image (<baker/image.hpp>, D295): open_project takes the layers the image holds
+    // from it, in place of their files, and the registered tables it holds in place of
+    // building them. Copied by the Config; empty: none.
+    std::string_view stack_image = {};
 };
 
 // What a layer may change (Config::check_layer, LayerOptions::policy). Each rule is off by
@@ -146,6 +150,9 @@ struct LayerPolicy {
 };
 
 struct LayerReport;
+struct ProjectLayer;  // project.hpp
+struct TableSpec;     // table.hpp
+class BakedTable;
 
 // Identity (<baker/record_id.hpp>, D284). find_by_id: the array below `root` whose (@id ...)
 // is `id`, with its dotted path in `path` if given; null for none. A walk of the tree: for
@@ -417,6 +424,11 @@ private:
 
 namespace detail {
 struct ToolsAccess;  // baker::tools' way to the internals (src/tools/access.hpp)
+struct TableSlot;    // a registered table (src/data/table_build.hpp)
+}  // namespace detail
+class Config;
+namespace detail {
+[[nodiscard]] std::span<const TableSlot> table_slots(const Config& cfg);  // the image writer's
 }
 
 class Config {
@@ -622,6 +634,23 @@ public:
     using ValidatorId = uint32_t;
     ValidatorId add_validator(Validator validator, ValidatorOptions options = {});
     void remove_validator(ValidatorId id);
+    // Baked tables (<baker/table.hpp>, D293): add_table<T>(cfg) registers one, built from
+    // the merged tree now and at every change that touches its records; table<T>(cfg) reads
+    // it. Refused: a spec registered twice (by digest), or one whose records' place has no
+    // `*`-free keyed parent to find.
+    Expected<void> add_table(const TableSpec& spec);
+    [[nodiscard]] Ref<const BakedTable> table_block(uint64_t digest) const noexcept;
+    // The errors the last build of each table reported (a field that is not a literal, a
+    // wrong type), located, as the warning handler saw them: for a tool's report.
+    [[nodiscard]] List<Error> table_errors() const;
+    // ConfigOptions::stack_image, as copied. open_project calls push_image_layers with the
+    // project's layers when it is set: the leading layers the image holds are pushed from
+    // it, bottom to top, each with its project options, and the tables the image holds
+    // are installed for the registered specs they match (a mismatch is a warning, and that
+    // table is built from the tree). Returns how many layers were taken from the image.
+    [[nodiscard]] std::string_view stack_image() const noexcept;
+    [[nodiscard]] Expected<uint32_t> push_image_layers(std::span<const ProjectLayer> layers);
+    friend std::span<const detail::TableSlot> detail::table_slots(const Config& cfg);
     void freeze() noexcept { frozen_ = true; }
     [[nodiscard]] bool frozen() const noexcept { return frozen_; }
 

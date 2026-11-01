@@ -39,7 +39,7 @@ def main(tool, source):
         rc, _, err = run()
         expect(rc == 0, f"a first run succeeds: {err}")
         for name in ["boss.hpp", "boss_read.hpp", "item.hpp", "item_read.hpp", "vec2.hpp",
-                     "vec2_read.hpp", "views.hpp", "views.d", "views.stamp"]:
+                     "vec2_read.hpp", "views.hpp", "tables.hpp", "views.d", "views.stamp"]:
             expect((out / name).exists(), f"{name} is written")
         dep = (out / "views.d").read_text().replace("\\", "/")
         expect(dep.startswith(str(out / "views.stamp").replace("\\", "/") + ":"),

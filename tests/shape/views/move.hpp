@@ -7,6 +7,7 @@
 #include "vec2.hpp"
 
 #include <cstdint>
+#include <span>
 #include <string_view>
 
 namespace views_test {
@@ -24,6 +25,10 @@ struct Move {
 
     static constexpr std::string_view kShapeName = baker::view_text("move");
     static constexpr uint64_t kShapeDigest = 0x85dacdec6bf14a7eull;
+    static constexpr std::string_view kAt = "fighters * moves";
+    static constexpr bool kKeyed = true;
+    // The members a baked table relocates (D292): defined in move_read.hpp.
+    static constexpr std::span<const baker::ViewFixup> fixups() noexcept;
 };
 
 }  // namespace views_test

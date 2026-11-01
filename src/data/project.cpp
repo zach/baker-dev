@@ -360,7 +360,15 @@ Expected<List<ProjectProblem>> open_project(Config& cfg, const Project& project,
     for (const ProjectEntry& e : project.defines) session.define(e.value, DefineFrom::Project);
     for (const std::string_view d : options.defines) session.define(Symbol(d), DefineFrom::Host);
     Vec<ProjectProblem> problems;  // allocates only for a problem
-    for (const ProjectLayer& l : project.layers) {
+    // A stack image (D295): the leading layers it holds come from it, the rest as today.
+    size_t from_image = 0;
+    if (!cfg.stack_image().empty()) {
+        auto taken = cfg.push_image_layers(project.layers.items());
+        if (!taken) return Unexpected(std::move(taken).error());
+        from_image = *taken;
+    }
+    for (size_t i = from_image; i < project.layers.size(); ++i) {
+        const ProjectLayer& l = project.layers[i];
         if (options.skip.contains(l.name.str())) continue;
         // A development layer never reaches a shipping build, whatever its file says.
         if (l.dev_only && (kShipping || options.skip_dev_only)) continue;

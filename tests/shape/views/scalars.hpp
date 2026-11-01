@@ -5,6 +5,7 @@
 #include <baker/view.hpp>
 
 #include <cstdint>
+#include <span>
 #include <string_view>
 
 namespace views_test {
@@ -18,6 +19,10 @@ struct Scalars {
 
     static constexpr std::string_view kShapeName = baker::view_text("scalars");
     static constexpr uint64_t kShapeDigest = 0x044b1126b1d7bfbcull;
+    static constexpr std::string_view kAt = "";
+    static constexpr bool kKeyed = false;
+    // The members a baked table relocates (D292): defined in scalars_read.hpp.
+    static constexpr std::span<const baker::ViewFixup> fixups() noexcept;
 };
 
 }  // namespace views_test

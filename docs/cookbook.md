@@ -554,8 +554,10 @@ baker_generate_views(my_game PROJECT ${CMAKE_SOURCE_DIR}/data/baker-project.dta)
 
 - **What it writes,** under the build tree and on `my_game`'s include path: `move.hpp` (the
   struct and its digest, reaching only `<baker/view.hpp>`), `move_read.hpp` (its reader,
-  reaching `<baker/view_read.hpp>`, for the files that read), and `views.hpp` (every view,
-  and `game::kViews` for the drift check). Name a struct in many files and read it in one.
+  reaching `<baker/view_read.hpp>`, for the files that read), `views.hpp` (every view,
+  and `game::kViews` for the drift check), and `tables.hpp` (`game::register_tables(cfg)`,
+  which adds a baked table for every keyed view; include it where the Config is opened).
+  Name a struct in many files and read it in one.
 - **The contract** is the layers `(views (layers ...))` names: a mod, an overlay or a
   personal layer may add fields, which stay in the tree. `(shapes ...)` adds views for
   shapes not marked `(@view)`. The contract layers are the same in every build, so a
@@ -604,7 +606,10 @@ Identity), and the host kit's commands do the rewriting:
   writes every edge as `baker.assets/1` for the pipeline.
 
 `examples/content-tables` does all four: `slam` was `heavy`, `startup` was `windup`, the
-jab names its icon, and the output shows each.
+jab names its icon, and the output shows each. It also registers its moves as a baked
+table, finds `slam` by path and by its old key, and, given a file name, writes the contract
+layers and the table as a stack image and opens a second Config from it, as a shipped
+build does (`docs/language.md`, Tables).
 
 ## Content packages: patches, DLC, and mods
 

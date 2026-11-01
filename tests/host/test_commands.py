@@ -218,6 +218,17 @@ def renames(s):
     default.write_text(text)
 
 
+def tables(s):
+    """The game's baked tables register with each command's Config; a record a table cannot read fails check (D294)."""
+    code, out, err = s.run("check", agent="(pets (dog (hp {heal})))\n")
+    r = json.loads(out)
+    expect(code == 1 and any("'hp'" in e["message"] and e.get("path") == "pets.dog"
+                             for e in r["shape_errors"]),
+           f"a view field that is not a literal is a shape error from the table's build: {err} {out}")
+    code, out, _ = s.run("check", agent="(pets (cat (hp 2)))\n")
+    expect(code == 0, "a record a table reads whole passes")
+
+
 def assets(s):
     """assets: every asset the stack names, baker.assets/1; check fails on a missing one (D289)."""
     code, out, err = s.run("assets", agent="")
@@ -244,6 +255,24 @@ def assets(s):
     r = json.loads(out)
     expect(code == 1 and any("declares no kind 'texture'" in e["message"] for e in r["shape_errors"]),
            f"a kind the project does not declare: {err}")
+
+
+def bake(s):
+    """bake --baker-stack writes the contract layers and the tables as one image a Config opens (D295)."""
+    code, out, err = s.run("bake", "--baker-stack", "game.datb", agent="(player (speed 9))\n")
+    image = s.dir / "game.datb"
+    expect(code == 0 and "wrote game.datb: 1 layers, 1 tables" in out and image.stat().st_size > 64,
+           f"bake writes the image of the contract layers alone: {out} {err}")
+    expect(image.read_bytes()[:10] == b"MOIRA.IMG1", "a stack image")
+    # The game opens it in place of the layers' text: the base layer's values come from the image.
+    (s.dir / "data" / "default.dta").write_text("(player (speed 1) (lives 1) (model \"assets/hero.glb\"))\n")
+    code, out, err = s.run("eval", "{config.get player.speed}", "--image", "game.datb", agent="")
+    expect(code == 0 and out == "3.5\n", f"the image's layer, not the file's: {out!r} {err}")
+    code, out, err = s.run("check", "--image", "game.datb", agent="")
+    r = json.loads(out)
+    expect(code == 0 and r["passed"], f"check with the image passes, its tables taken from it: {err}")
+    code, _, err = s.run("bake", agent="")
+    expect(code == 2 and "--baker-stack" in err, "bake needs the file to write")
 
 
 def rename(s):
@@ -414,7 +443,7 @@ def main():
         print(__doc__)
         return 2
     writes = shipping if sys.argv[3:] == ["shipping"] else diff_and_promote
-    for case in (check, views, aliases, renames, mint_ids, rename, assets, reference, eval_json, writes, host_io, scenarios, command_line,
+    for case in (check, views, aliases, renames, mint_ids, rename, assets, tables, bake, reference, eval_json, writes, host_io, scenarios, command_line,
                  format_files):
         case(Stack(sys.argv[1], sys.argv[2]))
     print(f"{len(FAILURES)} failures" if FAILURES else "all passed")

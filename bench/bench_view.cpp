@@ -2,7 +2,9 @@
 // the same fields read one find at a time, as a game without views reads them. Its own
 // translation unit, so bench_lookup's rows stay comparable across releases.
 #include <baker/array.hpp>
+#include <baker/config.hpp>
 #include <baker/parse.hpp>
+#include <baker/table.hpp>
 #include <baker/view_read.hpp>
 
 #include "move_read.hpp"
@@ -11,6 +13,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <string>
 
 namespace {
 
@@ -64,6 +67,47 @@ int main() {
             baker::Error err;
             (void)baker::ViewReader<views_test::Scalars>::read(opaque(jab), m, &err);
             return static_cast<double>(m.startup) + m.damage;
+        }));
+    // A baked table (D293, D296): the same record read from the table by index, found by
+    // its path, its ID and its parent, against the tree's find.
+    baker::Config cfg({.tweaks = nullptr});
+    if (!baker::add_table<views_test::Move>(cfg)) return 1;
+    std::string text = "(fighters";
+    for (int f = 0; f < 8; ++f) {
+        text += " (fighter" + std::to_string(f) + " (moves";
+        for (int m = 0; m < 16; ++m)
+            text += " (move" + std::to_string(m) + " (@id a" + std::to_string(f) +
+                    "00000000000000000000000000000" + std::to_string(m / 10) +
+                    std::to_string(m % 10) + ") (startup " + std::to_string(m + 1) +
+                    ") (damage 2.5) (name \"n\") (button light) (cancel_into a b))";
+        text += "))";
+    }
+    text += ")";
+    if (!cfg.push_layer_text("bench", text)) return 1;
+    const baker::Table<views_test::Move> moves = baker::table<views_test::Move>(cfg);
+    if (moves.size() != 128) return 1;
+    const baker::RecordId id = *baker::RecordId::parse("a3000000000000000000000000000007");
+    row("table[i].damage, by index", ns_per_call([&](int i) {
+            return static_cast<double>(moves[static_cast<uint32_t>(i) & 127].damage);
+        }));
+    row("table.index_of(\"fighter3.move7\"), a path", ns_per_call([&](int) {
+            return static_cast<double>(
+                moves.index_of(opaque(std::string_view("fighter3.move7"))).value_or(0));
+        }));
+    const baker::Path path("fighter3.move7");
+    row("table.index_of(path), a Path held", ns_per_call([&](int) {
+            return static_cast<double>(moves.index_of(opaque(path)).value_or(0));
+        }));
+    row("table.index_of(id), a record id", ns_per_call([&](int) {
+            return static_cast<double>(moves.index_of(opaque(id)).value_or(0));
+        }));
+    row("table.children_of(fighter3), a parent", ns_per_call([&](int) {
+            return static_cast<double>(moves.children_of(opaque(baker::Symbol("fighter3"))).count);
+        }));
+    const baker::Ref<baker::Array> root = cfg.root();
+    row("the tree: try_get(\"fighters.fighter3.moves.move7\").damage", ns_per_call([&](int) {
+            const baker::Array* r = opaque(*root).try_get("fighters.fighter3.moves.move7");
+            return static_cast<double>(r->find_float("damage"_sym).value_or(0));
         }));
     row("the same 5 scalar fields, one find each", ns_per_call([&](int) {
             const baker::Array& a = opaque(jab);

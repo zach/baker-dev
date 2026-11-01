@@ -5,6 +5,8 @@
 #include "scalars.hpp"
 #include <baker/view_read.hpp>
 
+#include <cstddef>
+
 namespace baker {
 
 template <>
@@ -12,6 +14,7 @@ struct ViewReader<views_test::Scalars> {
     static constexpr std::string_view kRequired[] = {"startup", "damage", "name", "button", "armored"};
     static bool read(const Array& record, views_test::Scalars& out, Error* err) noexcept {
         using namespace baker::literals;
+        bool failed = false;  // the first failed field's error is kept; the rest read
         uint64_t seen = 0;
         for (const Node& n : record.nodes().subspan(1)) {
             const Array* f = n.try_array();
@@ -20,27 +23,42 @@ struct ViewReader<views_test::Scalars> {
             switch (tag.hash()) {
                 case "startup"_hash:
                     if (tag.str() != "startup") break;
-                    if (!view_detail::read_int(*f, out.startup, err, "scalars", "uint16")) return false;
+                    if (!view_detail::read_int(*f, out.startup, err, "scalars", "uint16")) {
+                        failed = true;
+                        err = nullptr;
+                    }
                     seen |= uint64_t{1} << 0;
                     break;
                 case "damage"_hash:
                     if (tag.str() != "damage") break;
-                    if (!view_detail::read_float(*f, out.damage, err, "scalars", "float")) return false;
+                    if (!view_detail::read_float(*f, out.damage, err, "scalars", "float")) {
+                        failed = true;
+                        err = nullptr;
+                    }
                     seen |= uint64_t{1} << 1;
                     break;
                 case "name"_hash:
                     if (tag.str() != "name") break;
-                    if (!view_detail::read_string(*f, out.name, err, "scalars")) return false;
+                    if (!view_detail::read_string(*f, out.name, err, "scalars")) {
+                        failed = true;
+                        err = nullptr;
+                    }
                     seen |= uint64_t{1} << 2;
                     break;
                 case "button"_hash:
                     if (tag.str() != "button") break;
-                    if (!view_detail::read_symbol(*f, out.button, err, "scalars")) return false;
+                    if (!view_detail::read_symbol(*f, out.button, err, "scalars")) {
+                        failed = true;
+                        err = nullptr;
+                    }
                     seen |= uint64_t{1} << 3;
                     break;
                 case "armored"_hash:
                     if (tag.str() != "armored") break;
-                    if (!view_detail::read_bool(*f, out.armored, err, "scalars")) return false;
+                    if (!view_detail::read_bool(*f, out.armored, err, "scalars")) {
+                        failed = true;
+                        err = nullptr;
+                    }
                     seen |= uint64_t{1} << 4;
                     break;
                 default: break;
@@ -50,7 +68,7 @@ struct ViewReader<views_test::Scalars> {
             if (err) *err = view_detail::missing(record, "scalars", view_detail::first_missing(seen, kRequired));
             return false;
         }
-        return true;
+        return !failed;
     }
 };
 
@@ -63,3 +81,15 @@ struct Convert<views_test::Scalars> {
 };
 
 }  // namespace baker
+
+namespace views_test {
+
+inline constexpr baker::ViewFixup kScalarsFixups[] = {
+    {offsetof(views_test::Scalars, name), baker::ViewFixupKind::String, baker::ViewFixup::Element::Int32, 0, {}, nullptr, nullptr},
+    {offsetof(views_test::Scalars, button), baker::ViewFixupKind::Symbol, baker::ViewFixup::Element::Int32, 0, {}, nullptr, nullptr},
+};
+constexpr std::span<const baker::ViewFixup> views_test::Scalars::fixups() noexcept {
+    return kScalarsFixups;
+}
+
+}  // namespace views_test

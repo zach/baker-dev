@@ -10299,3 +10299,197 @@ Merging is unchanged: data in the field relies on it.
   twice; six layers that stay quiet; the pushed stack reading the old list; `diff` telling
   apart two layers with the same first row. `test_config_tools.cpp`: `check()` over a
   stack warns at the mod's file, and is quiet without it.
+## D292. Baked tables, step 1: the fix-up lists, `kAt`, and packed lists
+
+*`dev/tables-plan.md` step 1, the first of W2 (D269). The plan's open questions, answered
+by the owner before this step: Q1 the image is written by the kit's `bake` on the game's
+binary; Q2 a non-literal view field reads as its default with a located error; Q3
+`register_tables` in a generated `tables.hpp`.*
+
+- **The seam between the library and the generated struct is a fix-up list.** Each
+  generated view declares `static constexpr std::span<const ViewFixup> fixups()`, defined
+  in its reader header (`<shape>_read.hpp`), where `offsetof` sees a complete type and
+  `ViewReader<T>` exists: one entry per member that points outside the struct, by offset
+  and kind (`Symbol`, `String`, `Curve`, `List` with its element type, `Int32`, `Float`,
+  `Bool`, `Symbol`, `String`, `Curve` or `Struct`, and `sizeof(V)`; `Struct` with the
+  nested view's own list and its reader behind a `ViewRead` pointer, `read_erased<V>`).
+  A view with none returns an empty span and defines no array. With it the table builder,
+  writer and loader are type-erased in `baker::data`: they never see `T`, only bytes, the
+  list, and the reader pointers for nested views. The struct header stays light: a file
+  that only names a view reaches no reader.
+- **`kAt` and `kKeyed`** on the struct: the shape's `(@at ...)` as written (`*` kept) and
+  whether it is keyed, so a table finds its records without the shape set at run time.
+  `kAt` is data, not tool text, so shipping keeps it.
+- **`ListView<V>::packed(elements, size)`** uses the word W1 reserved: a list over a
+  table's converted `V[]`, read directly; `elements()` gives the span, empty for a list
+  that reads from the tree. `at()` past the end is a located-free range error.
+- **Golden headers** regenerated; the data tests read a packed list and check the lists
+  the generator wrote for `move` against `offsetof` and `sizeof`.
+- **Costs.** None at load or lookup: the lists are `constexpr` data the linker keeps only
+  where a table is registered; a tree-backed list tests one word it tested before.
+
+## D293. Baked tables, step 2: `Table<T>` in memory
+
+*`dev/tables-plan.md` step 2.*
+
+- **`Table<T>` is a handle, not a `Ref<const Table<T>>`.** The block is a type-erased
+  `BakedTable` the Config owns through a `Ref`; `Table<T>` wraps that `Ref` and types the
+  rows. The spec's `Ref<const Table<T>>` would have cast a `BakedTable` to a derived type it
+  never was; the handle reads the same (`moves[i]`, `moves.index_of(...)`) and copies as a
+  `Ref` does. `add_table<T>(cfg)` hands the Config a `TableSpec` (digest, `kAt`, `sizeof`,
+  `alignof`, the fix-up list, an erased constructor and reader); `table<T>(cfg)` finds the
+  block by digest, so shipping, which keeps no view names, reads the same way.
+- **One block, two passes.** The builder walks the merged tree along `kAt` (`*` matching
+  any tag) for the governing arrays, in tree order; each child array with a tag is a row.
+  Pass one reads each record into a temporary row and measures the pool through the
+  fix-up list (strings, curve points, list elements, nested views' own); then one
+  allocation holds the header, the rows, the pool, each row's tags and ID, and the three
+  indices; pass two reads each row in place and relocates it. A list's elements are
+  converted once into a packed `V[]` (`ListView::packed`), a nested element read through
+  the fix-up's reader and constructor.
+- **The indices.** Keys: the FNV hash of a row's wildcard tags and key, sorted, verified on
+  a hit against the row's own tags; an `(@aka ...)` adds an entry flagged as an alias
+  whose key it keeps. IDs: sorted `(RecordId, row)`. Parents: `(last wildcard tag, first,
+  count)`, one per governing array.
+- **Rebuilt by identity, in `commit` and `apply_edits`.** A slot keeps the governing
+  arrays it was built from; a new root that holds the same objects (the merge shares what
+  it did not change, D75) keeps the block. A Config with no slot pays one empty test.
+- **The generated reader reads on past a failed field.** `ViewReader<T>::read` kept
+  returning at the first failure, which left a record's later fields at their defaults;
+  now it keeps the first error, reads the rest, and returns false. `read_view` is
+  unchanged for its callers (an error is an error); a table's row keeps every good field.
+- **Tests.** The data tests build from the golden `move` and a new wildcard-free `item`
+  view: rows, packed lists, nested views and curves relocated (a string's bytes are the
+  table's, not the tree's), every `index_of`, `children_of`, a rebuild under a retune with
+  a held handle keeping its block, stable then renumbered indices, a live edit at
+  `apply_edits`, late registration, a second registration refused, a non-literal field
+  with a located error, and a read that allocates nothing; the allocation gate builds and
+  rebuilds a table through a counting allocator with no `operator new`.
+- **Costs.** None without a registered table. Step 5 measures the reads.
+
+## D294. Baked tables, step 3: `register_tables` in the generated `tables.hpp`
+
+*`dev/tables-plan.md` step 3.*
+
+- **`tables.hpp`,** written beside `views.hpp` by `baker_bake --views`: `register_tables
+  (Config&)` calls `add_table<T>` for every view of a `(@keyed)` shape, reaching each one's
+  reader header, and returns the first refusal. `views.hpp` stays the light header (plan
+  Q3). A project with no keyed view gets a function that registers nothing.
+- **The kit registers the game's tables.** `CommandHooks::tables` and `LiveOptions::tables`
+  take the generated function; `Live::open` calls it before the load, and every command's
+  Config has the tables. `Config::table_errors()` gives the last build's errors (a field
+  that is not a literal), and `check` counts them as shape errors, so a record a table
+  cannot read whole fails the check (plan Q2's second half).
+- **Tests.** The views project registers through `tables.hpp` and reads its bosses (the
+  golem's `hp` under its old name) and items; the bake test expects the file; the host
+  test game registers its new `pet` table, and `check` fails on `(hp {heal})` with the
+  record's path.
+- **Also** a sanitizer finding of step 2's: relocating an empty string passed its null
+  data pointer to `memcpy`; the copy is skipped for an empty view.
+
+## D295. Baked tables, step 4: the stack image and the kit's `bake`
+
+*`dev/tables-plan.md` step 4.*
+
+- **A container, not a cache format bump.** `game.datb` is `MOIRA.IMG1`: a header (version,
+  endianness, pointer size, section count, a hash of the file) and sections of two kinds,
+  each named: a layer's tree as the bytes `write_cache` writes (the cache's format and
+  loader untouched, a per-layer cache what it was), and a table's block. The plan's
+  section directory inside a version-9 cache would have reached into `load`'s one-pass
+  walk for little; a section holding a whole cache loads through `read_cache_bytes`, one
+  copy into its arena.
+- **A table section is the block with a relocation list.** The block's bytes as built,
+  then, for every slot the fix-up list and the indices say holds a pointer or a symbol, a
+  record: a packed list's data pointer, a string's bytes, a curve's points (through the
+  curve's friend, `curve_access.hpp`, which the tree reader now shares), each as an
+  offset; a symbol by index into the section's names. The header's own pointers are not
+  relocated: the section records the rows', tags', ids' and indices' offsets, and the
+  loader places a fresh header and sets them. The loader checks the digest, `sizeof(T)`
+  and a hash of the fix-up list before it reads a byte, and every offset against the
+  block, so a damaged or foreign section is refused with a reason.
+- **`ConfigOptions::stack_image` and `open_project`.** With it set, `open_project` first
+  calls `Config::push_image_layers`: the leading project layers the image holds are pushed
+  from it as trees, each with its project options, with table builds held; then each
+  registered slot takes the image's matching section or, with a warning naming why, is
+  built from the tree. The layers after them push as today, and rebuild the tables they
+  touch by identity (D293), since the image's trees are what they merge over.
+- **`bake --baker-stack FILE`** in the kit: the project read, every layer not in `(views
+  (layers ...))` left out of the load, the game's tables registered through
+  `CommandHooks::tables`, the image written by `write_stack_image`. A table built with
+  errors is not shipped: the bake fails on it. `CommandHooks::config` carries the
+  `ConfigOptions` each command's Config is made with, so a game's `--image` flag can open
+  commands from the image (the test game does).
+- **Tests.** A two-layer project baked and opened from the image with an overlay above:
+  the overlay's table rebuilt, the untouched one the image's with its strings, packed
+  lists and symbols fixed up, keys and IDs found; an image lacking a view's table warns
+  and builds it; a truncated image is refused; the kit bakes the test stack, opens `eval`
+  and `check` from the image after the file changed, and refuses without the flag.
+
+## D296. Baked tables, step 5: the assembly test, the benchmark rows, and the review
+
+*`dev/tables-plan.md` step 5.*
+
+- **The assembly test.** `tests/codegen/check_table_read.cmake` compiles a row read by
+  index and a find by key to assembly: by index, six instructions and no call or branch
+  (the handle's block, the rows pointer and row size, the multiply, the member's load),
+  at most ten allowed; by key, one call, into the table's index. GCC and Clang, as the
+  tweak read's test runs.
+- **The rows,** `bench_view`, best of 7 within a run, three runs on a quiet machine, a
+  table of 8 parents and 128 rows:
+
+  | row | W2 |
+  |---|---:|
+  | table[i].damage, by index | 0.65–0.68 ns |
+  | table.index_of("fighter3.move7"), a path parsed each call | 71–75 ns |
+  | table.index_of(path), a Path held | 23–24 ns |
+  | table.index_of(id), a record id | 6.9–7.4 ns |
+  | table.children_of(fighter3), a parent | 12–13 ns |
+  | the tree: try_get("fighters.fighter3.moves.move7").damage | 94–100 ns |
+  | read_view<Scalars>, 5 fields (W1's reader, unchanged) | 38.9 ns |
+
+  The text form of a path lookup parses and interns per call: a hot read holds the
+  `Path`, the `Symbol` or the `RecordId`, or the index; the header and the docs say so.
+- **The no-cost rows,** `tools/bench_compare.py --base 04c5052` (main after W3), 5 runs a
+  side, medians (min–max): `try_find (array)` 9.56 to 9.54 ns, `find_float` 10.4 to 10.5
+  ns, `try_find, 1000 children` 194.1 to 193.9 ns, `read_string` 78.9 to 75.9 us,
+  `push_layer (tree)` 96.6 to 93.7 us, `push_layer_text` 175.0 to 168.1 us, `check_layer`
+  361.4 to 354.6 us, `Config layer, fresh cache` 6.85 to 6.95 ms, `Config reload,
+  unchanged small file` 2216 to 2208 ns, `parse` 28.3 to 28.2 ms, `read_view<Move>` 86.7
+  to 85.3 ns. `tools/count_instructions.py --base 04c5052`: every case unchanged (`parse`
+  1,897,732 = 1,897,732, `lookup` 209 = 209, `merge` 1,223,754 = 1,223,754) but `set`
+  686 to 667 and `check` +0.01%. A Config with no table registered pays one empty test
+  per commit, and the rows show it.
+- **The review** (the TD skill over the design and the diff): the hot read is as the
+  spec asked; the text-form lookup is the one hot-path string, now documented as the
+  tool's form; `children_of`'s linear scan over parents and the 24-byte key entries are
+  recorded as gaps 48 and 49; the image load copies each layer's cache into its arena
+  and the table's block once, then one relocation pass, a load-path cost the cache
+  already pays; the generated reader's read-on-past-failure adds one flag to a load-path
+  function. Nothing to fix before the merge.
+- **Also** the image test's wording under shipping, which keeps no view names.
+
+## D297. Baked tables, step 6: the example, the docs and the record
+
+*`dev/tables-plan.md` step 6, the last of W2.*
+
+- **The example.** `examples/content-tables` registers its moves through the generated
+  `register_tables`, finds `slam` by path and by its old key, and, given a file name,
+  writes the contract layers and the table as a stack image and opens a second Config from
+  it; its test runs in shipping builds too, where the image is what ships.
+- **The docs.** `docs/language.md` (Tables: the handle, finding a row, rebuilding by
+  identity, literals only, the image), `docs/cookbook.md` (the build's `tables.hpp`, the
+  example), `docs/tools.md` (`bake`, `CommandHooks::tables` and `config`).
+- **What W2 changed in the spec,** all recorded in the plan: `Table<T>` is a handle, not a
+  `Ref` to a derived block (D293); the image is a container of caches and table sections,
+  not a cache format bump (D295); the kit's `bake` writes it, not `baker_bake --stack`
+  (plan Q1); `register_tables` lives in `tables.hpp` (Q3); a non-literal field reads as
+  the default with an error (Q2).
+- **Changelog lines for the next release.**
+  - Baked tables: `Table<T>` over a viewed keyed shape's records, built from the merged
+    tree at each change and read by index, key, path, ID and parent; `add_table<T>` and
+    the generated `register_tables`.
+  - The stack image: `bake --baker-stack` in the host kit, `ConfigOptions::stack_image`,
+    `write_stack_image`.
+  - Views carry `kAt`, `kKeyed` and `fixups()`; `ListView` reads a packed list; a
+    generated reader reads on past a failed field.
+  - `CommandHooks::tables` and `CommandHooks::config`.

@@ -689,7 +689,9 @@ for (baker::Symbol into : jab->cancel_into) ...   // a ListView<Symbol> over the
   `(@cxx_name N)` names a member or the struct when the data's name is not a C++ name. A
   field marked `(@view no)` stays out of the struct and is read from the tree as before; an
   `any` field must be. An absent `@optional` field reads as zero, `false` or empty: views
-  hold no `std::optional`.
+  hold no `std::optional`. Beside the digest, a struct carries `kAt` (its shape's `(@at
+  ...)`, as written), `kKeyed`, and `fixups()`, the members that point outside the struct,
+  which a baked table relocates into its own pool (Tables, below).
 - **Reading.** `read_view<T>(cfg, path)` and `read_view<T>(record)` return an `Expected<T>`:
   a value of the wrong type, outside its member's range, or a list of the wrong count is a
   located error naming the field; a required field missing names it too. The generated
@@ -708,6 +710,52 @@ for (baker::Symbol into : jab->cancel_into) ...   // a ListView<Symbol> over the
   shape warning, or an error under `--baker-strict-views`.
 - A softer pack may not leave a field out of a view, change its C++ type or rename its
   member (as it may not loosen a range). Views cost nothing unless generated and read.
+
+### Tables: a keyed shape's records, packed
+
+A viewed `(@keyed)` shape's records can be read as one packed array of its struct, built
+from the merged tree once per change instead of walked per read (D293):
+
+```cpp
+#include "move_read.hpp"
+#include <baker/table.hpp>
+
+baker::add_table<game::Move>(cfg);               // before the load; or register_tables(cfg)
+cfg.push_layer(...);
+baker::Table<game::Move> moves = baker::table<game::Move>(cfg);
+if (auto i = moves.index_of("kestrel.jab")) {   // the path below the table
+    const game::Move& jab = moves[*i];           // one indexed load; at(i) checks
+    for (baker::Symbol into : jab.cancel_into) ...  // a packed list, the table's own
+}
+for (uint32_t i : moves.children_of("kestrel"_sym)) ...   // one parent's records
+```
+
+- **One block.** The rows, in the merged tree's order and grouped by parent, then a pool
+  the rows' strings, lists and curves point into, then the indices: by key (an alias of a
+  renamed record resolves too), by `(@id ...)`, and by parent. A `Table<T>` handle keeps
+  the block it was given: a reload that rebuilds the table takes nothing from a reader
+  holding the old one. The block comes from the Config's allocator.
+- **Finding a row.** `index_of(key)` for a shape whose `(@at ...)` has no `*`;
+  `index_of("kestrel.jab")` or a `Path` for the tags the `*` segments stand for and then
+  the key; `index_of(id)`; `children_of(parent)` is a contiguous range. `key_of(i)` and
+  `id_of(i)` read back. The text form parses and interns on every call: a read that runs
+  every frame holds the `Path`, the `Symbol` or the `RecordId`, or better, the index. An index is stable across a reload while the table's set of
+  records is unchanged; a record added, removed or reordered renumbers what follows it.
+- **Rebuilt by identity.** Every merge, reload and `apply_edits()` rebuilds a table whose
+  governing arrays the new tree does not share, and no other; a Config with no table
+  registered builds none. Registering after the load builds at once.
+- **Literals only.** A view field holding a `{command}`, a `$variable` or a value of the
+  wrong type reads as the member's default, with a located error to the warning handler;
+  the record's other fields still read, and the kit's `check` fails. A field marked
+  `(@view no)` is never in the table.
+- **Shipped as an image.** The kit's `bake --baker-stack game.datb`, run on the game's own
+  binary, writes the contract layers' trees and every registered table as one file
+  (D295); a Config made with `ConfigOptions::stack_image` takes those layers from it in
+  `open_project`, in place of their text, and the tables with them, their pointers fixed
+  up and their symbols interned in one pass. A table the game no longer compiles alike
+  (another digest, size or fix-up list) is skipped with a warning and built from the
+  tree. Layers above the contract (mods, overlays) push as today and rebuild the tables
+  they touch. Development builds never need the file.
 
 ## Script
 
