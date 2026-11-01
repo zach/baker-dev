@@ -10329,3 +10329,41 @@ binary; Q2 a non-literal view field reads as its default with a located error; Q
   record's path.
 - **Also** a sanitizer finding of step 2's: relocating an empty string passed its null
   data pointer to `memcpy`; the copy is skipped for an empty view.
+
+## D294. Baked tables, step 4: the stack image and the kit's `bake`
+
+*`dev/tables-plan.md` step 4.*
+
+- **A container, not a cache format bump.** `game.datb` is `MOIRA.IMG1`: a header (version,
+  endianness, pointer size, section count, a hash of the file) and sections of two kinds,
+  each named: a layer's tree as the bytes `write_cache` writes (the cache's format and
+  loader untouched, a per-layer cache what it was), and a table's block. The plan's
+  section directory inside a version-9 cache would have reached into `load`'s one-pass
+  walk for little; a section holding a whole cache loads through `read_cache_bytes`, one
+  copy into its arena.
+- **A table section is the block with a relocation list.** The block's bytes as built,
+  then, for every slot the fix-up list and the indices say holds a pointer or a symbol, a
+  record: a packed list's data pointer, a string's bytes, a curve's points (through the
+  curve's friend, `curve_access.hpp`, which the tree reader now shares), each as an
+  offset; a symbol by index into the section's names. The header's own pointers are not
+  relocated: the section records the rows', tags', ids' and indices' offsets, and the
+  loader places a fresh header and sets them. The loader checks the digest, `sizeof(T)`
+  and a hash of the fix-up list before it reads a byte, and every offset against the
+  block, so a damaged or foreign section is refused with a reason.
+- **`ConfigOptions::stack_image` and `open_project`.** With it set, `open_project` first
+  calls `Config::push_image_layers`: the leading project layers the image holds are pushed
+  from it as trees, each with its project options, with table builds held; then each
+  registered slot takes the image's matching section or, with a warning naming why, is
+  built from the tree. The layers after them push as today, and rebuild the tables they
+  touch by identity (D292), since the image's trees are what they merge over.
+- **`bake --baker-stack FILE`** in the kit: the project read, every layer not in `(views
+  (layers ...))` left out of the load, the game's tables registered through
+  `CommandHooks::tables`, the image written by `write_stack_image`. A table built with
+  errors is not shipped: the bake fails on it. `CommandHooks::config` carries the
+  `ConfigOptions` each command's Config is made with, so a game's `--image` flag can open
+  commands from the image (the test game does).
+- **Tests.** A two-layer project baked and opened from the image with an overlay above:
+  the overlay's table rebuilt, the untouched one the image's with its strings, packed
+  lists and symbols fixed up, keys and IDs found; an image lacking a view's table warns
+  and builds it; a truncated image is refused; the kit bakes the test stack, opens `eval`
+  and `check` from the image after the file changed, and refuses without the flag.

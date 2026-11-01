@@ -4,6 +4,7 @@
 #include <baker/table.hpp>
 
 #include "common/containers.hpp"
+#include "curve_access.hpp"
 #include "markers.hpp"
 #include "table_build.hpp"
 #include "text.hpp"
@@ -220,6 +221,20 @@ Str record_path(std::span<const Symbol> at, const Symbol* wild, Symbol key) {
 // --- BakedTable ---
 
 struct BakedTable::Layout {
+    struct Fields {
+        const Symbol* tags;
+        const RecordId* ids;
+        const KeyEntry* keys;
+        uint32_t key_count;
+        const IdEntry* idx;
+        uint32_t id_count;
+        const ParentEntry* parents;
+        uint32_t parent_count;
+    };
+    static Fields fields(const BakedTable& t) noexcept {
+        return {t.tags_,     t.ids_,      t.keys_,    t.key_count_,
+                t.id_index_, t.id_count_, t.parents_, t.parent_count_};
+    }
     static BakedTable* place(char* block, size_t bytes, const Allocator& alloc) {
         auto* t = new (block) BakedTable();
         t->alloc_ = &alloc;
@@ -472,6 +487,300 @@ Ref<const BakedTable> build_table(TableSlot& slot, const Array& root, const Allo
     BakedTable::Layout::set(*table, rows, spec.row_size, wildcards, spec.digest, block + rows_at,
                             tags, ids, keys, key_count, idx, id_count, parents, parent_count);
     return Ref<const BakedTable>::adopt(table);
+}
+
+}  // namespace detail
+}  // namespace baker
+
+// --- The image's table section (D294) ---
+
+namespace baker {
+
+namespace {
+
+// A section: digest u64, row_size u32, rows u32, fixups u64, block u32, wildcards u32,
+// the block's layout as offsets (rows, tags, ids, keys, key_count, idx, id_count, parents,
+// parent_count: u32 each), then the names (u32 count; u32 length + bytes, each padded to 8),
+// then the block's bytes (padded to 8), then the relocations (u32 count; u32 offset, u32
+// kind, u32 value each).
+enum class RelocKind : uint32_t { Pointer, String, Curve, Symbol };
+struct Reloc {
+    uint32_t offset, kind, value;
+};
+
+template <class T>
+void put(Str& out, const T& v) {
+    out.append(std::string_view(reinterpret_cast<const char*>(&v), sizeof v));
+}
+template <class T>
+bool get(std::string_view in, size_t& at, T& v) {
+    if (in.size() - at < sizeof v) return false;
+    std::memcpy(&v, in.data() + at, sizeof v);
+    at += sizeof v;
+    return true;
+}
+
+uint64_t fixups_hash(std::span<const ViewFixup> fixups, uint64_t h = 1469598103934665603ULL) {
+    for (const ViewFixup& f : fixups) {
+        const uint64_t words[] = {f.offset, static_cast<uint64_t>(f.kind),
+                                  static_cast<uint64_t>(f.element), f.element_size};
+        for (const uint64_t w : words) {
+            h ^= w;
+            h *= 1099511628211ULL;
+        }
+        h = fixups_hash(f.nested, h);
+    }
+    return h;
+}
+
+// Collects the block's relocations: every pointer into the block and every symbol, as the
+// fix-ups and the indices say where they are.
+struct Collector {
+    const char* base;
+    size_t bytes;
+    Vec<Reloc>& relocs;
+    Vec<Symbol>& names;
+
+    [[nodiscard]] uint32_t name_of(Symbol s) {
+        if (s.empty()) return UINT32_MAX;
+        for (uint32_t i = 0; i < names.size(); ++i)
+            if (names[i] == s) return i;
+        names.push_back(s);
+        return static_cast<uint32_t>(names.size() - 1);
+    }
+    [[nodiscard]] uint32_t offset_of(const void* p) const noexcept {
+        return static_cast<uint32_t>(static_cast<const char*>(p) - base);
+    }
+    void symbol(const char* at) {
+        Symbol s;
+        std::memcpy(&s, at, sizeof(Symbol));
+        relocs.push_back({offset_of(at), static_cast<uint32_t>(RelocKind::Symbol), name_of(s)});
+    }
+    void run(const char* row, std::span<const ViewFixup> fixups) {
+        for (const ViewFixup& f : fixups) {
+            const char* at = row + f.offset;
+            switch (f.kind) {
+                case ViewFixupKind::Symbol: symbol(at); break;
+                case ViewFixupKind::String: {
+                    std::string_view s;
+                    std::memcpy(&s, at, sizeof(std::string_view));
+                    if (s.data())
+                        relocs.push_back({offset_of(at), static_cast<uint32_t>(RelocKind::String),
+                                          offset_of(s.data())});
+                    break;
+                }
+                case ViewFixupKind::Curve: {
+                    Curve c;
+                    std::memcpy(&c, at, sizeof(Curve));
+                    if (!c.empty())
+                        relocs.push_back(
+                            {offset_of(at), static_cast<uint32_t>(RelocKind::Curve), 0});
+                    break;
+                }
+                case ViewFixupKind::Struct: run(at, f.nested); break;
+                case ViewFixupKind::List: {
+                    RawList raw{};
+                    std::memcpy(&raw, at, sizeof(RawList));
+                    if (!raw.packed || !raw.data) break;
+                    relocs.push_back({offset_of(at), static_cast<uint32_t>(RelocKind::Pointer),
+                                      offset_of(raw.data)});
+                    const auto* elements = static_cast<const char*>(raw.data);
+                    for (uint32_t i = 0; i < raw.size; ++i) {
+                        const char* e = elements + size_t{i} * f.element_size;
+                        switch (f.element) {
+                            case ViewFixup::Element::Symbol: symbol(e); break;
+                            case ViewFixup::Element::String: {
+                                const ViewFixup one{0,
+                                                    ViewFixupKind::String,
+                                                    ViewFixup::Element::Int32,
+                                                    0,
+                                                    {},
+                                                    nullptr,
+                                                    nullptr};
+                                run(e, std::span<const ViewFixup>(&one, 1));
+                                break;
+                            }
+                            case ViewFixup::Element::Curve: {
+                                const ViewFixup one{0,
+                                                    ViewFixupKind::Curve,
+                                                    ViewFixup::Element::Int32,
+                                                    0,
+                                                    {},
+                                                    nullptr,
+                                                    nullptr};
+                                run(e, std::span<const ViewFixup>(&one, 1));
+                                break;
+                            }
+                            case ViewFixup::Element::Struct: run(e, f.nested); break;
+                            default: break;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    }
+};
+
+}  // namespace
+
+namespace detail {
+
+void record_table_sources(TableSlot& slot, const Array& root, const Allocator& alloc) {
+    Vec<Governed> found(alloc);
+    Vec<Symbol> tags(alloc);
+    Walker w{{slot.at.data(), slot.at.size()}, found, tags, Vec<Symbol>(alloc)};
+    w.walk(root, 0);
+    slot.sources.clear();
+    for (const Governed& g : found) slot.sources.push_back(g.parent);
+}
+
+Expected<void> write_table(const BakedTable& table, const TableSpec& spec, Str& out) {
+    const auto* base = reinterpret_cast<const char*>(&table);
+    const BakedTable::Layout::Fields f = BakedTable::Layout::fields(table);
+    Vec<Reloc> relocs;
+    Vec<Symbol> names;
+    Collector c{base, table.block_bytes(), relocs, names};
+    // The rows through the fix-ups, with a curve's points found through the reader.
+    for (uint32_t i = 0; i < table.size(); ++i)
+        c.run(static_cast<const char*>(table.row(i)), spec.fixups);
+    for (Reloc& r : relocs)
+        if (r.kind == static_cast<uint32_t>(RelocKind::Curve)) {
+            Curve curve;
+            std::memcpy(&curve, base + r.offset, sizeof(Curve));
+            r.value = c.offset_of(CurveReader::points(curve));
+        }
+    // The indices' symbols.
+    const size_t per_row = size_t{table.wildcards()} + 1;
+    for (size_t i = 0; i < size_t{table.size()} * per_row; ++i)
+        c.symbol(reinterpret_cast<const char*>(f.tags + i));
+    for (uint32_t i = 0; i < f.key_count; ++i)
+        c.symbol(reinterpret_cast<const char*>(&f.keys[i].key));
+    for (uint32_t i = 0; i < f.parent_count; ++i)
+        c.symbol(reinterpret_cast<const char*>(&f.parents[i].tag));
+
+    out.clear();
+    put(out, spec.digest);
+    put(out, spec.row_size);
+    put(out, table.size());
+    put(out, fixups_hash(spec.fixups));
+    put(out, static_cast<uint32_t>(table.block_bytes()));
+    put(out, table.wildcards());
+    const uint32_t offsets[] = {c.offset_of(table.row(0)),
+                                c.offset_of(f.tags),
+                                c.offset_of(f.ids),
+                                c.offset_of(f.keys),
+                                f.key_count,
+                                c.offset_of(f.idx),
+                                f.id_count,
+                                c.offset_of(f.parents),
+                                f.parent_count};
+    for (const uint32_t o : offsets) put(out, o);
+    put(out, static_cast<uint32_t>(names.size()));
+    for (const Symbol s : names) {
+        put(out, static_cast<uint32_t>(s.str().size()));
+        out.append(s.str());
+        out.resize(aligned(out.size(), 8));
+    }
+    out.append(std::string_view(base, table.block_bytes()));
+    out.resize(aligned(out.size(), 8));
+    put(out, static_cast<uint32_t>(relocs.size()));
+    for (const Reloc& r : relocs) {
+        put(out, r.offset);
+        put(out, r.kind);
+        put(out, r.value);
+    }
+    return {};
+}
+
+Ref<const BakedTable> read_table(std::string_view in, const TableSpec& spec, const Allocator& alloc,
+                                 Error& why) {
+    const auto refuse = [&](std::string_view what) {
+        why = make_error(ErrorCode::Refused, what);
+        return Ref<const BakedTable>();
+    };
+    size_t at = 0;
+    uint64_t digest = 0, fixups = 0;
+    uint32_t row_size = 0, rows = 0, block_bytes = 0, wildcards = 0, offsets[9] = {},
+             name_count = 0;
+    if (!get(in, at, digest) || !get(in, at, row_size) || !get(in, at, rows) ||
+        !get(in, at, fixups) || !get(in, at, block_bytes) || !get(in, at, wildcards))
+        return refuse("a damaged table section");
+    if (digest != spec.digest) return refuse("another view's table");
+    if (row_size != spec.row_size) return refuse("the view's size differs");
+    if (fixups != fixups_hash(spec.fixups)) return refuse("the view's fix-up list differs");
+    for (uint32_t& o : offsets)
+        if (!get(in, at, o)) return refuse("a damaged table section");
+    if (!get(in, at, name_count)) return refuse("a damaged table section");
+    Vec<Symbol> names(alloc);
+    for (uint32_t i = 0; i < name_count; ++i) {
+        uint32_t len = 0;
+        if (!get(in, at, len) || in.size() - at < len) return refuse("a damaged table section");
+        names.emplace_back(in.substr(at, len));
+        at = aligned(at + len, 8);
+    }
+    if (in.size() - at < block_bytes) return refuse("a damaged table section");
+    const std::string_view block_bytes_in = in.substr(at, block_bytes);
+    at = aligned(at + block_bytes, 8);
+    uint32_t reloc_count = 0;
+    if (!get(in, at, reloc_count) || (in.size() - at) / sizeof(Reloc) < reloc_count)
+        return refuse("a damaged table section");
+    const size_t align = std::max<size_t>(spec.row_align, kPoolAlign);
+    for (const uint32_t o : offsets)
+        if (o > block_bytes) return refuse("a damaged table section");
+    char* block = static_cast<char*>(detail::allocate(alloc, block_bytes, align));
+    std::memcpy(block, block_bytes_in.data(), block_bytes);
+    BakedTable* table = BakedTable::Layout::place(block, block_bytes, alloc);
+    BakedTable::Layout::set(
+        *table, rows, row_size, wildcards, digest, block + offsets[0],
+        reinterpret_cast<const Symbol*>(block + offsets[1]),
+        reinterpret_cast<const RecordId*>(block + offsets[2]),
+        reinterpret_cast<const BakedTable::KeyEntry*>(block + offsets[3]), offsets[4],
+        reinterpret_cast<const BakedTable::IdEntry*>(block + offsets[5]), offsets[6],
+        reinterpret_cast<const BakedTable::ParentEntry*>(block + offsets[7]), offsets[8]);
+    Ref<const BakedTable> ref = Ref<const BakedTable>::adopt(table);
+    for (uint32_t i = 0; i < reloc_count; ++i) {
+        Reloc r{};
+        if (!get(in, at, r)) return refuse("a damaged table section");
+        if (r.offset + 8 > block_bytes) return refuse("a damaged table section");
+        char* slot = block + r.offset;
+        switch (static_cast<RelocKind>(r.kind)) {
+            case RelocKind::Pointer: {
+                if (r.value > block_bytes) return refuse("a damaged table section");
+                const void* p = block + r.value;
+                std::memcpy(slot, &p, sizeof p);
+                break;
+            }
+            case RelocKind::String: {
+                std::string_view s;
+                std::memcpy(&s, slot, sizeof(std::string_view));
+                if (r.value > block_bytes) return refuse("a damaged table section");
+                const std::string_view moved(block + r.value, s.size());
+                std::memcpy(slot, &moved, sizeof(std::string_view));
+                break;
+            }
+            case RelocKind::Curve: {
+                Curve curve;
+                std::memcpy(&curve, slot, sizeof(Curve));
+                if (r.value > block_bytes) return refuse("a damaged table section");
+                CurveReader::set_points(curve,
+                                        reinterpret_cast<const CurvePoint*>(block + r.value));
+                std::memcpy(slot, &curve, sizeof(Curve));
+                break;
+            }
+            case RelocKind::Symbol: {
+                const Symbol s = r.value == UINT32_MAX    ? Symbol()
+                                 : r.value < names.size() ? names[r.value]
+                                                          : Symbol();
+                if (r.value != UINT32_MAX && r.value >= names.size())
+                    return refuse("a damaged table section");
+                std::memcpy(slot, &s, sizeof(Symbol));
+                break;
+            }
+            default: return refuse("a damaged table section");
+        }
+    }
+    return ref;
 }
 
 }  // namespace detail

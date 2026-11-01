@@ -2,12 +2,14 @@
 
 #include <baker/host/commands.hpp>
 #include <baker/host/live.hpp>
+#include <baker/image.hpp>
 #include <baker/tools/format.hpp>
 #include <baker/tools/layers.hpp>
 #include <baker/tools/reference.hpp>
 #include <baker/tweak.hpp>
 
 #include "common/containers.hpp"
+#include "data/table_build.hpp"
 #include "data/text.hpp"
 #include "host/scenarios.hpp"
 
@@ -37,6 +39,8 @@ void out(std::string_view text) {
 void err(std::string_view text) {
     std::fwrite(text.data(), 1, text.size(), stderr);
 }
+
+bool write_whole(std::string_view path, std::string_view text);  // below
 TextSink stdout_sink() {
     return {[](void*, std::string_view text) { out(text); }, nullptr};
 }
@@ -44,7 +48,7 @@ TextSink stdout_sink() {
 // The game's data, as the commands see it: a fresh Context with the game's functions, and
 // the stack opened without watching.
 struct Loaded {
-    explicit Loaded(const CommandHooks& h) : hooks(h), live(ctx) {}
+    explicit Loaded(const CommandHooks& h) : hooks(h), live(ctx, h.config) {}
     Loaded(const Loaded&) = delete;
     Loaded& operator=(const Loaded&) = delete;
     ~Loaded() {
@@ -415,6 +419,61 @@ int assets(const CommandLine& line, const CommandHooks& hooks) {
     err("assets: this build has no baker::shape\n");
     return kCommandError;
 #endif
+}
+
+// bake --baker-stack FILE (D294): the contract layers ((views (layers ...))) loaded as the
+// game loads them, with its tables registered, written as one stack image for a shipped
+// build to open in place of the layers' text.
+int bake(const CommandLine& line, const CommandHooks& hooks) {
+    if (line.stack.empty()) {
+        err("bake writes the stack image: bake --baker-stack game.datb\n");
+        return kCommandError;
+    }
+    const std::string_view from = !line.project.empty() ? line.project : std::string_view(".");
+    Project read;
+    const Project* project = hooks.built;
+    if (const Symbol file = find_project(from, hooks.reader); !file.empty()) {
+        auto p = read_project(file.str(), hooks.reader);
+        if (!p) {
+            err("bake: " + Str(describe(p.error())) + "\n");
+            return kCommandError;
+        }
+        read = std::move(*p);
+        project = &read;
+    }
+    if (!project || project->views.layers.empty()) {
+        err("bake: the project names no (views (layers ...)): the image holds the contract "
+            "layers\n");
+        return kCommandError;
+    }
+    // The contract layers alone: every other layer is left out of the load.
+    CommandHooks mine = hooks;
+    for (const ProjectLayer& l : project->layers) {
+        bool contract = false;
+        for (const Symbol c : project->views.layers) contract = contract || c == l.name;
+        if (!contract && !mine.open.skip.add(l.name.str())) {
+            err("bake: too many layers to leave out of the image\n");
+            return kCommandError;
+        }
+    }
+    Loaded l(mine);
+    if (!load(l, line)) return kCommandError;
+    Str image;
+    if (auto r = write_stack_image(l.live.config(), project->views.layers.items(),
+                                   detail::str_out(image));
+        !r) {
+        err("bake: " + Str(describe(r.error())) + "\n");
+        return kCommandError;
+    }
+    if (!write_whole(line.stack, image.view())) {
+        err("bake: cannot write '" + Str(line.stack) + "'\n");
+        return kCommandError;
+    }
+    out("wrote " + Str(line.stack) + ": " +
+        detail::decimal(static_cast<int64_t>(project->views.layers.size())) + " layers, " +
+        detail::decimal(static_cast<int64_t>(detail::table_slots(l.live.config()).size())) +
+        " tables\n");
+    return 0;
 }
 
 int reference(const CommandLine& line, const CommandHooks& hooks) {
@@ -1496,7 +1555,7 @@ std::string_view* text_option(CommandLine& line, std::string_view a) {
         {"project", &line.project}, {"layer", &line.layer},   {"from", &line.layer},
         {"to", &line.to},           {"patch", &line.patch},   {"output", &line.output},
         {"results", &line.results}, {"before", &line.before}, {"after", &line.after},
-        {"mint-ids", &line.mint}};
+        {"mint-ids", &line.mint},   {"stack", &line.stack}};
     for (const auto& [name, into] : options)
         if (a == name) return into;
     return nullptr;
@@ -1578,6 +1637,7 @@ int dispatch(const CommandLine& line, const CommandHooks& hooks) {
     if (line.command == "check") return check(line, hooks);
     if (line.command == "reference") return reference(line, hooks);
     if (line.command == "assets") return assets(line, hooks);
+    if (line.command == "bake") return bake(line, hooks);
     if (line.command == "eval") return eval(line, hooks);
     if (line.command == "compare") return compare(line);
     if (line.command == "format") return format(line, hooks);
@@ -1615,6 +1675,8 @@ std::string_view command_help() noexcept {
            "                                 --baker-strict-views: a compiled view's drift too\n"
            "  assets                         every asset the stack names, as baker.assets/1;\n"
            "                                 exit 1 when one is not there\n"
+           "  bake --baker-stack FILE        the contract layers and the baked tables as one\n"
+           "                                 stack image, for a shipped build to open\n"
            "  reference [--baker-json]       the script vocabulary, as Markdown; --baker-json:\n"
            "                                 {reference, tweaks, shapes} as Baker's JSON\n"
            "  diff [--baker-layer L] [--baker-rows]\n"

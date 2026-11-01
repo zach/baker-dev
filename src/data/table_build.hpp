@@ -34,5 +34,18 @@ struct TableSlot {
 [[nodiscard]] Ref<const BakedTable> build_table(TableSlot& slot, const Array& root,
                                                 const Allocator& alloc,
                                                 const Callback<void(const Error&)>& warn);
+// Records in the slot the governing arrays `root` holds, without building: for a table
+// taken from an image, so the next change compares against them.
+void record_table_sources(TableSlot& slot, const Array& root, const Allocator& alloc);
+
+// The image's table section (image.hpp, D294): the block's bytes with every pointer as an
+// offset and every symbol by name, and what the reader checks against its own view.
+[[nodiscard]] Expected<void> write_table(const BakedTable& table, const TableSpec& spec, Str& out);
+// A block from a section, or null with `why` set: the section is not for `spec` (another
+// digest, row size or fix-up list) or is damaged.
+[[nodiscard]] Ref<const BakedTable> read_table(std::string_view bytes, const TableSpec& spec,
+                                               const Allocator& alloc, Error& why);
+// A Config's table slots, for the image writer.
+[[nodiscard]] std::span<const TableSlot> table_slots(const Config& cfg);
 
 }  // namespace baker::detail

@@ -3,13 +3,17 @@
 // views are tests/shape/views/, the golden headers.
 #include <doctest.h>
 #include <baker/config.hpp>
+#include <baker/image.hpp>
 #include <baker/parse.hpp>
+#include <baker/project.hpp>
+#include <baker/std_interop.hpp>
 #include <baker/table.hpp>
 
 #include "alloc_counter.hpp"
 #include "item_read.hpp"
 #include "move_read.hpp"
 #include "ok.hpp"
+#include "temp_dir.hpp"
 
 #include <string>
 #include <vector>
@@ -213,4 +217,105 @@ TEST_CASE("reading a table allocates nothing") {
     }
     CHECK(first == Symbol("heavy"));
     CHECK(allocations == 0);
+}
+
+namespace {
+
+// A project of two contract layers and an overlay, written to `dir`.
+Project two_layers(test::TempDir& dir) {
+    Project p;
+    const std::string core = dir.write("core.dta", kFighters);
+    const std::string content = dir.write(
+        "content.dta",
+        "(fighters (wren (moves (poke (name \"Poke\")))))\n(items (sword (tag \"sharp\")))\n");
+    const std::string over =
+        dir.write("over.dta", "(fighters (kestrel (moves (jab (damage 5)))))\n");
+    std::vector<ProjectLayer> layers;
+    layers.push_back({.name = Symbol("core"), .path = Symbol(core)});
+    layers.push_back({.name = Symbol("content"), .path = Symbol(content)});
+    layers.push_back({.name = Symbol("over"), .path = Symbol(over), .optional = true});
+    p.layers = List<ProjectLayer>({layers.data(), layers.size()});
+    return p;
+}
+
+}  // namespace
+
+TEST_CASE("a stack image holds the contract layers and the tables, and a Config opens from it") {
+    test::TempDir dir;
+    const Project project = two_layers(dir);
+    // The build: the contract layers alone, the tables built over them.
+    std::string image;
+    {
+        Config build({.tweaks = nullptr});
+        REQUIRE(add_table<Move>(build));
+        REQUIRE(add_table<Item>(build));
+        REQUIRE(build.push_layer("core", project.layers[0].path.str()));
+        REQUIRE(build.push_layer("content", project.layers[1].path.str()));
+        const Symbol contract[] = {Symbol("core"), Symbol("content")};
+        REQUIRE(write_stack_image(build, contract, string_out(image)));
+        CHECK(image.substr(0, 10) == "MOIRA.IMG1");
+    }
+    const std::string path = dir.write("game.datb", image);
+    // The game: the contract layers from the image, the overlay from its file.
+    Config cfg({.tweaks = nullptr, .stack_image = path});
+    std::vector<std::string> warnings;
+    cfg.set_warning_handler([&](const Error& e) { warnings.push_back(text(e)); });
+    REQUIRE(add_table<Move>(cfg));
+    REQUIRE(add_table<Item>(cfg));
+    REQUIRE(open_project(cfg, project));
+    CHECK(warnings.empty());
+    CHECK(cfg.layers().size() == 4);  // core, content, over, scratch
+    CHECK(ok(cfg.get<float>("fighters.kestrel.moves.jab.damage")) == 5.0f);
+    const Table<Move> moves = table<Move>(cfg);
+    const Table<Item> items = table<Item>(cfg);
+    REQUIRE(moves.size() == 4);
+    // The overlay touched the moves, so they were rebuilt from the tree; the items are the
+    // image's block, strings and lists fixed up.
+    CHECK(moves[0].damage == 5.0f);
+    CHECK(moves[3].name == "Poke");
+    CHECK(moves.index_of("kestrel.slam") == 1);
+    CHECK(moves.id_of(0) == *RecordId::parse("a0000000000000000000000000000001"));
+    REQUIRE(items.size() == 2);
+    CHECK(items[1].tag == "sharp");
+    CHECK(items[0].tag == "heals");
+    CHECK(items[0].sizes.is_packed());
+    CHECK(items[0].sizes[2] == 3);
+    CHECK(items.index_of(Symbol("sword")) == 1);
+    CHECK(items.key_of(0) == Symbol("potion"));
+    // A layer pushed above rebuilds the table it touches.
+    REQUIRE(cfg.push_layer_text("live", "(items (sword (price 1)))"));
+    CHECK(table<Item>(cfg)[1].price == 1.0f);
+    CHECK(table<Item>(cfg)[1].tag == "sharp");
+}
+
+TEST_CASE("an image's table that does not match the compiled view is skipped, with a warning") {
+    test::TempDir dir;
+    const Project project = two_layers(dir);
+    std::string image;
+    {
+        Config build({.tweaks = nullptr});
+        REQUIRE(add_table<Item>(build));  // the image has items, and no moves
+        REQUIRE(build.push_layer("core", project.layers[0].path.str()));
+        REQUIRE(build.push_layer("content", project.layers[1].path.str()));
+        const Symbol contract[] = {Symbol("core"), Symbol("content")};
+        REQUIRE(write_stack_image(build, contract, string_out(image)));
+    }
+    const std::string path = dir.write("game.datb", image);
+    Config cfg({.tweaks = nullptr, .stack_image = path});
+    std::vector<std::string> warnings;
+    cfg.set_warning_handler([&](const Error& e) { warnings.push_back(text(e)); });
+    REQUIRE(add_table<Move>(cfg));
+    REQUIRE(add_table<Item>(cfg));
+    REQUIRE(open_project(cfg, project));
+    REQUIRE(warnings.size() == 1);
+    CHECK(warnings[0].find("no table for move") != std::string::npos);
+    CHECK(warnings[0].find("built from the tree") != std::string::npos);
+    CHECK(table<Move>(cfg).size() == 4);  // built from the tree
+    CHECK(table<Item>(cfg).size() == 2);  // the image's
+    // A damaged image is refused.
+    const std::string broken = dir.write("broken.datb", image.substr(0, image.size() / 2));
+    Config bad({.tweaks = nullptr, .stack_image = broken});
+    auto r = open_project(bad, project);
+    REQUIRE_FALSE(r);
+    CHECK(text(r.error()).find("damaged") != std::string::npos);
 }

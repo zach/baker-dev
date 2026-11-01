@@ -273,6 +273,8 @@ struct Config::Impl {
     ConfigOptions options;
     WriteOptions layout{};           // of the text it writes (D263)
     Str cache_dir{alloc};            // options.cache_dir views this
+    Str stack_image{alloc};          // options.stack_image views this
+    bool hold_tables = false;        // while an image's layers push: no build per push
     mutable Str scan{alloc};         // changed()'s buffer, kept so that a poll allocates nothing
     mutable Vec<Str> listed{alloc};  // the same for a directory's listing
     // Every merge's temporaries, reused: a merge allocates only the arrays it keeps (D127).

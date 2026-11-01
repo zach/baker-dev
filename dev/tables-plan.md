@@ -146,6 +146,10 @@ can bake its own image in its test.
   header (§4 Q3).
 - A `{command}` in a view field reads as the default with a located error, rather than
   failing the build (§4 Q2).
+- The image is a container of its own (`MOIRA.IMG1`) holding each layer's cache as
+  `write_cache` writes it and each table's block with a relocation list, rather than a
+  cache format version 9 with a section directory: the cache's format and loader are
+  untouched, and a per-layer cache stays what it was (D294).
 
 ## 3. Steps
 

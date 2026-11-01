@@ -20,12 +20,16 @@ int main(int argc, char** argv) {
                      baker::to_string(line.error()).data());
         return baker::host::kCommandError;
     }
-    // The game's own flag: --extra FILE, checked beside its data.
-    std::string_view scenario;
-    for (size_t i = 0; i + 1 < line->rest.size(); ++i)
+    // The game's own flags: --extra FILE, checked beside its data; --image FILE, the stack
+    // image to open the contract layers from (D294).
+    std::string_view scenario, image;
+    for (size_t i = 0; i + 1 < line->rest.size(); ++i) {
         if (line->rest[i] == "--extra") scenario = line->rest[i + 1];
+        if (line->rest[i] == "--image") image = line->rest[i + 1];
+    }
 
     baker::host::CommandHooks hooks;
+    hooks.config.stack_image = image;
     hooks.bind = [](baker::Context& ctx) {
         (void)ctx.func("spawn", [](baker::Symbol, int64_t n) { return n; });
         ctx.global("score", baker::Node(int64_t{0}), "The score.");

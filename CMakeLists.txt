@@ -141,6 +141,7 @@ add_library(baker_data
   src/data/view.cpp
   src/data/record_id.cpp
   src/data/table.cpp
+  src/data/image.cpp
   src/data/config.cpp
   src/data/config_loop.cpp
   src/data/config_write.cpp

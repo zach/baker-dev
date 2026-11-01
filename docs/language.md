@@ -735,6 +735,14 @@ for (uint32_t i : moves.children_of("kestrel"_sym)) ...   // one parent's record
   wrong type reads as the member's default, with a located error to the warning handler;
   the record's other fields still read, and the kit's `check` fails. A field marked
   `(@view no)` is never in the table.
+- **Shipped as an image.** The kit's `bake --baker-stack game.datb`, run on the game's own
+  binary, writes the contract layers' trees and every registered table as one file
+  (D294); a Config made with `ConfigOptions::stack_image` takes those layers from it in
+  `open_project`, in place of their text, and the tables with them, their pointers fixed
+  up and their symbols interned in one pass. A table the game no longer compiles alike
+  (another digest, size or fix-up list) is skipped with a warning and built from the
+  tree. Layers above the contract (mods, overlays) push as today and rebuild the tables
+  they touch. Development builds never need the file.
 
 ## Script
 
