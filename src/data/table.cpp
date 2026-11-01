@@ -113,7 +113,7 @@ struct Relocator {
                 case ViewFixupKind::Symbol: break;
                 case ViewFixupKind::String: string(at); break;
                 case ViewFixupKind::Curve: curve(at); break;
-                case ViewFixupKind::Struct: run(at, f.nested); break;
+                case ViewFixupKind::Struct: run(at, f.nested_fixups()); break;
                 case ViewFixupKind::List: list(at, f); break;
             }
         }
@@ -194,7 +194,7 @@ struct Relocator {
                     if (f.init) f.init(into);
                     if (const Array* ea = v[i].try_array(); ea && f.read)
                         (void)f.read(*ea, into, nullptr);
-                    run(into, f.nested);
+                    run(into, f.nested_fixups());
                     break;
                 }
             }
@@ -528,7 +528,7 @@ uint64_t fixups_hash(std::span<const ViewFixup> fixups, uint64_t h = 14695981039
             h ^= w;
             h *= 1099511628211ULL;
         }
-        h = fixups_hash(f.nested, h);
+        h = fixups_hash(f.nested_fixups(), h);
     }
     return h;
 }
@@ -577,7 +577,7 @@ struct Collector {
                             {offset_of(at), static_cast<uint32_t>(RelocKind::Curve), 0});
                     break;
                 }
-                case ViewFixupKind::Struct: run(at, f.nested); break;
+                case ViewFixupKind::Struct: run(at, f.nested_fixups()); break;
                 case ViewFixupKind::List: {
                     RawList raw{};
                     std::memcpy(&raw, at, sizeof(RawList));
@@ -594,7 +594,8 @@ struct Collector {
                                                     ViewFixupKind::String,
                                                     ViewFixup::Element::Int32,
                                                     0,
-                                                    {},
+                                                    nullptr,
+                                                    0,
                                                     nullptr,
                                                     nullptr};
                                 run(e, std::span<const ViewFixup>(&one, 1));
@@ -605,13 +606,14 @@ struct Collector {
                                                     ViewFixupKind::Curve,
                                                     ViewFixup::Element::Int32,
                                                     0,
-                                                    {},
+                                                    nullptr,
+                                                    0,
                                                     nullptr,
                                                     nullptr};
                                 run(e, std::span<const ViewFixup>(&one, 1));
                                 break;
                             }
-                            case ViewFixup::Element::Struct: run(e, f.nested); break;
+                            case ViewFixup::Element::Struct: run(e, f.nested_fixups()); break;
                             default: break;
                         }
                     }

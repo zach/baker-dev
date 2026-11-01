@@ -60,10 +60,17 @@ struct ViewFixup {
     // List: the elements' type. Int32, Float and Bool are copied; the rest as above.
     enum class Element : uint8_t { Int32, Float, Bool, Symbol, String, Curve, Struct };
     Element element = Element::Int32;
-    uint32_t element_size = 0;          // List: sizeof(V)
-    std::span<const ViewFixup> nested;  // Struct, or a List of structs: that view's fixups()
-    ViewRead read = nullptr;            // Struct, or a List of structs: that view's reader
-    ViewInit init = nullptr;            // and its default constructor
+    uint32_t element_size = 0;  // List: sizeof(V)
+    // Struct, or a List of structs: that view's fixups(), as a pointer and a count (a span
+    // of the type being defined is not complete enough for every standard library).
+    const ViewFixup* nested = nullptr;
+    uint32_t nested_count = 0;
+    ViewRead read = nullptr;  // Struct, or a List of structs: that view's reader
+    ViewInit init = nullptr;  // and its default constructor
+
+    [[nodiscard]] std::span<const ViewFixup> nested_fixups() const noexcept {
+        return {nested, nested_count};
+    }
 };
 
 // Tool text a view carries: its name. Shipping keeps none of it (D256).

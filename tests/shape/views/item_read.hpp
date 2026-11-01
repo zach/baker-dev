@@ -67,8 +67,8 @@ struct Convert<views_test::Item> {
 namespace views_test {
 
 inline constexpr baker::ViewFixup kItemFixups[] = {
-    {offsetof(views_test::Item, tag), baker::ViewFixupKind::String, baker::ViewFixup::Element::Int32, 0, {}, nullptr, nullptr},
-    {offsetof(views_test::Item, sizes), baker::ViewFixupKind::List, baker::ViewFixup::Element::Int32, sizeof(int32_t), {}, nullptr, nullptr},
+    {offsetof(views_test::Item, tag), baker::ViewFixupKind::String, baker::ViewFixup::Element::Int32, 0, nullptr, 0, nullptr, nullptr},
+    {offsetof(views_test::Item, sizes), baker::ViewFixupKind::List, baker::ViewFixup::Element::Int32, sizeof(int32_t), nullptr, 0, nullptr, nullptr},
 };
 constexpr std::span<const baker::ViewFixup> views_test::Item::fixups() noexcept {
     return kItemFixups;

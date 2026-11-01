@@ -345,15 +345,15 @@ Str fixups_text(const Set& set, const Shape& s, const ViewOptions& o) {
     for (const Field& f : s.fields) {
         if (!in_view(f)) continue;
         const Str offset = "offsetof(" + sn + ", " + member_name(f) + ")";
-        Str nested_fixups = "{}", nested_read = "nullptr";
+        Str nested_fixups = "nullptr, 0", nested_read = "nullptr";
         if (const Shape* n = f.shape.empty() ? nullptr : set.find(f.shape)) {
             const Str nn = Str(o.ns) + "::" + struct_name(*n);
-            nested_fixups = nn + "::fixups()";
+            nested_fixups = nn + "::fixups().data(), " + nn + "::fixups().size()";
             nested_read = "&baker::view_detail::read_erased<" + nn +
                           ">, &baker::view_detail::init_erased<" + nn + ">";
         }
         // Every member of the fix-up spelled, so no build warns of a missing initializer.
-        const Str none = ", baker::ViewFixup::Element::Int32, 0, {}, nullptr, nullptr}";
+        const Str none = ", baker::ViewFixup::Element::Int32, 0, nullptr, 0, nullptr, nullptr}";
         if (f.type == Type::Symbol || f.type == Type::Key) {
             fixups.push_back("{" + offset + ", baker::ViewFixupKind::Symbol" + none);
         } else if (f.type == Type::String || f.type == Type::Asset) {
@@ -382,7 +382,7 @@ Str fixups_text(const Set& set, const Shape& s, const ViewOptions& o) {
             fixups.push_back("{" + offset + ", baker::ViewFixupKind::List, " +
                              "baker::ViewFixup::Element::" + element + ", sizeof(" +
                              scalar_type(f.element, {}, set, f.shape, o) + "), " +
-                             (nested ? nested_fixups : Str("{}")) + ", " +
+                             (nested ? nested_fixups : Str("nullptr, 0")) + ", " +
                              (nested ? nested_read : Str("nullptr, nullptr")) + "}");
         }
     }

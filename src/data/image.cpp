@@ -152,8 +152,8 @@ Expected<void> write_stack_image(const Config& cfg, std::span<const Symbol> laye
         detail::append_section(image, detail::ImageSection::Kind::Layer, layer.str(), bytes.view());
         ++sections;
     }
-    for (const Error& e : cfg.table_errors())  // a table built with errors is not shipped
-        return Unexpected(e);
+    const List<Error> table_errors = cfg.table_errors();  // built with errors: not shipped
+    if (!table_errors.empty()) return Unexpected(table_errors[0]);
     for (const detail::TableSlot& slot : detail::table_slots(cfg)) {
         if (!slot.built) continue;
         Str bytes;

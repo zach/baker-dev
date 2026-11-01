@@ -85,8 +85,8 @@ struct Convert<views_test::Scalars> {
 namespace views_test {
 
 inline constexpr baker::ViewFixup kScalarsFixups[] = {
-    {offsetof(views_test::Scalars, name), baker::ViewFixupKind::String, baker::ViewFixup::Element::Int32, 0, {}, nullptr, nullptr},
-    {offsetof(views_test::Scalars, button), baker::ViewFixupKind::Symbol, baker::ViewFixup::Element::Int32, 0, {}, nullptr, nullptr},
+    {offsetof(views_test::Scalars, name), baker::ViewFixupKind::String, baker::ViewFixup::Element::Int32, 0, nullptr, 0, nullptr, nullptr},
+    {offsetof(views_test::Scalars, button), baker::ViewFixupKind::Symbol, baker::ViewFixup::Element::Int32, 0, nullptr, 0, nullptr, nullptr},
 };
 constexpr std::span<const baker::ViewFixup> views_test::Scalars::fixups() noexcept {
     return kScalarsFixups;

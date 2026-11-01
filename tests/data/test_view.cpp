@@ -121,7 +121,7 @@ TEST_CASE("a packed list, a baked table's, reads its elements directly (D292)") 
     CHECK(fixups[2].read == nullptr);
     CHECK(fixups[2].element_size == sizeof(Symbol));
     CHECK(fixups[3].kind == ViewFixupKind::Struct);
-    CHECK(fixups[3].nested.empty());  // vec2 has two floats
+    CHECK(fixups[3].nested_count == 0);  // vec2 has two floats
     CHECK(fixups[3].read != nullptr);
     CHECK(fixups[4].element == ViewFixup::Element::Struct);
     CHECK(fixups[4].element_size == sizeof(views_test::Vec2));
