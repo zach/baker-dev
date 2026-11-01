@@ -305,9 +305,10 @@ TEST_CASE("a pin and a verb's warnings read a list of records as the list below 
     CHECK(held);
 }
 
-TEST_CASE(
-    "a layer over a list of same-tagged records: the check warns, and effect and diff say "
-    "what folded (D291)") {
+// The warning and the folded counts are for the tools: a shipping build compiles them out.
+BAKER_DEV_TEST_CASE(
+    "a layer over a list of same-tagged records: the check warns, and effect "
+    "and diff say what folded (D291)") {
     TempDir dir;
     Config cfg({.tweaks = nullptr});
     REQUIRE(cfg.push_layer(

@@ -335,8 +335,9 @@ void check(const Config& cfg, const Context& ctx, CheckReport& report, const Che
     if (!o.packs) o.packs = &cfg.read_session();
     check(std::span<const Array* const>(trees.data(), trees.size()), ctx, report, o);
     // Each enabled layer over the ones below it: a list of same-tagged records it folds into
-    // one (D291). A merge a layer, as the Config's root is built.
-    {
+    // one (D291). A merge a layer, as the Config's root is built; for the tools, not a
+    // shipped game.
+    if constexpr (!kShipping) {
         Vec<Error> folds(report.warnings.begin(), report.warnings.end());
         const size_t before = folds.size();
         Ref<Array> stack = Array::make(0);

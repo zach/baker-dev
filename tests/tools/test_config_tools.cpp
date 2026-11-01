@@ -8,6 +8,7 @@
 #include <baker/tools/console.hpp>
 #include <baker/tools/std_tools.hpp>
 
+#include "dev_only.hpp"
 #include "temp_dir.hpp"
 
 #include <string>
@@ -190,7 +191,7 @@ TEST_CASE("curve.sample reads a path's curve and samples it") {
     CHECK_FALSE(f.ctx.eval("{curve.sample nosuch 1}", "test"));
 }
 
-TEST_CASE("check warns of a layer that folds a list of same-tagged records (D291)") {
+BAKER_DEV_TEST_CASE("check warns of a layer that folds a list of same-tagged records (D291)") {
     TempDir dir;
     Config cfg({.tweaks = nullptr});
     REQUIRE(cfg.push_layer(
