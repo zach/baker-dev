@@ -626,6 +626,9 @@ public:
     // `*`-free keyed parent to find.
     Expected<void> add_table(const TableSpec& spec);
     [[nodiscard]] Ref<const BakedTable> table_block(uint64_t digest) const noexcept;
+    // The errors the last build of each table reported (a field that is not a literal, a
+    // wrong type), located, as the warning handler saw them: for a tool's report.
+    [[nodiscard]] List<Error> table_errors() const;
     void freeze() noexcept { frozen_ = true; }
     [[nodiscard]] bool frozen() const noexcept { return frozen_; }
 

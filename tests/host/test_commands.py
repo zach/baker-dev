@@ -218,6 +218,17 @@ def renames(s):
     default.write_text(text)
 
 
+def tables(s):
+    """The game's baked tables register with each command's Config; a record a table cannot read fails check (D293)."""
+    code, out, err = s.run("check", agent="(pets (dog (hp {heal})))\n")
+    r = json.loads(out)
+    expect(code == 1 and any("'hp'" in e["message"] and e.get("path") == "pets.dog"
+                             for e in r["shape_errors"]),
+           f"a view field that is not a literal is a shape error from the table's build: {err} {out}")
+    code, out, _ = s.run("check", agent="(pets (cat (hp 2)))\n")
+    expect(code == 0, "a record a table reads whole passes")
+
+
 def assets(s):
     """assets: every asset the stack names, baker.assets/1; check fails on a missing one (D289)."""
     code, out, err = s.run("assets", agent="")
@@ -414,7 +425,7 @@ def main():
         print(__doc__)
         return 2
     writes = shipping if sys.argv[3:] == ["shipping"] else diff_and_promote
-    for case in (check, views, aliases, renames, mint_ids, rename, assets, reference, eval_json, writes, host_io, scenarios, command_line,
+    for case in (check, views, aliases, renames, mint_ids, rename, assets, tables, reference, eval_json, writes, host_io, scenarios, command_line,
                  format_files):
         case(Stack(sys.argv[1], sys.argv[2]))
     print(f"{len(FAILURES)} failures" if FAILURES else "all passed")

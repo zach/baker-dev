@@ -1,6 +1,6 @@
 #pragma once
 
-// Baked tables (dev/schema-layer-spec.md W2, D269, D292): a viewed (@keyed) shape's records
+// Baked tables (D269, D292, the schema layer's W2): a viewed (@keyed) shape's records
 // as a packed array of its view struct, built from the merged tree once per change and
 // read without walking it.
 //

@@ -10,7 +10,7 @@
 namespace baker::detail {
 
 struct TableSlot {
-    explicit TableSlot(const Allocator& a) : at(a), sources(a) {}
+    explicit TableSlot(const Allocator& a) : at(a), sources(a), errors(a) {}
     TableSlot(TableSlot&&) noexcept = default;
     TableSlot& operator=(TableSlot&&) noexcept = default;
     TableSpec spec;
@@ -19,6 +19,7 @@ struct TableSlot {
     // The arrays whose children are the records, in tree order, as of the last build: a
     // tree that shares them all has the same records.
     Vec<const Array*> sources;
+    Vec<Error> errors;  // the last build's, as given to the warning handler
 };
 
 // Reads the spec's `at` into the slot; refused when it has no segment (a keyed shape is

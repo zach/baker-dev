@@ -206,6 +206,8 @@ error, so a misspelling is caught.
 
 Each runs on a fresh Context with your functions bound (`CommandHooks::bind`), the stack
 opened as the game opens it, and, for `eval`, your state reset (`CommandHooks::reset`).
+`CommandHooks::tables` (the generated `register_tables`) registers your baked tables with
+each command's Config, so `check` fails on a record a table cannot read whole.
 `sim` steps your game with `CommandHooks::step`, and `check` reads the project's scenarios
 and objectives with the data. A game that can only step inside its engine's main loop
 drives a `SimRun` from its frames instead ([how](sim-json.md#a-run-your-own-loop-advances)). `extra_trees` adds other files of your own to `check`. The exit status is 0, 1

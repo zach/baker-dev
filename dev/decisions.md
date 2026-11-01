@@ -10309,3 +10309,23 @@ binary; Q2 a non-literal view field reads as its default with a located error; Q
   with a located error, and a read that allocates nothing; the allocation gate builds and
   rebuilds a table through a counting allocator with no `operator new`.
 - **Costs.** None without a registered table. Step 5 measures the reads.
+
+## D293. Baked tables, step 3: `register_tables` in the generated `tables.hpp`
+
+*`dev/tables-plan.md` step 3.*
+
+- **`tables.hpp`,** written beside `views.hpp` by `baker_bake --views`: `register_tables
+  (Config&)` calls `add_table<T>` for every view of a `(@keyed)` shape, reaching each one's
+  reader header, and returns the first refusal. `views.hpp` stays the light header (plan
+  Q3). A project with no keyed view gets a function that registers nothing.
+- **The kit registers the game's tables.** `CommandHooks::tables` and `LiveOptions::tables`
+  take the generated function; `Live::open` calls it before the load, and every command's
+  Config has the tables. `Config::table_errors()` gives the last build's errors (a field
+  that is not a literal), and `check` counts them as shape errors, so a record a table
+  cannot read whole fails the check (plan Q2's second half).
+- **Tests.** The views project registers through `tables.hpp` and reads its bosses (the
+  golem's `hp` under its old name) and items; the bake test expects the file; the host
+  test game registers its new `pet` table, and `check` fails on `(hp {heal})` with the
+  record's path.
+- **Also** a sanitizer finding of step 2's: relocating an empty string passed its null
+  data pointer to `memcpy`; the copy is skipped for an empty view.

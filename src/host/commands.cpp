@@ -69,6 +69,7 @@ bool load(Loaded& l, const CommandLine& line) {
             return l.hooks.list(dir, entry) || LoadSession().lister()(dir, entry);
         };
     o.open = l.hooks.open;
+    o.tables = l.hooks.tables;
     o.watch = false;
     o.changed = l.hooks.changed;
     o.log = [](const Error& e) {
@@ -314,8 +315,10 @@ int check(const CommandLine& line, const CommandHooks& hooks) {
     shape::unused(*cfg.root(), shapes, shaped);  // a shape at the wrong depth checks nothing
     unused_aliases(cfg, shaped, report);         // an (@aka old) nothing names (D286)
     tools::check_rules(*cfg.root(), shapes, l.ctx, shaped);  // a broken rule fails the check
-    {  // an asset the lister cannot find fails the check (D289)
+    {  // an asset the lister cannot find fails the check (D289); so does a record a baked
+       // table could not read whole (D293)
         Vec<Error> errors(shaped.errors.begin(), shaped.errors.end());
+        for (const Error& e : cfg.table_errors()) errors.push_back(e);
         for (const AssetEdge& e : asset_edges(l, shapes)) {
             if (e.exists) continue;
             Error missing = make_error(ErrorCode::NotFound,

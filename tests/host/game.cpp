@@ -3,7 +3,8 @@
 #include <baker/host/commands.hpp>
 #include <baker/parse.hpp>
 #if BAKER_TEST_GAME_VIEWS
-#include "views.hpp"  // generated from the stack's shapes by the build (D282)
+#include "tables.hpp"  // generated from the stack's shapes by the build (D282, D293)
+#include "views.hpp"
 #endif
 
 #include <cstdio>
@@ -51,6 +52,7 @@ int main(int argc, char** argv) {
     hooks.open = skip_local;
 #if BAKER_TEST_GAME_VIEWS
     hooks.views = host_game::kViews;
+    hooks.tables = host_game::register_tables;
 #endif
 
     // --root DIR: the stack is read through the host's reader, as game://..., which names

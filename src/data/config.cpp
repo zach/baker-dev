@@ -1169,6 +1169,13 @@ Expected<void> Config::add_table(const TableSpec& spec) {
     return {};
 }
 
+List<Error> Config::table_errors() const {
+    Vec<Error> all;
+    for (const detail::TableSlot& s : impl_->tables)
+        for (const Error& e : s.errors) all.push_back(e);
+    return List<Error>({all.data(), all.size()});
+}
+
 Ref<const BakedTable> Config::table_block(uint64_t digest) const noexcept {
     for (const detail::TableSlot& s : impl_->tables)
         if (s.spec.digest == digest) return s.built;

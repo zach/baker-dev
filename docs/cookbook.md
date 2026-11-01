@@ -554,8 +554,10 @@ baker_generate_views(my_game PROJECT ${CMAKE_SOURCE_DIR}/data/baker-project.dta)
 
 - **What it writes,** under the build tree and on `my_game`'s include path: `move.hpp` (the
   struct and its digest, reaching only `<baker/view.hpp>`), `move_read.hpp` (its reader,
-  reaching `<baker/view_read.hpp>`, for the files that read), and `views.hpp` (every view,
-  and `game::kViews` for the drift check). Name a struct in many files and read it in one.
+  reaching `<baker/view_read.hpp>`, for the files that read), `views.hpp` (every view,
+  and `game::kViews` for the drift check), and `tables.hpp` (`game::register_tables(cfg)`,
+  which adds a baked table for every keyed view; include it where the Config is opened).
+  Name a struct in many files and read it in one.
 - **The contract** is the layers `(views (layers ...))` names: a mod, an overlay or a
   personal layer may add fields, which stay in the tree. `(shapes ...)` adds views for
   shapes not marked `(@view)`. The contract layers are the same in every build, so a

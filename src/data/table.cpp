@@ -123,7 +123,7 @@ struct Relocator {
         std::memcpy(&s, at, sizeof(std::string_view));
         char* p = pool.take(s.size() + 1);
         if (!p) return;
-        std::memcpy(p, s.data(), s.size());
+        if (!s.empty()) std::memcpy(p, s.data(), s.size());  // an empty view may point nowhere
         p[s.size()] = '\0';
         const std::string_view moved(p, s.size());
         std::memcpy(at, &moved, sizeof(std::string_view));
@@ -359,6 +359,7 @@ Ref<const BakedTable> build_table(TableSlot& slot, const Array& root, const Allo
     Walker w{at, found, wild, Vec<Symbol>(alloc)};
     w.walk(root, 0);
     slot.sources.clear();
+    slot.errors.clear();
     struct Record {
         const Array* array;
         uint32_t governed;
@@ -428,10 +429,11 @@ Ref<const BakedTable> build_table(TableSlot& slot, const Array& root, const Allo
         char* row = block + rows_at + size_t{i} * spec.row_size;
         spec.init(row);
         Error err;
-        if (!spec.read(*rec.array, row, warn ? &err : nullptr) && warn) {
+        if (!spec.read(*rec.array, row, &err)) {
             const Symbol* wild_tags = wild.data() + found[rec.governed].first_tag;
             err.set_path(record_path(at, wild_tags, rec.array->tag()).view());
-            warn(err);
+            slot.errors.push_back(err);
+            if (warn) warn(err);
         }
         r.run(row, spec.fixups);
         Symbol* row_tags = tags + size_t{i} * (wildcards + 1);

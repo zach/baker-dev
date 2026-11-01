@@ -121,6 +121,9 @@ struct CommandHooks {
     // the shape the project's contract layers declare, and reports one generated from
     // another layout as a shape warning, or an error under --baker-strict-views.
     std::span<const ViewInfo> views{};
+    // Registers the game's baked tables (the generated register_tables, D293) with each
+    // command's Config before its load, so check reports a record a table cannot bake.
+    Callback<Expected<void>(Config&)> tables{};
     // Resets the game's state with a seed, before eval runs its commands and before each
     // run of a scenario.
     Callback<void(Context&, uint64_t seed)> reset{};
