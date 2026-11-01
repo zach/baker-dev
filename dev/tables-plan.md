@@ -4,7 +4,7 @@
 and W3 (`dev/identity-plan.md`, D284, D286–D290). Terms are `dev/glossary.md`'s. The
 design note is §2; §3 is the steps, each committed green.*
 
-**Status: approved 2026-11-01; Q1 to Q3 as recommended; in progress.**
+**Status: approved 2026-11-01; Q1 to Q3 as recommended; done (D291–D296).**
 
 | Decision | Choice |
 |---|---|

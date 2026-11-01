@@ -5,14 +5,20 @@
 //
 //   baker_example_content_tables data/baker-project.dta
 #include <baker/config.hpp>
+#include <baker/image.hpp>
 #include <baker/project.hpp>
 #include <baker/shape.hpp>
+#include <baker/table.hpp>
 #include <baker/view_read.hpp>
 
 #include "move_read.hpp"  // generated: the struct and its reader
+#include "tables.hpp"     // generated: register_tables, a baked table per keyed view
 #include "views.hpp"      // generated: every view, and kViews for the drift check
 
+#include <baker/std_interop.hpp>
+
 #include <cstdio>
+#include <string>
 #include <string_view>
 
 namespace {
@@ -24,8 +30,8 @@ void print(std::string_view s) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    if (argc != 2) {
-        std::fprintf(stderr, "usage: %s data/baker-project.dta\n", argv[0]);
+    if (argc != 2 && argc != 3) {
+        std::fprintf(stderr, "usage: %s data/baker-project.dta [game.datb]\n", argv[0]);
         return 2;
     }
     auto project = baker::read_project(argv[1]);
@@ -34,6 +40,10 @@ int main(int argc, char** argv) {
         return 1;
     }
     baker::Config cfg({.tweaks = nullptr});
+    if (auto r = game::register_tables(cfg); !r) {  // before the load: a table per keyed view
+        print(baker::to_string(r.error()));
+        return 1;
+    }
     if (auto r = baker::open_project(cfg, *project); !r) {
         print(baker::to_string(r.error()));
         return 1;
@@ -101,6 +111,44 @@ int main(int argc, char** argv) {
         }
     }
     std::printf("%d moves read\n", moves);
+
+    // The same records as a baked table: one block, read by index, by path and by ID, built
+    // once per change instead of walked per read. Its rows are the structs above.
+    const baker::Table<game::Move> table = baker::table<game::Move>(cfg);
+    if (const auto i = table.index_of("kestrel.slam"))
+        std::printf("table: %u moves; slam is row %u, damage %.0f, id %s\n", table.size(), *i,
+                    table[*i].damage, table.id_of(*i).empty() ? "none" : "kept");
+    if (const auto i = table.index_of("kestrel.heavy"))  // the alias still finds it
+        std::printf("table: heavy is slam, row %u\n", *i);
+
+    // Shipping: the contract layers and the tables baked into one image (the host kit's
+    // `bake --baker-stack` does this on the game's binary), which a Config opens in place
+    // of the layers' text; the local layer, above the contract, loads as today.
+    if (argc == 3) {
+        std::string image;
+        if (auto r = baker::write_stack_image(cfg, project->views.layers.items(),
+                                              baker::string_out(image));
+            !r) {
+            print(baker::to_string(r.error()));
+            return 1;
+        }
+        if (std::FILE* f = std::fopen(argv[2], "wb")) {
+            std::fwrite(image.data(), 1, image.size(), f);
+            std::fclose(f);
+        }
+        baker::Config shipped({.tweaks = nullptr, .stack_image = argv[2]});
+        if (auto r = game::register_tables(shipped); !r) {
+            print(baker::to_string(r.error()));
+            return 1;
+        }
+        if (auto r = baker::open_project(shipped, *project); !r) {
+            print(baker::to_string(r.error()));
+            return 1;
+        }
+        const baker::Table<game::Move> baked = baker::table<game::Move>(shipped);
+        std::printf("image: %zu bytes, %u moves, jab cancels into %s\n", image.size(), baked.size(),
+                    baked[0].cancel_into[0].c_str());
+    }
 
     // A value of the wrong type is a located error naming the field, not a wrong struct.
     if (auto r = cfg.push_layer_text("agent", "(fighters (kestrel (moves (jab (startup fast)))))");

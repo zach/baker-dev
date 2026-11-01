@@ -606,7 +606,10 @@ Identity), and the host kit's commands do the rewriting:
   writes every edge as `baker.assets/1` for the pipeline.
 
 `examples/content-tables` does all four: `slam` was `heavy`, `startup` was `windup`, the
-jab names its icon, and the output shows each.
+jab names its icon, and the output shows each. It also registers its moves as a baked
+table, finds `slam` by path and by its old key, and, given a file name, writes the contract
+layers and the table as a stack image and opens a second Config from it, as a shipped
+build does (`docs/language.md`, Tables).
 
 ## Content packages: patches, DLC, and mods
 

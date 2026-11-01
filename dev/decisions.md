@@ -10367,3 +10367,72 @@ binary; Q2 a non-literal view field reads as its default with a located error; Q
   lists and symbols fixed up, keys and IDs found; an image lacking a view's table warns
   and builds it; a truncated image is refused; the kit bakes the test stack, opens `eval`
   and `check` from the image after the file changed, and refuses without the flag.
+
+## D295. Baked tables, step 5: the assembly test, the benchmark rows, and the review
+
+*`dev/tables-plan.md` step 5.*
+
+- **The assembly test.** `tests/codegen/check_table_read.cmake` compiles a row read by
+  index and a find by key to assembly: by index, six instructions and no call or branch
+  (the handle's block, the rows pointer and row size, the multiply, the member's load),
+  at most ten allowed; by key, one call, into the table's index. GCC and Clang, as the
+  tweak read's test runs.
+- **The rows,** `bench_view`, best of 7 within a run, three runs on a quiet machine, a
+  table of 8 parents and 128 rows:
+
+  | row | W2 |
+  |---|---:|
+  | table[i].damage, by index | 0.65–0.68 ns |
+  | table.index_of("fighter3.move7"), a path parsed each call | 71–75 ns |
+  | table.index_of(path), a Path held | 23–24 ns |
+  | table.index_of(id), a record id | 6.9–7.4 ns |
+  | table.children_of(fighter3), a parent | 12–13 ns |
+  | the tree: try_get("fighters.fighter3.moves.move7").damage | 94–100 ns |
+  | read_view<Scalars>, 5 fields (W1's reader, unchanged) | 38.9 ns |
+
+  The text form of a path lookup parses and interns per call: a hot read holds the
+  `Path`, the `Symbol` or the `RecordId`, or the index; the header and the docs say so.
+- **The no-cost rows,** `tools/bench_compare.py --base 04c5052` (main after W3), 5 runs a
+  side, medians (min–max): `try_find (array)` 9.56 to 9.54 ns, `find_float` 10.4 to 10.5
+  ns, `try_find, 1000 children` 194.1 to 193.9 ns, `read_string` 78.9 to 75.9 us,
+  `push_layer (tree)` 96.6 to 93.7 us, `push_layer_text` 175.0 to 168.1 us, `check_layer`
+  361.4 to 354.6 us, `Config layer, fresh cache` 6.85 to 6.95 ms, `Config reload,
+  unchanged small file` 2216 to 2208 ns, `parse` 28.3 to 28.2 ms, `read_view<Move>` 86.7
+  to 85.3 ns. `tools/count_instructions.py --base 04c5052`: every case unchanged (`parse`
+  1,897,732 = 1,897,732, `lookup` 209 = 209, `merge` 1,223,754 = 1,223,754) but `set`
+  686 to 667 and `check` +0.01%. A Config with no table registered pays one empty test
+  per commit, and the rows show it.
+- **The review** (the TD skill over the design and the diff): the hot read is as the
+  spec asked; the text-form lookup is the one hot-path string, now documented as the
+  tool's form; `children_of`'s linear scan over parents and the 24-byte key entries are
+  recorded as gaps 48 and 49; the image load copies each layer's cache into its arena
+  and the table's block once, then one relocation pass, a load-path cost the cache
+  already pays; the generated reader's read-on-past-failure adds one flag to a load-path
+  function. Nothing to fix before the merge.
+- **Also** the image test's wording under shipping, which keeps no view names.
+
+## D296. Baked tables, step 6: the example, the docs and the record
+
+*`dev/tables-plan.md` step 6, the last of W2.*
+
+- **The example.** `examples/content-tables` registers its moves through the generated
+  `register_tables`, finds `slam` by path and by its old key, and, given a file name,
+  writes the contract layers and the table as a stack image and opens a second Config from
+  it; its test runs in shipping builds too, where the image is what ships.
+- **The docs.** `docs/language.md` (Tables: the handle, finding a row, rebuilding by
+  identity, literals only, the image), `docs/cookbook.md` (the build's `tables.hpp`, the
+  example), `docs/tools.md` (`bake`, `CommandHooks::tables` and `config`).
+- **What W2 changed in the spec,** all recorded in the plan: `Table<T>` is a handle, not a
+  `Ref` to a derived block (D292); the image is a container of caches and table sections,
+  not a cache format bump (D294); the kit's `bake` writes it, not `baker_bake --stack`
+  (plan Q1); `register_tables` lives in `tables.hpp` (Q3); a non-literal field reads as
+  the default with an error (Q2).
+- **Changelog lines for the next release.**
+  - Baked tables: `Table<T>` over a viewed keyed shape's records, built from the merged
+    tree at each change and read by index, key, path, ID and parent; `add_table<T>` and
+    the generated `register_tables`.
+  - The stack image: `bake --baker-stack` in the host kit, `ConfigOptions::stack_image`,
+    `write_stack_image`.
+  - Views carry `kAt`, `kKeyed` and `fixups()`; `ListView` reads a packed list; a
+    generated reader reads on past a failed field.
+  - `CommandHooks::tables` and `CommandHooks::config`.
