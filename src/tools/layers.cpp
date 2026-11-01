@@ -22,6 +22,31 @@ Vec<Declaration> declared(const LayerState& l) {
         declarations_of(*l.after, l.root->file(), {l.deps.data(), l.deps.size()}, out);
     return out;
 }
+// The children after a leaf's holder in its array with its tag, which fold into it (D291).
+Vec<const Array*> folded_rows(const Leaf& l) {
+    Vec<const Array*> out;
+    if (l.folded == 0 || !l.parent) return out;
+    bool after = false;
+    for (const Node& n : *l.parent) {
+        const Array* c = n.try_array();
+        if (c == l.holder)
+            after = true;
+        else if (after && c && c->tag() == l.holder->tag() &&
+                 !(c->has_marker() && detail::composes(*c)))
+            out.push_back(c);
+    }
+    return out;
+}
+// Whether two leaves fold the same rows into their records.
+bool same_folded(const Leaf& x, const Leaf& y) {
+    if (x.folded != y.folded) return false;
+    const Vec<const Array*> fx = folded_rows(x), fy = folded_rows(y);
+    for (size_t i = 0; i < fx.size(); ++i)
+        if (!structurally_equal(Node(Ref<Array>(const_cast<Array*>(fx[i]))),
+                                Node(Ref<Array>(const_cast<Array*>(fy[i])))))
+            return false;
+    return true;
+}
 const Declaration* find_declared(const Vec<Declaration>& ds, const Declaration& like) {
     for (const Declaration& d : ds)
         if (d.directive == like.directive && d.name == like.name) return &d;
@@ -55,6 +80,7 @@ Expected<List<LayerEffectEntry>> layer_effect(const Config& cfg, std::string_vie
         const Path path(leaf.path);
         e.path = Symbol(leaf.path);
         e.values = list_of(leaf.values);
+        e.folded = leaf.folded;
         e.op = op_of(*leaf.holder);
         e.source = li ? impl.located(impl.layers[*li], *leaf.holder) : in_scratch;
         const bool verb = detail::composes(*leaf.holder);
@@ -119,20 +145,25 @@ Expected<List<DiffEntry>> diff(const Config& cfg, std::string_view a, std::strin
         const auto it = in_b.find(x.path);
         const Leaf* y = it != in_b.end() ? &lb[it->second] : nullptr;
         if (y) matched[it->second] = true;
-        if (y && same_nodes(x.values, y->values) && op_of(*x.holder) == op_of(*y->holder)) continue;
+        if (y && same_nodes(x.values, y->values) && op_of(*x.holder) == op_of(*y->holder) &&
+            same_folded(x, *y))
+            continue;
         DiffEntry d{Symbol(x.path), list_of(x.values), std::nullopt, source(a, x),
                     std::nullopt,   op_of(*x.holder),  Symbol(),     Symbol()};
+        d.folded_a = x.folded;
         if (y) {
             d.b = list_of(y->values);
             d.source_b = source(b, *y);
             d.op_b = op_of(*y->holder);
+            d.folded_b = y->folded;
         }
         out.push_back(std::move(d));
     }
     for (size_t i = 0; i < lb.size(); ++i)
         if (!matched[i])
             out.push_back({Symbol(lb[i].path), std::nullopt, list_of(lb[i].values), std::nullopt,
-                           source(b, lb[i]), Symbol(), op_of(*lb[i].holder), Symbol()});
+                           source(b, lb[i]), Symbol(), op_of(*lb[i].holder), Symbol(), 0,
+                           lb[i].folded});
     // The two layers' declarations, by directive and name (D261).
     auto decls_of = [&](std::string_view name) {
         const auto i = name == "scratch" ? std::nullopt : impl.find_layer(name);

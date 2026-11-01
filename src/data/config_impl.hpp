@@ -154,6 +154,10 @@ struct Leaf {
     Str path;  // dotted
     const Array* holder;
     Vec<Node> values;
+    // leaves_of: the children after the holder in its array with its tag, which merge into the
+    // holder's record (D291), and that array.
+    uint32_t folded = 0;
+    const Array* parent = nullptr;
 };
 
 // What a check was made against (CheckStamp): a layer's name with its text, or with its
@@ -185,6 +189,13 @@ void row_warnings(const Array& row, std::string_view path, const Vec<Node>* belo
                   const Array& stack, Vec<Error>& out);
 // Each tag's first child only, as lookup sees it, depth first.
 Vec<Leaf> leaves_of(const Array& root);
+// Where `layer`, merged over `below`, folds children into one record (D291). At each key the
+// layer shares with the stack: a tag the array below holds more than once, a list of records
+// of which the layer reaches only the first; or a tag the layer writes more than once with
+// values, which overwrite one another in one record. A warning for each, at the layer's first
+// child with the tag. Quiet for a key new to the stack (added whole), a table split across
+// rows (keys without values merge key by key, as written), a composing row and metadata.
+void fold_warnings(const Array& below, const Array& layer, Vec<Error>& out);
 
 // A declaration a layer's read made (D261): #shape (NAME ...), #pack (NAME ...) or
 // #origin ("source" ...), which the layer's tree does not hold, as the layer tools list it.

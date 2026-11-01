@@ -8,6 +8,7 @@
 #include <baker/tools/console.hpp>
 #include <baker/tools/std_tools.hpp>
 
+#include "dev_only.hpp"
 #include "temp_dir.hpp"
 
 #include <string>
@@ -188,4 +189,23 @@ TEST_CASE("curve.sample reads a path's curve and samples it") {
     CHECK(eval(f.ctx, "{curve.sample reward 9}") == "30.0");        // clamped
     CHECK_FALSE(f.ctx.eval("{curve.sample box.width 1}", "test"));  // not a curve
     CHECK_FALSE(f.ctx.eval("{curve.sample nosuch 1}", "test"));
+}
+
+BAKER_DEV_TEST_CASE("check warns of a layer that folds a list of same-tagged records (D291)") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer(
+        "default", dir.write("default.dta", "(waves (wave (count 3)) (wave (count 5)))\n")));
+    REQUIRE(cfg.push_layer("mod", dir.write("mod.dta", "(waves (wave (count 9)))\n")));
+    Context ctx;
+    CheckReport report;
+    check(cfg, ctx, report);
+    REQUIRE(report.warnings.size() == 1);
+    CHECK(std::string(report.warnings[0].message()).find("'waves' below holds 2 (wave ...)") == 0);
+    CHECK(report.warnings[0].file() == Symbol(dir.path("mod.dta")));
+    // Without the layer, nothing folds and the check is quiet.
+    REQUIRE(cfg.remove_layer("mod"));
+    CheckReport alone;
+    check(cfg, ctx, alone);
+    CHECK(alone.warnings.empty());
 }

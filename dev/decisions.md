@@ -10241,3 +10241,61 @@ not a load failure; `@renamed_from` is never applied at load; `rename` writes fi
   - `baker.shapes/1.8` (`renamed_from`, `asset`); `baker.format/1.1` (`rewrites`); a
     cache records its alias count.
   - Fixed: none shipped (the quadratic alias merge never reached a release).
+
+## D291. A layer over a list of same-tagged records: the check says it folds
+
+*From the Godot integration's requirement note 0022, which the owner chose to build.* A list
+written as records that repeat a tag, `(opening (build infantry) (build infantry) (build
+tank))`, reads whole in the layer that writes it: the bottom of a stack is merged into an
+empty tree, where the array is new and added whole. A layer above merges by tag, and a tag
+finds the first child that has it, so the layer's `(build ...)` merges into the first of
+the three, and a layer that restates the list in a new order folds every row into that one
+record. The stack reads the old list. `check` said nothing, `layer_effect` and `diff` listed
+only the first row (`leaves_of` takes each tag's first child), and an agent that reordered
+a build order saw its layer pass, its scenario fail, and `diff` call the key unchanged.
+Merging is unchanged: data in the field relies on it.
+
+- **The warning.** A walk of the layer against the stack below it, at every key the two
+  share (`folds`, in `config_check.cpp`):
+  - the array below holds the tag more than once: a list of records, of which the layer
+    reaches only the first. "'opening' below holds 3 (build ...), and the layer's merges
+    into the first of them: a list a layer changes is written as plain values, restated
+    whole, or extended with #append and #drop";
+  - or the layer writes the tag more than once there, and those rows hold values, which
+    overwrite one another in one record: "the layer writes 2 (a ...) in 'units', ...".
+
+  `ErrorCode::Syntax`, located at the layer's first row with the tag, its path set
+  (`opening.build`). Quiet for a key new to the stack (added whole), a table split across
+  rows, `(items (bow 2))` and `(items (axe 3))`, whose rows hold no values and merge key
+  by key as written, a row that composes or removes, and metadata. A warning, never an
+  error, as the note asked.
+- **Where.** `check_layer`, `check_layer_text` and `LayerChecker` add it to the report's
+  warnings, so `warnings_refuse` refuses such a candidate. The core `check()` walks each
+  enabled layer over the merge of those below it (one public `merge()` a layer, as the
+  Config builds its root) and adds it to `CheckReport::warnings`, which the host's `check`
+  writes. Not on a read or a push, and compiled out of a shipping build (`kShipping`), as
+  the pin warnings are (D267).
+- **What folded.** `LayerEffectEntry::folded` is the number of the layer's later rows with
+  the row's tag in its array, which merge into its record (`leaves_of` counts them).
+  `DiffEntry::folded_a` and `folded_b` give each layer's, and `diff` tells two layers apart
+  when their folded rows differ though their first rows agree. The console writes `(folded
+  N)` and `(folded_a N)`; the host's `diff` prints "folded N" and `--baker-rows` "N more
+  folded into it".
+- **Costs.** The walk asks each array once whether two children share a tag: the check's
+  finder notes it while indexing a wide array below, a wide array of the layer's sorts its
+  tag ids, a short one compares them pairwise, and only an array that repeats one is
+  counted. `collect_leaves` sorts a wide array's tag ids the same way and needs no hash of
+  them when none repeats, which the old first-row test always built. `tools/count_instructions.py`
+  against main, Release: `check` 3,577,511 to 3,933,089 (+9.9%), `check_pinned` 4,070,995 to
+  4,527,892 (+11.2%), every other case unchanged. A shipping build, which compiles the walk
+  out: `check` 3,556,688 to 3,412,314 (-4.1%), `check_pinned` 4,049,412 to 3,907,780 (-3.5%).
+  The first versions, a count of siblings a child, then a key table of each array below,
+  cost the check 22 times and 2.4 times main's.
+- **Not built.** The note's aside, the same warning for a bottom layer that declares such an
+  array under a path a `#shape` or a tweak reads as a list, is left for when a host asks:
+  nothing merges there, so nothing folds yet.
+- **Tests.** `test_layers.cpp`: the bottom layer keeps its list; a reordering layer's
+  warning, its text, path and line, and `folded`; a layer writing a record with values
+  twice; six layers that stay quiet; the pushed stack reading the old list; `diff` telling
+  apart two layers with the same first row. `test_config_tools.cpp`: `check()` over a
+  stack warns at the mod's file, and is quiet without it.
