@@ -348,7 +348,8 @@ Str fixups_text(const Set& set, const Shape& s, const ViewOptions& o) {
         Str nested_fixups = "nullptr, 0", nested_read = "nullptr";
         if (const Shape* n = f.shape.empty() ? nullptr : set.find(f.shape)) {
             const Str nn = Str(o.ns) + "::" + struct_name(*n);
-            nested_fixups = nn + "::fixups().data(), " + nn + "::fixups().size()";
+            nested_fixups =
+                nn + "::fixups().data(), static_cast<uint32_t>(" + nn + "::fixups().size())";
             nested_read = "&baker::view_detail::read_erased<" + nn +
                           ">, &baker::view_detail::init_erased<" + nn + ">";
         }
