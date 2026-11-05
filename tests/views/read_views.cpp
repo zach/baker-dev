@@ -68,12 +68,12 @@ int main(int argc, char** argv) {
     // The generated register_tables added both keyed views' tables (D294).
     const baker::Table<views_gen::Boss> bosses = baker::table<views_gen::Boss>(cfg);
     const baker::Table<views_gen::Item> items = baker::table<views_gen::Item>(cfg);
-    expect(bosses.size() == 2 && bosses.index_of("dragon") == 0 && bosses[0].hp == 4000 &&
+    expect(bosses.size() == 2 && bosses.index_of("dragon") == 0u && bosses[0].hp == 4000 &&
                bosses[1].hp == 2500,
            "the bosses table, the golem's hp read under its old name");
     expect(bosses[0].pos.y == 2.5f && bosses[0].tags.size() == 2 && bosses[0].hint == "Stay low",
            "a nested view, a packed list and a string in the table");
-    expect(items.size() == 2 && items.index_of(baker::Symbol("sword")) == 1 &&
+    expect(items.size() == 2 && items.index_of(baker::Symbol("sword")) == 1u &&
                items[1].price == 150.0f,
            "the items table, a listed view");
     return failures ? 1 : 0;
