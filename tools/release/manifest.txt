@@ -4,6 +4,8 @@
 # tools/release/public/ are laid over the result afterwards (the public CI, .gitignore).
 
 CMakeLists.txt
+# The CMake functions a game's build calls, baker_generate_views among them.
+cmake/**
 LICENSE
 README.md
 CHANGELOG.md
