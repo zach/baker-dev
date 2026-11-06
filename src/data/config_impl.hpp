@@ -57,8 +57,9 @@ struct LayerState {
     // again only if one changed. Unknown when a cache replayed it, which parses nothing.
     Vec<Symbol> tested;
     bool tested_known = false;
-    // Its tree holds an (@aka ...), or it was replayed from a cache, which counts none: the
-    // merge then resolves a key the stack lacks against the aliases below it (D286).
+    // Its tree holds an (@aka ...) or an (@id ...), or it was replayed from a cache written
+    // before the count: the merge then resolves a key the stack lacks against the aliases
+    // and IDs below it (D286, D302).
     bool aliases = false;
     // A directory of layers (push_layer_dir): its own layer, which holds nothing, is `dir`'s
     // marker, and the layers found in it stand directly above, each with `group` its name.

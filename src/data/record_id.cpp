@@ -38,6 +38,14 @@ void RecordId::write(char (&out)[kDigits]) const noexcept {
     }
 }
 
+Symbol detail::id_symbol(const Array& a) noexcept {
+    const Array* m = a.meta_first() ? a.meta(detail::id_tag()) : nullptr;
+    if (!m) return {};
+    const Values v = m->values();
+    const auto sym = v.size() == 1 ? v[0].try_sym() : std::nullopt;
+    return sym ? *sym : Symbol();
+}
+
 RecordId Array::record_id() const noexcept {
     const Array* m = meta(detail::id_tag());
     if (!m) return {};

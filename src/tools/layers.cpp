@@ -376,7 +376,7 @@ void json_source(Str& out, const Source& s) {
 }  // namespace
 
 void write_changes_json(const Config& cfg, TextSink out) {
-    Str json = "{\"schema\": \"baker.changes/1\", \"transactions\": [";
+    Str json = R"({"schema": "baker.changes/1", "transactions": [)";
     const size_t n = cfg.transaction_count();
     for (size_t i = 0; i < n; ++i) {
         const Transaction& t = cfg.transaction_at(i);
@@ -395,7 +395,7 @@ void write_changes_json(const Config& cfg, TextSink out) {
             const ChangeRecord& c = t.records[r];
             json += r ? ",\n    {\"kind\": \"" : "\n    {\"kind\": \"";
             json += kind_name(c.kind);
-            json += "\", \"path\": ";
+            json += R"(", "path": )";
             detail::json_string(json, c.path.str());
             json += ", \"id\": ";
             char hex[RecordId::kDigits];

@@ -184,7 +184,7 @@ void Config::Impl::close_change() {
                                                    : changes.ring[0].before;
     changes.ring.erase(changes.ring.begin() + static_cast<ptrdiff_t>(changes.done),
                        changes.ring.end());
-    changes.ring.push_back({std::move(t), std::move(before), snapshot()});
+    changes.ring.push_back({std::move(t), before, snapshot()});
     if (changes.ring.size() > changes.cap) changes.ring.erase(changes.ring.begin());
     changes.done = changes.ring.size();
 }
@@ -452,7 +452,7 @@ Expected<void> Config::undo() {
     if (!impl_->logging()) return Unexpected(refused("the change log is off: nothing to undo"));
     if (ch.done == 0) return Unexpected(make_error(ErrorCode::NotFound, "nothing to undo"));
     ch.quiet = true;
-    const auto r = restore(ch.ring[ch.done - 1].before);
+    auto r = restore(ch.ring[ch.done - 1].before);
     ch.quiet = false;
     if (!r) return r;
     ch.ring[--ch.done].t.undone = true;
@@ -466,7 +466,7 @@ Expected<void> Config::redo() {
     if (ch.done == ch.ring.size())
         return Unexpected(make_error(ErrorCode::NotFound, "nothing to redo"));
     ch.quiet = true;
-    const auto r = restore(ch.ring[ch.done].after);
+    auto r = restore(ch.ring[ch.done].after);
     ch.quiet = false;
     if (!r) return r;
     ch.ring[ch.done++].t.undone = false;

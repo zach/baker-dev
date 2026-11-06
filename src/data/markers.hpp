@@ -47,6 +47,9 @@ enum class Marker : uint8_t { None, Remove, Append, Drop };
     return s;
 }
 // A record's identity, (@id ...), and the keys it still answers to, (@aka ...) (D284).
+// The symbol an array's (@id ...) holds, as written, or empty: what a layer's child tagged
+// with the ID matches (D302). Array::record_id() parses it; this compares it.
+[[nodiscard]] Symbol id_symbol(const Array& a) noexcept;
 [[nodiscard]] inline const Symbol& id_tag() {
     static const Symbol s("@id");
     return s;

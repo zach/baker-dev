@@ -235,3 +235,56 @@ TEST_CASE("provenance follows the alias: source() names the layer that wrote the
     CHECK(s.layer == Symbol("overlay"));
     CHECK(ok(cfg.source("weapons.plasma.range")).layer == Symbol("base"));
 }
+
+TEST_CASE("a layer names a record by its ID, which merges into it and keeps its key (D302)") {
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(
+        cfg.push_layer_text("base",
+                            "(weapons (plasma (@id a7d2c41e9b06f58a3c1d2e4f60718293) (@aka laser)"
+                            "                 (damage 3) (range 9))"
+                            "         (cannon (@id b000000000000000000000000000000f) (damage 9))"
+                            "         (bow (damage 2)))"));
+    // By ID, by alias and by key, together.
+    REQUIRE(cfg.push_layer_text("overlay",
+                                "(weapons (a7d2c41e9b06f58a3c1d2e4f60718293 (damage 5))"
+                                "         (b000000000000000000000000000000f (damage 10))"
+                                "         (bow (damage 4)))"));
+    CHECK(ok(cfg.get<int>("weapons.plasma.damage")) == 5);
+    CHECK(ok(cfg.get<int>("weapons.plasma.range")) == 9);
+    CHECK(ok(cfg.get<int>("weapons.cannon.damage")) == 10);
+    CHECK(ok(cfg.get<int>("weapons.bow.damage")) == 4);
+    CHECK_FALSE(cfg.root()->try_get("weapons.a7d2c41e9b06f58a3c1d2e4f60718293"));
+    REQUIRE(cfg.push_layer_text("again", "(weapons (laser (damage 6)))"));
+    CHECK(ok(cfg.get<int>("weapons.plasma.damage")) == 6);
+    // Provenance follows the ID: the overlay's line answers for the merged path.
+    CHECK(ok(cfg.source("weapons.cannon.damage")).layer == Symbol("overlay"));
+    CHECK(ok(cfg.source("weapons.plasma.damage")).layer == Symbol("again"));
+    CHECK(ok(cfg.source("weapons.plasma.range")).layer == Symbol("base"));
+    // A tag that spells an ID no record carries is a new record, as any key is.
+    REQUIRE(cfg.push_layer_text("new", "(weapons (c000000000000000000000000000000c (damage 1)))"));
+    CHECK(ok(cfg.get<int>("weapons.c000000000000000000000000000000c.damage")) == 1);
+    // The check sees the merged tree: a shape over the records is checked as named.
+    const LayerReport r =
+        ok(cfg.check_layer_text("next", "(weapons (a7d2c41e9b06f58a3c1d2e4f60718293 (damage 8)))"));
+    CHECK(r.refusals.empty());
+    CHECK(r.ok());
+}
+
+TEST_CASE("a record by ID resolves through the indexed path too: a wide table") {
+    std::string base = "(items";
+    for (int i = 0; i < 40; ++i)
+        base += " (item" + std::to_string(i) + " (@id a00000000000000000000000000000" +
+                (i < 10 ? "0" : "") + std::to_string(i) + ") (cost " + std::to_string(i) + "))";
+    base += ")";
+    std::string over = "(items";
+    for (int i = 0; i < 40; ++i)
+        over += " (a00000000000000000000000000000" + std::string(i < 10 ? "0" : "") +
+                std::to_string(i) + " (cost " + std::to_string(i + 1) + "))";
+    over += ")";
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer_text("base", base));
+    REQUIRE(cfg.push_layer_text("over", over));
+    CHECK(ok(cfg.get<int>("items.item39.cost")) == 40);
+    CHECK(ok(cfg.get<int>("items.item0.cost")) == 1);
+    CHECK(cfg.root()->try_find("items")->size() == 41);  // nothing added
+}

@@ -192,8 +192,9 @@ struct LoadSession::State {
     // Per top-level read.
     Vec<Str> include_stack;
     uint64_t nodes = 0;
-    bool had_rows = false;           // a file of this read held rows: compact its tree (D267)
-    uint32_t aliases = 0;            // arrays with an (@aka ...): the merge resolves by them (D286)
+    bool had_rows = false;  // a file of this read held rows: compact its tree (D267)
+    uint32_t aliases = 0;   // arrays with an (@aka ...) or an (@id ...): the merge resolves by
+                            // them (D286, D302)
     detail::NewSymbols new_symbols;  // counted by the symbol table
     uint32_t includes = 0;
 };
@@ -477,7 +478,8 @@ private:
         // Metadata comes after the value. Inline, so an array without metadata pays one test;
         // a command's and a property's forms are positional and keep their order.
         if (arr->meta_first() && f.kind == Frame::Array && !metadata_placed(*arr, f)) return false;
-        if (arr->meta_first() && arr->meta(detail::aka_tag())) ++s_.st_->aliases;
+        if (arr->meta_first() && (arr->meta(detail::aka_tag()) || arr->meta(detail::id_tag())))
+            ++s_.st_->aliases;
         if (f.verb && !verb_placed(*arr, f)) return false;
         if (f.row) return wrap_row(std::move(arr), f, t.end);
         const SourceSpan span{file_, f.begin, t.end, {}};

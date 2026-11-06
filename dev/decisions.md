@@ -10612,3 +10612,31 @@ renaming from a change set is deferred.*
   an undone transaction (the text checked); the kit's dry run and written run on the test
   stack, read back with Python's `json`.
 
+## D302. Change records, step 5: a layer names a record by its ID
+
+*`dev/changes-plan.md` step 5 (W4, D269), after D301; the owner's Q3.*
+
+- **Through the alias path.** A keyed child of a layer whose tag is a record's ID merges
+  into the lower record that carries that `(@id ...)`, as a child keyed by an alias merges
+  into the renamed record (D286): the record keeps its key, and the layer's values land in
+  it. The parser's count of arrays with an `(@aka ...)`, which the merge reads to know
+  whether a miss is worth a second look, now counts an `(@id ...)` too; the cache's
+  `(aliases N)` record carries it, so a replayed layer knows. The indexed path (a parent
+  past 32 incoming keys) adds each child's ID symbol to the index beside its aliases, one
+  pass; the linear path parses the missed tag as an ID once and compares it to each
+  child's ID symbol as written (`detail::id_symbol`), no `RecordId` parse per child. A tag
+  that spells an ID no record carries is a new record, as any key is.
+- **Provenance follows the ID** as it follows an alias (D290): `resolve_in_layer` respells
+  a segment the layer lacks by the merged record's ID, so `source()` and the checker name
+  the overlay's line.
+- **The record is not renamed from a change set** (Q3): `promote` writes values, and the
+  kit's `rename` renames; an agent runs it as a command of its own.
+- **Tests.** An overlay by ID, by alias and by key together; the key kept; provenance by
+  ID; a new record from an unknown ID; `check_layer_text` over an ID-keyed overlay; the
+  indexed path over a 40-record table addressed wholly by ID.
+- **Also.** clang-tidy findings the full matrix found in steps 3 and 4 (an assignment in a
+  condition, two escaped literals, a const that prevented a move, a move of a copy-only
+  snapshot), fixed here before the merge.
+- **Costs.** A stack with no alias and no ID pays nothing new; one with IDs and no alias
+  pays the alias scan on a miss it did not pay before. Step 6 measures the rows.
+
