@@ -362,3 +362,43 @@ BAKER_DEV_TEST_CASE(
     CHECK(d[0].folded_a == 2);
     CHECK(d[0].folded_b == 1);
 }
+
+TEST_CASE("write_changes_json writes the log as baker.changes/1 (D301)") {
+    if constexpr (kShipping) return;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer_text("base",
+                                "(player (speed 3) (name \"p\")) (items (sword (@id "
+                                "a0000000000000000000000000000001) (dmg 5)))"));
+    std::string json;
+    tools::write_changes_json(cfg, string_out(json));
+    CHECK(json == "{\"schema\": \"baker.changes/1\", \"transactions\": []}\n");
+    cfg.set_change_history(4);
+    REQUIRE(cfg.set("player.speed", Node(4)));
+    REQUIRE(cfg.set_layer_text("base",
+                               "(player (speed 3) (name \"q\")) (items (blade (@id "
+                               "a0000000000000000000000000000001) (dmg 5)))"));
+    json.clear();
+    tools::write_changes_json(cfg, string_out(json));
+    CHECK(
+        json.starts_with("{\"schema\": \"baker.changes/1\", \"transactions\": [\n  {\"id\": 1, "
+                         "\"name\": \"set\", \"time_ns\": "));
+    CHECK(json.find("\"undone\": false, \"written\": [], \"records\": [\n    {\"kind\": \"set\", "
+                    "\"path\": \"player.speed\", \"id\": \"\", \"before\": \"(3)\", \"after\": "
+                    "\"(4)\", \"layer\": \"scratch\", \"source\": {\"layer\": \"base\", \"file\": "
+                    "\"base\", \"line\": 1}, \"time_ns\": ") != std::string::npos);
+    CHECK(json.find("{\"id\": 2, \"name\": \"layer\"") != std::string::npos);
+    CHECK(json.find("{\"kind\": \"set\", \"path\": \"player.name\", \"id\": \"\", \"before\": "
+                    "\"(\\\"p\\\")\", \"after\": \"(\\\"q\\\")\", \"layer\": \"base\"") !=
+          std::string::npos);
+    CHECK(json.find(
+              "{\"kind\": \"rename\", \"path\": \"items.blade\", \"id\": "
+              "\"a0000000000000000000000000000001\", \"renamed_from\": \"sword\", \"before\": "
+              "\"(sword (@id a0000000000000000000000000000001) (dmg 5))\", \"after\": "
+              "\"(blade (@id a0000000000000000000000000000001) (dmg 5))\"") != std::string::npos);
+    REQUIRE(cfg.undo());
+    json.clear();
+    tools::write_changes_json(cfg, string_out(json));
+    CHECK(json.find("{\"id\": 2, \"name\": \"layer\", \"time_ns\": ") != std::string::npos);
+    CHECK(json.find("\"undone\": true") != std::string::npos);
+    CHECK(json.ends_with("]}\n]}\n"));
+}

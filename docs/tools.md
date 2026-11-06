@@ -198,7 +198,7 @@ error, so a misspelling is caught.
 | `assets` | every asset the merged stack names, as [`baker.assets/1`](assets-json.md), sorted by file, line and path; exit 1 when a file is not there |
 | `eval [--baker-seed N] [--baker-json] "{command}"...` | each command's result on the game reset with the seed; `--baker-json`: one reply line each |
 | `diff [--baker-layer L]` | what layer L (default `agent`) changes, value by value: a verb as `-> #append v`, and `stale` where a row's `(@was ...)` pin no longer names the value below |
-| `promote [--baker-from L] [--baker-to T] [--baker-write \| --baker-patch FILE]` | what promoting L into T would write; `--baker-write` writes; `--baker-patch` writes a unified diff and nothing else, after a line `# path: note` for each row's `(@note ...)`, which `git apply` skips |
+| `promote [--baker-from L] [--baker-to T] [--baker-write \| --baker-patch FILE] [--baker-json]` | what promoting L into T would write; `--baker-write` writes; `--baker-patch` writes a unified diff and nothing else, after a line `# path: note` for each row's `(@note ...)`, which `git apply` skips; `--baker-json` writes the promotion's transaction as [`baker.changes/1`](changes-json.md) (each value it changes, each line it writes), the files untouched unless `--baker-write` is also given |
 | `sim [--baker-scenario NAME]... [--baker-seed N \| --baker-seeds A-B] [--baker-step-hz N] [--baker-json] [--baker-results DIR]` | the project's scenarios run and judged by its objectives ([`baker.sim/1.3`](sim-json.md)); exit 1 when one fails |
 | `compare --baker-before DIR --baker-after DIR` | which objectives broke or were fixed between two `sim --baker-results` ([`baker.compare/1`](sim-json.md)) |
 | `rename OLD NEW [--baker-write]` | the record at path OLD (`weapons.laser`) keyed NEW in the layer that declares it, with `(@aka OLD)` kept and an `(@id ...)` minted if it has none, and every `(key_of ...)` value naming it rewritten in every enabled layer; without `--baker-write`, the edits are listed, one a line, and nothing is written. Refuses, writing nothing, when NEW is a sibling's key or alias, or when an edit cannot be placed in the text (a record a row's path made, a macro's expansion): edit those where they are written. An overlay's own record keeps the old key, which the alias resolves |
@@ -233,8 +233,9 @@ through your file access, as `Live` does, for files under an engine's own roots.
   the game may use as its default while its own command line wins), and its scenarios and
   objectives (`(scenarios ...)`, `(objectives ...)`).
 - **Documents.** [The reference](reference-json.md), [check's report](check-json.md),
-  [the reply](reply-json.md), [sim's results](sim-json.md) and [the assets](assets-json.md)
-  are versioned JSON. A field is added only with a new minor version.
+  [the reply](reply-json.md), [sim's results](sim-json.md), [the assets](assets-json.md)
+  and [the changes](changes-json.md) are versioned JSON. A field is added only with a new
+  minor version.
 - **The console.** One request per line, one JSON reply per line, to a running game.
   `{config.epoch}` says whether anything changed since a tool last asked.
 - **Commands.** Your game binary's own commands, run by the tool.

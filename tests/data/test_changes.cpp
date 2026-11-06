@@ -255,15 +255,25 @@ TEST_CASE("a promotion and a write-back are one transaction each, with the lines
     REQUIRE(ts[2].written.size() == 1);
     CHECK(ts[2].written[0].line == w.written[0].line);
     CHECK(ts[2].written[0].file == w.written[0].file);
-    // The stack reads the same value from the file now: no Set record, only the line.
-    CHECK(ts[2].records.size() == 0);
+    // The stack reads the same value from the file now; the record is the layer's own.
+    REQUIRE(ts[2].records.size() == 1);
+    CHECK(ts[2].records[0].kind == ChangeKind::Set);
+    CHECK(ts[2].records[0].path == Symbol("player.lives"));
+    CHECK(text(*ts[2].records[0].before) == "(2)");
+    CHECK(text(*ts[2].records[0].after) == "(5)");
+    CHECK(ts[2].records[0].layer == Symbol("base"));
+    CHECK(ts[2].records[0].source.layer == Symbol("base"));
     REQUIRE(cfg.promote("scratch", "base"));
     ts = all(cfg);
     REQUIRE(ts.size() == 4);
     CHECK(ts[3].name == Symbol("promote"));
     REQUIRE(ts[3].written.size() == 1);
     CHECK(ts[3].written[0].file == Symbol(dir.path("base.dta")));
-    CHECK(ts[3].records.size() == 0);
+    REQUIRE(ts[3].records.size() == 1);
+    CHECK(ts[3].records[0].path == Symbol("player.speed"));
+    CHECK(text(*ts[3].records[0].before) == "(3)");
+    CHECK(text(*ts[3].records[0].after) == "(4)");
+    CHECK(ts[3].records[0].layer == Symbol("base"));
     CHECK(ok(cfg.get<int>("player.speed")) == 4);
 }
 

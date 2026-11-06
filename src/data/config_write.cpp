@@ -607,6 +607,7 @@ Expected<WriteReport> Config::Impl::write_into(Config& c, size_t li, const Path&
     if (auto e = composed(path, li)) return Unexpected(*e);
     auto p = plan(layers[li], path, values, insert, base.reader(), pin);
     if (!p) return Unexpected(std::move(p).error());
+    const Ref<Array> target_before = layers[li].root;  // for the log's records (D301)
     ReloadRecord rec = begin(trigger_name("write_back"));
     uint64_t t = rec.start_ns;
     if (p->changed) {
@@ -621,7 +622,10 @@ Expected<WriteReport> Config::Impl::write_into(Config& c, size_t li, const Path&
         }
     }
     const bool log = logging();  // the write as one transaction, with its line (D299)
-    if (log) begin_change(trigger_name("write_back"));
+    if (log) {
+        begin_change(trigger_name("write_back"));
+        walk_changes(c, *target_before, *layers[li].root, Symbol(layers[li].name.view()));
+    }
     // The file holds the value now. Drop it from scratch, unless a layer above still hides it.
     const Path key = last_is_index(path) ? parent_of(path) : path;
     const auto it = std::find_if(scratch.begin(), scratch.end(),
@@ -703,6 +707,7 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
             make_error(ErrorCode::NotFound, "no layer named '" + Str(ti ? from : to) + "'"));
     if (fi == ti) return Unexpected(refused("cannot promote a layer into itself"));
     const Ref<Array> tree = fi ? impl_->layers[*fi].root : impl_->scratch_root();
+    const Ref<Array> target_before = impl_->layers[*ti].root;  // for the log's records (D301)
     // Each path the source holds, valued as the Config reads it with the source on top:
     // the enabled layers below, then the source, merged, so a repeated tag folds as a
     // merge folds it rather than as find() would see it alone (D134).
@@ -789,7 +794,10 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
         }
     }
     const bool log = impl_->logging();  // the promotion as one transaction (D299)
-    if (log) impl_->begin_change(trigger_name("promote"));
+    if (log) {  // `target` is the layer as planned: the same tree whether or not written
+        impl_->begin_change(trigger_name("promote"));
+        impl_->walk_changes(*this, *target_before, *target.root, Symbol(to));
+    }
     impl_->commit(*this, rec, t);
     impl_->finish(*this, rec, t);
     Vec<WrittenLine> written;

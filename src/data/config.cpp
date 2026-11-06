@@ -265,6 +265,14 @@ void Config::Impl::record_commit(const Config& c, const Array& before, const Arr
                                  Symbol trigger) {
     const bool own = changes.open == 0;
     if (own) begin_change(trigger);
+    walk_changes(c, before, after, Symbol());
+    if (own) close_change();
+}
+
+// `fixed`: every record's layer, for a layer's own tree; empty for the merged tree, where
+// the layer that supplies each value is found.
+void Config::Impl::walk_changes(const Config& c, const Array& before, const Array& after,
+                                Symbol fixed) {
     struct Half {  // an added or removed child at one parent, for the rename match
         const Array* array;
         bool added;
@@ -275,6 +283,7 @@ void Config::Impl::record_commit(const Config& c, const Array& before, const Arr
     // its row (for the verb), else the one its source names.
     const auto writer_of = [&](Symbol path, const Array*& row) -> Symbol {
         row = nullptr;
+        if (!fixed.empty()) return fixed;
         const Path p(path.str());
         for (size_t i = layers.size(); i-- > 0;)
             if (layers[i].options.enabled && composes_at(i, p)) {
@@ -308,6 +317,7 @@ void Config::Impl::record_commit(const Config& c, const Array& before, const Arr
                 r.id = ca->record_id();
                 r.before = whole(*ca);
                 r.time_ns = time;
+                if (!fixed.empty()) r.source = Source{fixed};
                 here.push_back({ca, false, changes.pending.size()});
                 add_change(std::move(r));
                 continue;
@@ -321,6 +331,7 @@ void Config::Impl::record_commit(const Config& c, const Array& before, const Arr
                 r.before = values_tree(*ca, alloc);
                 r.after = values_tree(*cb, alloc);
                 r.time_ns = time;
+                if (!fixed.empty()) r.source = Source{fixed};
                 const Array* row = nullptr;
                 r.layer = writer_of(child_path, row);
                 if (row) {
@@ -410,7 +421,6 @@ void Config::Impl::record_commit(const Config& c, const Array& before, const Arr
                                                     r.path.empty() && r.before && !r.after;
                                          }),
                           changes.pending.end());
-    if (own) close_change();
 }
 
 void Config::set_change_history(size_t capacity) {

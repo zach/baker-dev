@@ -4,7 +4,7 @@
 D286–D290) and W2 (D292–D297). Terms are `dev/glossary.md`'s. The design note is §2; §3
 is the steps, each committed green.*
 
-**Status: approved 2026-11-06; Q1 to Q3 as recommended; steps 1 to 3 done (D298–D300).**
+**Status: approved 2026-11-06; Q1 to Q3 as recommended; steps 1 to 4 done (D298–D301).**
 
 | Decision | Choice |
 |---|---|

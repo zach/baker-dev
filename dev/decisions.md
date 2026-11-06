@@ -10586,3 +10586,29 @@ renaming from a change set is deferred.*
   the memory as before); redo; the chain dropped by a new change; the ring's reach; the
   console's commands as transactions.
 
+## D301. Change records, step 4: `baker.changes/1`
+
+*`dev/changes-plan.md` step 4 (W4, D269), after D300.*
+
+- **`tools::write_changes_json(cfg, sink)`** (`<baker/tools/layers.hpp>`, beside `diff`
+  and `explain`): the log as one object, `{"schema": "baker.changes/1", "transactions":
+  [...]}`, each transaction with `id`, `name`, `time_ns`, `undone`, `written` (file and
+  line) and `records`, each record with `kind` (`set`, `add`, `remove`, `rename`,
+  `reorder`, `append`, `drop`), `path`, `id`, `renamed_from` (a rename only), `before` and
+  `after` as Baker text or `null`, `layer`, `source` and `time_ns`. `docs/changes-json.md`
+  documents it; versioning as `check`'s.
+- **A write-back and a promotion record the layer they wrote into.** The merged tree need
+  not change when they run (the layer above, or scratch, supplied the values already), so
+  the commit's walk found nothing. Their transactions now walk the target layer's tree
+  before and after the write, every record's layer and source being the target; a promotion
+  walks the tree it planned (the local copy re-read against the planned text), which is the
+  same whether the files are written or the writer only captures them.
+- **The kit's `promote --baker-json`** turns the log on for one transaction, promotes, and
+  writes that transaction: without `--baker-write`, the Config's writer accepts and drops
+  each file, so the records and lines are what the promotion would make and nothing is
+  written (the same dry run `--baker-patch` does, without the diff); with it, the files are
+  written and the transaction says where. The exit status is the promotion's.
+- **Tests.** The writer over an empty log, a live edit, a replaced layer with a rename, and
+  an undone transaction (the text checked); the kit's dry run and written run on the test
+  stack, read back with Python's `json`.
+

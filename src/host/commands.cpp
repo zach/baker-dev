@@ -770,6 +770,8 @@ bool write_whole(std::string_view path, std::string_view text) {
     return std::fclose(f) == 0 && ok;
 }
 
+int send(const CommandLine& line, const CommandHooks& hooks, const Str& output, int status);
+
 int promote(const CommandLine& line, const CommandHooks& hooks) {
     Loaded l(hooks);
     if (!load(l, line)) return kCommandError;
@@ -817,6 +819,23 @@ int promote(const CommandLine& line, const CommandHooks& hooks) {
             " files would change;\napply it from " + Str(root.generic_string()) +
             " with git apply -p1 (or patch -p1)\n");
         return report->ok() ? 0 : kCommandFailed;
+    }
+    if (line.json) {
+        // The promotion's transaction as baker.changes/1 (D301): what it writes and each
+        // value it changes. Without --baker-write, the writer captures the files instead,
+        // so the records are what the promotion would make and nothing is written.
+        if (!line.write) cfg.set_writer([](std::string_view, std::string_view) { return true; });
+        cfg.set_change_history(1);
+        auto report = cfg.promote(line.layer, line.to);
+        if (!report) {
+            err(describe(report.error()));
+            err("\n");
+            return kCommandError;
+        }
+        report_refusals(*report);
+        Str json;
+        tools::write_changes_json(cfg, detail::str_out(json));
+        return send(line, hooks, json, report->ok() ? 0 : kCommandFailed);
     }
     if (!line.write)
         return print_effect(
