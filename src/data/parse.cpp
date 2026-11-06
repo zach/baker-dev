@@ -1524,6 +1524,9 @@ uint32_t SessionAccess::aliases(const LoadSession& s) noexcept {
 void SessionAccess::set_aliases(LoadSession& s, uint32_t count) noexcept {
     s.st_->aliases = count;
 }
+void SessionAccess::set_recorded(LoadSession& s, bool recorded) noexcept {
+    s.st_->recorded = recorded;
+}
 std::span<const Symbol> SessionAccess::tested(const LoadSession& s) noexcept {
     return {s.st_->tested.data(), s.st_->tested.size()};
 }

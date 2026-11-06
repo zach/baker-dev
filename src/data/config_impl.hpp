@@ -391,6 +391,7 @@ struct Config::Impl {
         Vec<WrittenLine> pending_written;
     } changes{alloc};
     [[nodiscard]] bool logging() const noexcept { return changes.cap != 0 && !changes.quiet; }
+    bool from_image = false;  // push_image_layers is pushing a section's tree
     [[nodiscard]] ConfigSnapshot snapshot() const;
     // Opens a transaction if none is, named `name`; a change then records into it, and
     // close() finishes it unless begin_transaction keeps it open.

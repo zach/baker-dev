@@ -846,19 +846,19 @@ void Config::Impl::put(Config& c, const Path& target, std::span<const Node> valu
     Node before[4];
     uint32_t before_count = 0;
     Source source{scratch_name()};
-    Vec<Node> whole_before(alloc);
+    std::optional<Vec<Node>> whole_before;  // made only with the log on: the fast path's cost
     if constexpr (!kShipping) {
         if (found) {
             const Values v = found->values->values();
             before_count = static_cast<uint32_t>(v.size());
             std::copy_n(v.begin(), std::min<uint32_t>(before_count, 4), before);
-            if (logging()) whole_before.assign(v.begin(), v.end());
+            if (logging()) whole_before.emplace(alloc).assign(v.begin(), v.end());
         } else if (journal_cap || logging()) {
             Vec<Node> now;
             if (value_nodes(*c.root_, target, now)) {
                 before_count = static_cast<uint32_t>(now.size());
                 std::copy_n(now.data(), std::min<uint32_t>(before_count, 4), before);
-                if (logging()) whole_before = now;
+                if (logging()) whole_before.emplace(alloc) = now;
             }
             auto s = c.source(target);
             source = s ? *s : Source{};
@@ -877,13 +877,17 @@ void Config::Impl::put(Config& c, const Path& target, std::span<const Node> valu
         found = found ? found : &scratch.back();
     }
     log_edit(*found, before, before_count, values, source);
-    record_set(target, {whole_before.data(), whole_before.size()}, values, source, scratch_name());
     c.scratch_dirty_ = true;
     ++c.epoch_;  // a live edit, though not a merge
     retune(*found);
-    // With the log on, the root holds the edit at once, so the next commit's walk starts
-    // from what the stack read (D299).
-    if (logging()) c.apply_edits();
+    if (logging()) {
+        record_set(target,
+                   whole_before ? std::span<const Node>(*whole_before) : std::span<const Node>(),
+                   values, source, scratch_name());
+        // The root holds the edit at once, so the next commit's walk starts from what the
+        // stack read (D299).
+        c.apply_edits();
+    }
 }
 
 Ref<Array> Config::Impl::merged() const {
@@ -1277,6 +1281,10 @@ Expected<void> Config::push_layer(std::string_view name, Ref<Array> overlay, Lay
     LayerState layer(impl_->alloc);
     layer.name.assign(name);
     if (auto r = impl_->take_options(layer, options); !r) return r;
+    // A tree was not parsed here, so nothing counted its aliases and IDs: one walk, with an
+    // early exit, says whether the merge must resolve by them (D286, D302); an image's
+    // section carries the count, so its load walks nothing.
+    layer.aliases = !impl_->from_image && detail::has_identity(*overlay);
     layer.root = std::move(overlay);
     // An overlay adds no macros, so the layers above need no re-read.
     layer.after = impl_->session_below(impl_->layers, *at);
@@ -1509,6 +1517,7 @@ Expected<uint32_t> Config::push_image_layers(std::span<const ProjectLayer> layer
     };
     // The leading layers the image holds, pushed from it.
     impl_->hold_tables = true;
+    impl_->from_image = true;
     uint32_t taken = 0;
     for (const ProjectLayer& l : layers) {
         const detail::ImageSection* s =
@@ -1522,11 +1531,17 @@ Expected<uint32_t> Config::push_image_layers(std::span<const ProjectLayer> layer
         const LayerOptions o{.optional = l.optional, .enabled = l.enabled, .when = l.when.str()};
         if (auto r = push_layer(l.name.str(), std::move(*tree), o); !r) {
             impl_->hold_tables = false;
+            impl_->from_image = false;
             return Unexpected(std::move(r).error());
         }
+        // The section's record says whether the layer carries aliases or IDs (D286, D302):
+        // the merge resolves by them only when some layer does.
+        if (const auto li = impl_->find_layer(l.name.str()))
+            impl_->layers[*li].aliases = detail::SessionAccess::aliases(impl_->base) > 0;
         ++taken;
     }
     impl_->hold_tables = false;
+    impl_->from_image = false;
     // The tables: the image's block where it matches the registered view, else built.
     for (detail::TableSlot& slot : impl_->tables) {
         Ref<const BakedTable> block;
@@ -1749,14 +1764,16 @@ Expected<void> Config::set(std::string_view path, const Node& value) {
             // A scratch value's own source is scratch.
             impl_->log_edit(e, &before, 1, std::span<const Node>(&value, 1),
                             Source{scratch_name()});
-            impl_->record_set(e.path, std::span<const Node>(&before, 1),
-                              std::span<const Node>(&value, 1), Source{scratch_name()},
-                              scratch_name());
             scratch_dirty_ = true;
             ++impl_->generation;
             ++epoch_;
             impl_->retune(e);
-            if (impl_->logging()) apply_edits();
+            if (impl_->logging()) {  // one test with the log off (D298)
+                impl_->record_set(e.path, std::span<const Node>(&before, 1),
+                                  std::span<const Node>(&value, 1), Source{scratch_name()},
+                                  scratch_name());
+                apply_edits();
+            }
             return {};
         }
     }

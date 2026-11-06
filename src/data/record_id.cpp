@@ -46,6 +46,14 @@ Symbol detail::id_symbol(const Array& a) noexcept {
     return sym ? *sym : Symbol();
 }
 
+bool detail::has_identity(const Array& root) noexcept {
+    if (root.meta_first() && (root.meta(detail::aka_tag()) || root.meta(detail::id_tag())))
+        return true;
+    for (uint32_t i = 0; i < root.size(); ++i)
+        if (const Array* c = root[i].try_array(); c && has_identity(*c)) return true;
+    return false;
+}
+
 RecordId Array::record_id() const noexcept {
     const Array* m = meta(detail::id_tag());
     if (!m) return {};

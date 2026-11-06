@@ -33,7 +33,7 @@ network store. Nothing here costs anything until you call it.
 | Available | What |
 |---|---|
 | **Always**, shipping builds included | Reading and provenance (`source`, `tools::explain`), `check` and its JSON, the reference JSON, the project file (`read_project`, `open_project`, `find_project`), `stack_files()`, `Context::declare`, `tools::script_functions`, `macro_definitions`, received layers checked under a `LayerPolicy` |
-| **Development builds** | Live edits (`Config::set`, `Tweak<T>::set`), `reload()`, layer toggles, the scratch layer and its journal, `loop_stats()`, snapshots |
+| **Development builds** | Live edits (`Config::set`, `Tweak<T>::set`), `reload()`, layer toggles, the scratch layer and its journal, the change log (`set_change_history`, `undo`, `redo`, [`baker.changes/1`](changes-json.md)), `loop_stats()`, snapshots |
 | **When you ask** (`tools::bind_config_tools(ctx, cfg, {.allow_write = true})`), development builds | Writing a live edit back to its file: `write_back`, `write_back_to`, `promote` |
 
 `tools::bind_config_tools` makes the Config's tools script functions (`config.explain`,

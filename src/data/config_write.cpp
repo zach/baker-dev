@@ -39,17 +39,34 @@ int32_t line_at(std::string_view text, uint32_t offset) {
 
 // Every tagged child's leaves, a repeated tag's included, each path once: all a layer
 // contributes, however its tags repeat (D134). Their values are the caller's to fill.
+// The paths a layer's tree holds values at, spelled as the merged tree spells them: a
+// child keyed by a record's alias or ID (`merged` given, D286, D302) takes the record's
+// key, so the write lands in the record wherever the target spells it.
 void collect_paths(const Array& a, size_t first, const Str& prefix, HashMap<Str, char>& seen,
-                   Vec<Leaf>& out) {
+                   Vec<Leaf>& out, const Array* merged) {
     for (size_t i = first; i < a.size(); ++i) {
         if (!is_tagged(a[i])) continue;
         const Array& child = *a[i].try_array();
         if (child.tag().is_meta() && child.tag() == detail::was_tag()) continue;  // the layer's own
+        Symbol name = child.tag();
+        const Array* record = merged ? merged->try_find(name) : nullptr;
+        if (merged && !record && !name.is_meta())
+            for (size_t m = 1; m < merged->size() && !record; ++m) {
+                const Array* c = (*merged)[m].try_array();
+                if (!c || !c->meta_first()) continue;
+                const Array* aka = c->meta(detail::aka_tag());
+                const bool by_alias = aka && std::any_of(aka->values().begin(), aka->values().end(),
+                                                         [&](const Node& n) { return n.is(name); });
+                if (by_alias || detail::id_symbol(*c) == name) {
+                    record = c;
+                    name = c->tag();
+                }
+            }
         Str path = prefix;
         if (!path.empty()) path += '.';
-        detail::append_path_name(path, child[0].try_sym()->str());
+        detail::append_path_name(path, name.str());
         if (has_values(child) && seen.emplace(path, 0).second) out.push_back({path, &child, {}});
-        if (!detail::composes(child)) collect_paths(child, 1, path, seen, out);  // operands
+        if (!detail::composes(child)) collect_paths(child, 1, path, seen, out, record);  // operands
     }
 }
 
@@ -429,17 +446,35 @@ Expected<Plan> Config::Impl::plan(const LayerState& layer, const Path& path, con
         return std::nullopt;
     };
     const Array* cur = layer.root.get();
+    const Array* mer = alias_root();  // the merged record beside `cur`, for its aliases and ID
     size_t offset = 0;  // where index 0 is: 1 after a tag, 0 in the root or an element
     Vec<size_t> targets;
     size_t missing_from = path.size();
+    const auto child_named = [&](Symbol name) {
+        size_t k = cur->size();
+        for (size_t j = 0; j < cur->size() && k == cur->size(); ++j)
+            if (is_tagged((*cur)[j]) && (*(*cur)[j].try_array())[0].is(name)) k = j;
+        return k;
+    };
     for (size_t i = 0; i < path.size(); ++i) {
         const Path::Segment& seg = path[i];
         size_t k = cur->size();
         if (seg.is_index) {
             k = offset + seg.index < cur->size() ? offset + seg.index : cur->size();
+            mer = nullptr;
         } else {
-            for (size_t j = 0; j < cur->size() && k == cur->size(); ++j)
-                if (is_tagged((*cur)[j]) && (*(*cur)[j].try_array())[0].is(seg.name)) k = j;
+            k = child_named(seg.name);
+            // The layer may spell the record by an alias or its ID (D286, D302).
+            const Array* rec = mer ? mer->try_find(seg.name) : nullptr;
+            if (k == cur->size() && rec && rec->meta_first()) {
+                if (const Array* aka = rec->meta(detail::aka_tag()))
+                    for (const Node& old : aka->values())
+                        if (const auto o = old.try_sym(); o && k == cur->size())
+                            k = child_named(*o);
+                if (const Symbol id = detail::id_symbol(*rec); !id.empty() && k == cur->size())
+                    k = child_named(id);
+            }
+            mer = rec;
         }
         if (k == cur->size()) {
             missing_from = i;
@@ -715,7 +750,7 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
     Ref<Array> upto = Array::make(0);
     if (tree) {
         HashMap<Str, char> seen;
-        collect_paths(*tree, 0, "", seen, leaves);
+        collect_paths(*tree, 0, "", seen, leaves, impl_->alias_root());
         const size_t below = fi ? *fi : impl_->layers.size();
         for (size_t i = 0; i < below; ++i)
             if (impl_->layers[i].options.enabled)
@@ -802,7 +837,9 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
     impl_->finish(*this, rec, t);
     Vec<WrittenLine> written;
     for (const Leaf& leaf : leaves) {
-        const Source s = impl_->source_in(impl_->layers[*ti], Path(leaf.path));
+        // Located in the target as planned: the same text the file now holds, or, with a
+        // writer that only captures it (a dry run), the text it would hold.
+        const Source s = impl_->source_in(target, Path(leaf.path));
         if (!virt.empty()) written.push_back({s.file, s.line});
         // Scratch's edits are in the file now (D93).
         if (from == "scratch") {

@@ -10640,3 +10640,70 @@ renaming from a change set is deferred.*
 - **Costs.** A stack with no alias and no ID pays nothing new; one with IDs and no alias
   pays the alias scan on a miss it did not pay before. Step 6 measures the rows.
 
+## D303. Change records, step 6: the example, the docs and the record
+
+*`dev/changes-plan.md` step 6, the last of W4 (D269). W4 is done: D298 to D303.*
+
+- **The example.** `examples/content-tables` pushes an agent's change set that names
+  `slam` by its ID, checked under the default policy, logged, promoted into the content
+  layer through a writer that keeps the text (the kit's dry run), and undone twice: the
+  log's transactions print as `layer: ...slam.damage (12) -> (14) in change-set`,
+  `promote: ...heavy.damage none -> (damage 14) in content` (the content layer spells the
+  record by its alias, so that is where the value lands) and the line written; after the
+  undo the table reads 12 again and the layer is gone. Tested in development builds.
+- **Three things the example found.**
+  - A promotion of a change set spelled by ID or alias wrote a new record keyed by the
+    ID: `promote` planned the source layer's own spelling. Its paths are now the merged
+    tree's (`collect_paths` respells a segment by the record's alias or ID), and `plan`
+    finds the target's row by the merged record's alias or ID when the target spells it
+    so. Tested both ways: by ID into a layer that spells the record by alias, by alias
+    into one that spells it by key.
+  - A stack image's layers lost their aliases: a section was written without a record, a
+    tree pushed from one counted none, and the image's merge put a renamed record's old
+    key beside it (the example's image read five moves, since W2). A section's record
+    now carries the count (`SessionAccess::set_recorded`, an empty record but for it), an
+    image load sets the flag from it, and a tree pushed by `push_layer(name, Ref<Array>)`
+    walks once with an early exit (`detail::has_identity`), which an image load skips.
+    The example's image grew from 6,272 to 10,112 bytes with the records. Tested over a
+    tree layer and an image.
+  - The example tests' regexes were lists: a `;` in the expected text split the
+    `PASS_REGULAR_EXPRESSION` into alternatives, and the first one matched, so the test
+    passed whatever followed. `[;]` now, checked against the output through CMake's own
+    engine.
+- **The hot path.** `set` with the log off had gained 69 instructions (675 to 744): a
+  `Vec` built on the path and the record's call made before the test. The `Vec` is an
+  `optional` made only with the log on and the call sits under the test:
+  `tools/count_instructions.py --base 6a69f7f`: `set` 675 to 693 (+2.7%, the test and
+  the `apply_edits` branch), `merge` 1,223,754 to 1,225,760 (+0.16%, the root kept
+  across the merge for the walk), every other case unchanged (`parse` 1,897,732,
+  `lookup` 209, `check` +0.04%).
+- **The no-cost rows,** `tools/bench_compare.py --base 6a69f7f`, 5 runs a side, medians:
+  `try_find (array)` 8.22 to 5.46 ns and `find<float>` 10.2 to 7.96 ns (the loop's
+  alignment moved again, gap 47), `try_find, 50/200/1000 children: linear` 11.6 to 13.3,
+  46.3 to 67.5 and 170 to 236 ns (see below), `find_float("key19"_sym)` 11.8 to 11.4 ns,
+  `get<int>(Path)` 18.4 to 18.7 ns, `read_string` 66.7 to 65.3 us, `push_layer (tree)`
+  80.8 to 84.3 us (the identity walk, D303), `push_layer_text` 149.7 to 149.0 us,
+  `check_layer_text` 429 to 430 us, `Config layer, text` 16.6 to 17.9 ms (its range 7.3
+  to 27.8 ms), `Config set, a scalar in scratch` 65.1 to 66.5 ns (the +18 instructions),
+  `Config reload, unchanged small file` 1799 to 1820 ns, `read_view<Move>` 74.6 to 75.6
+  ns, `table[i].damage` 0.59 ns both, `table.index_of(id)` 6.29 ns both, `children_of`
+  11.8 to 13.6 ns, the tree's `try_get` 86.0 to 92.3 ns, `handle_all` 335 to 363 ns,
+  `parse` 25.4 to 25.1 ms. The script and task rows are within noise. The wide `try_find` rows moved
+  without their code: `try_find` is inline and untouched, and both benches under
+  cachegrind execute the same 53,928,000,032 instructions in it (the new side's wide rows
+  run 2 to 4% faster there). Code layout, as gap 47 records; the instruction counts above
+  are the measure.
+- **Docs.** `docs/cookbook.md` (the log, undo and redo, the console commands),
+  `docs/tools.md` (the development row, `promote --baker-json`, the documents list),
+  `docs/language.md` (a record named by ID), `docs/changes-json.md`; gaps 46 (IDs) and 50
+  (the log's snapshots).
+- **Changelog lines for the next release.**
+  - The change log: `set_change_history`, transactions of change records (set, add,
+    remove, rename, reorder, append, drop) with whole values, `begin_transaction`,
+    `undo` and `redo`; the console's `config.set_change_history`, `config.undo` and
+    `config.redo`, each command one transaction.
+  - `baker.changes/1`: `tools::write_changes_json`, the kit's `promote --baker-json`.
+  - A layer names a record by its ID.
+  - Fixed: a promotion of a change set spelled by alias or ID writes into the record; a
+    stack image's layers keep their aliases.
+
