@@ -10493,3 +10493,28 @@ binary; Q2 a non-literal view field reads as its default with a located error; Q
   - Views carry `kAt`, `kKeyed` and `fixups()`; `ListView` reads a packed list; a
     generated reader reads on past a failed field.
   - `CommandHooks::tables` and `CommandHooks::config`.
+
+## D298. Change records, step 1: the log and live edits
+
+*`dev/changes-plan.md` step 1, the first of W4 (D269). The plan's open questions, answered
+by the owner before this step: Q1 the log is opt-in beside the journal; Q2 undo is in
+memory, files a transaction wrote stay written; Q3 a layer names a record by ID, and
+renaming from a change set is deferred.*
+
+- **The types** in `<baker/config.hpp>`: `ChangeRecord` (kind, dotted path, the record's
+  ID, the whole old and new values as trees or null for absent, the layer written, the
+  old value's `Source`, the time, and for a rename its old key) and `Transaction` (a
+  sequence number, a name, a time, the records, the files written).
+- **Opt-in beside the journal.** `set_change_history(n)` keeps the last `n` transactions
+  in a ring, as the journal keeps its entries; off (the default), a `set` costs one test
+  and keeps D93's contract (the test: 100 edits on the fast path, no allocation). On, a
+  `set` copies its old and new values into trees of their own from the Config's allocator
+  (the gate's new case: a Config with the log on reaches no `operator new`).
+- **What step 1 records.** A `Set` from `put` (the whole old value, from scratch or the
+  stack, with its source), from the fast path, and from `clear_scratch` (the edit's value
+  gives way to the files', the writer being the layer that stands). Each is its own
+  transaction named `set` or `clear_scratch` unless one is open: `begin_transaction`
+  names it and nests, `end_transaction` closes it, and an empty one is dropped.
+- **Tests.** The log off then on; a seven-node value kept whole; a value the stack lacked
+  with no before; nesting; the ring; `clear_scratch`; the allocation contracts.
+- **Costs.** None with the log off beyond one test per edit; steps 5 and 6 measure.

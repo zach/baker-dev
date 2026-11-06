@@ -230,6 +230,10 @@ cfg.push_layer("patch-2026-10-11", overlay);   // live patches go above local
   experiment, `promote("local", "default")` writes its entries into the shared file as one
   reviewable diff, or nothing if any entry cannot be written.
 - Before quitting, check what was tuned and not kept: `cfg.unsaved()` lists the paths, and
+  `cfg.set_change_history(n)` keeps the last `n` transactions of change records, each
+  with its whole old and new values, the record's ID, the layer written and the old
+  value's source; `begin_transaction`/`end_transaction` make a drag or a command one step
+  (D298). It is off unless asked for: with it on, a live edit allocates its values' trees.
   `cfg.journal(fn)` every live edit of the session (up to the last 256) with its old and
   new values, where the old one came from, and whether it was written, reverted, or
   superseded (D93). A harness can warn at exit, and the journal's counts say how much

@@ -369,6 +369,29 @@ struct Config::Impl {
     // is superseded. Allocates only the ring, once.
     void log_edit(ScratchEntry& owner, const Node* before, uint32_t before_count,
                   std::span<const Node> after, const Source& source);
+    // The change log (D298): a ring of transactions, the one being built aside until its
+    // end; `open` counts the begin_transaction nesting.
+    struct Changes {
+        explicit Changes(const Allocator& a) : ring(a), pending(a), pending_written(a) {}
+        Vec<Transaction> ring;
+        size_t cap = 0;
+        uint64_t count = 0;  // transactions ever finished
+        uint32_t open = 0;
+        Symbol name;
+        uint64_t time_ns = 0;
+        Vec<ChangeRecord> pending;
+        Vec<WrittenLine> pending_written;
+    } changes{alloc};
+    [[nodiscard]] bool logging() const noexcept { return changes.cap != 0; }
+    // Opens a transaction if none is, named `name`; a change then records into it, and
+    // close() finishes it unless begin_transaction keeps it open.
+    void begin_change(Symbol name);
+    void add_change(ChangeRecord record);
+    void close_change();
+    // A Set record for `path`, valued `before` (sourced at `source`) then `after`, written
+    // to `layer`: the values copied into trees of their own.
+    void record_set(const Path& path, std::span<const Node> before, std::span<const Node> after,
+                    const Source& source, Symbol layer);
     // Gives `owner`'s latest entry its fate, if it is still unsaved.
     void settle(const ScratchEntry& owner, EditFate fate, WrittenLine written) noexcept {
         if (JournalEntry* e = journal_entry(owner.edit, owner.key);

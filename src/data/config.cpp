@@ -148,6 +148,98 @@ void Config::Impl::log_edit(ScratchEntry& owner, const Node* before, uint32_t be
     }
 }
 
+// --- The change log (D298) ---
+
+void Config::Impl::begin_change(Symbol name) {
+    if (changes.open++ == 0) {
+        changes.name = name;
+        changes.time_ns = now();
+        changes.pending.clear();
+        changes.pending_written.clear();
+    }
+}
+
+void Config::Impl::add_change(ChangeRecord record) {
+    changes.pending.push_back(std::move(record));
+}
+
+void Config::Impl::close_change() {
+    if (changes.open == 0) return;
+    --changes.open;
+    if (changes.open != 0) return;
+    if (changes.pending.empty() && changes.pending_written.empty()) return;
+    Transaction t;
+    t.id = ++changes.count;
+    t.name = changes.name;
+    t.time_ns = changes.time_ns;
+    t.records = List<ChangeRecord>({changes.pending.data(), changes.pending.size()});
+    t.written = List<WrittenLine>({changes.pending_written.data(), changes.pending_written.size()});
+    changes.pending.clear();
+    changes.pending_written.clear();
+    if (changes.ring.size() < changes.cap)
+        changes.ring.push_back(std::move(t));
+    else
+        changes.ring[(changes.count - 1) % changes.cap] = std::move(t);
+}
+
+void Config::Impl::record_set(const Path& path, std::span<const Node> before,
+                              std::span<const Node> after, const Source& source, Symbol layer) {
+    if (!logging()) return;
+    ChangeRecord r;
+    r.kind = ChangeKind::Set;
+    Str dotted(alloc);
+    path.write(detail::str_out(dotted), path.size(), '.');
+    r.path = Symbol(dotted.view());
+    // make_from takes a mutable span: copied, as scratch copies.
+    const auto tree = [this](std::span<const Node> nodes) {
+        if (nodes.empty()) return Ref<Array>();
+        Vec<Node> copy(alloc);
+        copy.assign(nodes.begin(), nodes.end());
+        return Array::make_from(copy);
+    };
+    r.before = tree(before);
+    r.after = tree(after);
+    r.layer = layer;
+    r.source = source;
+    r.time_ns = now();
+    const bool own = changes.open == 0;
+    if (own) begin_change(Symbol("set"));
+    add_change(std::move(r));
+    if (own) close_change();
+}
+
+void Config::set_change_history(size_t capacity) {
+    if constexpr (kShipping) return;
+    impl_->changes.ring = Vec<Transaction>(impl_->alloc);
+    impl_->changes.cap = capacity;
+    impl_->changes.count = 0;
+    if (capacity) impl_->changes.ring.reserve(capacity);
+}
+
+size_t Config::change_history() const noexcept {
+    return impl_->changes.cap;
+}
+
+size_t Config::transaction_count() const noexcept {
+    return impl_->changes.ring.size();
+}
+
+const Transaction& Config::transaction_at(size_t i) const noexcept {
+    const auto& ring = impl_->changes.ring;
+    const size_t oldest = ring.size() < impl_->changes.cap ? 0 : impl_->changes.count % ring.size();
+    return ring[(oldest + i) % ring.size()];
+}
+
+void Config::begin_transaction(std::string_view name) {
+    if (!impl_->logging()) return;
+    impl_->begin_change(Symbol(name));
+}
+
+void Config::end_transaction() {
+    if (!impl_->logging()) return;
+    impl_->close_change();
+}
+
 Expected<Ref<Array>> Config::Impl::read_through_cache(std::string_view path, const Str& cache,
                                                       LoadSession& session, bool from_disk) const {
     if constexpr (kShipping) {  // a cache for this session, else the text; writes none
@@ -506,20 +598,24 @@ void Config::Impl::put(Config& c, const Path& target, std::span<const Node> valu
     ScratchEntry* found = nullptr;
     for (ScratchEntry& e : scratch)
         if (e.path == target) found = &e;
-    // The journal (D93): the old value, from scratch or else from the stack.
+    // The journal (D93): the old value, from scratch or else from the stack; the change
+    // log (D298) keeps the whole of it.
     Node before[4];
     uint32_t before_count = 0;
     Source source{scratch_name()};
+    Vec<Node> whole_before(alloc);
     if constexpr (!kShipping) {
         if (found) {
             const Values v = found->values->values();
             before_count = static_cast<uint32_t>(v.size());
             std::copy_n(v.begin(), std::min<uint32_t>(before_count, 4), before);
-        } else if (journal_cap) {
+            if (logging()) whole_before.assign(v.begin(), v.end());
+        } else if (journal_cap || logging()) {
             Vec<Node> now;
             if (value_nodes(*c.root_, target, now)) {
                 before_count = static_cast<uint32_t>(now.size());
                 std::copy_n(now.data(), std::min<uint32_t>(before_count, 4), before);
+                if (logging()) whole_before = now;
             }
             auto s = c.source(target);
             source = s ? *s : Source{};
@@ -538,6 +634,7 @@ void Config::Impl::put(Config& c, const Path& target, std::span<const Node> valu
         found = found ? found : &scratch.back();
     }
     log_edit(*found, before, before_count, values, source);
+    record_set(target, {whole_before.data(), whole_before.size()}, values, source, scratch_name());
     c.scratch_dirty_ = true;
     ++c.epoch_;  // a live edit, though not a merge
     retune(*found);
@@ -1405,6 +1502,9 @@ Expected<void> Config::set(std::string_view path, const Node& value) {
             // A scratch value's own source is scratch.
             impl_->log_edit(e, &before, 1, std::span<const Node>(&value, 1),
                             Source{scratch_name()});
+            impl_->record_set(e.path, std::span<const Node>(&before, 1),
+                              std::span<const Node>(&value, 1), Source{scratch_name()},
+                              scratch_name());
             scratch_dirty_ = true;
             ++impl_->generation;
             ++epoch_;
@@ -1421,13 +1521,33 @@ Expected<void> Config::clear_scratch(std::string_view path) {
     auto& s = impl_->scratch;
     for (const ScratchEntry& e : s)
         if (path.empty() || e.path.matches(path)) impl_->settle(e, EditFate::Reverted, {});
+    // The log (D298): each dropped edit's value, then the files' value in its place.
+    struct Dropped {
+        Path path;
+        Ref<Array> values;
+    };
+    Vec<Dropped> dropped(impl_->alloc);
+    if (impl_->logging())
+        for (const ScratchEntry& e : s)
+            if (path.empty() || e.path.matches(path)) dropped.push_back({e.path, e.values});
     if (path.empty())
         s.clear();
     else
         s.erase(std::remove_if(s.begin(), s.end(),
                                [&](const ScratchEntry& e) { return e.path.matches(path); }),
                 s.end());
+    const bool own = impl_->logging() && impl_->changes.open == 0;
+    if (own) impl_->begin_change(Symbol("clear_scratch"));
     impl_->change(*this, trigger_name("layer"));
+    for (const Dropped& d : dropped) {
+        Vec<Node> after(impl_->alloc);
+        (void)value_nodes(*root_, d.path, after);
+        const Values was = d.values->values();
+        auto src = source(d.path);  // the files' value now stands: its layer is the writer
+        impl_->record_set(d.path, {was.begin(), was.size()}, {after.data(), after.size()},
+                          Source{scratch_name()}, src ? src->layer : Symbol());
+    }
+    if (own) impl_->close_change();
     return {};
 }
 
