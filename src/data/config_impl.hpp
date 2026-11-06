@@ -371,18 +371,26 @@ struct Config::Impl {
                   std::span<const Node> after, const Source& source);
     // The change log (D298): a ring of transactions, the one being built aside until its
     // end; `open` counts the begin_transaction nesting.
+    struct Kept {  // a transaction with the states before and after it, for undo and redo
+        Transaction t;
+        ConfigSnapshot before, after;
+    };
     struct Changes {
         explicit Changes(const Allocator& a) : ring(a), pending(a), pending_written(a) {}
-        Vec<Transaction> ring;
+        Vec<Kept> ring;  // oldest first; ring[0, done) applied, the rest undone
         size_t cap = 0;
+        size_t done = 0;
         uint64_t count = 0;  // transactions ever finished
         uint32_t open = 0;
+        bool quiet = false;  // an undo or redo in progress: not recorded
         Symbol name;
         uint64_t time_ns = 0;
+        ConfigSnapshot origin;  // the state when the log was turned on
         Vec<ChangeRecord> pending;
         Vec<WrittenLine> pending_written;
     } changes{alloc};
-    [[nodiscard]] bool logging() const noexcept { return changes.cap != 0; }
+    [[nodiscard]] bool logging() const noexcept { return changes.cap != 0 && !changes.quiet; }
+    [[nodiscard]] ConfigSnapshot snapshot() const;
     // Opens a transaction if none is, named `name`; a change then records into it, and
     // close() finishes it unless begin_transaction keeps it open.
     void begin_change(Symbol name);

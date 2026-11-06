@@ -176,10 +176,17 @@ void Config::Impl::close_change() {
     t.written = List<WrittenLine>({changes.pending_written.data(), changes.pending_written.size()});
     changes.pending.clear();
     changes.pending_written.clear();
-    if (changes.ring.size() < changes.cap)
-        changes.ring.push_back(std::move(t));
-    else
-        changes.ring[(changes.count - 1) % changes.cap] = std::move(t);
+    // The state before this transaction is the state after the last applied one (every
+    // change in between was recorded), or the one the log began at; a new transaction
+    // after an undo drops the undone ones (D300).
+    ConfigSnapshot before = changes.done > 0       ? changes.ring[changes.done - 1].after
+                            : changes.ring.empty() ? changes.origin
+                                                   : changes.ring[0].before;
+    changes.ring.erase(changes.ring.begin() + static_cast<ptrdiff_t>(changes.done),
+                       changes.ring.end());
+    changes.ring.push_back({std::move(t), std::move(before), snapshot()});
+    if (changes.ring.size() > changes.cap) changes.ring.erase(changes.ring.begin());
+    changes.done = changes.ring.size();
 }
 
 void Config::Impl::record_set(const Path& path, std::span<const Node> before,
@@ -408,10 +415,12 @@ void Config::Impl::record_commit(const Config& c, const Array& before, const Arr
 
 void Config::set_change_history(size_t capacity) {
     if constexpr (kShipping) return;
-    impl_->changes.ring = Vec<Transaction>(impl_->alloc);
+    impl_->changes.ring = Vec<Impl::Kept>(impl_->alloc);
     impl_->changes.cap = capacity;
     impl_->changes.count = 0;
-    if (capacity) impl_->changes.ring.reserve(capacity);
+    impl_->changes.done = 0;
+    impl_->changes.origin = capacity ? impl_->snapshot() : ConfigSnapshot();
+    if (capacity) impl_->changes.ring.reserve(capacity + 1);
 }
 
 size_t Config::change_history() const noexcept {
@@ -423,9 +432,35 @@ size_t Config::transaction_count() const noexcept {
 }
 
 const Transaction& Config::transaction_at(size_t i) const noexcept {
-    const auto& ring = impl_->changes.ring;
-    const size_t oldest = ring.size() < impl_->changes.cap ? 0 : impl_->changes.count % ring.size();
-    return ring[(oldest + i) % ring.size()];
+    return impl_->changes.ring[i].t;
+}
+
+// Undo and redo (D300): a restore to the kept state, not recorded as a change.
+Expected<void> Config::undo() {
+    if constexpr (kShipping) return Unexpected(shipping("undo()"));
+    auto& ch = impl_->changes;
+    if (!impl_->logging()) return Unexpected(refused("the change log is off: nothing to undo"));
+    if (ch.done == 0) return Unexpected(make_error(ErrorCode::NotFound, "nothing to undo"));
+    ch.quiet = true;
+    const auto r = restore(ch.ring[ch.done - 1].before);
+    ch.quiet = false;
+    if (!r) return r;
+    ch.ring[--ch.done].t.undone = true;
+    return {};
+}
+
+Expected<void> Config::redo() {
+    if constexpr (kShipping) return Unexpected(shipping("redo()"));
+    auto& ch = impl_->changes;
+    if (!impl_->logging()) return Unexpected(refused("the change log is off: nothing to redo"));
+    if (ch.done == ch.ring.size())
+        return Unexpected(make_error(ErrorCode::NotFound, "nothing to redo"));
+    ch.quiet = true;
+    const auto r = restore(ch.ring[ch.done].after);
+    ch.quiet = false;
+    if (!r) return r;
+    ch.ring[ch.done++].t.undone = false;
+    return {};
 }
 
 void Config::begin_transaction(std::string_view name) {
@@ -1768,14 +1803,18 @@ List<Symbol> Config::unsaved() const {
 
 // --- Snapshots ---
 
-ConfigSnapshot Config::snapshot() const {
-    auto* state = detail::create<ConfigSnapshot::State>(impl_->alloc, impl_->alloc);
-    state->layers = impl_->layers;
-    state->scratch = copy_scratch(impl_->scratch);
-    state->scratch_enabled = impl_->scratch_enabled;
+ConfigSnapshot Config::Impl::snapshot() const {
+    auto* state = detail::create<ConfigSnapshot::State>(alloc, alloc);
+    state->layers = layers;
+    state->scratch = copy_scratch(scratch);
+    state->scratch_enabled = scratch_enabled;
     ConfigSnapshot s;
     s.state_ = state;
     return s;
+}
+
+ConfigSnapshot Config::snapshot() const {
+    return impl_->snapshot();
 }
 
 Expected<void> Config::restore(const ConfigSnapshot& snapshot) {

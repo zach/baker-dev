@@ -90,6 +90,16 @@ struct Tools {
     Vec<std::pair<Symbol, ConfigSnapshot>> snapshots;
 };
 
+// A command that changes the data is one transaction of the change log, named after it
+// (D300): a `config.promote` is one step to undo, however many values it wrote.
+struct Step {
+    Step(Config& c, std::string_view name) : cfg(c) { cfg.begin_transaction(name); }
+    ~Step() { cfg.end_transaction(); }
+    Step(const Step&) = delete;
+    Step& operator=(const Step&) = delete;
+    Config& cfg;
+};
+
 Expected<Node> explain_node(Config& cfg, std::string_view path) {
     auto entries = explain(cfg, Path(path));
     if (!entries) return Unexpected(std::move(entries).error());
@@ -270,6 +280,7 @@ Expected<void> bind_config_tools(Context& ctx, Config& cfg, const ConfigToolOpti
                 }
                 if (nodes.empty())
                     return Unexpected(make_error(ErrorCode::Type, "config.set needs a value"));
+                const Step step(tools->cfg, "config.set");
                 auto r = tools->cfg.set(Path(path.text),
                                         std::span<const Node>(nodes.data(), nodes.size()));
                 if (!r) return Unexpected(std::move(r).error());
@@ -286,6 +297,7 @@ Expected<void> bind_config_tools(Context& ctx, Config& cfg, const ConfigToolOpti
                 for (const Symbol p : tools->cfg.unsaved())
                     edited = edited || Path(p.str()).matches(path.text);
                 if (!edited) return Node(int64_t{0});
+                const Step step(tools->cfg, "config.clear_scratch");
                 auto r = tools->cfg.clear_scratch(path.text);
                 if (!r) return Unexpected(std::move(r).error());
                 return Node(int64_t{1});
@@ -295,6 +307,7 @@ Expected<void> bind_config_tools(Context& ctx, Config& cfg, const ConfigToolOpti
         bind(
             "config.toggle",
             [tools](Name layer) -> Expected<Node> {
+                const Step step(tools->cfg, "config.toggle");
                 auto r = tools->cfg.toggle_layer(layer.text);
                 if (!r) return Unexpected(std::move(r).error());
                 return Node(int64_t{*r});
@@ -303,6 +316,7 @@ Expected<void> bind_config_tools(Context& ctx, Config& cfg, const ConfigToolOpti
         bind(
             "config.reload",
             [tools]() -> Expected<Node> {
+                const Step step(tools->cfg, "config.reload");
                 auto r = tools->cfg.reload({.trigger = Symbol("console")});
                 if (!r) return Unexpected(std::move(r).error());
                 return Node(int64_t{*r});
@@ -408,6 +422,7 @@ Expected<void> bind_config_tools(Context& ctx, Config& cfg, const ConfigToolOpti
                 const Symbol name(named.text);
                 for (const auto& [n, snap] : tools->snapshots)
                     if (n == name) {
+                        const Step step(tools->cfg, "config.restore");
                         auto r = tools->cfg.restore(snap);
                         if (!r) return Unexpected(std::move(r).error());
                         return Node(name);
@@ -416,15 +431,45 @@ Expected<void> bind_config_tools(Context& ctx, Config& cfg, const ConfigToolOpti
                     make_error(ErrorCode::NotFound, "no snapshot named '" + Str(name.str()) + "'"));
             },
             "Returns to a named snapshot.");
+        bind(
+            "config.undo",
+            [tools]() -> Expected<Node> {
+                auto r = tools->cfg.undo();
+                if (!r) return Unexpected(std::move(r).error());
+                return Node(int64_t{1});
+            },
+            "Returns to before the latest transaction of the change log (config.set_change_history "
+            "turns it on): a command, a drag, a promotion as one step. The files a promotion "
+            "wrote stay written.");
+        bind(
+            "config.redo",
+            [tools]() -> Expected<Node> {
+                auto r = tools->cfg.redo();
+                if (!r) return Unexpected(std::move(r).error());
+                return Node(int64_t{1});
+            },
+            "Applies the latest undone transaction again.");
+        bind(
+            "config.set_change_history",
+            [tools](int64_t capacity) -> Node {
+                tools->cfg.set_change_history(static_cast<size_t>(std::max<int64_t>(capacity, 0)));
+                return Node(int64_t{static_cast<int64_t>(tools->cfg.change_history())});
+            },
+            "Keeps the last N transactions of change records, for config.undo and config.redo; "
+            "0 turns the log off.");
         if (options.allow_write) {
             bind(
                 "config.write_back",
-                [tools](Name path) { return report_node(tools->cfg.write_back(Path(path.text))); },
+                [tools](Name path) {
+                    const Step step(tools->cfg, "config.write_back");
+                    return report_node(tools->cfg.write_back(Path(path.text)));
+                },
                 "Writes a live-tuned value back to the line it came from; returns the lines "
                 "written and any refusals.");
             bind(
                 "config.promote",
                 [tools](Name from, Name to) {
+                    const Step step(tools->cfg, "config.promote");
                     return report_node(tools->cfg.promote(from.text, to.text));
                 },
                 "Writes everything a layer changes into another layer's file, or nothing; "

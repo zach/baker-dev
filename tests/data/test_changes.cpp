@@ -266,3 +266,88 @@ TEST_CASE("a promotion and a write-back are one transaction each, with the lines
     CHECK(ts[3].records.size() == 0);
     CHECK(ok(cfg.get<int>("player.speed")) == 4);
 }
+
+// Step 3 (D300): undo and redo per transaction.
+TEST_CASE("undo returns to before the latest transaction, redo applies it again") {
+    if constexpr (kShipping) return;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer_text("base", "(player (speed 3) (lives 2))"));
+    CHECK(cfg.undo().error().code() == ErrorCode::Refused);  // the log is off
+    cfg.set_change_history(8);
+    CHECK(cfg.undo().error().code() == ErrorCode::NotFound);  // nothing yet
+    REQUIRE(cfg.set("player.speed", Node(4)));
+    cfg.begin_transaction("drag");
+    REQUIRE(cfg.set("player.speed", Node(5)));
+    REQUIRE(cfg.set("player.lives", Node(9)));
+    cfg.end_transaction();
+    REQUIRE(cfg.push_layer_text("patch", "(player (speed 7) (armor 1))"));
+    CHECK(ok(cfg.get<int>("player.speed")) == 5);  // scratch over the patch
+    CHECK(ok(cfg.get<int>("player.armor")) == 1);
+    REQUIRE(cfg.transaction_count() == 3);
+
+    REQUIRE(cfg.undo());  // the push
+    CHECK_FALSE(cfg.get<int>("player.armor"));
+    CHECK(ok(cfg.get<int>("player.speed")) == 5);
+    REQUIRE(cfg.undo());  // the drag, as one step
+    CHECK(ok(cfg.get<int>("player.speed")) == 4);
+    CHECK(ok(cfg.get<int>("player.lives")) == 2);
+    CHECK(cfg.transaction_count() == 3);  // kept, marked
+    CHECK(cfg.transaction_at(1).undone);
+    CHECK(cfg.transaction_at(2).undone);
+    CHECK_FALSE(cfg.transaction_at(0).undone);
+    REQUIRE(cfg.redo());  // the drag again
+    CHECK(ok(cfg.get<int>("player.speed")) == 5);
+    CHECK(ok(cfg.get<int>("player.lives")) == 9);
+    CHECK_FALSE(cfg.transaction_at(1).undone);
+    REQUIRE(cfg.undo());
+    REQUIRE(cfg.undo());  // the first set
+    CHECK(ok(cfg.get<int>("player.speed")) == 3);
+    CHECK(cfg.undo().error().code() == ErrorCode::NotFound);
+    CHECK(cfg.unsaved().empty());
+    // A new change drops the undone chain.
+    REQUIRE(cfg.set("player.speed", Node(11)));
+    CHECK(cfg.transaction_count() == 1);
+    CHECK(cfg.transaction_at(0).name == Symbol("set"));
+    CHECK(cfg.redo().error().code() == ErrorCode::NotFound);
+    REQUIRE(cfg.undo());
+    CHECK(ok(cfg.get<int>("player.speed")) == 3);
+    REQUIRE(cfg.redo());
+    CHECK(ok(cfg.get<int>("player.speed")) == 11);
+    // The ring keeps the last n, and undo reaches no further.
+    for (int i = 0; i < 10; ++i) REQUIRE(cfg.set("player.speed", Node(20 + i)));
+    CHECK(cfg.transaction_count() == 8);
+    for (int i = 0; i < 8; ++i) REQUIRE(cfg.undo());
+    CHECK(ok(cfg.get<int>("player.speed")) == 21);  // before the oldest kept
+    CHECK(cfg.undo().error().code() == ErrorCode::NotFound);
+}
+
+TEST_CASE("undoing a promotion returns the data in memory; the file stays written") {
+    if constexpr (kShipping) return;
+    const test::TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer("base", dir.write("base.dta", "(player (speed 3))\n")));
+    cfg.set_change_history(8);
+    REQUIRE(cfg.set("player.speed", Node(4)));
+    REQUIRE(cfg.promote("scratch", "base"));
+    CHECK(dir.read("base.dta") == "(player (speed 4))\n");
+    CHECK(ok(cfg.layer_root("base")->get<int>("player.speed")) == 4);
+    REQUIRE(cfg.undo());  // the promotion: the old tree is back under scratch's edit
+    CHECK(ok(cfg.get<int>("player.speed")) == 4);
+    CHECK(ok(cfg.layer_root("base")->get<int>("player.speed")) == 3);
+    REQUIRE(cfg.undo());  // the edit
+    CHECK(ok(cfg.get<int>("player.speed")) == 3);
+    CHECK(dir.read("base.dta") == "(player (speed 4))\n");  // as written; named by the log
+    CHECK(cfg.transaction_at(1).written.size() == 1);
+    CHECK(cfg.transaction_at(1).undone);
+    // Nothing of the undo itself is recorded.
+    CHECK(cfg.transaction_count() == 2);
+    REQUIRE(cfg.redo());
+    REQUIRE(cfg.redo());
+    CHECK(ok(cfg.get<int>("player.speed")) == 4);
+    CHECK(ok(cfg.layer_root("base")->get<int>("player.speed")) == 4);
+    // A reload reads the file as written.
+    REQUIRE(cfg.undo());
+    REQUIRE(cfg.undo());
+    REQUIRE(cfg.reload());
+    CHECK(ok(cfg.get<int>("player.speed")) == 4);
+}

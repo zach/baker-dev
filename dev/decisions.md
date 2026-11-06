@@ -10555,3 +10555,34 @@ renaming from a change set is deferred.*
   EASTL refuses; pointers now.
 - **Costs.** With the log off, one test per commit; step 6 measures the rest.
 
+## D300. Change records, step 3: undo and redo
+
+*`dev/changes-plan.md` step 3 (W4, D269), after D299.*
+
+- **Per transaction, in memory** (the owner's Q2). The log keeps, with each transaction,
+  the Config's state after it, as `snapshot()` keeps one: the layers (trees shared), their
+  toggles, and a copy of scratch (D133's cost, twice per transaction with the log on: once
+  kept, once as the next one's before). The state before a transaction is the state after
+  the one before it (every change in between was recorded), or the one the log began at,
+  kept by `set_change_history`. A snapshot taken when a transaction opens would be wrong:
+  a commit and a `set` record after they change the data.
+- **`undo()`** restores the state before the latest applied transaction, as `restore()`
+  does, without recording (the log is quiet through it), and marks the transaction
+  `undone`; **`redo()`** restores the state after the latest undone one. A new transaction
+  after an undo drops the undone ones. NotFound with nothing to undo or redo; Refused with
+  the log off; shipping refuses both. The journal marks what an undo drops as reverted, as
+  a restore does.
+- **Files stay written.** Undoing a promotion returns the old trees under scratch's edit in
+  memory; the file keeps the promoted value, the transaction's `written` names it, and a
+  reload reads it as written (tested).
+- **What an empty transaction leaves.** A change that records nothing (a layer toggled
+  with no value changing) is dropped, and its state rides with the next transaction's
+  undo. Acceptable: the log records what the stack read.
+- **The console.** `config.set_change_history N`, `config.undo`, `config.redo`; each
+  command that changes the data (`config.set`, `config.clear_scratch`, `config.toggle`,
+  `config.reload`, `config.restore`, `config.write_back`, `config.promote`) is one
+  transaction named after it.
+- **Tests.** Undo over a set, a drag as one step, a push, a promotion (the file as written,
+  the memory as before); redo; the chain dropped by a new change; the ring's reach; the
+  console's commands as transactions.
+

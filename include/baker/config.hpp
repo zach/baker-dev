@@ -400,6 +400,7 @@ struct Transaction {
     uint64_t time_ns = 0;
     List<ChangeRecord> records;
     List<WrittenLine> written;  // the files a promotion or a write-back wrote
+    bool undone = false;        // undo() returned to before it; redo() applies it again
 };
 
 struct WriteReport {
@@ -739,6 +740,13 @@ public:
     // each change is its own transaction.
     void begin_transaction(std::string_view name);
     void end_transaction();
+    // Undo and redo per transaction (D300). undo() returns to the state before the latest
+    // applied transaction (the layers, their toggles and scratch, as restore() does), in
+    // memory: the files a promotion or a write-back wrote stay written, and its `written`
+    // names them. redo() applies the latest undone one again; a new change after an undo
+    // drops the undone ones. NotFound with nothing to undo or redo; Refused with the log off.
+    [[nodiscard]] Expected<void> undo();
+    [[nodiscard]] Expected<void> redo();
 
     [[nodiscard]] Expected<WriteReport> write_back(const Path& path);
     // `pin`: the row also carries `(@was v...)`, the stack's value below `layer` as it is now,
