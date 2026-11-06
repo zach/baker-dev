@@ -222,8 +222,12 @@ A renamed record keeps answering to its old key with `(@aka old)` (D286), which 
 that retunes `(weapons (laser ...))` merges into the record now named `plasma`, and a
 `(key_of weapons)` naming `laser` resolves to it (a key wins over an alias). A key that is also a sibling's alias is an error from `id_validator`. Aliases stay
 until someone removes them, since a shipped overlay may still name one; `check` lists an
-alias that no layer and no `key_of` names, as a finding. A stack with no alias pays
-nothing for them.
+alias that no layer and no `key_of` names, as a finding. A layer may also name a record
+by its ID (D302): `(weapons (a7d2c41e9b06f58a3c1d2e4f60718293 (damage 5)))` merges into
+the record that carries that `(@id ...)`, whatever its key is now, so an agent's change
+set survives a rename it did not see. The record keeps its key; a tag that spells an ID
+no record carries is a new record, as any key is. A stack with no alias and no ID pays
+nothing for either.
 
 A renamed field is the shape's to remember: `(hp int (@renamed_from health))` says `hp`
 was `health` (D287). A record spelling the old name is checked as the field, with a

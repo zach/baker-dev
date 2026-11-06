@@ -10493,3 +10493,217 @@ binary; Q2 a non-literal view field reads as its default with a located error; Q
   - Views carry `kAt`, `kKeyed` and `fixups()`; `ListView` reads a packed list; a
     generated reader reads on past a failed field.
   - `CommandHooks::tables` and `CommandHooks::config`.
+
+## D298. Change records, step 1: the log and live edits
+
+*`dev/changes-plan.md` step 1, the first of W4 (D269). The plan's open questions, answered
+by the owner before this step: Q1 the log is opt-in beside the journal; Q2 undo is in
+memory, files a transaction wrote stay written; Q3 a layer names a record by ID, and
+renaming from a change set is deferred.*
+
+- **The types** in `<baker/config.hpp>`: `ChangeRecord` (kind, dotted path, the record's
+  ID, the whole old and new values as trees or null for absent, the layer written, the
+  old value's `Source`, the time, and for a rename its old key) and `Transaction` (a
+  sequence number, a name, a time, the records, the files written).
+- **Opt-in beside the journal.** `set_change_history(n)` keeps the last `n` transactions
+  in a ring, as the journal keeps its entries; off (the default), a `set` costs one test
+  and keeps D93's contract (the test: 100 edits on the fast path, no allocation). On, a
+  `set` copies its old and new values into trees of their own from the Config's allocator
+  (the gate's new case: a Config with the log on reaches no `operator new`).
+- **What step 1 records.** A `Set` from `put` (the whole old value, from scratch or the
+  stack, with its source), from the fast path, and from `clear_scratch` (the edit's value
+  gives way to the files', the writer being the layer that stands). Each is its own
+  transaction named `set` or `clear_scratch` unless one is open: `begin_transaction`
+  names it and nests, `end_transaction` closes it, and an empty one is dropped.
+- **Tests.** The log off then on; a seven-node value kept whole; a value the stack lacked
+  with no before; nesting; the ring; `clear_scratch`; the allocation contracts.
+- **Costs.** None with the log off beyond one test per edit; steps 5 and 6 measure.
+
+## D299. Change records, step 2: a commit's records
+
+*`dev/changes-plan.md` step 2 (W4, D269), after D298.*
+
+- **The walk.** `Config::Impl::commit` keeps the root it replaces and, with the log on,
+  walks it against the new one (`record_commit`): a subtree that is the same object in both
+  (the merge shares what it did not change, D75) is not entered. A keyed child in the new
+  root alone is `Add`, with its whole subtree as `after` and the layer that supplies it; one
+  in the old root alone is `Remove`, with its subtree as `before`; one in both whose own
+  values (the nodes that are not keyed children) differ is `Set` at its path, and the walk
+  goes on below it. A removed child and an added one at the same parent that carry one ID,
+  or whose added one's `(@aka ...)` names the removed key, are one `Rename` at the new path
+  (`renamed_from` the old key, `before` the old record, `after` the new). The keys both roots
+  hold, a renamed one under its new name, in another order make a `Reorder` at the parent,
+  with both parents. The transaction is named by the commit's trigger (`layer`, `reload`,
+  `restore`, `defines`, `write_back`), or is the open one.
+- **The layer and the verbs.** A record's `layer` is the highest enabled layer whose row
+  composes the path (`#append`, `#drop`), else the one the path's source names. With a
+  composing row, the `Set` becomes `Append` or `Drop` with the row's operand as `after`:
+  `(list #append 4 5)` over `(list 1 2 3)` is `Append items.list (1 2 3) → (4 5)`.
+- **Live edits reach the root at once.** With the log on, `set` and the fast path call
+  `apply_edits()` after their edit, so the root the next commit walks against holds what
+  the stack read; off, the merge stays lazy as before. `clear_scratch` no longer records
+  its own `Set`: the commit's walk does, and `clear_scratch` marks those records' source as
+  scratch.
+- **Write-back and promotion** are one transaction each, named `write_back` and `promote`,
+  carrying the lines they wrote (`WriteReport::written`); a promotion of scratch whose
+  values the file now supplies has no records, only the lines.
+- **Tests.** A pushed and a removed layer (`Add`, `Remove`, `Set`, a shared subtree not
+  walked); a text layer replaced with a rename by ID, one by alias, and the order changed
+  (`Rename` ×2, `Reorder`, no `Add` or `Remove`); `#append` and `#drop`; a write-back and
+  a promotion with their lines; the allocation gate over a push and a removal with the log
+  on (no `operator new`). D298's EASTL build had passed a span's iterators to `assign`, which
+  EASTL refuses; pointers now.
+- **Costs.** With the log off, one test per commit; step 6 measures the rest.
+
+## D300. Change records, step 3: undo and redo
+
+*`dev/changes-plan.md` step 3 (W4, D269), after D299.*
+
+- **Per transaction, in memory** (the owner's Q2). The log keeps, with each transaction,
+  the Config's state after it, as `snapshot()` keeps one: the layers (trees shared), their
+  toggles, and a copy of scratch (D133's cost, twice per transaction with the log on: once
+  kept, once as the next one's before). The state before a transaction is the state after
+  the one before it (every change in between was recorded), or the one the log began at,
+  kept by `set_change_history`. A snapshot taken when a transaction opens would be wrong:
+  a commit and a `set` record after they change the data.
+- **`undo()`** restores the state before the latest applied transaction, as `restore()`
+  does, without recording (the log is quiet through it), and marks the transaction
+  `undone`; **`redo()`** restores the state after the latest undone one. A new transaction
+  after an undo drops the undone ones. NotFound with nothing to undo or redo; Refused with
+  the log off; shipping refuses both. The journal marks what an undo drops as reverted, as
+  a restore does.
+- **Files stay written.** Undoing a promotion returns the old trees under scratch's edit in
+  memory; the file keeps the promoted value, the transaction's `written` names it, and a
+  reload reads it as written (tested).
+- **What an empty transaction leaves.** A change that records nothing (a layer toggled
+  with no value changing) is dropped, and its state rides with the next transaction's
+  undo. Acceptable: the log records what the stack read.
+- **The console.** `config.set_change_history N`, `config.undo`, `config.redo`; each
+  command that changes the data (`config.set`, `config.clear_scratch`, `config.toggle`,
+  `config.reload`, `config.restore`, `config.write_back`, `config.promote`) is one
+  transaction named after it.
+- **Tests.** Undo over a set, a drag as one step, a push, a promotion (the file as written,
+  the memory as before); redo; the chain dropped by a new change; the ring's reach; the
+  console's commands as transactions.
+
+## D301. Change records, step 4: `baker.changes/1`
+
+*`dev/changes-plan.md` step 4 (W4, D269), after D300.*
+
+- **`tools::write_changes_json(cfg, sink)`** (`<baker/tools/layers.hpp>`, beside `diff`
+  and `explain`): the log as one object, `{"schema": "baker.changes/1", "transactions":
+  [...]}`, each transaction with `id`, `name`, `time_ns`, `undone`, `written` (file and
+  line) and `records`, each record with `kind` (`set`, `add`, `remove`, `rename`,
+  `reorder`, `append`, `drop`), `path`, `id`, `renamed_from` (a rename only), `before` and
+  `after` as Baker text or `null`, `layer`, `source` and `time_ns`. `docs/changes-json.md`
+  documents it; versioning as `check`'s.
+- **A write-back and a promotion record the layer they wrote into.** The merged tree need
+  not change when they run (the layer above, or scratch, supplied the values already), so
+  the commit's walk found nothing. Their transactions now walk the target layer's tree
+  before and after the write, every record's layer and source being the target; a promotion
+  walks the tree it planned (the local copy re-read against the planned text), which is the
+  same whether the files are written or the writer only captures them.
+- **The kit's `promote --baker-json`** turns the log on for one transaction, promotes, and
+  writes that transaction: without `--baker-write`, the Config's writer accepts and drops
+  each file, so the records and lines are what the promotion would make and nothing is
+  written (the same dry run `--baker-patch` does, without the diff); with it, the files are
+  written and the transaction says where. The exit status is the promotion's.
+- **Tests.** The writer over an empty log, a live edit, a replaced layer with a rename, and
+  an undone transaction (the text checked); the kit's dry run and written run on the test
+  stack, read back with Python's `json`.
+
+## D302. Change records, step 5: a layer names a record by its ID
+
+*`dev/changes-plan.md` step 5 (W4, D269), after D301; the owner's Q3.*
+
+- **Through the alias path.** A keyed child of a layer whose tag is a record's ID merges
+  into the lower record that carries that `(@id ...)`, as a child keyed by an alias merges
+  into the renamed record (D286): the record keeps its key, and the layer's values land in
+  it. The parser's count of arrays with an `(@aka ...)`, which the merge reads to know
+  whether a miss is worth a second look, now counts an `(@id ...)` too; the cache's
+  `(aliases N)` record carries it, so a replayed layer knows. The indexed path (a parent
+  past 32 incoming keys) adds each child's ID symbol to the index beside its aliases, one
+  pass; the linear path parses the missed tag as an ID once and compares it to each
+  child's ID symbol as written (`detail::id_symbol`), no `RecordId` parse per child. A tag
+  that spells an ID no record carries is a new record, as any key is.
+- **Provenance follows the ID** as it follows an alias (D290): `resolve_in_layer` respells
+  a segment the layer lacks by the merged record's ID, so `source()` and the checker name
+  the overlay's line.
+- **The record is not renamed from a change set** (Q3): `promote` writes values, and the
+  kit's `rename` renames; an agent runs it as a command of its own.
+- **Tests.** An overlay by ID, by alias and by key together; the key kept; provenance by
+  ID; a new record from an unknown ID; `check_layer_text` over an ID-keyed overlay; the
+  indexed path over a 40-record table addressed wholly by ID.
+- **Also.** clang-tidy findings the full matrix found in steps 3 and 4 (an assignment in a
+  condition, two escaped literals, a const that prevented a move, a move of a copy-only
+  snapshot), fixed here before the merge.
+- **Costs.** A stack with no alias and no ID pays nothing new; one with IDs and no alias
+  pays the alias scan on a miss it did not pay before. Step 6 measures the rows.
+
+## D303. Change records, step 6: the example, the docs and the record
+
+*`dev/changes-plan.md` step 6, the last of W4 (D269). W4 is done: D298 to D303.*
+
+- **The example.** `examples/content-tables` pushes an agent's change set that names
+  `slam` by its ID, checked under the default policy, logged, promoted into the content
+  layer through a writer that keeps the text (the kit's dry run), and undone twice: the
+  log's transactions print as `layer: ...slam.damage (12) -> (14) in change-set`,
+  `promote: ...heavy.damage none -> (damage 14) in content` (the content layer spells the
+  record by its alias, so that is where the value lands) and the line written; after the
+  undo the table reads 12 again and the layer is gone. Tested in development builds.
+- **Three things the example found.**
+  - A promotion of a change set spelled by ID or alias wrote a new record keyed by the
+    ID: `promote` planned the source layer's own spelling. Its paths are now the merged
+    tree's (`collect_paths` respells a segment by the record's alias or ID), and `plan`
+    finds the target's row by the merged record's alias or ID when the target spells it
+    so. Tested both ways: by ID into a layer that spells the record by alias, by alias
+    into one that spells it by key.
+  - A stack image's layers lost their aliases: a section was written without a record, a
+    tree pushed from one counted none, and the image's merge put a renamed record's old
+    key beside it (the example's image read five moves, since W2). A section's record
+    now carries the count (`SessionAccess::set_recorded`, an empty record but for it), an
+    image load sets the flag from it, and a tree pushed by `push_layer(name, Ref<Array>)`
+    walks once with an early exit (`detail::has_identity`), which an image load skips.
+    The example's image grew from 6,272 to 10,112 bytes with the records. Tested over a
+    tree layer and an image.
+  - The example tests' regexes were lists: a `;` in the expected text split the
+    `PASS_REGULAR_EXPRESSION` into alternatives, and the first one matched, so the test
+    passed whatever followed. `[;]` now, checked against the output through CMake's own
+    engine.
+- **The hot path.** `set` with the log off had gained 69 instructions (675 to 744): a
+  `Vec` built on the path and the record's call made before the test. The `Vec` is an
+  `optional` made only with the log on and the call sits under the test:
+  `tools/count_instructions.py --base 6a69f7f`: `set` 675 to 693 (+2.7%, the test and
+  the `apply_edits` branch), `merge` 1,223,754 to 1,225,760 (+0.16%, the root kept
+  across the merge for the walk), every other case unchanged (`parse` 1,897,732,
+  `lookup` 209, `check` +0.04%).
+- **The no-cost rows,** `tools/bench_compare.py --base 6a69f7f`, 5 runs a side, medians:
+  `try_find (array)` 8.22 to 5.46 ns and `find<float>` 10.2 to 7.96 ns (the loop's
+  alignment moved again, gap 47), `try_find, 50/200/1000 children: linear` 11.6 to 13.3,
+  46.3 to 67.5 and 170 to 236 ns (see below), `find_float("key19"_sym)` 11.8 to 11.4 ns,
+  `get<int>(Path)` 18.4 to 18.7 ns, `read_string` 66.7 to 65.3 us, `push_layer (tree)`
+  80.8 to 84.3 us (the identity walk, D303), `push_layer_text` 149.7 to 149.0 us,
+  `check_layer_text` 429 to 430 us, `Config layer, text` 16.6 to 17.9 ms (its range 7.3
+  to 27.8 ms), `Config set, a scalar in scratch` 65.1 to 66.5 ns (the +18 instructions),
+  `Config reload, unchanged small file` 1799 to 1820 ns, `read_view<Move>` 74.6 to 75.6
+  ns, `table[i].damage` 0.59 ns both, `table.index_of(id)` 6.29 ns both, `children_of`
+  11.8 to 13.6 ns, the tree's `try_get` 86.0 to 92.3 ns, `handle_all` 335 to 363 ns,
+  `parse` 25.4 to 25.1 ms. The script and task rows are within noise. The wide `try_find` rows moved
+  without their code: `try_find` is inline and untouched, and both benches under
+  cachegrind execute the same 53,928,000,032 instructions in it (the new side's wide rows
+  run 2 to 4% faster there). Code layout, as gap 47 records; the instruction counts above
+  are the measure.
+- **Docs.** `docs/cookbook.md` (the log, undo and redo, the console commands),
+  `docs/tools.md` (the development row, `promote --baker-json`, the documents list),
+  `docs/language.md` (a record named by ID), `docs/changes-json.md`; gaps 46 (IDs) and 50
+  (the log's snapshots).
+- **Changelog lines for the next release.**
+  - The change log: `set_change_history`, transactions of change records (set, add,
+    remove, rename, reorder, append, drop) with whole values, `begin_transaction`,
+    `undo` and `redo`; the console's `config.set_change_history`, `config.undo` and
+    `config.redo`, each command one transaction.
+  - `baker.changes/1`: `tools::write_changes_json`, the kit's `promote --baker-json`.
+  - A layer names a record by its ID.
+  - Fixed: a promotion of a change set spelled by alias or ID writes into the record; a
+    stack image's layers keep their aliases.
+

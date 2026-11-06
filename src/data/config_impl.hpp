@@ -57,8 +57,9 @@ struct LayerState {
     // again only if one changed. Unknown when a cache replayed it, which parses nothing.
     Vec<Symbol> tested;
     bool tested_known = false;
-    // Its tree holds an (@aka ...), or it was replayed from a cache, which counts none: the
-    // merge then resolves a key the stack lacks against the aliases below it (D286).
+    // Its tree holds an (@aka ...) or an (@id ...), or it was replayed from a cache written
+    // before the count: the merge then resolves a key the stack lacks against the aliases
+    // and IDs below it (D286, D302).
     bool aliases = false;
     // A directory of layers (push_layer_dir): its own layer, which holds nothing, is `dir`'s
     // marker, and the layers found in it stand directly above, each with `group` its name.
@@ -369,6 +370,47 @@ struct Config::Impl {
     // is superseded. Allocates only the ring, once.
     void log_edit(ScratchEntry& owner, const Node* before, uint32_t before_count,
                   std::span<const Node> after, const Source& source);
+    // The change log (D298): a ring of transactions, the one being built aside until its
+    // end; `open` counts the begin_transaction nesting.
+    struct Kept {  // a transaction with the states before and after it, for undo and redo
+        Transaction t;
+        ConfigSnapshot before, after;
+    };
+    struct Changes {
+        explicit Changes(const Allocator& a) : ring(a), pending(a), pending_written(a) {}
+        Vec<Kept> ring;  // oldest first; ring[0, done) applied, the rest undone
+        size_t cap = 0;
+        size_t done = 0;
+        uint64_t count = 0;  // transactions ever finished
+        uint32_t open = 0;
+        bool quiet = false;  // an undo or redo in progress: not recorded
+        Symbol name;
+        uint64_t time_ns = 0;
+        ConfigSnapshot origin;  // the state when the log was turned on
+        Vec<ChangeRecord> pending;
+        Vec<WrittenLine> pending_written;
+    } changes{alloc};
+    [[nodiscard]] bool logging() const noexcept { return changes.cap != 0 && !changes.quiet; }
+    bool from_image = false;  // push_image_layers is pushing a section's tree
+    [[nodiscard]] ConfigSnapshot snapshot() const;
+    // Opens a transaction if none is, named `name`; a change then records into it, and
+    // close() finishes it unless begin_transaction keeps it open.
+    void begin_change(Symbol name);
+    void add_change(ChangeRecord record);
+    void close_change();
+    // A Set record for `path`, valued `before` (sourced at `source`) then `after`, written
+    // to `layer`: the values copied into trees of their own.
+    void record_set(const Path& path, std::span<const Node> before, std::span<const Node> after,
+                    const Source& source, Symbol layer);
+    // A commit's records (D299): the walk of the previous root and the new one where they
+    // differ, into the open transaction or one named `trigger`.
+    void record_commit(const Config& c, const Array& before, const Array& after, Symbol trigger);
+    // The walk itself, into the open transaction. `layer` empty: the merged tree, each
+    // record's layer being the one that supplies the value; else one layer's own tree before
+    // and after a write into it (a write-back, a promotion), every record written to
+    // `layer`, since what the merged tree read need not change when the layer above
+    // supplied the values already (D301).
+    void walk_changes(const Config& c, const Array& before, const Array& after, Symbol layer);
     // Gives `owner`'s latest entry its fate, if it is still unsaved.
     void settle(const ScratchEntry& owner, EditFate fate, WrittenLine written) noexcept {
         if (JournalEntry* e = journal_entry(owner.edit, owner.key);

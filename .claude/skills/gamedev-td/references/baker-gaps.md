@@ -192,9 +192,9 @@ One line each; the D-entries hold the measurements.
    D278's skipped-shape record, which the texts do not exercise. Open: isolate with
    cachegrind's per-function counts (D283). W3 added one test per closed array (the alias
    count, D286): `parse` 1,897,732, +0.18% over W1 (D290).
-46. **An alias costs a scan on a merge miss (load).** With any `(@aka ...)` in the stack,
-   a keyed child the lower array lacks scans the lower children's metadata (D286); without
-   one, a bool test per miss. The scan was quadratic for a wide layer whose keys were all
+46. **An alias costs a scan on a merge miss (load).** With any `(@aka ...)` or, since W4,
+   any `(@id ...)` in the stack (D302), a keyed child the lower array lacks scans the
+   lower children's metadata (D286); without one, a bool test per miss. The scan was quadratic for a wide layer whose keys were all
    new, and a cache's replay counted as aliased, which made a cached 4 MB layer's load 30x
    slower; W3 step 6 indexes the aliases once per merge on the indexed path and records the
    count in the cache (D290). The unindexed path (32 or fewer incoming keys) still scans
@@ -214,6 +214,12 @@ One line each; the D-entries hold the measurements.
    7 ns by ID, 25 ns by a held path. Keys together (the hashes alone, the rest beside)
    would halve the lines a probe touches. Accepted for W2: a read holds the index; open
    if a profile names it.
+50. **A transaction of the change log keeps two snapshots (tool).** With the log on, each
+   transaction keeps the Config's state after it, and the next one's before is that same
+   snapshot, so one `set` costs a snapshot (the layer list copied, scratch copied, D133)
+   plus its records' trees, and the merged tree is rebuilt at once rather than lazily
+   (D299, D300). Off, nothing. Accepted: the log is a tool's, and a game never turns it
+   on; reopen if a harness drag shows it.
 10. **Tooling in the core (tool).** Accepted as a standing rule (D100), then moved out:
    `baker::tools` holds what only tools call, and a minimal shipping game is 24.2 KB
    smaller with default flags, unchanged with `--gc-sections` (D231).

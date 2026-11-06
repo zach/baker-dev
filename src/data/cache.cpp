@@ -709,8 +709,8 @@ Ref<Array> record_of(const LoadSession& s) {
                         s.drop_metadata ? without_notes(d.form) : Node(d.form)};
         shapes.push_back(list(entry));
     }
-    // (aliases N): how many arrays of the load carry an (@aka ...), which the merge reads
-    // (D286); a replay parses nothing, so the record says it.
+    // (aliases N): how many arrays of the load carry an (@aka ...) or an (@id ...), which
+    // the merge reads (D286, D302); a replay parses nothing, so the record says it.
     Vec<Node> aliases{Node(Symbol("aliases")), Node(int64_t{A::aliases(s)})};
     Vec<Node> meta{list(files),   list(before),      list(define),  list(undefine),
                    list(autorun), list(required),    list(require), list(levels),

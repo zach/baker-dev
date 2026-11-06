@@ -230,6 +230,17 @@ cfg.push_layer("patch-2026-10-11", overlay);   // live patches go above local
   experiment, `promote("local", "default")` writes its entries into the shared file as one
   reviewable diff, or nothing if any entry cannot be written.
 - Before quitting, check what was tuned and not kept: `cfg.unsaved()` lists the paths, and
+  `cfg.set_change_history(n)` keeps the last `n` transactions of change records, each
+  with its whole old and new values, the record's ID, the layer written and the old
+  value's source; `begin_transaction`/`end_transaction` make a drag or a command one step
+  (D298). A layer pushed, removed or reloaded, a restore, a write-back and a promotion each
+  record what changed in the merged tree: keyed records added, removed or renamed (by ID or
+  alias), values set, lists appended to or dropped from, children reordered, and the lines
+  a promotion wrote (D299). `cfg.undo()` returns to before the latest transaction, in
+  memory, as `restore` does, and `cfg.redo()` applies it again; a promotion is one step,
+  and the files it wrote stay written, named in its transaction (D300). It is off unless
+  asked for: with it on, a live edit allocates its values' trees and the merged tree is
+  rebuilt at once.
   `cfg.journal(fn)` every live edit of the session (up to the last 256) with its old and
   new values, where the old one came from, and whether it was written, reverted, or
   superseded (D93). A harness can warn at exit, and the journal's counts say how much
@@ -807,6 +818,8 @@ people. Two calls give it what it needs:
   - `{config.clear_scratch player.speed}`: drops that one live edit, so the value is the files'
     again. It returns 1 if there was an edit, 0 if not;
   - `{config.journal}` and `{config.unsaved}`: what was tuned, and what was not kept;
+  - `{config.set_change_history 64}`, then `{config.undo}` and `{config.redo}`: each
+    command that changes the data is one transaction of the change log, undone as one;
   - `{config.epoch}`: a number that moves on every reload, layer change and live edit. A
     tool showing the game's values asks for it, and for the values again only when it
     moved.

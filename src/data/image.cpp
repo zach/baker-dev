@@ -10,6 +10,7 @@
 #include <baker/cache.hpp>
 #include <baker/table.hpp>
 
+#include "markers.hpp"
 #include "session.hpp"
 #include "table_build.hpp"
 #include "text.hpp"
@@ -147,8 +148,13 @@ Expected<void> write_stack_image(const Config& cfg, std::span<const Symbol> laye
             return Unexpected(make_error(
                 ErrorCode::NotFound,
                 "the stack has no layer '" + Str(layer.str()) + "' to put in the image"));
+        // The section's record says whether the layer carries aliases or IDs, as a cache's
+        // does (D286, D302): the load then needs no walk to know.
+        LoadSession record;
+        detail::SessionAccess::set_recorded(record, true);
+        detail::SessionAccess::set_aliases(record, detail::has_identity(*root) ? 1 : 0);
         Str bytes;
-        if (auto r = write_cache(*root, detail::str_out(bytes)); !r) return r;
+        if (auto r = write_cache(*root, detail::str_out(bytes), &record); !r) return r;
         detail::append_section(image, detail::ImageSection::Kind::Layer, layer.str(), bytes.view());
         ++sections;
     }

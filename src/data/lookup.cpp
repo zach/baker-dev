@@ -352,7 +352,7 @@ ResolveStatus resolve_in_layer(const Array& layer, const Path& path, const Array
         Symbol name = seg.name;
         const Array* next = lay ? lay->try_find(name) : nullptr;
         const Array* mer_rec = mer ? mer->try_find(name) : nullptr;
-        if (!next && lay && mer_rec && mer_rec->meta_first())
+        if (!next && lay && mer_rec && mer_rec->meta_first()) {
             if (const Array* aka = mer_rec->meta(aka_tag()))
                 for (const Node& old : aka->values()) {
                     const auto s = old.try_sym();
@@ -364,6 +364,15 @@ ResolveStatus resolve_in_layer(const Array& layer, const Path& path, const Array
                         break;
                     }
                 }
+            // Or the layer names the record by its ID (D302).
+            if (const Symbol id = id_symbol(*mer_rec); !next && !id.empty()) {
+                next = lay->try_find(id);
+                if (next) {
+                    name = id;
+                    respelled = true;
+                }
+            }
+        }
         if (!next) return ResolveStatus::Missing;
         text += is_bare_symbol(name.str()) ? Str(name.str()) : "'" + Str(name.str()) + "'";
         lay = next;
