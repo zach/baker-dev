@@ -194,7 +194,7 @@ void Config::Impl::record_set(const Path& path, std::span<const Node> before,
     const auto tree = [this](std::span<const Node> nodes) {
         if (nodes.empty()) return Ref<Array>();
         Vec<Node> copy(alloc);
-        copy.assign(nodes.begin(), nodes.end());
+        copy.assign(nodes.data(), nodes.data() + nodes.size());  // EASTL: pointers
         return Array::make_from(copy);
     };
     r.before = tree(before);
@@ -205,6 +205,204 @@ void Config::Impl::record_set(const Path& path, std::span<const Node> before,
     const bool own = changes.open == 0;
     if (own) begin_change(Symbol("set"));
     add_change(std::move(r));
+    if (own) close_change();
+}
+
+// The walk of two merged roots (D299): where a subtree is the same object in both (the
+// merge shares what it did not change), nothing changed below it. A keyed child in one
+// root alone is a record added or removed, with its whole subtree; one in both with other
+// values is a Set at its path; a parent whose common keys come in another order is a
+// Reorder; a removed and an added child that share an ID, or whose new one's (@aka ...)
+// names the old key, are one Rename. A list a layer row grew or shrank with #append or
+// #drop is Append or Drop with the row's operand.
+namespace {
+
+Symbol dotted_path(const Str& path, Symbol tag) {
+    Str p = path;
+    if (!p.empty()) p += '.';
+    p += tag.str();
+    return Symbol(p.view());
+}
+
+Ref<Array> whole(const Array& a) {
+    return Ref<Array>(const_cast<Array*>(&a));
+}
+
+// An array's own values: its nodes that are not keyed children.
+Ref<Array> values_tree(const Array& a, const Allocator& alloc) {
+    Vec<Node> own(alloc);
+    config_internal::leaf_values(a, own);
+    if (own.empty()) return nullptr;
+    return Array::make_from(own);
+}
+
+bool same_values(const Array& a, const Array& b, const Allocator& alloc) {
+    Vec<Node> x(alloc), y(alloc);
+    config_internal::leaf_values(a, x);
+    config_internal::leaf_values(b, y);
+    return config_internal::same_nodes({x.data(), x.size()}, {y.data(), y.size()});
+}
+
+bool alias_names(const Array& record, Symbol key) {
+    if (!record.meta_first()) return false;
+    const Array* aka = record.meta(detail::aka_tag());
+    if (!aka) return false;
+    for (const Node& n : aka->values())
+        if (n.is(key)) return true;
+    return false;
+}
+
+}  // namespace
+
+void Config::Impl::record_commit(const Config& c, const Array& before, const Array& after,
+                                 Symbol trigger) {
+    const bool own = changes.open == 0;
+    if (own) begin_change(trigger);
+    struct Half {  // an added or removed child at one parent, for the rename match
+        const Array* array;
+        bool added;
+        size_t record;  // its record's index in pending
+    };
+    const uint64_t time = now();
+    // The layer that wrote a path's value now: the highest enabled one composing it, with
+    // its row (for the verb), else the one its source names.
+    const auto writer_of = [&](Symbol path, const Array*& row) -> Symbol {
+        row = nullptr;
+        const Path p(path.str());
+        for (size_t i = layers.size(); i-- > 0;)
+            if (layers[i].options.enabled && composes_at(i, p)) {
+                row = config_internal::row_at(*layers[i].root, p, alias_root());
+                return Symbol(layers[i].name.view());
+            }
+        const auto s = c.source(p);
+        return s ? s->layer : Symbol();
+    };
+    auto walk = [&](auto&& self, const Array& a, const Array& b, const Str& path) -> void {
+        if (&a == &b) return;
+        Vec<Half> here(alloc);
+        Vec<Symbol> order_a(alloc), order_b(alloc);
+        const uint32_t fa = a.tag().empty() ? 0 : 1, fb = b.tag().empty() ? 0 : 1;
+        for (uint32_t i = fb; i < b.size(); ++i)
+            if (const Array* cb = b[i].try_array();
+                cb && !cb->tag().empty() && !cb->tag().is_meta())
+                order_b.push_back(cb->tag());
+        for (uint32_t i = fa; i < a.size(); ++i) {
+            const Array* ca = a[i].try_array();
+            if (!ca || ca->tag().empty() || ca->tag().is_meta()) continue;
+            const Symbol tag = ca->tag();
+            if (std::find(order_a.begin(), order_a.end(), tag) != order_a.end()) continue;
+            order_a.push_back(tag);
+            const Array* cb = b.try_find(tag);
+            const Symbol child_path = dotted_path(path, tag);
+            if (!cb) {
+                ChangeRecord r;
+                r.kind = ChangeKind::Remove;
+                r.path = child_path;
+                r.id = ca->record_id();
+                r.before = whole(*ca);
+                r.time_ns = time;
+                here.push_back({ca, false, changes.pending.size()});
+                add_change(std::move(r));
+                continue;
+            }
+            if (ca == cb) continue;
+            if (!same_values(*ca, *cb, alloc)) {
+                ChangeRecord r;
+                r.kind = ChangeKind::Set;
+                r.path = child_path;
+                r.id = cb->record_id();
+                r.before = values_tree(*ca, alloc);
+                r.after = values_tree(*cb, alloc);
+                r.time_ns = time;
+                const Array* row = nullptr;
+                r.layer = writer_of(child_path, row);
+                if (row) {
+                    const detail::Marker m = detail::verb_of(*row);
+                    if (m == detail::Marker::Append || m == detail::Marker::Drop) {
+                        r.kind =
+                            m == detail::Marker::Append ? ChangeKind::Append : ChangeKind::Drop;
+                        Vec<Node> operand(alloc);
+                        config_internal::leaf_values(*row, operand);
+                        r.after = operand.empty() ? Ref<Array>() : Array::make_from(operand);
+                    }
+                }
+                add_change(std::move(r));
+            }
+            self(self, *ca, *cb, Str(child_path.str()));
+        }
+        for (uint32_t i = fb; i < b.size(); ++i) {
+            const Array* cb = b[i].try_array();
+            if (!cb || cb->tag().empty() || cb->tag().is_meta()) continue;
+            if (a.try_find(cb->tag())) continue;
+            if (std::any_of(here.begin(), here.end(),
+                            [&](const Half& p) { return p.added && p.array->tag() == cb->tag(); }))
+                continue;
+            ChangeRecord r;
+            r.kind = ChangeKind::Add;
+            r.path = dotted_path(path, cb->tag());
+            r.id = cb->record_id();
+            r.after = whole(*cb);
+            r.time_ns = time;
+            const Array* row = nullptr;
+            r.layer = writer_of(r.path, row);
+            here.push_back({cb, true, changes.pending.size()});
+            add_change(std::move(r));
+        }
+        // A removed and an added child that are one record: by ID, or by the alias.
+        for (const Half& gone : here) {
+            if (gone.added) continue;
+            for (const Half& came : here) {
+                if (!came.added) continue;
+                const RecordId id = gone.array->record_id();
+                const bool same = (!id.empty() && id == came.array->record_id()) ||
+                                  alias_names(*came.array, gone.array->tag());
+                if (!same) continue;
+                ChangeRecord& r = changes.pending[came.record];
+                r.kind = ChangeKind::Rename;
+                r.renamed_from = gone.array->tag();
+                r.before = whole(*gone.array);
+                changes.pending[gone.record].kind = ChangeKind::Reorder;  // marked, dropped below
+                changes.pending[gone.record].path = Symbol();
+                break;
+            }
+        }
+        // The common keys in another order, a renamed one under its new name: a Reorder.
+        Vec<Symbol> common_a(alloc), common_b(alloc);
+        for (Symbol t : order_a) {
+            for (const Half& gone : here)
+                if (!gone.added && gone.array->tag() == t) {
+                    const ChangeRecord& r = changes.pending[gone.record];
+                    if (r.kind == ChangeKind::Reorder && r.path.empty())  // renamed
+                        for (const Half& came : here)
+                            if (came.added && changes.pending[came.record].renamed_from == t)
+                                t = came.array->tag();
+                    break;
+                }
+            if (std::find(order_b.begin(), order_b.end(), t) != order_b.end())
+                common_a.push_back(t);
+        }
+        for (const Symbol t : order_b)
+            if (std::find(common_a.begin(), common_a.end(), t) != common_a.end())
+                common_b.push_back(t);
+        if (common_a.size() == common_b.size() &&
+            !std::equal(common_a.begin(), common_a.end(), common_b.begin())) {
+            ChangeRecord r;
+            r.kind = ChangeKind::Reorder;
+            r.path = path.empty() ? Symbol() : Symbol(path.view());
+            r.before = whole(a);
+            r.after = whole(b);
+            r.time_ns = time;
+            add_change(std::move(r));
+        }
+    };
+    walk(walk, before, after, Str(alloc));
+    // The renames' dropped halves.
+    changes.pending.erase(std::remove_if(changes.pending.begin(), changes.pending.end(),
+                                         [](const ChangeRecord& r) {
+                                             return r.kind == ChangeKind::Reorder &&
+                                                    r.path.empty() && r.before && !r.after;
+                                         }),
+                          changes.pending.end());
     if (own) close_change();
 }
 
@@ -638,6 +836,9 @@ void Config::Impl::put(Config& c, const Path& target, std::span<const Node> valu
     c.scratch_dirty_ = true;
     ++c.epoch_;  // a live edit, though not a merge
     retune(*found);
+    // With the log on, the root holds the edit at once, so the next commit's walk starts
+    // from what the stack read (D299).
+    if (logging()) c.apply_edits();
 }
 
 Ref<Array> Config::Impl::merged() const {
@@ -674,6 +875,7 @@ void Config::Impl::commit(Config& c, ReloadRecord& rec, uint64_t& t) {
     c.scratch_dirty_ = false;
     refresh_read();
     if (!tables.empty() && !hold_tables) build_tables(*c.root_, false);
+    if (logging() && before) record_commit(c, *before, *c.root_, rec.trigger);
     if (!validators.empty()) {
         const ValidatorStack stack{*c.root_, stack_layers(), as_read};
         for (const Check& v : validators) v.fn(stack, warn);
@@ -1509,6 +1711,7 @@ Expected<void> Config::set(std::string_view path, const Node& value) {
             ++impl_->generation;
             ++epoch_;
             impl_->retune(e);
+            if (impl_->logging()) apply_edits();
             return {};
         }
     }
@@ -1521,32 +1724,20 @@ Expected<void> Config::clear_scratch(std::string_view path) {
     auto& s = impl_->scratch;
     for (const ScratchEntry& e : s)
         if (path.empty() || e.path.matches(path)) impl_->settle(e, EditFate::Reverted, {});
-    // The log (D298): each dropped edit's value, then the files' value in its place.
-    struct Dropped {
-        Path path;
-        Ref<Array> values;
-    };
-    Vec<Dropped> dropped(impl_->alloc);
-    if (impl_->logging())
-        for (const ScratchEntry& e : s)
-            if (path.empty() || e.path.matches(path)) dropped.push_back({e.path, e.values});
+    // The log (D298, D299): the commit's walk records each dropped edit's value giving way
+    // to the files'; the old values were scratch's own.
+    const bool own = impl_->logging() && impl_->changes.open == 0;
+    if (own) impl_->begin_change(Symbol("clear_scratch"));
+    const size_t first = impl_->changes.pending.size();
     if (path.empty())
         s.clear();
     else
         s.erase(std::remove_if(s.begin(), s.end(),
                                [&](const ScratchEntry& e) { return e.path.matches(path); }),
                 s.end());
-    const bool own = impl_->logging() && impl_->changes.open == 0;
-    if (own) impl_->begin_change(Symbol("clear_scratch"));
     impl_->change(*this, trigger_name("layer"));
-    for (const Dropped& d : dropped) {
-        Vec<Node> after(impl_->alloc);
-        (void)value_nodes(*root_, d.path, after);
-        const Values was = d.values->values();
-        auto src = source(d.path);  // the files' value now stands: its layer is the writer
-        impl_->record_set(d.path, {was.begin(), was.size()}, {after.data(), after.size()},
-                          Source{scratch_name()}, src ? src->layer : Symbol());
-    }
+    for (size_t i = first; i < impl_->changes.pending.size(); ++i)
+        impl_->changes.pending[i].source = Source{scratch_name()};
     if (own) impl_->close_change();
     return {};
 }

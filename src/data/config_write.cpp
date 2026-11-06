@@ -620,6 +620,8 @@ Expected<WriteReport> Config::Impl::write_into(Config& c, size_t li, const Path&
             return Unexpected(std::move(r).error());
         }
     }
+    const bool log = logging();  // the write as one transaction, with its line (D299)
+    if (log) begin_change(trigger_name("write_back"));
     // The file holds the value now. Drop it from scratch, unless a layer above still hides it.
     const Path key = last_is_index(path) ? parent_of(path) : path;
     const auto it = std::find_if(scratch.begin(), scratch.end(),
@@ -643,7 +645,9 @@ Expected<WriteReport> Config::Impl::write_into(Config& c, size_t li, const Path&
     if (p->changed) {
         const WrittenLine line{s.file, s.line};
         report.written = List<WrittenLine>(std::span<const WrittenLine>(&line, 1));
+        if (log) changes.pending_written.push_back(line);
     }
+    if (log) close_change();
     settle(written_edit, EditFate::Written, {s.file, s.line});
     return report;
 }
@@ -784,6 +788,8 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
             return Unexpected(std::move(r).error());
         }
     }
+    const bool log = impl_->logging();  // the promotion as one transaction (D299)
+    if (log) impl_->begin_change(trigger_name("promote"));
     impl_->commit(*this, rec, t);
     impl_->finish(*this, rec, t);
     Vec<WrittenLine> written;
@@ -798,6 +804,10 @@ Expected<WriteReport> Config::promote(std::string_view from, std::string_view to
         }
     }
     report.written = List<WrittenLine>(written);
+    if (log) {
+        impl_->changes.pending_written.assign(written.begin(), written.end());
+        impl_->close_change();
+    }
     return report;
 }
 

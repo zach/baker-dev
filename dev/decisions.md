@@ -10518,3 +10518,40 @@ renaming from a change set is deferred.*
 - **Tests.** The log off then on; a seven-node value kept whole; a value the stack lacked
   with no before; nesting; the ring; `clear_scratch`; the allocation contracts.
 - **Costs.** None with the log off beyond one test per edit; steps 5 and 6 measure.
+
+## D299. Change records, step 2: a commit's records
+
+*`dev/changes-plan.md` step 2 (W4, D269), after D298.*
+
+- **The walk.** `Config::Impl::commit` keeps the root it replaces and, with the log on,
+  walks it against the new one (`record_commit`): a subtree that is the same object in both
+  (the merge shares what it did not change, D75) is not entered. A keyed child in the new
+  root alone is `Add`, with its whole subtree as `after` and the layer that supplies it; one
+  in the old root alone is `Remove`, with its subtree as `before`; one in both whose own
+  values (the nodes that are not keyed children) differ is `Set` at its path, and the walk
+  goes on below it. A removed child and an added one at the same parent that carry one ID,
+  or whose added one's `(@aka ...)` names the removed key, are one `Rename` at the new path
+  (`renamed_from` the old key, `before` the old record, `after` the new). The keys both roots
+  hold, a renamed one under its new name, in another order make a `Reorder` at the parent,
+  with both parents. The transaction is named by the commit's trigger (`layer`, `reload`,
+  `restore`, `defines`, `write_back`), or is the open one.
+- **The layer and the verbs.** A record's `layer` is the highest enabled layer whose row
+  composes the path (`#append`, `#drop`), else the one the path's source names. With a
+  composing row, the `Set` becomes `Append` or `Drop` with the row's operand as `after`:
+  `(list #append 4 5)` over `(list 1 2 3)` is `Append items.list (1 2 3) → (4 5)`.
+- **Live edits reach the root at once.** With the log on, `set` and the fast path call
+  `apply_edits()` after their edit, so the root the next commit walks against holds what
+  the stack read; off, the merge stays lazy as before. `clear_scratch` no longer records
+  its own `Set`: the commit's walk does, and `clear_scratch` marks those records' source as
+  scratch.
+- **Write-back and promotion** are one transaction each, named `write_back` and `promote`,
+  carrying the lines they wrote (`WriteReport::written`); a promotion of scratch whose
+  values the file now supplies has no records, only the lines.
+- **Tests.** A pushed and a removed layer (`Add`, `Remove`, `Set`, a shared subtree not
+  walked); a text layer replaced with a rename by ID, one by alias, and the order changed
+  (`Rename` ×2, `Reorder`, no `Add` or `Remove`); `#append` and `#drop`; a write-back and
+  a promotion with their lines; the allocation gate over a push and a removal with the log
+  on (no `operator new`). D298's EASTL build had passed a span's iterators to `assign`, which
+  EASTL refuses; pointers now.
+- **Costs.** With the log off, one test per commit; step 6 measures the rest.
+

@@ -233,7 +233,11 @@ cfg.push_layer("patch-2026-10-11", overlay);   // live patches go above local
   `cfg.set_change_history(n)` keeps the last `n` transactions of change records, each
   with its whole old and new values, the record's ID, the layer written and the old
   value's source; `begin_transaction`/`end_transaction` make a drag or a command one step
-  (D298). It is off unless asked for: with it on, a live edit allocates its values' trees.
+  (D298). A layer pushed, removed or reloaded, a restore, a write-back and a promotion each
+  record what changed in the merged tree: keyed records added, removed or renamed (by ID or
+  alias), values set, lists appended to or dropped from, children reordered, and the lines
+  a promotion wrote (D299). It is off unless asked for: with it on, a live edit allocates
+  its values' trees and the merged tree is rebuilt at once.
   `cfg.journal(fn)` every live edit of the session (up to the last 256) with its old and
   new values, where the old one came from, and whether it was written, reverted, or
   superseded (D93). A harness can warn at exit, and the journal's counts say how much

@@ -211,7 +211,11 @@ TEST_CASE(
                      config.set(baker::Path("b"), std::span<const baker::Node>(one)).has_value();
                 config.end_transaction();
                 ok = ok && config.clear_scratch("a").has_value();
-                ok = ok && config.transaction_count() == 2;
+                ok = ok &&
+                     config.transaction_count() == 3;  // the push's commit, the drag, the clear
+                ok = ok && config.push_layer_text("top", "(a 9) (c 1) (b #append 7)").has_value();
+                ok = ok && config.remove_layer("top").has_value();
+                ok = ok && config.transaction_count() == 5;
             }
         }
         global = scope.count();

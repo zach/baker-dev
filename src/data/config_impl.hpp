@@ -392,6 +392,9 @@ struct Config::Impl {
     // to `layer`: the values copied into trees of their own.
     void record_set(const Path& path, std::span<const Node> before, std::span<const Node> after,
                     const Source& source, Symbol layer);
+    // A commit's records (D299): the walk of the previous root and the new one where they
+    // differ, into the open transaction or one named `trigger`.
+    void record_commit(const Config& c, const Array& before, const Array& after, Symbol trigger);
     // Gives `owner`'s latest entry its fate, if it is still unsaved.
     void settle(const ScratchEntry& owner, EditFate fate, WrittenLine written) noexcept {
         if (JournalEntry* e = journal_entry(owner.edit, owner.key);
