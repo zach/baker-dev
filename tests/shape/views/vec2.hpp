@@ -18,7 +18,7 @@ struct Vec2 {
     static constexpr uint64_t kShapeDigest = 0xf3e3be8f64913e9eull;
     static constexpr std::string_view kAt = "";
     static constexpr bool kKeyed = false;
-    // The members a baked table relocates (D292): defined in vec2_read.hpp.
+    // The members a baked table relocates: defined in vec2_read.hpp.
     static constexpr std::span<const baker::ViewFixup> fixups() noexcept;
 };
 

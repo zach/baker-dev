@@ -19,7 +19,7 @@ struct Item {
     static constexpr uint64_t kShapeDigest = 0x3e9003c5e79980e0ull;
     static constexpr std::string_view kAt = "items";
     static constexpr bool kKeyed = true;
-    // The members a baked table relocates (D292): defined in item_read.hpp.
+    // The members a baked table relocates: defined in item_read.hpp.
     static constexpr std::span<const baker::ViewFixup> fixups() noexcept;
 };
 
