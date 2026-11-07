@@ -19,7 +19,7 @@ baker::tools::write_reference_json(ctx, baker::string_out(json), &cfg.read_sessi
 
 ## Stability
 
-They follow `check`'s rules (`check-json.md`):
+They follow [`check`'s rules](check-json.md#stability):
 
 - **Determinism.** Every list is sorted by name or path, so the same program gives the
   same bytes.
@@ -116,7 +116,7 @@ editor, a CI job) can register each function from its overloads with
 | Field | Contents |
 |---|---|
 | `path` | as the tweak was declared: `player.speed` |
-| `type` | the value's type as errors name it: `"float32"`, `"int32"`, `"bool"`, `"curve"` (its `values` then `null`: a curve's points, docs/language.md), or your own (`"vec2"`) |
+| `type` | the value's type as errors name it: `"float32"`, `"int32"`, `"bool"`, `"curve"` (its `values` then `null`: a curve's points, [Curves](language.md#curves)), or your own (`"vec2"`) |
 | `values` | Baker's type of each value: `["float32"]`, or `["float32", "float32"]` for a `vec2` whose `Convert` declares `values`; `null` when the type does not say (added in 1.2) |
 | `count` | how many values it takes, as a parameter's `count`: `"exact"`, `"at_least"` or `"any"` (`["symbol"]` and `"any"` for a `std::vector<Symbol>`); `null` with no `values` (added in 1.4) |
 | `element` | a list's element: `{"type", "values", "count"}`, its type named as `type` names one (`"float32"`, `"vec2"`) and its `values` and `count` as a value's; `null` for a value that is not a list (added in 1.5) |

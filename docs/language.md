@@ -78,8 +78,8 @@ auto cals = eggs->find_int("calories");                       // one level, by t
 A key written as text (`find_int("calories")`) is interned on every call; in a loop,
 write it as a literal, `find_int("calories"_sym)` (after `using namespace baker::literals;`),
 which interns once, or hold a `Symbol`. A name's hash, `Symbol::hash()` or `"calories"_hash`,
-is the same in every process and on every platform, for a save file or a `switch`
-(docs/cookbook.md, "Stable IDs for names").
+is the same in every process and on every platform, for a save file or a `switch` (see the
+cookbook's [Stable IDs for names](cookbook.md#stable-ids-for-names)).
 `Convert<T>` teaches lookups your own types; vectors, fixed arrays, and
 `std::string` (with `<baker/std_interop.hpp>`) are built in. When an array has several
 children with the same tag, lookup finds the first; `subarrays()` visits them all.
@@ -100,9 +100,10 @@ follows, and is never part of it.
 `player.speed` is `4.5` to every reader, and `player.tint` three numbers, so
 `get<std::array<float, 3>>("player.tint")` reads them; `values()` ends at the first
 metadata child, and `metadata()` lists the metadata. Baker's own readers use `@range`,
-`@step`, `@desc`, `@note`, `@kind`, `@group` and `@one_of` (tweaks and tuning panels, D88), `@was` (a layer's pin, Merging),
-`@id` and `@aka` (a record's identity, Identity below) and the shape words below; `check` warns on any other `@` word, so a misspelt
-`(@rnage 0 10)` is found. A path reaches metadata like any child: `player.speed.@desc`.
+`@step`, `@desc`, `@note`, `@kind`, `@group` and `@one_of` (tweaks and tuning panels, D88), `@was`
+(a layer's pin, [Merging](#merging)), `@id` and `@aka` (a record's identity, [Identity](#identity)
+below) and the shape words below; `check` warns on any other `@` word, so a misspelt `(@rnage 0 10)`
+is found. A path reaches metadata like any child: `player.speed.@desc`.
 
 - **Metadata comes after the value.** `(x (@range 0 1) 5)` is an error at the array.
   Fields may come before, between and after metadata, so a record can carry its own
@@ -148,7 +149,7 @@ The marker is the key's only value; metadata may follow it. Anything else, such 
 `(a #remove 1)` or a bare `#remove`, is an error at load. A key the layers below lack
 removes nothing, a layer above may set the key again, and removing the layer brings the
 key back. The merged tree never holds a marker, and `#merge` ignores one (it only fills in
-what is missing). `layer_effect` lists a removal with the value `#remove`, and what it
+what is missing). `layer_effect` lists a removal with `#remove` as its `values`, and what it
 removed in `below`.
 
 **Adding to and dropping from a list.** A layer that restates a list replaces it, so two
@@ -220,7 +221,8 @@ without metadata keeps `@id` and `@aka`: they are identity, not tool text.
 A renamed record keeps answering to its old key with `(@aka old)` (D286), which the kit's
 `rename OLD NEW` writes, with the new key and every `key_of` reference (D288): a layer
 that retunes `(weapons (laser ...))` merges into the record now named `plasma`, and a
-`(key_of weapons)` naming `laser` resolves to it (a key wins over an alias). A key that is also a sibling's alias is an error from `id_validator`. Aliases stay
+`(key_of weapons)` naming `laser` resolves to it (a key wins over an alias). A key that is
+also a sibling's alias is an error from `id_validator`. Aliases stay
 until someone removes them, since a shipped overlay may still name one; `check` lists an
 alias that no layer and no `key_of` names, as a finding. A layer may also name a record
 by its ID (D302): `(weapons (a7d2c41e9b06f58a3c1d2e4f60718293 (damage 5)))` merges into
@@ -331,9 +333,9 @@ in the order they are read; a Config's layers read in one session, bottom to top
 | `#undef N` | Remove a flag or macro. |
 | `#autorun {command}` | Collect the command into the session's `autorun()` list, for the host to run after loading. A Config reads each layer with a session of its own: `cfg.autorun()` returns its enabled layers' commands, bottom to top (D107). |
 | `[N node ...]` | At the top level of a file: define macro N. |
-| `#pack (NAME ...)` | Declare the file a pack. See Packs and levels. |
-| `#origin ("source" ...)` | Declare the file generated. See Generated files. |
-| `#shape (NAME ...)` | Declare a shape. See Shapes. |
+| `#pack (NAME ...)` | Declare the file a pack. See [Packs and levels](#packs-and-levels). |
+| `#origin ("source" ...)` | Declare the file generated. See [Generated files](#generated-files-origin). |
+| `#shape (NAME ...)` | Declare a shape. See [Shapes](#shapes). |
 
 Paths may be quoted (`#include "shared/common.dta"`) or bare, and resolve against the
 including file's directory, then the session's include directories
@@ -441,9 +443,8 @@ A *pack* is a file that declares itself one with `#pack`, anywhere at its top le
 [boss.restart_phase {boss_phase_restart}]
 ```
 
-The host names the levels, hardest first; a pack's level is its rank among them (the
-spec calls this its layer; Baker says *level*, because a Config's layers are its stack of
-files) (D80):
+The host names the levels, hardest first; a pack's level is its rank among them (Baker says
+*level* rather than layer, because a Config's layers are its stack of files) (D80):
 
 ```cpp
 cfg.session().set_pack_levels({"engine", "game", "task"});
@@ -523,21 +524,22 @@ name (D84, D261). The session records it, and the tree never holds it:
 ```
 
 - **Types:** `int`, `float`, `bool`, `symbol`, `string`, `any`, `curve`, `(list T)`,
-  `(key_of TABLE)`, `(asset KIND)`, or another shape's name. A `curve` field's values are a curve (see
-  Curves, above), and its `(@range lo hi)` holds every point's y. A list may give its count:
-  `(position (list float 3))` holds exactly three values and `(tags (list symbol 1 4))` one to
-  four, and any other count is an error at the field. A softer pack may narrow the count, never
-  widen it.
+  `(key_of TABLE)`, `(asset KIND)`, or another shape's name. A `curve` field's values are a curve
+  (see [Curves](#curves), above), and its `(@range lo hi)` holds every point's y. A list may give
+  its count: `(position (list float 3))` holds exactly three values and `(tags (list symbol 1 4))`
+  one to four, and any other count is an error at the field. A softer pack may narrow the count,
+  never widen it.
 - **Metadata:** `@range`, `@step`, `@kind`, `@desc`, `@note` (as a tweak's), `@optional`,
-  `@renamed_from` (Identity, above), and, for a shape that generates a C++ view (Views,
-  below), `@view`, `@cxx` and `@cxx_name`. A field without `@optional` is required. A word without the `@` after a
-  field's type, or a `@` word the grammar lacks, is an error. A shape may describe itself
-  with its own `(@desc ...)` and `(@note ...)`, and its fields may be named anything,
-  `at` and `desc` included. A `symbol` or `(list symbol)` field may list the
-  symbols it allows, `(button symbol (@one_of light heavy kick special))`, in the order a tool
-  should offer them; a later layer declaring the field again may add to the list.
-- **What a shape governs:** every array tagged with its name, anywhere in the tree. `(at
-  ...)` narrows it to arrays whose ancestors' tags, from the root, are the ones listed;
+  `@renamed_from` ([Identity](#identity), above), and, for a shape that generates a C++ view
+  ([Views](#views-a-c-struct-from-a-shape), below), `@view`, `@cxx` and `@cxx_name`. A field
+  without `@optional` is required. A word without the `@` after a field's type, or a `@` word the
+  grammar lacks, is an error. A shape may describe itself with its own `(@desc ...)` and
+  `(@note ...)`, and its fields may be named anything, `at` and `desc` included. A `symbol` or
+  `(list symbol)` field may list the symbols it allows,
+  `(button symbol (@one_of light heavy kick special))`, in the order a tool should offer them; a
+  later layer declaring the field again may add to the list.
+- **What a shape governs:** every array tagged with its name, anywhere in the tree.
+  `(@at ...)` narrows it to arrays whose ancestors' tags, from the root, are the ones listed;
   `*` matches any one tag. The example above governs each `(boss_phase ...)` in
   `(bosses (dragon (phases (boss_phase ...) (boss_phase ...))))`.
 - **Keyed children** are tagged by their own names, as in `(bosses (dragon ...) (golem
@@ -596,8 +598,8 @@ name (D84, D261). The session records it, and the tree never holds it:
 
 Checking reports a field of the wrong type, out of range or outside its `one_of`, a key
 its table lacks, or a required field missing, as an error, located by file, line, and
-path. A field the shape does not declare is a warning, so adding data never waits on its shape. Commands and variables are not checked:
-their values are unknown until they run.
+path. A field the shape does not declare is a warning, so adding data never waits on its
+shape. Commands and variables are not checked: their values are unknown until they run.
 
 ```cpp
 // checked at every push, reload, and restore, and in each check of a layer
@@ -685,8 +687,8 @@ if (jab) frames = jab->startup;              // uint16_t; damage is a float
 for (baker::Symbol into : jab->cancel_into) ...   // a ListView<Symbol> over the list
 ```
 
-- **Members.** `int` is `int32_t`, `float` is `float`, `bool`, `symbol` and `(key_of T)` are
-  `baker::Symbol`, `string` is a `std::string_view`, `curve` a `baker::Curve`, another
+- **Members.** `int` is `int32_t`, `float` is `float`, `bool` is `bool`, `symbol` and `(key_of T)`
+  are `baker::Symbol`, `string` is a `std::string_view`, `curve` a `baker::Curve`, another
   shape its struct, nested, and `(list T)` a `baker::ListView<V>` over the list, which
   converts each element as it is read and checks a declared count. `(@cxx int64)` picks a
   member's C++ type for an `int` (`int8` to `uint64`) or a `float` (`float`, `double`);
@@ -707,7 +709,8 @@ for (baker::Symbol into : jab->cancel_into) ...   // a ListView<Symbol> over the
   file)` in CMake runs `baker_bake --views` whenever a contract file changes, and a header
   is rewritten only when its text changed, so a tuning edit rebuilds nothing. A view's
   shape set is one per build: a `#shape` inside an `#ifdef`, or a `dev_only` or `(when ...)`
-  contract layer, is refused (`docs/cookbook.md`, Views in the build).
+  contract layer, is refused (see the cookbook's
+  [Views in the build](cookbook.md#views-in-the-build)).
 - **Drift.** Each struct carries a digest of its shape's layout (names, types and order,
   never tuning metadata). `baker::shape::check_views` compares the compiled views with
   the shapes a running stack declares, and the kit's `check` reports a mismatch as a
@@ -742,9 +745,10 @@ for (uint32_t i : moves.children_of("kestrel"_sym)) ...   // one parent's record
 - **Finding a row.** `index_of(key)` for a shape whose `(@at ...)` has no `*`;
   `index_of("kestrel.jab")` or a `Path` for the tags the `*` segments stand for and then
   the key; `index_of(id)`; `children_of(parent)` is a contiguous range. `key_of(i)` and
-  `id_of(i)` read back. The text form parses and interns on every call: a read that runs
-  every frame holds the `Path`, the `Symbol` or the `RecordId`, or better, the index. An index is stable across a reload while the table's set of
-  records is unchanged; a record added, removed or reordered renumbers what follows it.
+  `id_of(i)` read back. The text form parses and interns on every call: a read that runs every frame
+  holds the `Path`, the `Symbol` or the `RecordId`, or better, the index. An index is stable across
+  a reload while the table's set of records is unchanged; a record added, removed or reordered
+  renumbers what follows it.
 - **Rebuilt by identity.** Every merge, reload and `apply_edits()` rebuilds a table whose
   governing arrays the new tree does not share, and no other; a Config with no table
   registered builds none. Registering after the load builds at once.
@@ -843,7 +847,7 @@ write-back and promote give that spelling back.
   the printer quotes an operator where the reader would otherwise take a prefix command as
   infix (`{+ '-' 1}`). A macro used between operands, or one that expands to more than one
   node, leaves its brace as written.
-- **Overlays for older builds.** A build of Baker before infix reads `{2 <= $value <= 10}` as
+- **Overlays for older builds.** A Baker before 0.7.0 reads `{2 <= $value <= 10}` as
   a call of 2. Data that a build without it reads, such as a live-ops overlay for a game
   already shipped, stays in the prefix spelling, which every build reads.
 
@@ -885,8 +889,8 @@ A C++ type derived from `baker::Object<T>` binds methods and properties once, in
 script-only; handlers come before native methods, for script and C++ senders alike, so a
 designer can change one type's response without touching its C++. In a handler, `$this` is
 the object, and `[name]` reads its property or loose parameter (`{set [hp] 5}` stores
-one). Loose parameters belong to the object's stay in its Context: removing the object
-drops them. `{new T name (param value) ...}` makes an object of a script class or a bound
+one). An object's loose parameters stay in its Context: removing the object drops
+them. `{new T name (param value) ...}` makes an object of a script class or a bound
 type, and `{delete obj}` removes it when the host's `eval` or `run` returns (during a
 Scheduler's tick, at its end): until then the commands after it still reach the object,
 and a call already running on it finishes safely.

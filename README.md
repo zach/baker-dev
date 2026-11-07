@@ -239,6 +239,7 @@ Android: CMake builds get C++20 from the targets; with `ndk-build`, add
 - [`docs/sim-json.md`](docs/sim-json.md): scenarios, objectives, and their results as JSON.
 - [`docs/check-json.md`](docs/check-json.md): the `check` report as JSON.
 - [`docs/assets-json.md`](docs/assets-json.md): the assets the data names, as JSON.
+- [`docs/changes-json.md`](docs/changes-json.md): the change log and a promotion's changes as JSON.
 - [`CHANGELOG.md`](CHANGELOG.md): what each release changed.
 
 ## License

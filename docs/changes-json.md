@@ -43,7 +43,7 @@ A record:
 | `renamed_from` | `rename` only: the old key, which the new record keeps as an alias |
 | `before`, `after` | the value as Baker text, or `null` where there was none: a `set`'s values in a list, `(3.5)`; a record's whole tree for `add`, `remove` and `rename`, `(armor 1)`; the parent's whole tree for `reorder`; for `append` and `drop`, the list before and the row's operand |
 | `layer` | the layer the new value was written to: `scratch`, the layer a commit's record found supplying it, or the layer a promotion or a write-back wrote into |
-| `source` | where the old value came from, when the log knows: a live edit's, or the layer written into; else empty |
+| `source` | where the old value came from, when the log knows: a live edit's, or the layer written into; else its fields are empty (`""`, `0`) |
 | `time_ns` | when the change was recorded |
 
 A live edit (`set`, a tweak) is one `set` in a transaction of its own, or in the open one.
@@ -56,5 +56,5 @@ removed and an added record carry one ID or the added one's `(@aka ...)` names t
 key, `reorder` where a parent's common keys come in another order, and `append` or `drop`
 where the layer's row composes a list with a verb.
 
-Versioning follows `check`'s (`check-json.md`): a field is added only with a new minor
+Versioning follows [`check`'s](check-json.md#stability): a field is added only with a new minor
 version.

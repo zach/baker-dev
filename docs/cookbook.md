@@ -12,10 +12,14 @@ this says how they fit a studio's day. Each pattern links the example that runs 
 - [Live ops](#live-ops)
 - [The binary cache in a build step](#the-binary-cache-in-a-build-step)
 - [Views in the build](#views-in-the-build)
+- [Renaming a record, a field, and naming a file](#renaming-a-record-a-field-and-naming-a-file)
+- [Content packages: patches, DLC, and mods](#content-packages-patches-dlc-and-mods)
 - [Linking a shipped game](#linking-a-shipped-game)
 - [Harness packs](#harness-packs)
 - [A developer console over `eval`](#a-developer-console-over-eval)
 - [Threads](#threads)
+- [Agreeing on the data: lockstep, replays, saves](#agreeing-on-the-data-lockstep-replays-saves)
+- [Stable IDs for names](#stable-ids-for-names)
 - [Repro scripts](#repro-scripts)
 
 ## Group parameters under the code that owns them
@@ -78,7 +82,8 @@ static baker::Tweak<float> kJumpHeight{"player.jump.height", 1.2f,
 - **Tests** give a tweak its own `TweakRegistry` and Config, so they do not share the
   global one.
 
-`examples/one_line_tweak` and the [README's five-minute path](../README.md) run them.
+`examples/one_line_tweak` and the
+[README's five-minute path](../README.md#five-minutes-to-a-working-tweak) run them.
 
 ## Reload callbacks: migrate or punt
 
@@ -102,10 +107,11 @@ cfg.on_reload(
 - Punt first. Migrate only where a rebuild loses state someone is looking at (a playing
   sound, a camera mid-move), and let migration decline when the change is too large.
 - A reload that fails to parse changes nothing: no callback fires, and the old tree stays.
-- `cfg.on_reload_complete(...)` sees each change's `ReloadRecord`: six timed stages (scan,
-  read, parse, merge, bind, notify), the files reloaded, the tweaks changed, and how many
-  callbacks migrated or punted. Give it `ReloadRequest{.origin_ns = saved_at}` from a file
-  watcher, and the record measures edit to effect.
+- `cfg.on_reload_complete(...)` sees each change's `ReloadRecord`: seven timed stages (scan,
+  write-back's write, read, parse, merge, bind, notify), how many files reloaded and tweaks
+  changed, and how many callbacks migrated or punted. Give it
+  `ReloadRequest{.origin_ns = saved_at}` from a file watcher, and the record measures edit
+  to effect.
 - Call `cfg.mark_visible()` once a frame, when it presents: it costs one branch when
   nothing is waiting. `cfg.loop_stats()` then gives, per file and per layer, the median and
   worst time from a saved edit to the frame that showed it, over the last 32 edits, with
@@ -166,7 +172,8 @@ if (auto r = baker::open_project(cfg, *project); !r) return report(r.error());
   in the stack, skipped by the merge, for a panel to toggle; `dev_only` marks a layer for
   development only (one person's tuning, an agent's proposal awaiting review), which a
   shipping build never pushes even when its file is present. A `(dir "path")` entry is a
-  directory of layers, one for each file or folder in it (see Content packages below); its
+  directory of layers, one for each file or folder in it (see
+  [Content packages](#content-packages-patches-dlc-and-mods)); its
   flags apply to every layer it finds.
 - **A condition:** `(when COND)` keeps a layer in the merge only while the session's
   defines say so: a platform's differences, a demo build's store, an experiment for one
@@ -192,9 +199,10 @@ if (auto r = baker::open_project(cfg, *project); !r) return report(r.error());
   layer that reads and returns a `ProjectProblem` (the layer's name and its error) for each
   one that does not. A layer that does not read is left out, and the layers above it read
   over the ones below. Without `go_on`, as a game opens it, the first error stops it.
-- **The reference** names where the game's build writes `tools::write_reference_json`, for tools
-  that check data without the game. `read_project` returns the path in `Project::reference`
-  and does not ask that it exist; a game ignores it.
+- **The reference** names the file the game's build writes with
+  `tools::write_reference_json`, for tools that check data without the game.
+  `read_project` returns the path in `Project::reference` and does not ask that it exist;
+  a game ignores it.
 - **Finding the project:** `find_project(path)` returns the nearest `baker-project.dta`
   in `path` or a directory above it, or nothing, so an editor opened on a folder holding
   several games finds each file's project. Give it a reader to look through the editor's
@@ -241,8 +249,8 @@ cfg.push_layer("patch-2026-10-11", overlay);   // live patches go above local
   and the files it wrote stay written, named in its transaction (D300). It is off unless
   asked for: with it on, a live edit allocates its values' trees and the merged tree is
   rebuilt at once.
-  `cfg.journal(fn)` every live edit of the session (up to the last 256) with its old and
-  new values, where the old one came from, and whether it was written, reverted, or
+  `cfg.journal(fn)` visits every live edit of the session (up to the last 256) with its old
+  and new values, where the old one came from, and whether it was written, reverted, or
   superseded (D93). A harness can warn at exit, and the journal's counts say how much
   tuning was kept.
 
@@ -314,9 +322,9 @@ overlays/live/...            pushed to players, after QA
   changes: `Config({.live_layers = true})` is the one door overlays come through. Under
   `BAKER_SHIPPING`, reload, toggles, `set()`, write-back, and `promote()` are inert
   whatever the options say, and `dev_only` tweaks keep their defaults.
-- An overlay arrives as text from the studio's server; read it with
-  `read_string(text, "patch-2026-10-17.dta")`, whose name labels its errors and its
-  provenance, and push the tree: `cfg.push_layer("patch-2026-10-17", tree)`.
+- An overlay arrives as text from the studio's server; push it with
+  `cfg.push_layer_text("patch-2026-10-17", text)`, whose name labels its errors and its
+  provenance, and which reads it as text only, refusing an `#include` (below).
 - Do not push a QA overlay to live by copying it into the live directory by hand; promote
   it through the same review a code change gets (below).
 
@@ -549,7 +557,8 @@ and one allocation each: a 6.2 MB tree in 2.3–2.5 ms (D79).
 
 ## Views in the build
 
-A shape marked `(@view)` becomes a C++ struct (`docs/language.md`, Views). The build makes
+A shape marked `(@view)` becomes a C++ struct (the language guide's
+[Views](language.md#views-a-c-struct-from-a-shape)). The build makes
 it, and keeps it current:
 
 ```dta
@@ -563,11 +572,12 @@ it, and keeps it current:
 baker_generate_views(my_game PROJECT ${CMAKE_SOURCE_DIR}/data/baker-project.dta)
 ```
 
-- **What it writes,** under the build tree and on `my_game`'s include path: `move.hpp` (the
-  struct and its digest, reaching only `<baker/view.hpp>`), `move_read.hpp` (its reader,
-  reaching `<baker/view_read.hpp>`, for the files that read), `views.hpp` (every view,
-  and `game::kViews` for the drift check), and `tables.hpp` (`game::register_tables(cfg)`,
-  which adds a baked table for every keyed view; include it where the Config is opened).
+- **What it writes,** under the build tree and on `my_game`'s include path: for a shape
+  `move`, `move.hpp` (the struct and its digest, reaching only `<baker/view.hpp>`),
+  `move_read.hpp` (its reader, reaching `<baker/view_read.hpp>`, for the files that read),
+  `views.hpp` (every view, and `game::kViews` for the drift check), and `tables.hpp`
+  (`game::register_tables(cfg)`, which adds a baked table for every keyed view; include it
+  where the Config is opened).
   Name a struct in many files and read it in one.
 - **The contract** is the layers `(views (layers ...))` names: a mod, an overlay or a
   personal layer may add fields, which stay in the tree. `(shapes ...)` adds views for
@@ -594,8 +604,8 @@ baker_generate_views(my_game PROJECT ${CMAKE_SOURCE_DIR}/data/baker-project.dta)
 
 ## Renaming a record, a field, and naming a file
 
-Content changes its names. Baker keeps the old ones answering (`docs/language.md`,
-Identity), and the host kit's commands do the rewriting:
+Content changes its names. Baker keeps the old ones answering (the language guide's
+[Identity](language.md#identity)), and the host kit's commands do the rewriting:
 
 - **A record.** `game rename fighters.kestrel.moves.heavy slam --baker-write` gives the
   record its new key in the layer that declares it, keeps `(@aka heavy)` in it, mints an
@@ -620,7 +630,7 @@ Identity), and the host kit's commands do the rewriting:
 jab names its icon, and the output shows each. It also registers its moves as a baked
 table, finds `slam` by path and by its old key, and, given a file name, writes the contract
 layers and the table as a stack image and opens a second Config from it, as a shipped
-build does (`docs/language.md`, Tables).
+build does (the language guide's [Tables](language.md#tables-a-keyed-shapes-records-packed)).
 
 ## Content packages: patches, DLC, and mods
 
@@ -656,8 +666,8 @@ How a game delivers content after it ships (dev/background/content-updates.md):
   ; merged: (songs (song_a ...) (song_b ...) (song_c ...))
   ```
 
-  A list whose entries have no names of their own, items, a move's cancels, a room's
-  furniture with two beds, takes `#append` and `#drop` (D251): `(items #append rope)` adds
+  A list whose entries have no names of their own (items, a move's cancels, a room's
+  furniture with two beds) takes `#append` and `#drop` (D251): `(items #append rope)` adds
   to the list below without restating it, so packages compose in their stack order, and a
   title update drops one entry without reverting the rest. A list that one package owns
   stays a plain value list. `layer_effect` shows a layer that replaces another's list, and
@@ -693,8 +703,8 @@ How a game delivers content after it ships (dev/background/content-updates.md):
   `LoadSession::refuse_includes`, so it cannot `#include` the game's files;
   `Config::push_layer_text` sets both (D163).
 - **Bound the names outside text adds.** Symbols live until the program ends, so overlays
-  read all session, mods, or a console that use unique IDs as symbols add to them with every
-  read. `ParseLimits::max_new_symbols` (on the session's `limits`) caps the names a read
+  read all session long, mods, or a console that uses unique IDs as symbols add to them with
+  every read. `ParseLimits::max_new_symbols` (on the session's `limits`) caps the names a read
   may add that the program had not seen: past it the read fails with `ErrorCode::Limit`.
   The default, 1,048,576, suits the game's own data; set it far lower for text you do not
   trust: at the default, one read can keep about 74 MB of names for the rest of the
@@ -807,7 +817,7 @@ people. Two calls give it what it needs:
 
 - **`baker::eval_request(ctx, line, sink)`** answers a request, `(ID {command})`, with one
   line of JSON. The JSON holds the ID, the result's text, a JSON projection of the result,
-  or the error with its script stack (`docs/reply-json.md`). `baker::host::Console`
+  or the error with its script stack ([reply-json.md](reply-json.md)). `baker::host::Console`
   answers lines that begin with `(` this way and every other line as before. Every reply,
   JSON or not, is its lines, then an empty line.
 - **`baker::tools::bind_config_tools(ctx, cfg)`** registers the Config's tooling as script
@@ -864,7 +874,7 @@ frames. Other threads may read, on these terms:
   reader must only read, since it may run twice. It costs two loads and a fence when nothing
   changed, and a change costs the game's thread nothing it measurably did not before.
 - **Checks off the game's thread** take `cfg.checker()` (see
-  [Live ops](#tests-before-an-overlay-ships)).
+  [Published overlays](#published-overlays)).
 - **Symbols** may be made from any thread; the symbol table's reads take no lock.
 - **No fiber switch inside a Baker call.** A Context's current call, the symbol table's
   intern site and a few tools keep thread-local state, which a compiler may read once and
