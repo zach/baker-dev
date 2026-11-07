@@ -45,12 +45,20 @@ std::string mob_class() {
     return text + " (m8 ($a $b $c $d $e $f $g $h) {+ $a $b $c $d $e $f $g $h})}";
 }
 
+// The methods w0..w9, named once: a std::string built per call allocates in MSVC's debug
+// library (D62), which the counting scopes below would see.
+const Symbol& method(int n) {
+    static const Symbol names[] = {Symbol("w0"), Symbol("w1"), Symbol("w2"), Symbol("w3"),
+                                   Symbol("w4"), Symbol("w5"), Symbol("w6"), Symbol("w7"),
+                                   Symbol("w8"), Symbol("w9")};
+    return names[n];
+}
+
 // Calls wN on `mob` with the arguments 1..N, through the span overload.
 Expected<Node> call_n(Context& ctx, Mob& mob, int n) {
     Node args[9];
     for (int i = 0; i < n; ++i) args[i] = Node(int64_t{i + 1});
-    return ctx.call(mob.node(), Symbol("w" + std::to_string(n)),
-                    std::span<const Node>(args, static_cast<size_t>(n)));
+    return ctx.call(mob.node(), method(n), std::span<const Node>(args, static_cast<size_t>(n)));
 }
 
 }  // namespace
