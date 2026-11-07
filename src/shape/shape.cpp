@@ -1149,8 +1149,8 @@ void run(const Array& tree, const Set& shapes, Vec<Error>& errors, Vec<Error>& w
          const LoadSession* packs, Vec<bool>* used, Vec<baker::Symbol>* aliases_used = nullptr,
          Vec<Renamed>* renames = nullptr, Vec<KeyUse>* key_uses = nullptr,
          Vec<AssetUse>* asset_uses = nullptr) {
-    Checker checker{shapes, errors, warnings, {},    0,    {}, {}, {},       {},         0,
-                    {},     packs,  {},       false, used, {}, {}, key_uses, asset_uses, nullptr};
+    Checker checker{shapes, errors, warnings, {},   0,  {}, {},       {},         {},      0, {},
+                    packs,  {},     false,    used, {}, {}, key_uses, asset_uses, nullptr, {}};
     checker.arrays.push_back(&tree);
     for (const Shape& s : shapes.shapes()) {
         if (s.keyed && !s.at.empty()) checker.keyed.push_back(&s);
