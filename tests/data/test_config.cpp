@@ -450,10 +450,22 @@ TEST_CASE("with a stamper, a reload opens only the files whose stamp moved (D314
     // Nothing moved: no file is opened.
     CHECK(ok(cfg.reload()) == false);
     CHECK(reads == 0);
-    // b's stamp moved, its text did not: b alone is read, and nothing changes.
+    // b's stamp moved, its text did not: b alone is read, and nothing changes; the stamp
+    // it has now is kept, so the next scan opens nothing.
     stamps["b.dta"] = 21;
     CHECK(ok(cfg.reload()) == false);
     CHECK(reads == 1);
+    CHECK(ok(cfg.reload()) == false);
+    CHECK(reads == 1);
+    // A file read with no stamp (written moments ago) is read at each scan until it has one.
+    stamps["b.dta"] = 0;
+    CHECK(ok(cfg.reload()) == false);
+    CHECK(reads == 2);
+    stamps["b.dta"] = 22;
+    CHECK(ok(cfg.reload()) == false);
+    CHECK(reads == 3);
+    CHECK(ok(cfg.reload()) == false);
+    CHECK(reads == 3);
     // a changed: the scan opens it, and the reload reads it and b above it.
     files["a.dta"] = "(speed 3)\n";
     stamps["a.dta"] = 11;

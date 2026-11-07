@@ -11053,11 +11053,16 @@ built from to learn which had changed.
   changed; a job copies the stack, so it allocates.
 - **A stamp hook in `LoadSession`** (`set_stamper`): a number for a file's size and last
   write. Each file's stamp is kept when it is read; the scan opens only a file whose stamp
-  moved, and reads and hashes it, so a save of the same text still makes no merge. A file
-  whose stamp moved and whose text did not is read again at each scan until its text
-  changes. The core reads no file's metadata, so without a stamper the scan reads every
+  moved, and reads and hashes it, so a save of the same text still makes no merge; a scan
+  that finds the same text keeps the stamp the file has now, so it is read once and not
+  again. The core reads no file's metadata, so without a stamper the scan reads every
   file as before. `host::file_stamp(path, hook)` is one, from the host's stamp hook or the
   disk, and `Live` gives it to its session.
+- **No stamp for a file written in the last three seconds.** CI on Windows caught it: two
+  saves of the same size in quick succession left the file's write time as it was, so the
+  scan skipped a file that had changed. `file_stamp` returns 0, unknown, for a file written
+  within three seconds, and the scan reads and hashes it; a stamp is trusted only for a file
+  left alone since, which is every file but the one being edited.
 - **`LiveOptions::run_async`,** a callback that hands work to the game's job system:
   `begin_frame` begins a job when the watcher sees a save and hands `run` over; a later
   `begin_frame` finishes it once `run` returned, and begins again if it was refused.
@@ -11072,9 +11077,13 @@ built from to learn which had changed.
   | 1,200 records, 86 KB | 0.86 ms | 0.85 ms | 0.04 ms |
   | 40,000 records, 3.0 MB | 54.29 ms | 52.95 ms | 1.70 ms |
 
-  | a quiet reload's scan, 50 files of 16 KB | read and hashed | stamped |
+  | a quiet reload's scan, 50 files of 16 KB, written 4 s before | read and hashed | stamped |
   |---|---:|---:|
-  | best of 20 | 158 µs | 53 µs |
+  | best of 20 | 155 µs | 55 µs |
+
+  A file read while it was racy has no stamp, so the first scan after it settles reads it
+  once and keeps the stamp. A job's scan keeps the stamps in its copy, which the stack takes
+  only when the job finds a change.
 
   `file_stamp` goes through `std::filesystem` and the global heap, as the Watcher does
   (finding 28 of the review).
