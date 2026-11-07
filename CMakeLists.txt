@@ -159,6 +159,7 @@ add_library(baker_data
   src/data/symbol.cpp
   src/data/text.cpp
   src/data/tweak.cpp
+  src/data/tweak_index.cpp
   src/data/version.cpp
   src/data/write.cpp)
 add_library(baker::data ALIAS baker_data)

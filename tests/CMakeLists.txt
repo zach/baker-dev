@@ -15,6 +15,7 @@ add_executable(baker_data_tests
   data/test_arena.cpp
   data/test_cache.cpp
   data/test_config.cpp
+  data/test_config_costs.cpp
   data/test_core.cpp
   data/test_curve.cpp
   data/test_corpus.cpp
