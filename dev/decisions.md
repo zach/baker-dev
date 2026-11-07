@@ -11319,3 +11319,100 @@ a live, tweaked config that grew with the wrong count.
     least then, and never twice), and the warnings are one for each tweak that does not
     read. Disabling the shadow check, the stale marks, the
     re-warning, the size test, or the table's first-wins each fails it.
+
+## D319. Script calls and tasks: pooled to eight arguments, filled in place, swapped captures
+
+*From the six-part TD review (`dev/td-review-2026-11.md`, findings 23, 24, 26 and 31).*
+Four costs of the path between C++ and script, and of script tasks.
+
+- **Every argument count a message can have is pooled** (finding 23). `Context::call` kept
+  a command for each size below 8 nodes, so with 6 or more arguments, the object and the
+  method making 8, every call allocated one, and so did every `handle` of a message of 6 to
+  8 fields that reached a script handler. The pool is now indexed by the argument count,
+  0 to `kMaxMessageFields` (8), so every message and every call to 8 arguments is served
+  from it. A call with 9 or more allocates its command each time, as `Context::call`'s
+  comment now says. Each pooled command is made on first use; the largest, of 10 nodes,
+  is 224 bytes.
+- **The command is filled in place** (finding 24). A pooled or fresh command is a solo
+  array whose nodes are all Int 0, held by nothing else, yet each node went in through
+  `Array::set`, which re-tests height, verb, pin, tag key and metadata boundary for an
+  array that may be shared, and each went out through `set` again to empty it.
+  `detail::ArrayFill` (`src/data/array_fill.hpp`, a friend of `Array`) copies the nodes in
+  and runs `finish()` once, the step `make_copy` ends with, given the verb test it would
+  make, so height, tag run, metadata boundary and flags are those `make_copy` gives the
+  same nodes. `clear` puts every node back to Int 0 and the height, run and flags to what
+  `Array::make` leaves. The cases that keep a command (a nested call, a `{func}` through
+  `Context::call`) are as before: a command held elsewhere is never reused.
+- **A task's captures are swapped, not rebound** (finding 26). Each step of a script task
+  bound every capture (a cell lookup, a push on the Context's saved list, a move), ran,
+  copied each value back out (a count up and down), and the Rebind restored each. A
+  capture is now the cell itself: a variable's cell stays where it is for the Context's
+  life (its page is freed only with the Context) and is one to a name, so the task keeps
+  the cell's address in place of the name, the same 8 bytes (zeroed when the task is
+  made), and the frame is the size it was. A step swaps its values into the cells, runs, and swaps them out: moves, with no
+  count touched and nothing for Rebind to save. What the step sees and leaves is as
+  before: the task's `{set}`s stay in its copy, and the caller's values are back after
+  each step, including under a binding a step makes and undoes itself. `$this` and an
+  `interp_task`'s variable, never captures, are still bound.
+- **Globals are a bitset** (finding 31). Capturing tested each named variable against the
+  list of globals, a scan per name; the Context now keeps a bit per global, by the
+  symbol's index, beside the list, which still holds the docs for the reference. Naming a
+  global again scans the list only when the bit says it is there.
+- **Numbers** (release, not shipping, this machine, a 4-core Xeon at 2.1 GHz; best of nine
+  runs in each of three rounds, main and this commit interleaved; `ctx.call` reaches a
+  native method of `int64_t` arguments):
+
+  | | main (6eee387) | D319 |
+  |---|---:|---:|
+  | `ctx.call`, 1 argument | 79.8 / 81.6 / 79.7 ns | 73.4 / 70.4 / 70.9 ns |
+  | `ctx.call`, 5 arguments | 149.0 / 147.0 / 148.3 ns | 120.1 / 120.3 / 119.9 ns |
+  | `ctx.call`, 6 arguments | 155.5 / 149.1 / 149.8 ns, 1 allocation | 130.6 / 132.0 / 130.6 ns, 0 |
+  | `ctx.call`, 8 arguments | 198.7 / 195.7 / 199.2 ns, 1 allocation | 152.6 / 152.8 / 151.4 ns, 0 |
+  | a thread task polling `{wait}`, 0 captures, a tick | 32.2 / 32.2 / 32.4 ns | 32.1 / 32.1 / 32.2 ns |
+  | a thread task polling `{wait}`, 8 captures, a tick | 83.5 / 84.7 / 81.6 ns | 56.2 / 57.3 / 56.6 ns |
+  | making a `delay_task` that captures 4, no globals | 262.2 / 232.4 / 231.0 ns | 232.0 / 233.3 / 235.6 ns |
+  | making a `delay_task` that captures 4, 50 globals | 268.4 / 265.9 / 266.5 ns | 233.0 / 235.3 / 235.3 ns |
+
+  Instructions under cachegrind, the same workloads (runs of N and 2N, differenced):
+
+  | per operation | main | D319 | change |
+  |---|---:|---:|---:|
+  | `ctx.call`, 1 argument | 1,223 | 924 | -24% |
+  | `ctx.call`, 5 arguments | 2,219 | 1,372 | -38% |
+  | `ctx.call`, 6 arguments | 2,288 | 1,473 | -36% |
+  | `ctx.call`, 8 arguments | 2,666 | 1,700 | -36% |
+  | a tick of a thread task polling `{wait}`, 8 captures | 1,983 | 1,217 | -39% |
+
+  With 50 globals, making a task cost about 35 ns more than with none on main, and costs
+  what it does with none here; the no-globals row (main's first run aside) and the tick
+  with no captures are within this machine's noise. `tools/count_instructions.py --case
+  call var overload declared message message_loose handle_all frame`: none of these goes
+  through `Context::call` or a task; they are the neighbouring paths, which must not move:
+
+  | case | main (6eee387) | working tree | change |
+  |---|---:|---:|---:|
+  | call | 312.0 | 312.0 | -0.00% |
+  | var | 452.0 | 452.0 | -0.00% |
+  | overload | 658.0 | 658.0 | -0.00% |
+  | declared | 532.0 | 532.0 | -0.00% |
+  | message | 135.0 | 135.0 | +0.00% |
+  | message_loose | 114.0 | 114.0 | +0.00% |
+  | handle_all | 4,772.0 | 4,772.0 | +0.00% |
+  | frame | 202.0 | 202.0 | +0.01% |
+- **Tests.** `test_script_costs.cpp`:
+  - `Context::call` with each count from 0 to 8 arguments allocates nothing once warm, and
+    the variadic form with 8 neither; with 9, one past the pool, each call allocates its
+    command and nothing else (100 calls, 100 allocations). An 8-field message to a script
+    handler allocates nothing. Pooling to 6 fails the first two;
+  - a command `Context::call` fills equals `make_copy` of its nodes, structurally and in
+    height, verb flag, infix flag, sort flag, metadata boundary, tag, values, metadata and
+    each tagged child found: a tall command with metadata, a verb in the method's slot,
+    then flat arguments in the same pooled command, and one past the pool;
+  - a command the script keeps (`{func}` through `Context::call`) is let go and the next
+    call of that size fills another;
+  - a thread task with 12 captures, setting half of them, one through a function whose
+    parameter has a capture's name, over four ticks while the caller changes two: the task
+    sees its own copies and the caller's values are its own after; a `{wait}` condition
+    sets and reads captures;
+  - 300 globals: those a task names are read live, a variable captured, a global named
+    twice keeps the second doc.

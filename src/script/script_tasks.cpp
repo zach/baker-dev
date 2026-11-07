@@ -26,7 +26,9 @@ struct ScriptTask {
     Symbol var;  // interp_task's variable
     Node self;   // $this when the task was made: the task ends with that object
     uint32_t count = 0;
-    Symbol names[kMaxCaptures];
+    // Each capture's cell, and the task's value of it. Cells stay where they are for the
+    // Context's life, and are distinct, one to a name.
+    Node* cells[kMaxCaptures] = {};
     Node values[kMaxCaptures];
 };
 
@@ -39,17 +41,22 @@ bool capture(const Node& n, Context::Impl& impl, ScriptTask& t) {
         return true;
     }
     const Symbol name = n.var_name();
-    if (name.empty() || name == sym_this() || name == t.var) return true;
-    if (std::find(t.names, t.names + t.count, name) != t.names + t.count) return true;
-    if (std::any_of(impl.globals.begin(), impl.globals.end(),
-                    [&](const Global& g) { return g.name == name; }))
-        return true;
-    const Node* cell = impl.cell_if(name);
+    if (name.empty() || name == sym_this() || name == t.var || impl.is_global(name)) return true;
+    // Bound, so its page is there: cell_if finds it without making one.
+    Node* cell = const_cast<Node*>(impl.cell_if(name));
     if (!cell || is_unset(*cell)) return true;
+    if (std::find(t.cells, t.cells + t.count, cell) != t.cells + t.count) return true;
     if (t.count == kMaxCaptures) return false;
-    t.names[t.count] = name;
+    t.cells[t.count] = cell;
     t.values[t.count++] = *cell;
     return true;
+}
+
+// Swaps the task's values with what its captures' cells hold: in before a step, so the
+// step sees them, and out after it, so the caller's values are back and the task keeps
+// what its own {set}s left. Moves, with no count touched and nothing for Rebind to save.
+void swap_captures(ScriptTask& t) noexcept {
+    for (uint32_t i = 0; i < t.count; ++i) std::swap(*t.cells[i], t.values[i]);
 }
 
 // Runs `nodes` with the task's captures bound, then keeps their values, so the task's own
@@ -59,10 +66,10 @@ Expected<Node> step(Context& ctx, ScriptTask& t, std::span<const Node> nodes,
     Context::Impl& impl = ctx.impl();
     Rebind rebind(impl);
     if (t.self.type() == Type::Object) impl.bind(sym_this(), t.self);
-    for (uint32_t i = 0; i < t.count; ++i) impl.bind(t.names[i], t.values[i]);
+    swap_captures(t);
     if (interp) impl.bind(t.var, *interp);
     auto r = ctx.run(nodes);
-    for (uint32_t i = 0; i < t.count; ++i) t.values[i] = *impl.cell(t.names[i]);
+    swap_captures(t);
     return r;
 }
 

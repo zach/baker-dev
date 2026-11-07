@@ -2,6 +2,7 @@
 #include <baker/array.hpp>
 
 #include "arena.hpp"
+#include "array_fill.hpp"
 #include "markers.hpp"
 #include "text.hpp"
 
@@ -159,6 +160,29 @@ void Array::set(size_t i, Node node) noexcept {
     // Arena nodes count nothing: the old node is dropped as it is, and the arena counts
     // the new one's owner if it is another (D64).
     detail::Arena::of(owner).adopt(data() + i, std::move(node), false);
+}
+
+void detail::ArrayFill::fill(Array& a, const Node& first, const Node& second,
+                             std::span<const Node> rest) noexcept {
+    assert(a.size_ == rest.size() + 2 && owner_of(&a).kind == kSoloArray);
+    Node* d = a.data();
+    d[0] = first;
+    d[1] = second;
+    for (size_t i = 0; i < rest.size(); ++i) d[i + 2] = rest[i];
+    // finish()'s own test of the verb slot, without its out-of-line call for every symbol.
+    a.finish(marker_of(second) != Marker::None ? 1 : 0);
+}
+
+void detail::ArrayFill::clear(Array& a) noexcept {
+    assert(owner_of(&a).kind == kSoloArray);
+    Node* d = a.data();
+    uint32_t* tags = a.tag_run();
+    for (uint32_t i = 0; i < a.size_; ++i) {
+        d[i] = Node();
+        tags[i] = Array::kNoTag;
+    }
+    a.height_ = 1;
+    a.flags_ = 0;
 }
 
 namespace {
