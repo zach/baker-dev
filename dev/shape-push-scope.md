@@ -44,17 +44,13 @@ and 829 µs to build the rule paths (finding 12, a separate fix).
 - **A held report.** A push whose report still holds runs no `any_thread` validator after
   its merge. The check that made the report ran them over the same stack.
 
-## Open questions
+## The owner's answers
 
-1. **What a candidate's report holds.** Only the findings in records it adds, changes or
-   removes, or what names them (recommended): an old warning in the base no longer refuses
-   an overlay under `warnings_refuse`. Or every finding in the tree, as now.
-2. **After a push in a development build.** The scoped check too (recommended): a
-   designer's push costs what it touched. Or the whole tree, as now, so the warning list
-   after a push is always the whole stack's. After a reload, a toggle or a restore it is
-   the whole tree either way.
-3. **Removals.** Check the records that name a removed or renamed record, through the key
-   index (recommended). Or check the whole tree when a candidate removes anything.
+1. **A candidate's report holds only its own findings:** those in records it adds, changes
+   or removes, and in records that name what it removed.
+2. **After a push in a development build, the scoped check too.** After a reload, a toggle
+   or a restore, the whole tree.
+3. **Removals are followed through a key index.**
 
 ## Measuring
 
