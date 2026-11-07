@@ -589,6 +589,29 @@ Str table_path(const Field& f) {
     return out;
 }
 
+// The keys a scoped check's candidate removes (D316), and the records that name one: a walk
+// notes each key field's value against them, and keeps, for each record found, the path of
+// arrays it walked to it from the root.
+struct Follow {
+    HashMap<baker::Symbol, bool> keys;                     // every removed key: a quick miss
+    Vec<std::pair<baker::Symbol, baker::Symbol>> removed;  // each removal: its table's tag, key
+    Vec<const Array*> paths;  // the records' paths, one after another, the root first
+    Vec<size_t> ends;         // where each path ends in `paths`
+
+    void note(const Field& field, baker::Symbol key, const Vec<const Array*>& arrays,
+              size_t walked) {
+        if (field.table.size() == 0 || keys.find(key) == keys.end()) return;
+        // The table a key resolves to is tagged with its path's last segment, wherever the
+        // lookup outward from the record finds it.
+        const baker::Symbol table = field.table[field.table.size() - 1];
+        const auto hit = std::find(removed.begin(), removed.end(), std::pair(table, key));
+        if (hit == removed.end()) return;
+        const size_t n = std::min(walked, arrays.size());
+        paths.insert(paths.end(), arrays.begin(), arrays.begin() + static_cast<std::ptrdiff_t>(n));
+        ends.push_back(paths.size());
+    }
+};
+
 struct Checker {
     const Set& set;
     Vec<Error>& errors;
@@ -730,9 +753,13 @@ struct Checker {
     // ancestors for keys does not change how value() is compiled for the common fields.
     BAKER_NOINLINE void enter(const Array& e, const Shape& s, uint32_t first) {
         nested.push_back(&e);
+        if (scope) scope->visited.try_emplace(&e, true);
+        const size_t outer = walked;
+        if (follow && walked == kAll) walked = arrays.size();  // `e` is a value, not walked to
         if (keys) arrays.push_back(&e);
         instance(e, s, first);
         if (keys) arrays.pop_back();
+        walked = outer;
     }
 
     // One field's array: its values against the field's type and range.
@@ -883,6 +910,7 @@ struct Checker {
         const auto sym = n.try_sym();
         if (sym && key_uses)
             key_uses->push_back({f.file(), f.line(), field.name, field.table, *sym});
+        if (sym && follow) follow->note(field, *sym, arrays, walked);
         if (!sym) {
             report(errors, ErrorCode::Type,
                    quoted(field.name) + " is " + Str(type_name(n.type())) + ", not a key of " +
@@ -930,6 +958,12 @@ struct Checker {
     // The table's child tagged `key`, the first as try_find() finds it, or the child that
     // still answers to it, (@aka key) (D286): keys first, then aliases, so a key wins.
     const Array* in(const Array& table, baker::Symbol key) {
+        // A scoped check makes a few lookups: a scan of the table's tags finds a key for less
+        // than indexing the table would cost. A miss may be an alias: the index finds those.
+        if (linear > 0 && !key.is_meta() && tables.find(&table) == tables.end()) {
+            --linear;
+            if (const Array* e = table.try_find(key)) return e;
+        }
         auto [it, added] = tables.try_emplace(&table);
         if (added) {
             for (const Node& c : table.values())
@@ -961,6 +995,19 @@ struct Checker {
         uint32_t more = 0;  // the records after the first that have it
     };
     Vec<Undeclared> undeclared;
+    // A scoped check (D316): the arrays an instance has checked, and the subtrees walked
+    // whole, so that two paths to one array check it once.
+    struct Visited {
+        HashMap<const Array*, bool> visited;
+        HashMap<const Array*, bool> covered;
+    };
+    Visited* scope = nullptr;
+    Follow* follow = nullptr;  // a walk that finds the records naming removed keys (D316)
+    // With `follow`: how much of `arrays` the walk reached, the rest being the values of an
+    // instance's fields; kAll while it is all walked.
+    static constexpr size_t kAll = SIZE_MAX;
+    size_t walked = kAll;
+    uint32_t linear = 0;  // in(): lookups left that scan a table rather than index it
 
     // `tag` in an instance of `s` that does not declare it.
     void not_a_field(const Shape& s, baker::Symbol tag, const Array& f) {
@@ -1090,6 +1137,139 @@ struct Checker {
             if (tag) --depth;
         }
     }
+
+    // --- A scoped check (D316), its own walk, so that walk() is compiled as it was. ---
+
+    // An array a scoped walk meets, as walk() meets one: checked by the shapes that govern
+    // it, unless an instance above checked it as a field's value, or this check already has.
+    void here(const Array& c, baker::Symbol tag) {
+        if (tag.empty() || std::find(nested.begin(), nested.end(), &c) != nested.end()) return;
+        if (!scope->visited.try_emplace(&c, true).second) return;
+        const Shape* by_tag = shape_named(tag);
+        if (by_tag && !by_tag->keyed && governs(*by_tag)) instance(c, *by_tag, 1);
+        for (const Shape* s : keyed)
+            if (governs(*s)) instance(c, *s, 1);
+    }
+
+    // A step down to `m`, a child of the array the walk is at: `m` checked, then the paths
+    // below it that `named` names, or, with none, all of it, as walk() checks it.
+    template <bool Keys>
+    void step(const Array& m, const Array* named) {
+        const baker::Symbol tag = m.tag();  // empty: untagged
+        if (!tag.empty()) enter_tag(tag);
+        if constexpr (Keys) arrays.push_back(&m);
+        const size_t mark = nested.size();
+        here(m, tag);
+        if (named) {
+            if (named->height() > 1 && m.height() > 1) walk_named<Keys>(m, *named);
+        } else if (m.height() > 1 && scope->covered.try_emplace(&m, true).second) {
+            walk<Keys>(m);
+        }
+        nested.resize(mark);
+        if constexpr (Keys) arrays.pop_back();
+        if (!tag.empty()) --depth;
+    }
+
+    // A child of a layer's array that names a child of the merged array: tagged, not
+    // metadata, not a removal (which leaves nothing to check there).
+    static const Array* naming(const Node& n) {
+        const Array* c = n.try_array();
+        if (!c || c->tag().empty() || c->tag().is_meta()) return nullptr;
+        return detail::is_removal(*c) ? nullptr : c;
+    }
+    // The child of `merged` that a layer's child tagged `tag` merged into when no child has
+    // the tag: the one that answers to it by an alias or by its ID (D286, D302). A scan, on
+    // a miss only.
+    BAKER_COLD static const Array* answering(const Array& merged, baker::Symbol tag) {
+        for (const Node& n : merged.nodes()) {
+            const Array* e = n.try_array();
+            if (!e || e->tag().empty()) continue;
+            if (detail::id_symbol(*e) == tag) return e;
+            if (e->meta_first())
+                if (const Array* aka = e->meta(baker::detail::aka_tag()))
+                    for (const Node& old : aka->values())
+                        if (old.try_sym() && *old.try_sym() == tag) return e;
+        }
+        return nullptr;
+    }
+
+    // The children of `merged` that `named`'s children name, each found as a layer's child
+    // merges: the first child with its tag, or the one that answers to it. A tag `named`
+    // writes twice (a list of records) checks every child of `merged` with it, whole.
+    template <bool Keys>
+    void walk_named(const Array& merged, const Array& named) {
+        size_t wanted = 0;
+        for (const Node& n : named.nodes()) wanted += naming(n) ? 1 : 0;
+        if (wanted == 0) return;
+        if (wanted <= kScan) {
+            // A scan of the merged array's tags each: few names, or a narrow array.
+            const Array* met[kScan];
+            size_t k = 0;
+            for (const Node& n : named.nodes()) {
+                const Array* c = naming(n);
+                if (!c) continue;
+                const baker::Symbol tag = c->tag();
+                bool again = false, twice = false;
+                for (size_t i = 0; i < k; ++i) again = again || met[i]->tag() == tag;
+                met[k++] = c;
+                if (again) continue;  // walked at the first
+                for (const Node& later : named.nodes())
+                    if (const Array* o = naming(later); o && o != c && o->tag() == tag)
+                        twice = true;
+                if (twice) {
+                    for (const Node& m : merged.nodes())
+                        if (const Array* e = m.try_array(); e && e->tag() == tag)
+                            step<Keys>(*e, nullptr);
+                    continue;
+                }
+                const Array* m = merged.try_find(tag);
+                if (!m) m = answering(merged, tag);
+                if (m) step<Keys>(*m, c);
+            }
+            return;
+        }
+        // Many names: one pass over the merged array finds them all, where a scan for each
+        // would read a wide table once a name.
+        HashMap<baker::Symbol, uint32_t> count;
+        for (const Node& n : named.nodes())
+            if (const Array* c = naming(n)) ++count[c->tag()];
+        HashMap<baker::Symbol, const Array*> found;
+        for (const Node& m : merged.nodes()) {
+            const Array* e = m.try_array();
+            if (!e || e->tag().empty()) continue;
+            const auto it = count.find(e->tag());
+            if (it == count.end()) continue;
+            if (it->second > 1)
+                step<Keys>(*e, nullptr);
+            else
+                found.try_emplace(e->tag(), e);
+        }
+        for (const Node& n : named.nodes()) {
+            const Array* c = naming(n);
+            if (!c || count[c->tag()] > 1) continue;
+            const auto it = found.find(c->tag());
+            const Array* m = it != found.end() ? it->second : answering(merged, c->tag());
+            if (m) step<Keys>(*m, c);
+        }
+    }
+    static constexpr size_t kScan = 8;
+
+    // A record a removal's key names, by the arrays walked to it below the root: each
+    // checked as walk() checks it on the way down, once in the check.
+    void along(const Array* const* path, size_t n) {
+        if (n == 0) return;
+        const Array& c = *path[0];
+        if (scope->covered.find(&c) != scope->covered.end()) return;  // walked whole already
+        const baker::Symbol tag = c.tag();                            // empty: untagged
+        if (!tag.empty()) enter_tag(tag);
+        arrays.push_back(&c);
+        const size_t mark = nested.size();
+        here(c, tag);
+        along(path + 1, n - 1);
+        nested.resize(mark);
+        arrays.pop_back();
+        if (!tag.empty()) --depth;
+    }
 };
 
 }  // namespace
@@ -1145,20 +1325,27 @@ void each_ruled(const Array& tree, const Set& shapes, const RuleWalker::Visit& v
 }
 
 namespace {
-void run(const Array& tree, const Set& shapes, Vec<Error>& errors, Vec<Error>& warnings,
-         const LoadSession* packs, Vec<bool>* used, Vec<baker::Symbol>* aliases_used = nullptr,
-         Vec<Renamed>* renames = nullptr, Vec<KeyUse>* key_uses = nullptr,
-         Vec<AssetUse>* asset_uses = nullptr) {
-    Checker checker{shapes, errors, warnings, {},   0,  {}, {},       {},         {},      0, {},
-                    packs,  {},     false,    used, {}, {}, key_uses, asset_uses, nullptr, {}};
+// A checker's lookups by shape, from its set, whether any field is a key, and the root.
+void prepare(Checker& checker, const Array& tree) {
     checker.arrays.push_back(&tree);
-    for (const Shape& s : shapes.shapes()) {
+    for (const Shape& s : checker.set.shapes()) {
         if (s.keyed && !s.at.empty()) checker.keyed.push_back(&s);
         if (s.name.index() >= checker.by_name.size()) checker.by_name.resize(s.name.index() + 1);
         if (!checker.by_name[s.name.index()]) checker.by_name[s.name.index()] = &s;  // as find()
         for (const Field& f : s.fields)
             checker.keys |= f.type == Type::Key || f.element == Type::Key;
     }
+}
+
+void run(const Array& tree, const Set& shapes, Vec<Error>& errors, Vec<Error>& warnings,
+         const LoadSession* packs, Vec<bool>* used, Vec<baker::Symbol>* aliases_used = nullptr,
+         Vec<Renamed>* renames = nullptr, Vec<KeyUse>* key_uses = nullptr,
+         Vec<AssetUse>* asset_uses = nullptr) {
+    Checker checker{shapes, errors,   warnings,   {},      0,  {},      {},      {},
+                    {},     0,        {},         packs,   {}, false,   used,    {},
+                    {},     key_uses, asset_uses, nullptr, {}, nullptr, nullptr, Checker::kAll,
+                    0};
+    prepare(checker, tree);
     if (checker.keys)
         checker.walk<true>(tree);
     else
@@ -1185,12 +1372,120 @@ List<KeyUse> key_uses(const Array& tree, const Set& shapes) {
     return List<KeyUse>({uses.data(), uses.size()});
 }
 
-void check(const Array& tree, const Set& shapes, Report& report, const LoadSession* packs) {
+namespace {
+
+// Every (key #remove) in a layer's tree, each as the tags down to it, one after another in
+// `paths`, ending where `ends` says.
+void find_removals(const Array& layer, Vec<baker::Symbol>& tags, Vec<baker::Symbol>& paths,
+                   Vec<size_t>& ends) {
+    for (const Node& n : layer.nodes()) {
+        const Array* c = n.try_array();
+        if (!c || c->tag().empty() || c->tag().is_meta()) continue;
+        tags.push_back(c->tag());
+        if (detail::is_removal(*c)) {
+            paths.insert(paths.end(), tags.begin(), tags.end());
+            ends.push_back(paths.size());
+        } else if (c->height() > 1) {
+            find_removals(*c, tags, paths, ends);
+        }
+        tags.pop_back();
+    }
+}
+
+// The record a removal at `path` removed, in a layer below: found by its key, an alias or
+// its ID; null when the layer does not hold it.
+const Array* removed_in(const Array& layer, std::span<const baker::Symbol> path) {
+    const Array* at = &layer;
+    for (size_t i = 0; at && i + 1 < path.size(); ++i) at = at->try_find(path[i]);
+    if (!at) return nullptr;
+    if (const Array* e = at->try_find(path.back())) return e;
+    return Checker::answering(*at, path.back());
+}
+
+// check() with a scope (D316). False when the scope does not hold, and nothing was checked:
+// a removal of a table a key field names, or of what holds one.
+bool run_scoped(const Array& tree, const Set& shapes, const Scope& scope, Vec<Error>& errors,
+                Vec<Error>& warnings, const LoadSession* packs, Vec<baker::Symbol>& aliases_used,
+                Vec<Renamed>& renames) {
+    Vec<baker::Symbol> tags, paths;
+    Vec<size_t> ends;
+    find_removals(*scope.changed, tags, paths, ends);
+    Follow follow;
+    size_t begin = 0;
+    for (const size_t end : ends) {
+        const std::span<const baker::Symbol> path(paths.data() + begin, end - begin);
+        begin = end;
+        for (const Shape& s : shapes.shapes())
+            for (const Field& f : s.fields)
+                if (f.type == Type::Key || f.element == Type::Key)
+                    for (const baker::Symbol seg : f.table)
+                        if (seg == path.back()) return false;  // what the key's table is in
+        if (path.size() < 2) continue;                         // a top-level key: in no table
+        const baker::Symbol table = path[path.size() - 2];
+        auto removes = [&](baker::Symbol key) {
+            follow.keys.try_emplace(key, true);
+            follow.removed.emplace_back(table, key);
+        };
+        removes(path.back());
+        // The names the record answered to below: its key, when the removal spelled an alias
+        // or ID, and its aliases.
+        for (const Ref<Array>& layer : scope.below)
+            if (const Array* e = removed_in(*layer, path)) {
+                if (e->tag() != path.back()) removes(e->tag());
+                if (e->meta_first())
+                    if (const Array* aka = e->meta(baker::detail::aka_tag()))
+                        for (const Node& old : aka->values())
+                            if (const auto sym = old.try_sym()) removes(*sym);
+            }
+    }
+
+    Checker checker{shapes, errors,  warnings, {},      0,  {},      {},      {},
+                    {},     0,       {},       packs,   {}, false,   nullptr, {},
+                    {},     nullptr, nullptr,  nullptr, {}, nullptr, nullptr, Checker::kAll,
+                    0};
+    prepare(checker, tree);
+    Checker::Visited visited;
+    checker.scope = &visited;
+    // Lookups into a key's table, few in a scoped check, scan before they index (in()).
+    checker.linear = 64;
+    if (checker.keys)
+        checker.walk_named<true>(tree, *scope.changed);
+    else
+        checker.walk_named<false>(tree, *scope.changed);
+    if (checker.keys && !follow.removed.empty()) {
+        // The records that name a removed key: one walk of the tree finds them, its findings
+        // set aside, and each is then checked here, as the walk down to it meets it.
+        Vec<Error> set_aside, also;
+        Checker finder{shapes, set_aside, also,    {},      0,  {},      {},      {},
+                       {},     0,         {},      packs,   {}, false,   nullptr, {},
+                       {},     nullptr,   nullptr, nullptr, {}, nullptr, &follow, Checker::kAll,
+                       0};
+        prepare(finder, tree);
+        finder.walk<true>(tree);
+        size_t from = 0;
+        for (const size_t to : follow.ends) {
+            if (to > from + 1) checker.along(follow.paths.data() + from + 1, to - from - 1);
+            from = to;
+        }
+    }
+    checker.count_undeclared();
+    aliases_used.insert(aliases_used.end(), checker.aliases_used.begin(),
+                        checker.aliases_used.end());
+    renames.insert(renames.end(), checker.renames.begin(), checker.renames.end());
+    return true;
+}
+
+}  // namespace
+
+void check(const Array& tree, const Set& shapes, Report& report, const LoadSession* packs,
+           const Scope& scope) {
     Vec<Error> errors(report.errors.begin(), report.errors.end());
     Vec<Error> warnings(report.warnings.begin(), report.warnings.end());
     Vec<baker::Symbol> aliases_used(report.aliases_used.begin(), report.aliases_used.end());
     Vec<Renamed> renames(report.renames.begin(), report.renames.end());
-    run(tree, shapes, errors, warnings, packs, nullptr, &aliases_used, &renames);
+    if (!scope.changed ||
+        !run_scoped(tree, shapes, scope, errors, warnings, packs, aliases_used, renames))
+        run(tree, shapes, errors, warnings, packs, nullptr, &aliases_used, &renames);
     report.errors = List<Error>({errors.data(), errors.size()});
     report.aliases_used = List<baker::Symbol>({aliases_used.data(), aliases_used.size()});
     report.renames = List<Renamed>({renames.data(), renames.size()});
@@ -1355,7 +1650,22 @@ Config::Validator validator() {
         Set set;
         Report report;
         for (const Ref<Array>& tree : stack.layers) set.add(stack.session, report, tree->file());
-        check(stack.root, set, report, &stack.session);
+        // Only what changed, unless it declares a shape, which may govern any record (D316).
+        Scope scope;
+        if (const Array* changed = stack.changed) {
+            const auto& decls = stack.session.shapes();
+            const bool declares = !changed->file().empty() &&
+                                  std::any_of(decls.begin(), decls.end(), [&](const ShapeDecl& d) {
+                                      return d.root == changed->file();
+                                  });
+            if (!declares) {
+                scope.changed = changed;
+                size_t below = 0;
+                while (below < stack.layers.size() && stack.layers[below].get() != changed) ++below;
+                scope.below = stack.layers.first(below);
+            }
+        }
+        check(stack.root, set, report, &stack.session, scope);
         if (!warn) return;
         for (const Error& e : report.errors) warn(e);
         for (const Error& w : report.warnings) warn(w);
