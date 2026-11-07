@@ -920,6 +920,7 @@ void Config::Impl::commit(Config& c, ReloadRecord& rec, uint64_t& t) {
     ++generation;
     const Ref<Array> before = std::move(c.root_);
     c.root_ = merged();
+    pending_merge = nullptr;  // the full merge has the edits
     merged_root = c.root_;
     c.scratch_dirty_ = false;
     refresh_read();
@@ -1492,12 +1493,18 @@ bool Config::edits_beneath(const Path& path) const noexcept {
 }
 
 Ref<Array> Config::with_edits() const {
-    return impl_->merged();
+    Impl& im = *impl_;
+    if (!im.pending_merge || im.pending_epoch != epoch_) {
+        im.pending_merge = im.merged();
+        im.pending_epoch = epoch_;
+    }
+    return im.pending_merge;
 }
 
 void Config::apply_edits() {
     if (!scratch_dirty_) return;
-    root_ = impl_->merged();
+    root_ = with_edits();  // the reads' merge, if they made one since the last edit
+    impl_->pending_merge = nullptr;
     impl_->merged_root = root_;
     scratch_dirty_ = false;
     if (!impl_->tables.empty() && !impl_->hold_tables) impl_->build_tables(*root_, false);

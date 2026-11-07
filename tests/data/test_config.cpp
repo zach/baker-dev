@@ -1245,6 +1245,33 @@ BAKER_DEV_TEST_CASE("a read of a record or table above a live edit sees it (D224
     CHECK(ok(cfg.get<UnitRecord>("units.tank")).price == 40);
 }
 
+BAKER_DEV_TEST_CASE("reads above a live edit share one merge until the next change (D313)") {
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer(
+        "default", ok(read_string("(units (tank (price 40) (hp 100)) (scout (price 10) (hp 30)))\n",
+                                  "d.dta"))));
+    REQUIRE(cfg.set("units.tank.price", 45));
+    CHECK(ok(cfg.get<UnitRecord>("units.tank")).price == 45);  // the first read merges
+    if (test::counting_allocations()) {
+        const test::AllocationScope scope;
+        for (int i = 0; i < 10; ++i) (void)cfg.get<UnitRecord>("units.tank");
+        CHECK(scope.count() == 0);  // the rest read the merge it kept
+    }
+    // The next edit is seen: the kept merge is for the edits as they were.
+    REQUIRE(cfg.set("units.tank.hp", 120));
+    const UnitRecord tank = ok(cfg.get<UnitRecord>("units.tank"));
+    CHECK(tank.price == 45);
+    CHECK(tank.hp == 120);
+    // A layer change too.
+    REQUIRE(cfg.push_layer("patch", ok(read_string("(units (tank (price 50)))\n", "p.dta"))));
+    REQUIRE(cfg.set("units.tank.hp", 130));
+    CHECK(ok(cfg.get<UnitRecord>("units.tank")).hp == 130);
+    // apply_edits takes the kept merge; root() then holds the edits.
+    cfg.apply_edits();
+    CHECK(cfg.root()->get<int>("units.tank.hp") == 130);
+    CHECK(cfg.root()->get<int>("units.tank.price") == 45);  // scratch above the patch
+}
+
 TEST_CASE("cache_drop_metadata: the caches a bake writes hold no metadata (D265)") {
     if constexpr (kShipping) return;  // shipping writes no caches
     TempDir dir;
