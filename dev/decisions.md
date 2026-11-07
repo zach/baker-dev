@@ -10844,3 +10844,29 @@ building a `Str` for the path of every array and a vector of tags for every tabl
   What remains is a look at each array's metadata for `@id` and each child's for `@aka`.
 - **Tests.** `test_layer_check.cpp`: a `checks_only` validator runs in a check of an
   overlay and not after a push. The ID tests are unchanged and pass.
+
+## D308. format: alignment found in n log n
+
+*From the six-part TD review (`dev/td-review-2026-11.md`, finding 3).* `format` keeps a
+block of one-line forms aligned if it was written aligned: two members whose second items
+are at one column, one of them padded. It found such a pair by testing every pair, so a
+long block that was not aligned, a table of thousands of records written one to a line,
+cost the square of its length: a 2.7 MB file took 19 s in the review.
+
+- **Sorted by column.** Each member's second item is a column and a padded bit in one
+  `uint64_t`, in a scratch the formatter keeps. Sorted, a padded item comes after the
+  unpadded ones at its column, so a block is aligned when an item is padded and shares its
+  column with the one before it. The rule is the same; only its cost changes.
+- **Numbers** (release, a table of one-line records, `format_text`):
+
+  | lines | size | before | after |
+  |---:|---:|---:|---:|
+  | 5,000 | 149 KB | 33.9 ms | 7.0 ms |
+  | 10,000 | 300 KB | 372.9 ms | 12.8 ms |
+  | 20,000 | 622 KB | 2,257 ms | 28.9 ms |
+  | 90,000 | 2.8 MB | 44,302 ms | 147.8 ms |
+
+  Measured while another build ran on the machine; the shape of the rows, not their last
+  digit, is the result.
+- **Tests.** `test_format.cpp`: a 302-line block whose only shared column is its first and
+  last members' is aligned; a 60-line block padded at 60 different columns is not.

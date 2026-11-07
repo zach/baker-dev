@@ -127,6 +127,27 @@ TEST_CASE("what was written aligned stays aligned; nothing else is aligned") {
           "(a 1)     ; one\n(bbbbb 2) ; two\n(c 3) ; three\n");
 }
 
+TEST_CASE("alignment is found across a long block, and a long unaligned block stays") {
+    // Only the first and last members' second items share a column, one of them padded:
+    // the block is aligned, every member padded to its widest first item, k1000's.
+    std::string text = "(t\n  (ab   1)\n", want = "(t\n  (ab    1)\n";
+    for (int i = 0; i < 300; ++i) {
+        const std::string key = "k" + std::to_string(1000 + i);
+        text += "  (" + key + " 2)\n";
+        want += "  (" + key + " 2)\n";
+    }
+    text += "  (abcd 3))\n";
+    want += "  (abcd  3))\n";
+    CHECK(formatted(text, 2, 80) == want);
+    // Padded, but no two at one column: single spaces.
+    std::string plain = "(t", one = "(t";
+    for (size_t i = 1; i <= 60; ++i) {
+        plain += "\n  (" + std::string(i, 'k') + "   1)";
+        one += "\n  (" + std::string(i, 'k') + " 1)";
+    }
+    CHECK(formatted(plain + ")\n", 2, 80) == one + ")\n");
+}
+
 TEST_CASE("one blank line where any was written; none at the ends") {
     CHECK(formatted("\n\n(a 1)\n\n\n\n(b 2)\n(c 3)\n\n\n") == "(a 1)\n\n(b 2)\n(c 3)\n");
     CHECK(formatted("(top\n  (a 1)\n\n\n  (b 2))\n", 2, 10) == "(top\n  (a 1)\n\n  (b 2))\n");
