@@ -603,7 +603,10 @@ struct Checker {
     // Arrays checked already as a field's value, below the instance being walked: a stack,
     // emptied as the walk leaves that instance (D119, gap 20).
     Vec<const Array*> nested;
-    Vec<baker::Symbol> seen;  // the fields each instance on the stack has, from its mark
+    // The fields each instance on the stack has, from its mark: seen[0, seen_n). As the chain,
+    // the Vec only grows, so noting a field is a store, not a push_back (D304).
+    Vec<baker::Symbol> seen;
+    size_t seen_n = 0;
     // The arrays from the root to the record being checked, the root first: where a key's
     // table is looked up, outward from the record that refers to it. A field's own array is
     // not one: its children are its values.
@@ -628,6 +631,27 @@ struct Checker {
         ++depth;
     }
     BAKER_NOINLINE void grow(baker::Symbol tag) { chain.push_back(tag); }
+    void see(baker::Symbol field) {
+        if (seen_n == seen.size())
+            grow_seen(field);
+        else
+            seen[seen_n] = field;
+        ++seen_n;
+    }
+    BAKER_NOINLINE void grow_seen(baker::Symbol field) { seen.push_back(field); }
+
+    // The common field, one number or symbol of its type within its range, checked here and
+    // inline; anything else, and every error, is value()'s, out of line (D304).
+    [[nodiscard]] static bool plain(const Array& f, const Field& field) {
+        if (field.type != Type::Int && field.type != Type::Float && field.type != Type::Symbol)
+            return false;
+        if (f.size() != 2 || !field.one_of.empty()) return false;  // one value, no metadata
+        const Node& n = f[1];
+        if (!fits(n, field.type)) return false;
+        if (!field.ranged) return true;
+        const auto x = n.try_float();
+        return !x || (*x >= field.min && *x <= field.max);
+    }
 
     [[nodiscard]] Str path() const {
         Str p;
@@ -653,7 +677,7 @@ struct Checker {
         if (used) (*used)[static_cast<size_t>(&s - set.shapes().data())] = true;
         const Array* const outer = record;
         record = &a;
-        const size_t mark = seen.size();
+        const size_t mark = seen_n;
         for (uint32_t i = first; i < a.size(); ++i) {
             const Array* f = a[i].try_array();
             // '' is no tag (D125).
@@ -666,8 +690,8 @@ struct Checker {
             if (tag->is_meta()) continue;  // a record's own (@note ...), (@id ...): never a field
             enter_tag(*tag);
             if (const Field* field = s.field(*tag)) {
-                seen.push_back(*tag);
-                value(*f, *field);
+                see(*tag);
+                if (!plain(*f, *field)) value(*f, *field);
             } else if (const Field* renamed = s.renamed(*tag)) {
                 // The field under a name the shape renamed (D287): checked as the field, and
                 // listed for `format` to rewrite. With the new name in the record too, the
@@ -685,7 +709,7 @@ struct Checker {
                         warnings, ErrorCode::Syntax,
                         quoted(*tag) + " is now " + quoted(renamed->name) + " (format rewrites it)",
                         *f);
-                seen.push_back(renamed->name);
+                see(renamed->name);
                 value(*f, *renamed);
             } else {
                 report(warnings, ErrorCode::NotFound,
@@ -696,11 +720,12 @@ struct Checker {
             --depth;
         }
         const auto mine = seen.begin() + static_cast<std::ptrdiff_t>(mark);
+        const auto end = seen.begin() + static_cast<std::ptrdiff_t>(seen_n);
         for (const Field& field : s.fields)
-            if (!field.optional && std::find(mine, seen.end(), field.name) == seen.end())
+            if (!field.optional && std::find(mine, end, field.name) == end)
                 report(errors, ErrorCode::NotFound,
                        quoted(s.name) + " has no " + quoted(field.name), a);
-        seen.resize(mark);
+        seen_n = mark;
         record = outer;
     }
 
@@ -1089,8 +1114,8 @@ void run(const Array& tree, const Set& shapes, Vec<Error>& errors, Vec<Error>& w
          const LoadSession* packs, Vec<bool>* used, Vec<baker::Symbol>* aliases_used = nullptr,
          Vec<Renamed>* renames = nullptr, Vec<KeyUse>* key_uses = nullptr,
          Vec<AssetUse>* asset_uses = nullptr) {
-    Checker checker{shapes, errors, warnings, {},   0,  {}, {},       {},         {},     {},
-                    packs,  {},     false,    used, {}, {}, key_uses, asset_uses, nullptr};
+    Checker checker{shapes, errors, warnings, {},    0,    {}, {}, {},       {},         0,
+                    {},     packs,  {},       false, used, {}, {}, key_uses, asset_uses, nullptr};
     checker.arrays.push_back(&tree);
     for (const Shape& s : shapes.shapes()) {
         if (s.keyed && !s.at.empty()) checker.keyed.push_back(&s);
