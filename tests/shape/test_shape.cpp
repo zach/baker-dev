@@ -1282,3 +1282,171 @@ TEST_CASE("an undeclared field is one warning for its shape, with a count of the
     CHECK(warnings[1] == "'glow' is not a field of shape 'enemy' (extra fields are allowed)");
     CHECK(r.errors.empty());
 }
+
+// --- The shape check of a candidate, or a push, scoped to what it changes (D316). ---
+
+namespace {
+
+// A base of keyed units naming weapons, one unit (the old) with a field its shape does not
+// declare: a warning that stands in the base.
+const char* const kScopedBase =
+    "#shape (unit (@at units) (@keyed) (hp int (@range 1 100)) (weapon (key_of weapons)))\n"
+    "#shape (weapon (@at weapons) (@keyed) (damage int (@range 0 50)))\n"
+    "(weapons (laser (damage 5)) (cannon (damage 9)))\n"
+    "(units (old (hp 10) (weapon cannon) (colour red))\n"
+    "       (scout (hp 20) (weapon laser))\n"
+    "       (tank (hp 80) (weapon cannon)))\n";
+
+bool any_has(const std::vector<std::string>& list, const std::string& part) {
+    return std::any_of(list.begin(), list.end(),
+                       [&](const std::string& s) { return s.find(part) != std::string::npos; });
+}
+
+struct ScopedRun {
+    std::map<std::string, std::string> files{{"base.dta", kScopedBase}};
+    Config cfg{{.tweaks = nullptr}};
+    std::vector<std::string> reported;
+    ScopedRun() {
+        cfg.session().set_reader([this](std::string_view p, TextSink out) {
+            const auto it = files.find(std::string(p));
+            if (it == files.end()) return false;
+            out(it->second);
+            return true;
+        });
+        cfg.set_warning_handler([&](const Error& e) { reported.emplace_back(to_string(e)); });
+        cfg.add_validator(shape::validator(), {.any_thread = true});
+        REQUIRE(cfg.push_layer("base", "base.dta"));
+    }
+};
+
+}  // namespace
+
+TEST_CASE("a candidate's shape check holds its own records' findings, not the base's") {
+    ScopedRun run;
+    CHECK(any_has(run.reported, "'colour' is not a field of shape 'unit'"));  // the whole base
+    const LayerPolicy policy{.warnings_refuse = true};
+
+    // One record changed: checked whole, as merged; the old unit's warning is not its.
+    LayerReport r = ok(run.cfg.check_layer_text("tune", "(units (scout (hp 30)))\n", policy));
+    CHECK(texts(r.warnings).empty());
+    CHECK(r.ok());
+    // A record the candidate names is checked with its fields from below.
+    r = ok(run.cfg.check_layer_text("tune", "(units (old (hp 11)))\n", policy));
+    CHECK(any_has(texts(r.warnings), "'colour' is not a field of shape 'unit'"));
+    CHECK_FALSE(r.ok());
+
+    // A broken record is still refused, located.
+    r = ok(run.cfg.check_layer_text("tune", "(units (scout (hp 300)))\n", policy));
+    CHECK(any_has(texts(r.refusals), "'hp' is 300, outside 1.0 to 100.0"));
+    CHECK(r.warnings.size() == 1);
+    // A new record is checked whole, and its key looked up in the merged table.
+    r = ok(run.cfg.check_layer_text("tune", "(units (spy (hp 5) (weapon lazer)))\n", policy));
+    CHECK(any_has(texts(r.refusals), "'lazer' is not a key of weapons (laser?)"));
+
+    // A candidate that declares a shape is checked whole: the base's warning is in it.
+    r = ok(run.cfg.check_layer_text(
+        "tune",
+        "#shape (unit (@at units) (@keyed) (speed float (@optional)))\n(units (scout (hp 30)))\n",
+        policy));
+    CHECK(any_has(texts(r.warnings), "'colour' is not a field of shape 'unit'"));
+}
+
+TEST_CASE("a candidate that removes a keyed record reports the records that name it") {
+    ScopedRun run;
+    const LayerPolicy policy{};
+    // Followed through the key index: the tank and the old unit name the cannon.
+    LayerReport r = ok(run.cfg.check_layer_text("cut", "(weapons (cannon #remove))\n", policy));
+    const auto refusals = texts(r.refusals);
+    const auto warnings = texts(r.warnings);
+    CHECK(any_has(warnings, "'cannon' is not a key of weapons  (base.dta:4, at units/old/weapon)"));
+    CHECK(
+        any_has(warnings, "'cannon' is not a key of weapons  (base.dta:6, at units/tank/weapon)"));
+    CHECK_FALSE(any_has(warnings, "units/scout"));
+    // The old unit is checked whole, since it names what was removed.
+    CHECK(any_has(warnings, "'colour' is not a field of shape 'unit'"));
+    CHECK(refusals.empty());  // no policy rule; the shape's findings warn
+
+    // A removal of a table a key field names checks the whole tree.
+    r = ok(run.cfg.check_layer_text("cut", "(weapons #remove)\n", policy));
+    CHECK(any_has(texts(r.warnings), "no table weapons encloses it  (base.dta:5"));
+
+    // An alias the removed record answered to is followed too.
+    run.files["aka.dta"] = "(weapons (laser (@aka beam)))\n(units (beamer (hp 5) (weapon beam)))\n";
+    REQUIRE(run.cfg.push_layer("aka", "aka.dta"));
+    r = ok(run.cfg.check_layer_text("cut", "(weapons (laser #remove))\n", policy));
+    CHECK(any_has(texts(r.warnings), "'beam' is not a key of weapons"));
+    CHECK(any_has(texts(r.warnings), "units/scout/weapon"));
+}
+
+TEST_CASE("a scoped shape::check walks only what the changed tree names") {
+    shape::Set set;
+    shape::Report all;
+    const Ref<Array> base = add_text(set, kScopedBase, all, "base.dta");
+    shape::check(*base, set, all);
+    CHECK(all.warnings.size() == 1);
+    LoadSession session;
+    const Ref<Array> changed = ok(read_string("(units (tank (hp 0)))\n", "c.dta", session));
+    shape::Report scoped;
+    // The merged tree is the base here: the tank's hp in it is 80, so the record is clean.
+    shape::check(*base, set, scoped, nullptr, {.changed = changed.get()});
+    CHECK(scoped.errors.empty());
+    CHECK(scoped.warnings.empty());
+    const Ref<Array> old = ok(read_string("(units (old (hp 10)))\n", "c.dta", session));
+    shape::check(*base, set, scoped, nullptr, {.changed = old.get()});
+    CHECK(texts(scoped.warnings) == texts(all.warnings));
+}
+
+TEST_CASE(
+    "after a push, the warning handler gets the pushed records' findings; after a reload, "
+    "the whole tree's") {
+    ScopedRun run;
+    run.reported.clear();
+    run.files["tune.dta"] = "(units (scout (hp 300)))\n";
+    REQUIRE(run.cfg.push_layer("tune", "tune.dta"));
+    CHECK(run.reported.size() == 1);
+    CHECK(any_has(run.reported, "'hp' is 300"));
+    CHECK_FALSE(any_has(run.reported, "colour"));
+    // A tree pushed is scoped the same way.
+    run.reported.clear();
+    REQUIRE(run.cfg.push_layer("more", ok(read_string("(units (tank (hp 0)))\n", "more.dta"))));
+    CHECK(run.reported.size() == 1);
+    CHECK(any_has(run.reported, "'hp' is 0"));
+    if constexpr (!kShipping) {
+        // A reload may change anything: the whole tree.
+        run.reported.clear();
+        run.files["base.dta"] = std::string(kScopedBase) + "; edited\n";
+        REQUIRE(run.cfg.reload());
+        CHECK(any_has(run.reported, "colour"));
+        CHECK(any_has(run.reported, "'hp' is 300"));
+        CHECK(any_has(run.reported, "'hp' is 0"));
+        // So does a toggle.
+        run.reported.clear();
+        REQUIRE(run.cfg.set_layer_enabled("more", false));
+        CHECK(any_has(run.reported, "colour"));
+        CHECK(any_has(run.reported, "'hp' is 300"));
+    }
+}
+
+TEST_CASE("a push whose report holds runs no any_thread validator after its merge") {
+    ScopedRun run;
+    int any_runs = 0, owner_runs = 0;
+    run.cfg.add_validator(
+        [&](const ValidatorStack&, const Callback<void(const Error&)>&) { ++any_runs; },
+        {.any_thread = true});
+    run.cfg.add_validator(
+        [&](const ValidatorStack&, const Callback<void(const Error&)>&) { ++owner_runs; });
+    const LayerPolicy policy{};
+    const char* const text = "(units (scout (hp 30)))\n";
+    LayerReport r = ok(run.cfg.check_layer_text("tune", text, policy));
+    CHECK(any_runs == 1);
+    CHECK(owner_runs == 1);
+    run.reported.clear();
+    REQUIRE(run.cfg.push_layer_text("tune", text, {.policy = &policy, .checked = &r}));
+    CHECK(any_runs == 1);         // the check's run holds
+    CHECK(owner_runs == 2);       // a validator not any_thread runs after the merge, as before
+    CHECK(run.reported.empty());  // the shape validator is any_thread: it did not run again
+    // Without a report that holds, the push checks, and its merge runs them all.
+    REQUIRE(run.cfg.push_layer_text("tune2", text, {.policy = &policy}));
+    CHECK(any_runs == 3);
+    CHECK(owner_runs == 4);
+}

@@ -391,7 +391,9 @@ declares. The same checks run in CI, before the overlay reaches the server.
   with ranges: `(event (drop_rate float (@range 0 1)))`. With
   `cfg.add_validator(baker::shape::validator(), {.any_thread = true})`, the shapes judge
   every push and every check of an overlay before it is pushed: `examples/live-ops` refuses
-  an overlay that sets a 15% drop rate as `15`.
+  an overlay that sets a 15% drop rate as `15`. They judge only the records the overlay
+  names, and those that name a record it removes, so a warning that stands in the shipped
+  data does not refuse every overlay under `warnings_refuse`.
 - **Script.** An overlay that carries script (`(on_event {grant_xp 2})`) gets
   `baker::check` against a Context with the game's functions bound: a wrong call is an
   error before a player runs it. `cfg.add_validator(baker::check_validator(ctx))` checks
@@ -450,7 +452,8 @@ well under a microsecond, and call the `LayerChecker`'s `check_text` on a worker
 
 - The checker shares the stack's trees and never touches the Config again.
 - It runs the validators added with `{.any_thread = true}`, such as
-  `shape::validator()`. The push runs the rest on the game's thread.
+  `shape::validator()`. The push runs the rest on the game's thread, and, while the report
+  holds, does not run the checker's again after the merge.
 
 ### Applying
 

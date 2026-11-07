@@ -708,7 +708,12 @@ cfg.add_validator(baker::shape::validator(), {.any_thread = true});
 ```
 
 Through a Config, violations go to the warning handler; the load itself never fails on a
-shape. Elsewhere, `baker::shape::Set` reads the declarations and `baker::shape::check`
+shape. A check of a layer, and the merge after a push, check only what the layer changes
+(D316): each record it names, whole, with its fields from below, and each record whose key
+field names a record it removes. A layer that declares a `#shape` is checked against the
+whole tree, as is every reload, toggle, restore and removal of a layer. So a warning that
+stands in the base is reported when the base loads, and not again in each overlay's
+report. Elsewhere, `baker::shape::Set` reads the declarations and `baker::shape::check`
 checks a tree; `set.shapes()` enumerates them, with their metadata, for a tool to build
 panels from. Shapes are opt-in, and cost nothing unless checked.
 
