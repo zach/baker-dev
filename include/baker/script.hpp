@@ -923,7 +923,9 @@ public:
     template <class T>
     void add_type();
     // Sends {object method args...}: script handlers, then native methods, then the
-    // methods every object has (object.hpp).
+    // methods every object has (object.hpp). With up to 8 arguments, a message's most
+    // fields, the command comes from the Context's own, reused once warm; with more, each
+    // call allocates one.
     [[nodiscard]] Expected<Node> call(const Node& object, Symbol method,
                                       std::span<const Node> args = {});
     template <class... A>

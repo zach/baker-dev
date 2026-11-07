@@ -2,6 +2,7 @@
 // and the {class}, {new} and {delete} built-ins.
 
 #include "common/containers.hpp"
+#include "data/array_fill.hpp"
 #include "internal.hpp"
 
 #include <functional>
@@ -526,21 +527,20 @@ void Context::add_type(const detail::TypeRecord& type) {
 }
 
 Expected<Node> Context::call(const Node& object, Symbol method, std::span<const Node> args) {
-    const size_t size = args.size() + 2;
-    Ref<Array>* cached = size < Impl::kCallSizes ? &impl_->call_arrays[size] : nullptr;
+    Ref<Array>* cached =
+        args.size() < Impl::kCallSizes ? &impl_->call_arrays[args.size()] : nullptr;
     // The cached command is free when the cache's is its only count (a nested call, or a
     // {func} that kept its command, holds another).
     Ref<Array> command = cached && *cached && (*cached)->ref_count() == 1
                              ? *cached
-                             : Array::make(static_cast<uint32_t>(size));
-    command->set(0, object);
-    command->set(1, Node(method));
-    for (size_t i = 0; i < args.size(); ++i) command->set(i + 2, args[i]);
+                             : Array::make(static_cast<uint32_t>(args.size() + 2));
+    // Its nodes are Int 0 and nothing else holds it: filled in place, not through set().
+    detail::ArrayFill::fill(*command, object, Node(method), args);
     Expected<Node> r = eval(Node(command, Type::Command));
     if (cached) {
         if (command->ref_count() == (*cached == command ? 2u : 1u)) {
             // Nothing kept it: empty it, so it holds nothing alive, and keep it for next time.
-            for (size_t i = 0; i < size; ++i) command->set(i, Node());
+            detail::ArrayFill::clear(*command);
             *cached = std::move(command);
         } else if (*cached == command) {
             *cached = nullptr;  // kept by the script: let it go

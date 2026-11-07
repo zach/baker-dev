@@ -87,7 +87,7 @@ before fixing (SKILL.md, step 5), and do not fix one without a cost that justifi
 
 | Gap | Path | Finding | Evidence, or status |
 |---|---|---|---|
-| 13, a C++-to-script call allocates | hot | `Context::call(object, method, args)` builds a `Vec` and then `Array::make_from`: two allocations per call, also for every `ObjectBase::handle` that falls through to a script handler. One `Array::make(n + 2)` would do. | **closed**, D124: a cached command per size, 0 allocations |
+| 13, a C++-to-script call allocates | hot | `Context::call(object, method, args)` builds a `Vec` and then `Array::make_from`: two allocations per call, also for every `ObjectBase::handle` that falls through to a script handler. One `Array::make(n + 2)` would do. | **closed**, D124: a cached command per size, 0 allocations; D319: every count to a message's 8 fields, filled in place |
 | 14, messages skip the handler bit | hot | `send()` walks the type and its bases for a script class on every method call once any `{class}` exists; the one-load `handled_names` test is only in `detail::scripted`. Moving it into `handler_for` saves the walk. Add a `bench_call` row with an unrelated class loaded. | **closed**, D124: the bit before the walk |
 | 15, `Args::array` copies | hot | A `const Array&` parameter copies the node and pushes it on `kept` (two refcount atomics) even when the argument is a literal array the command already holds. | **closed**, D124: literal arrays returned as held |
 | 16, debug-build argument indexing | hot (debug) | `ArgIndex::of(I)` is not forced to compile time, so MSVC's debug build, a stated target (D62), runs a loop per argument per call. | **closed**, D124: compile-time indexes |

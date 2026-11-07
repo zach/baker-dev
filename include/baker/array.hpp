@@ -756,6 +756,7 @@ private:
     friend void detail::free_owner(detail::Owner&) noexcept;
     friend class detail::Arena;
     friend struct detail::CacheLayout;
+    friend struct detail::ArrayFill;
     // Sets the height and the tag run from the nodes: every way of building an array ends
     // here. `verb`: whether slot 1 holds a layer verb, when the caller knows (the parser
     // does); -1 tests it.
