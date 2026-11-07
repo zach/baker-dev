@@ -80,7 +80,7 @@ struct Counters {
 };
 
 struct Function : FuncRecord {
-    explicit Function(const Allocator& a) : doc(a), overloads(a) {}
+    explicit Function(const Allocator& a) : doc(a), usage(a), overloads(a) {}
 
     // Hot (D78): what a call reads, first, beside the name. A function with one overload
     // is called from these without touching the overload list.
@@ -95,6 +95,7 @@ struct Function : FuncRecord {
     Status status = Status::Normal;
     Symbol replacement;  // for Deprecated
     Str doc;
+    Str usage;  // FuncRef::usage: how a special form is written, a line a form
     Vec<detail::Overload> overloads;
     Symbol file;  // where a script function is defined
     int32_t line = 0;

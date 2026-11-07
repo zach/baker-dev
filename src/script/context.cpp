@@ -927,6 +927,10 @@ void FuncRef::set_doc(std::string_view text) {
     static_cast<Function*>(f_)->doc = text;
 }
 
+void FuncRef::set_usage(std::string_view text) {
+    static_cast<Function*>(f_)->usage = text;
+}
+
 FuncRef& FuncRef::status(Status status, Symbol replacement) {
     auto* f = static_cast<Function*>(f_);
     f->status = status;

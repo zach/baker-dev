@@ -18,7 +18,7 @@ namespace baker::tools {
 void reference(const Context& ctx, TextSink out, const LoadSession* packs = nullptr);
 [[nodiscard]] Expected<void> write_reference(const Context& ctx, std::string_view path,
                                              const LoadSession* packs = nullptr);
-// The same as JSON (schema baker.reference/1.1, docs/reference-json.md), for tools and
+// The same as JSON (schema baker.reference/1.6, docs/reference-json.md), for tools and
 // agents: every function with its overloads' parameter types, status, documentation, and,
 // for a script function, its file and line; every type's methods, properties, and script
 // handlers; script-only classes; documented globals; the objects added under a name, with

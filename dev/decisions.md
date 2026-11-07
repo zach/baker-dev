@@ -10752,3 +10752,29 @@ exercise.
   `tools/count_instructions.py` against main: every case unchanged (none shapes data).
 - **The record.** 0.8.0's changelog line was measured in instructions on a workload that
   missed this path; a later one says what the wall time is, on this workload.
+
+## D305. The reference: a special form's usage, and the console's config tools
+
+*From a review of the user docs, which the owner chose to act on.* The generated script
+reference gave the special forms the signature their parameters imply, `{class values...}`,
+`{wait values...}`, and the three waits shared one sentence, so a reader could not tell
+`{wait cond}` from `{wait_for t}`. And the console's 22 `config.*` commands, which a tool
+author drives over the remote console, were documented nowhere but in the source.
+
+- **`FuncRef::usage(text)`.** How a special form is written, the whole call, a line a form:
+  `.usage("{do ($var ($var value)...) body...}\n{do body...}")`. The Markdown reference
+  prints its lines in place of the deduced signature; the JSON reference gives them as a
+  function's `usage` list, `[]` when the parameters say it (`baker.reference/1.6`). Like
+  `doc()`, inline and dropped in a shipping build.
+- **The forms that have one.** `if`, `do`, `func`, `override`, `class`, `extend`, `new`,
+  `delete`, and `wait`, `wait_for` and `wait_tick`, each now with a sentence of its own. The
+  docs of `-=`, `*=` and `/=` name the `[property]` form, as those of `+=` and `set` did.
+- **The config tools.** `bind_config_tools` gives each command a usage with its arguments
+  named, `{config.diff layer_a layer_b}`, `{config.journal [since_ns]}`, and the test that
+  keeps `docs/script-reference.md` current binds them, write tools included, so the
+  reference lists every `config.*` command and `curve.sample` with its doc. A game's own
+  reference lists them only when it binds them.
+- **Costs.** None at run time: a usage is a string set at registration, kept only outside
+  shipping, as a doc is.
+- **Tests.** `test_reference_json.cpp`: a form's usage in both references, and none in
+  shipping; the reference test regenerates the Markdown with the config tools bound.

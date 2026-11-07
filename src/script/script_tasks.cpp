@@ -231,14 +231,31 @@ void Scheduler::bind(Binder<Scheduler>& b) {
 
 void register_task_builtins(Context& ctx) {
     // The waits are thread_task's own forms; anywhere else they are an error (D67).
-    for (const char* name : {"wait", "wait_for", "wait_tick"}) {
-        auto r = ctx.func(name, [](Args a) -> Expected<Node> {
+    struct Wait {
+        const char* name;
+        const char* usage;
+        const char* doc;
+    };
+    const Wait waits[] = {
+        {"wait", "{wait cond}",
+         "`{wait cond}`: suspends a `{scheduler thread_task ...}` until `cond` is a nonzero "
+         "number, testing it once a tick; only as one of its commands."},
+        {"wait_for", "{wait_for seconds}",
+         "`{wait_for seconds}`: suspends a `{scheduler thread_task ...}` for that many units "
+         "of the Scheduler's time; only as one of its commands."},
+        {"wait_tick", "{wait_tick}",
+         "`{wait_tick}`: suspends a `{scheduler thread_task ...}` until the next tick; only as "
+         "one of its commands."},
+    };
+    for (const Wait& w : waits) {
+        auto r = ctx.func(w.name, [](Args a) -> Expected<Node> {
             return Unexpected(
                 a.error("{" + Str(a.name().str()) +
                             "} works only as a command of {scheduler thread_task ...}",
                         ErrorCode::Refused));
         });
-        if (r) r->doc("Suspends a `{scheduler thread_task ...}`; only as one of its commands.");
+        if (!r) continue;
+        r->doc(w.doc).usage(w.usage);
     }
 }
 

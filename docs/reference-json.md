@@ -1,11 +1,11 @@
-# The vocabulary as JSON: `baker.reference/1.5`, `baker.tweaks/1.6`, `baker.shapes/1.8`
+# The vocabulary as JSON: `baker.reference/1.6`, `baker.tweaks/1.6`, `baker.shapes/1.8`
 
 Three documents describe what a program's data and script may say, for editors, agents,
 and other tools that should not scrape the Markdown reference:
 
 | Document | Written by | Library |
 |---|---|---|
-| `baker.reference/1.5` | `baker::tools::write_reference_json(ctx, sink, &session)` | `baker::tools` |
+| `baker.reference/1.6` | `baker::tools::write_reference_json(ctx, sink, &session)` | `baker::tools` |
 | `baker.tweaks/1.6` | `baker::write_json(registry, sink)` | `baker::data` |
 | `baker.shapes/1.8` | `baker::shape::write_json(shapes, sink)` | `baker::shape` |
 
@@ -29,11 +29,11 @@ They follow [`check`'s rules](check-json.md#stability):
   or changed only with a new major version.
 - **Numbers.** Ranges and steps are written as Baker prints floats (`0.5`, `10.0`).
 
-## `baker.reference/1.5`
+## `baker.reference/1.6`
 
 | Field | Contents |
 |---|---|
-| `schema` | `"baker.reference/1.5"` |
+| `schema` | `"baker.reference/1.6"` |
 | `functions` | every function with at least one overload |
 | `types` | every native type made known to the Context |
 | `script_classes` | classes only script defined (`{class Name ...}` with no native type) |
@@ -49,6 +49,8 @@ They follow [`check`'s rules](check-json.md#stability):
 - `status`: `"normal"`, `"stub"`, `"provisional"` or `"deprecated"`.
 - `replacement`: a deprecated function's replacement.
 - `doc`.
+- `usage`: how a special form is written, one string a form, the whole call
+  (`"{wait_for seconds}"`); `[]` for a function whose parameters say it (1.6).
 - `file` and `line`: where a script function is defined; `""` and `0` for a native one.
 - `overloads`. Each overload has:
   - `params`, each with `type`, `kind` (`"value"`, `"raw"`, `"optional"` or `"rest"`),
