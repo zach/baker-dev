@@ -1262,3 +1262,23 @@ TEST_CASE("a key_of names a record by its alias, and the report lists the keys s
     REQUIRE(r.aliases_used.size() == 1);
     CHECK(r.aliases_used[0] == Symbol("laser"));
 }
+
+TEST_CASE("an undeclared field is one warning for its shape, with a count of the records (D315)") {
+    const shape::Report r = check_text(
+        "#shape (enemy (@at enemies) (@keyed) (hp int))\n"
+        "(enemies\n"
+        "  (orc (hp 10) (taunt \"grr\"))\n"
+        "  (elf (hp 8) (taunt \"hm\") (glow 1))\n"
+        "  (imp (hp 3) (taunt \"hee\")))\n");
+    std::vector<std::string> warnings;
+    for (const Error& w : r.warnings) warnings.emplace_back(w.message());
+    REQUIRE(warnings.size() == 2);
+    // The first record that has it, and how many more.
+    CHECK(warnings[0] ==
+          "'taunt' is not a field of shape 'enemy' (extra fields are allowed); also in 2 more "
+          "records");
+    CHECK(r.warnings[0].line() == 3);
+    CHECK(r.warnings[0].path().find("orc") != std::string_view::npos);
+    CHECK(warnings[1] == "'glow' is not a field of shape 'enemy' (extra fields are allowed)");
+    CHECK(r.errors.empty());
+}

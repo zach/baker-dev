@@ -712,10 +712,7 @@ struct Checker {
                 see(renamed->name);
                 value(*f, *renamed);
             } else {
-                report(warnings, ErrorCode::NotFound,
-                       quoted(*tag) + " is not a field of shape " + quoted(s.name) +
-                           " (extra fields are allowed)",
-                       *f);
+                not_a_field(s, *tag, *f);
             }
             --depth;
         }
@@ -954,6 +951,44 @@ struct Checker {
     Vec<KeyUse>* key_uses = nullptr;      // for key_uses(): every key named (D288)
     Vec<AssetUse>* asset_uses = nullptr;  // for asset_uses(): every asset named (D289)
     const Array* record = nullptr;        // the instance being checked, for its ID
+    // Fields a shape does not declare: one warning for each shape and tag, at the first
+    // record that has it, with a count of the others added at the end (D315). Few kinds in
+    // any stack, so a scan finds one.
+    struct Undeclared {
+        const Shape* shape;
+        baker::Symbol tag;
+        size_t warning;     // its index in `warnings`
+        uint32_t more = 0;  // the records after the first that have it
+    };
+    Vec<Undeclared> undeclared;
+
+    // `tag` in an instance of `s` that does not declare it.
+    void not_a_field(const Shape& s, baker::Symbol tag, const Array& f) {
+        for (Undeclared& u : undeclared)
+            if (u.shape == &s && u.tag == tag) {
+                ++u.more;
+                return;
+            }
+        undeclared.push_back({&s, tag, warnings.size()});
+        report(warnings, ErrorCode::NotFound,
+               quoted(tag) + " is not a field of shape " + quoted(s.name) +
+                   " (extra fields are allowed)",
+               f);
+    }
+    // The counts, once the walk is done.
+    void count_undeclared() {
+        for (const Undeclared& u : undeclared) {
+            if (u.more == 0) continue;
+            const Error& first = warnings[u.warning];
+            Error e = make_error(first.code(),
+                                 Str(first.message()) + "; also in " + detail::decimal(u.more) +
+                                     (u.more == 1 ? " more record" : " more records"),
+                                 first.file(), first.line());
+            e.set_path(first.path());
+            if (first.column() > 0) e.set_column(first.column());
+            warnings[u.warning] = std::move(e);
+        }
+    }
     // The table's key, or alias, nearest `wrong` by edits, within two, or none: what a typo
     // meant.
     static std::optional<std::string_view> nearest(const Array& table, std::string_view wrong) {
@@ -1128,6 +1163,7 @@ void run(const Array& tree, const Set& shapes, Vec<Error>& errors, Vec<Error>& w
         checker.walk<true>(tree);
     else
         checker.walk<false>(tree);
+    checker.count_undeclared();
     if (aliases_used)
         aliases_used->insert(aliases_used->end(), checker.aliases_used.begin(),
                              checker.aliases_used.end());
