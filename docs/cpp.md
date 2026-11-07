@@ -137,4 +137,6 @@ layers' trees and every registered table as one file (D295); a Config made with
 text, and the tables with them, their pointers fixed up and their symbols interned in one pass.
 A table the game no longer compiles alike (another digest, size or fix-up list) is skipped with
 a warning and built from the tree. Layers above the contract (mods, overlays) push as today and
-rebuild the tables they touch. Development builds never need the file.
+rebuild the tables they touch. Development builds never need the file. An image carries
+the version of its format, and a Baker that reads another refuses it by name: bake it again
+with the game built on the new Baker (D309).
