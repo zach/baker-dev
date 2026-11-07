@@ -11029,3 +11029,73 @@ while a designer drags a value paid a whole merge per read.
   The allocations left are the record's own (`Rec`'s strings).
 - **Tests.** `test_config.cpp`: ten reads above an edit after the first allocate nothing;
   the next edit, and a layer pushed, are seen; `apply_edits` then holds every edit.
+
+## D314. Reload off the game thread
+
+*From the six-part TD review (`dev/td-review-2026-11.md`, finding 9); the design and the
+owner's answers are in `dev/reload-off-thread.md`.* A reload did all of its work on the
+caller's thread, in `host::Live` the game's, inside `begin_frame()`: 2.3 ms for a 122 KB
+edit and 29 ms for 4.2 MB in the review. Its scan read and hashed every file the stack was
+built from to learn which had changed.
+
+- **A reload in three calls.** `Config::begin_reload` copies the stack (its trees shared)
+  and the session; `ReloadJob::run`, on any thread, scans, lists the directories again,
+  and reads and parses into the copy; `Config::finish_reload` merges, binds and notifies,
+  and returns the outcome: Ok, Unchanged, or Refused when the stack took a full merge
+  since `begin_reload` (a push, a toggle, another reload) or reloads are refused. A layer
+  that does not read is the error and changes nothing. Live edits meanwhile are not
+  refusals: they live in scratch, which the merge reads as it stands.
+- **A read context.** The read path (`changed`, `list_dir`, `relist`, `read`, `reread`)
+  took the Config's own buffers and base session and called its warning handler. It now
+  takes a `ReadContext` (the base session, the buffers, and where warnings go); the Config
+  passes its own, and a job its copies, keeping warnings for `finish_reload`. `reload()`
+  keeps its in-place path on the caller's thread, which allocates nothing when nothing
+  changed; a job copies the stack, so it allocates.
+- **A stamp hook in `LoadSession`** (`set_stamper`): a number for a file's size and last
+  write. Each file's stamp is kept when it is read; the scan opens only a file whose stamp
+  moved, and reads and hashes it, so a save of the same text still makes no merge; a scan
+  that finds the same text keeps the stamp the file has now, so it is read once and not
+  again. The core reads no file's metadata, so without a stamper the scan reads every
+  file as before. `host::file_stamp(path, hook)` is one, from the host's stamp hook or the
+  disk, and `Live` gives it to its session.
+- **No stamp for a file written in the last three seconds.** CI on Windows caught it: two
+  saves of the same size in quick succession left the file's write time as it was, so the
+  scan skipped a file that had changed. `file_stamp` returns 0, unknown, for a file written
+  within three seconds, and the scan reads and hashes it; a stamp is trusted only for a file
+  left alone since, which is every file but the one being edited.
+- **`LiveOptions::run_async`,** a callback that hands work to the game's job system:
+  `begin_frame` begins a job when the watcher sees a save and hands `run` over; a later
+  `begin_frame` finishes it once `run` returned, and begins again if it was refused.
+  Saves seen meanwhile wait for the next job. The work holds a slot shared with `Live`,
+  queued, running, done or cancelled: `Live` closing cancels a job not yet started and
+  waits for one running, so a job the host never runs, or runs late, touches nothing
+  freed. Without `run_async` the reload runs in `begin_frame`, as before.
+- **Numbers** (release, not shipping, this machine; best of 7):
+
+  | | the reload on one thread | the job's `run` (worker) | `finish_reload` (game thread) |
+  |---|---:|---:|---:|
+  | 1,200 records, 86 KB | 0.86 ms | 0.85 ms | 0.04 ms |
+  | 40,000 records, 3.0 MB | 54.29 ms | 52.95 ms | 1.70 ms |
+
+  | a quiet reload's scan, 50 files of 16 KB, written 4 s before | read and hashed | stamped |
+  |---|---:|---:|
+  | best of 20 | 155 µs | 55 µs |
+
+  A file read while it was racy has no stamp, so the first scan after it settles reads it
+  once and keeps the stamp. A job's scan keeps the stamps in its copy, which the stack takes
+  only when the job finds a change.
+
+  `file_stamp` goes through `std::filesystem` and the global heap, as the Watcher does
+  (finding 28 of the review).
+- **Tests.**
+  - `test_config.cpp`:
+    - a job run on a `std::thread` lands at `finish_reload`, with a live edit made
+      meanwhile kept;
+    - one begun before a push is refused and lands when begun again, and so is another
+      Config's job or an empty one;
+    - a broken edit is the error and changes nothing;
+    - with a stamper, a quiet reload opens no file, and a moved stamp with the same text
+      changes nothing.
+  - `test_live.cpp`: `run_async` with a held queue lands at the frame after the worker
+    ran; one that runs at once lands too; a job never run lets `Live` close, and running
+    it afterwards does nothing.

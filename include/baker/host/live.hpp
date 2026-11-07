@@ -65,6 +65,11 @@ struct LiveOptions {
     LoadSession::Lister lister{};
     DiskPathHook disk_path{};
     StampHook stamp{};
+    // Runs `work` on the game's worker, now or later, once: a reload's reading and parsing
+    // (Config::begin_reload, ReloadJob). A begin_frame after it returns merges the result,
+    // so the game thread pays only the merge. Without it, a reload runs in begin_frame, all
+    // on the game thread. Live waits for `work` to return before it closes (D314).
+    Callback<void(Callback<void()> work)> run_async{};
     bool watch = true;          // false: reload only when asked (tests, a headless runner)
     uint16_t console_port = 0;  // 0: no console
     // A console on a free port instead, for a tool that starts the game and must not collide

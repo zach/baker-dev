@@ -140,6 +140,7 @@ struct LoadSession::State {
         reader = o.reader;
         disk = o.disk;
         lister = o.lister;
+        stamper = o.stamper;
         include_dirs = o.include_dirs;
         autorun = o.autorun;
         required = o.required;
@@ -175,6 +176,7 @@ struct LoadSession::State {
     Reader reader = detail::read_disk_file;
     bool disk = true;  // `reader` is the default
     Lister lister = detail::list_disk_dir;
+    Stamper stamper;  // none: a reload's scan reads every file (D314)
     Vec<Str> include_dirs;
     Vec<Node> autorun;
     Vec<Str> required;                 // the files #require has read, normalized (spec §1)
@@ -1505,6 +1507,12 @@ void LoadSession::set_lister(Lister lister) {
 }
 const LoadSession::Lister& LoadSession::lister() const noexcept {
     return st_->lister;
+}
+void LoadSession::set_stamper(Stamper stamper) {
+    st_->stamper = std::move(stamper);
+}
+const LoadSession::Stamper& LoadSession::stamper() const noexcept {
+    return st_->stamper;
 }
 void LoadSession::add_include_dir(std::string_view dir) {
     st_->include_dirs.emplace_back(dir);

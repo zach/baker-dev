@@ -931,6 +931,13 @@ frames. Other threads may read, on these terms:
   line. Measured on one machine: 11.6 ns a copy on one thread, 85 ns per thread with two
   threads, 158 ns with four. Copy what a worker needs before handing it over, then let it
   read by reference.
+- **A reload's reading can run on a worker.** `cfg.begin_reload()` on the game's thread
+  makes a `ReloadJob`; `job.run()` on any thread finds the files that changed, reads them
+  and parses them, touching nothing of the Config's; `cfg.finish_reload(std::move(job))`
+  back on the game's thread merges the result, or says `Refused` if the stack changed
+  meanwhile, and you begin again. The game's thread then pays the merge alone: 1.7 ms of a
+  3 MB reload's 54 ms, measured on one machine. `baker::host::Live` does this when given
+  `run_async` (D314).
 - **A reload is the frame's swap point.** It replaces the trees, on the game's thread. A
   thread holding a raw `const Array&` across it reads a tree that has been freed; one
   holding the `Ref<Array>` from `cfg.root()` keeps the old tree alive and reads it whole.

@@ -34,6 +34,20 @@ struct Dep {
     bool present = false;
     uint64_t hash = 0;  // of its text; for a directory, of its listing
     bool directory = false;
+    // The session's stamper's, as of the last read or scan that found this text; 0: none.
+    // A scan that reads the file and finds the same text brings it up to date (D314).
+    mutable uint64_t stamp = 0;
+};
+
+// What reading the stack's files uses beyond the Config's settings: the session the stack
+// reads from, the buffers a read fills, and where its warnings go. The Config keeps one for
+// its own thread (Impl::own()); a ReloadJob has its own, so that it can run on another
+// thread (D314).
+struct ReadContext {
+    const LoadSession& base;
+    Str& scan;
+    Vec<Str>& listed;
+    Vec<Error>* deferred = nullptr;  // warnings kept here, not given to the warning handler
 };
 
 struct LayerState {
@@ -334,6 +348,7 @@ struct Config::Impl {
     // validator added or removed, a set(), a call of session(). Each Config starts its own
     // range, so a report never holds for another Config at the same address.
     uint64_t generation = 0;
+    uint64_t commits = 0;  // full merges: a ReloadJob begun before one is refused (D314)
 
     TimeSource clock = steady_now;
     void* clock_user = nullptr;
@@ -454,8 +469,21 @@ struct Config::Impl {
 
     // --- Reading layers ---
 
+    [[nodiscard]] ReadContext own() const { return {base, scan, listed, nullptr}; }
+    // A warning from reading: to the context's list, or to the warning handler.
+    void tell(const ReadContext& io, const Error& e) const {
+        if (io.deferred)
+            io.deferred->push_back(e);
+        else if (warn)
+            warn(e);
+    }
+
+    [[nodiscard]] Rc<LoadSession> session_below(const ReadContext& io, const Vec<LayerState>& ls,
+                                                size_t i) const {
+        return i == 0 ? Rc<LoadSession>::make(alloc, io.base) : ls[i - 1].after;
+    }
     [[nodiscard]] Rc<LoadSession> session_below(const Vec<LayerState>& ls, size_t i) const {
-        return i == 0 ? Rc<LoadSession>::make(alloc, base) : ls[i - 1].after;
+        return session_below(own(), ls, i);
     }
 
     // A fresh cache of `path`, or the text and a new cache, written through the writer: a
@@ -468,8 +496,12 @@ struct Config::Impl {
     // Reads a file layer, recording every file it reads (or looks for) for reload, and the
     // time spent reading them into `read_ns`; or a layer pushed as text, from its text only.
     // The read's warnings go to the warning handler, and to `warnings` if given.
+    Expected<void> read(const ReadContext& io, LayerState& layer, const LoadSession& before,
+                        uint64_t* read_ns = nullptr, Vec<Error>* warnings = nullptr) const;
     Expected<void> read(LayerState& layer, const LoadSession& before, uint64_t* read_ns = nullptr,
-                        Vec<Error>* warnings = nullptr) const;
+                        Vec<Error>* warnings = nullptr) const {
+        return read(own(), layer, before, read_ns, warnings);
+    }
     // A layer pushed under a policy: the verdict of the report it brings if that still holds
     // (`subject` names it; 0 for a file), with the validators a LayerChecker left out run
     // now; else of a check.
@@ -486,10 +518,11 @@ struct Config::Impl {
     // defines (D264). Whether it changed.
     bool apply_condition(LayerState& l) const;
 
-    bool changed(const LayerState& layer, Symbol& first) const;
+    bool changed(const ReadContext& io, const LayerState& layer, Symbol& first) const;
     // Whether reload() must read `layer` again: a file of it changed, or, for a directory of
     // layers, its listing or order.dta.
-    bool stale(const LayerState& layer, Symbol& first) const;
+    bool stale(const ReadContext& io, const LayerState& layer, Symbol& first) const;
+    bool stale(const LayerState& layer, Symbol& first) const { return stale(own(), layer, first); }
 
     // --- Directories of layers ---
 
@@ -500,11 +533,16 @@ struct Config::Impl {
     };
     // Lists the directory of `marker`, filling its deps, and `found` with its
     // layers in order.dta's order. Warns of a name order.dta lists that the directory lacks.
-    [[nodiscard]] Expected<void> list_dir(LayerState& marker, Vec<Found>& found) const;
+    [[nodiscard]] Expected<void> list_dir(const ReadContext& io, LayerState& marker,
+                                          Vec<Found>& found) const;
     // Lists the directory of the marker at `ls[at]` again and puts the layers it holds above
     // it, in place of those that were: one that stays keeps its state (its enabled flag).
     // Returns how many layers the group now has above the marker.
-    [[nodiscard]] Expected<size_t> relist(Vec<LayerState>& ls, size_t at) const;
+    [[nodiscard]] Expected<size_t> relist(const ReadContext& io, Vec<LayerState>& ls,
+                                          size_t at) const;
+    [[nodiscard]] Expected<size_t> relist(Vec<LayerState>& ls, size_t at) const {
+        return relist(own(), ls, at);
+    }
     // How many layers of `ls[at]`'s directory stand above it (0 for a layer that is not one).
     [[nodiscard]] static size_t members(const Vec<LayerState>& ls, size_t at) noexcept {
         if (ls[at].dir.empty()) return 0;
@@ -516,12 +554,16 @@ struct Config::Impl {
     // Re-reads `layers[from..]` as the read and parse stages of `rec`, from `t`, which it
     // moves to their end; a failure marks the record a parse error (D132).
     Expected<void> reread_stages(ReloadRecord& rec, size_t from, uint64_t& t) {
-        return reread_stages(rec, layers, from, t);
+        return reread_stages(own(), rec, layers, from, t);
     }
     // The same over `ls`, a stack to replace `layers` with.
     Expected<void> reread_stages(ReloadRecord& rec, Vec<LayerState>& ls, size_t from,
                                  uint64_t& t) const {
-        auto r = reread(ls, from, &rec.read_ns, &rec.files_reloaded);
+        return reread_stages(own(), rec, ls, from, t);
+    }
+    Expected<void> reread_stages(const ReadContext& io, ReloadRecord& rec, Vec<LayerState>& ls,
+                                 size_t from, uint64_t& t) const {
+        auto r = reread(io, ls, from, &rec.read_ns, &rec.files_reloaded);
         const uint64_t parsed = now();
         rec.parse_ns = parsed - t - rec.read_ns;
         t = parsed;
@@ -531,8 +573,12 @@ struct Config::Impl {
 
     // Re-reads `ls[from..]` in order (each sees the macros of the ones below), all or
     // nothing.
+    Expected<void> reread(const ReadContext& io, Vec<LayerState>& ls, size_t from,
+                          uint64_t* read_ns = nullptr, uint32_t* files = nullptr) const;
     Expected<void> reread(Vec<LayerState>& ls, size_t from, uint64_t* read_ns = nullptr,
-                          uint32_t* files = nullptr) const;
+                          uint32_t* files = nullptr) const {
+        return reread(own(), ls, from, read_ns, files);
+    }
 
     // Where push_layer puts a layer: its index in the stack, from opts.below or .above, which
     // it clears (D144).

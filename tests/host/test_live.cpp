@@ -228,6 +228,53 @@ TEST_CASE("Live reloads a saved file, with the save as its origin, and runs #aut
     }
 }
 
+TEST_CASE("Live reads and parses a reload on the host's worker, and merges at a frame (D314)") {
+    if constexpr (!kShipping) {
+        Stack st;
+        Context ctx;
+        Live live(ctx);
+        std::vector<Callback<void()>> queued;  // the host's job queue
+        int changed = 0;
+        REQUIRE(live.open({.project = st.dir.path("data"),
+                           .run_async = [&](Callback<void()> work) { queued.push_back(work); },
+                           .changed = [&](const Config&) { ++changed; }}));
+        st.dir.write("data/default.dta", "(speed 4)\n");
+        // A frame sees the save and hands the reload to the worker: not merged yet.
+        REQUIRE(frames_until(live, [&] { return !queued.empty(); }));
+        CHECK(live.config().get<int>("speed") == 3);
+        for (int i = 0; i < 3; ++i) live.begin_frame();  // the job not run: nothing lands
+        CHECK(live.config().get<int>("speed") == 3);
+        CHECK(queued.size() == 1);
+        // The worker runs it; the next frame merges and tells the game.
+        std::thread([&] { queued[0](); }).join();
+        queued.clear();
+        live.begin_frame();
+        CHECK(live.config().get<int>("speed") == 4);
+        CHECK(changed == 2);
+        CHECK(live.config().last_reload()->trigger == Symbol("watcher"));
+        // A worker that runs the job at once lands the same way.
+        Context ctx2;
+        Live eager(ctx2);
+        REQUIRE(eager.open(
+            {.project = st.dir.path("data"), .run_async = [](Callback<void()> work) { work(); }}));
+        st.dir.write("data/default.dta", "(speed 9)\n");
+        CHECK(frames_until(eager, [&] { return eager.config().get<int>("speed") == 9; }));
+        // A job the host never runs, or runs once Live has closed: Live closes without
+        // waiting, and the late run does nothing.
+        std::vector<Callback<void()>> dropped;
+        {
+            Context ctx3;
+            Live gone(ctx3);
+            REQUIRE(gone.open({.project = st.dir.path("data"),
+                               .run_async = [&](Callback<void()> w) { dropped.push_back(w); }}));
+            st.dir.write("data/default.dta", "(speed 11)\n");
+            REQUIRE(frames_until(gone, [&] { return !dropped.empty(); }));
+        }
+        REQUIRE(dropped.size() == 1);
+        dropped[0]();
+    }
+}
+
 TEST_CASE("Live notices a file added to a directory of layers, and one removed") {
     if constexpr (!kShipping) {
         TempDir dir;

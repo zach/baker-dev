@@ -8,6 +8,7 @@
 #include "image.hpp"
 
 #include <algorithm>
+#include <optional>
 
 #if defined(_MSC_VER)
 #define BAKER_INLINE __forceinline
@@ -525,7 +526,8 @@ void Config::Impl::refresh_files() {
     ++stack_files_epoch;
 }
 
-Expected<void> Config::Impl::read(LayerState& layer, const LoadSession& before, uint64_t* read_ns,
+Expected<void> Config::Impl::read(const ReadContext& io, LayerState& layer,
+                                  const LoadSession& before, uint64_t* read_ns,
                                   Vec<Error>* warnings) const {
     auto session = Rc<LoadSession>::make(alloc, before);
     session->clear_autorun();
@@ -556,6 +558,7 @@ Expected<void> Config::Impl::read(LayerState& layer, const LoadSession& before, 
         }
         // A directory a load lists (#include_dir) is one of its files too.
         const LoadSession::Lister& lister = before.lister();
+        const LoadSession::Stamper& stamper = before.stamper();
         session->set_lister(
             [&](std::string_view dir, const Callback<void(std::string_view)>& entry) {
                 Vec<Str> entries(alloc);
@@ -568,11 +571,12 @@ Expected<void> Config::Impl::read(LayerState& layer, const LoadSession& before, 
             const uint64_t t0 = read_ns ? now() : 0;
             // Into the Config's buffer, which the parser copies from before it reads an
             // include through here again: a file read allocates only the parser's copy (D131).
-            const bool ok = detail::read_with(reader, p, scan);
+            const bool ok = detail::read_with(reader, p, io.scan);
             if (read_ns) *read_ns += now() - t0;
             if (p != cache.view())
-                deps.push_back({Str(p, alloc), ok, ok ? detail::content_hash(scan) : 0});
-            if (ok) out(scan);
+                deps.push_back({Str(p, alloc), ok, ok ? detail::content_hash(io.scan) : 0, false,
+                                stamper ? stamper(p) : 0});
+            if (ok) out(io.scan);
             return ok;
         });
         root = cache.empty() ? read_file(layer.path, *session)
@@ -586,7 +590,7 @@ Expected<void> Config::Impl::read(LayerState& layer, const LoadSession& before, 
     // handler.
     const auto all = session->warnings();
     for (const Error& w : all.subspan(std::min(before.warnings().size(), all.size()))) {
-        if (warn) warn(w);
+        tell(io, w);
         if (warnings) warnings->push_back(w);
     }
     session->clear_warnings();
@@ -615,27 +619,33 @@ Expected<void> Config::Impl::read(LayerState& layer, const LoadSession& before, 
     return {};
 }
 
-bool Config::Impl::changed(const LayerState& layer, Symbol& first) const {
+bool Config::Impl::changed(const ReadContext& io, const LayerState& layer, Symbol& first) const {
     for (const Dep& d : layer.deps) {
         if (d.directory) {
-            const uint64_t listing = detail::list_with(base.lister(), d.path, listed, alloc);
+            const uint64_t listing = detail::list_with(io.base.lister(), d.path, io.listed, alloc);
             if ((listing != 0) != d.present || listing != d.hash) {
                 first = Symbol(d.path);
                 return true;
             }
             continue;
         }
-        const bool ok = detail::read_with(base.reader(), d.path, scan);
-        if (ok != d.present || (ok && detail::content_hash(scan) != d.hash)) {
+        // The same stamp: unchanged, and not opened (D314). Otherwise read and hashed, so a
+        // save of the same text changes nothing, and the stamp it has now is kept for the
+        // next scan.
+        const uint64_t stamp = io.base.stamper() ? io.base.stamper()(d.path) : 0;
+        if (stamp != 0 && stamp == d.stamp) continue;
+        const bool ok = detail::read_with(io.base.reader(), d.path, io.scan);
+        if (ok != d.present || (ok && detail::content_hash(io.scan) != d.hash)) {
             first = Symbol(d.path);
             return true;
         }
+        d.stamp = stamp;
     }
     return false;
 }
 
-bool Config::Impl::stale(const LayerState& layer, Symbol& first) const {
-    return (!layer.path.empty() || !layer.dir.empty()) && changed(layer, first);
+bool Config::Impl::stale(const ReadContext& io, const LayerState& layer, Symbol& first) const {
+    return (!layer.path.empty() || !layer.dir.empty()) && changed(io, layer, first);
 }
 
 // --- Directories of layers ---
@@ -654,11 +664,12 @@ bool is_dta(std::string_view name) noexcept {
 
 }  // namespace
 
-Expected<void> Config::Impl::list_dir(LayerState& marker, Vec<Found>& found) const {
+Expected<void> Config::Impl::list_dir(const ReadContext& io, LayerState& marker,
+                                      Vec<Found>& found) const {
     found.clear();
     marker.deps.clear();
     Vec<Str> entries(alloc);
-    const uint64_t listing = detail::list_with(base.lister(), marker.dir, entries, alloc);
+    const uint64_t listing = detail::list_with(io.base.lister(), marker.dir, entries, alloc);
     marker.missing = listing == 0;
     marker.deps.push_back({marker.dir, !marker.missing, listing, true});
     if (marker.missing) {
@@ -668,7 +679,7 @@ Expected<void> Config::Impl::list_dir(LayerState& marker, Vec<Found>& found) con
     }
     const Str order = detail::join_path(marker.dir, "order.dta");
     Str text(alloc);
-    const bool ordered = detail::read_with(base.reader(), order, text);
+    const bool ordered = detail::read_with(io.base.reader(), order, text);
     marker.deps.push_back({order, ordered, ordered ? detail::content_hash(text) : 0});
     Vec<Found> named(alloc);
     for (const Str& e : entries) {
@@ -680,7 +691,7 @@ Expected<void> Config::Impl::list_dir(LayerState& marker, Vec<Found>& found) con
             // A subdirectory, if it holds a layer.dta; else watched for one. A name with an
             // extension is a file, and not looked into.
             Str inner = detail::join_path(e, "layer.dta");
-            if (detail::read_with(base.reader(), inner, scan))
+            if (detail::read_with(io.base.reader(), inner, io.scan))
                 named.push_back({Str(leaf, alloc), std::move(inner)});
             else
                 marker.deps.push_back({std::move(inner), false, 0});
@@ -700,15 +711,14 @@ Expected<void> Config::Impl::list_dir(LayerState& marker, Vec<Found>& found) con
             detail::directory_order(text, order, {names.data(), names.size()}, order_of, warnings);
         !r)
         return r;
-    if (warn)
-        for (const Error& w : warnings) warn(w);
+    for (const Error& w : warnings) tell(io, w);
     for (const uint32_t i : order_of) found.push_back(std::move(named[i]));
     return {};
 }
 
-Expected<size_t> Config::Impl::relist(Vec<LayerState>& ls, size_t at) const {
+Expected<size_t> Config::Impl::relist(const ReadContext& io, Vec<LayerState>& ls, size_t at) const {
     Vec<Found> found(alloc);
-    if (auto r = list_dir(ls[at], found); !r) return Unexpected(std::move(r).error());
+    if (auto r = list_dir(io, ls[at], found); !r) return Unexpected(std::move(r).error());
     const LayerState& marker = ls[at];
     const size_t old = members(ls, at);
     Vec<LayerState> next(alloc);
@@ -719,10 +729,9 @@ Expected<size_t> Config::Impl::relist(Vec<LayerState>& ls, size_t at) const {
             taken = (i <= at || i > at + old) && ls[i].name == f.name;
         for (const LayerState& n : next) taken = taken || n.name == f.name;
         if (taken) {
-            if (warn)
-                warn(refused(
-                    "'" + f.path + "' is not read: there is already a layer named '" + f.name + "'",
-                    Symbol(f.path)));
+            tell(io, refused("'" + f.path + "' is not read: there is already a layer named '" +
+                                 f.name + "'",
+                             Symbol(f.path)));
             continue;
         }
         const LayerState* was = nullptr;
@@ -747,21 +756,21 @@ Expected<size_t> Config::Impl::relist(Vec<LayerState>& ls, size_t at) const {
     return next.size();
 }
 
-Expected<void> Config::Impl::reread(Vec<LayerState>& ls, size_t from, uint64_t* read_ns,
-                                    uint32_t* files) const {
+Expected<void> Config::Impl::reread(const ReadContext& io, Vec<LayerState>& ls, size_t from,
+                                    uint64_t* read_ns, uint32_t* files) const {
     Vec<LayerState> fresh;
     for (size_t i = from; i < ls.size(); ++i) {
         LayerState l = ls[i];
-        const auto before = fresh.empty() ? session_below(ls, from) : fresh.back().after;
+        const auto before = fresh.empty() ? session_below(io, ls, from) : fresh.back().after;
         if (l.path.empty()) {
             l.after = before;
         } else {
             l.broken = false;
-            if (auto r = read(l, *before, read_ns); !r) {
+            if (auto r = read(io, l, *before, read_ns); !r) {
                 if (l.group.empty()) return r;
                 // A layer found in a directory that does not read is empty, and the rest
                 // stand; it is read again when its files change.
-                if (warn) warn(r.error());
+                tell(io, r.error());
                 l.root = Array::make(0, Symbol(l.file), 1);
                 l.map = nullptr;
                 l.after = before;
@@ -918,6 +927,7 @@ void Config::Impl::refresh_read() {
 
 void Config::Impl::commit(Config& c, ReloadRecord& rec, uint64_t& t) {
     ++generation;
+    ++commits;
     const Ref<Array> before = std::move(c.root_);
     c.root_ = merged();
     pending_merge = nullptr;  // the full merge has the edits
@@ -1662,6 +1672,127 @@ Expected<Source> Config::source(const Path& path) const {
 
 // --- Reload and telemetry ---
 
+// --- Reload in parts (D314) ---
+
+struct ReloadJob::State {
+    State(const Config::Impl& im, const ReloadRecord& r)
+        : impl(&im),
+          layers(im.layers),
+          base(im.base),
+          scan(im.alloc),
+          listed(im.alloc),
+          warnings(im.alloc),
+          rec(r),
+          commits(im.commits) {}
+    const Config::Impl* impl;
+    Vec<LayerState> layers;  // the stack at begin_reload, its trees shared; re-read in place
+    LoadSession base;        // the session at begin_reload
+    Str scan;
+    Vec<Str> listed;
+    Vec<Error> warnings;  // given to the warning handler at finish_reload
+    ReloadRecord rec;
+    uint64_t commits;  // the Config's at begin_reload
+    uint64_t t = 0;    // the end of the last stage run
+    bool ran = false;
+    bool any = false;  // a layer's files changed
+    std::optional<Error> error;
+};
+
+ReloadJob& ReloadJob::operator=(ReloadJob&& other) noexcept {
+    if (this != &other) {
+        ReloadJob dropped(std::move(*this));
+        state_ = other.state_;
+        other.state_ = nullptr;
+    }
+    return *this;
+}
+
+ReloadJob::~ReloadJob() {
+    if (state_) detail::destroy(state_->impl->alloc, state_);
+}
+
+bool ReloadJob::ran() const noexcept {
+    return state_ && state_->ran;
+}
+
+void ReloadJob::run() {
+    if (!state_ || state_->ran) return;
+    State& j = *state_;
+    const Config::Impl& im = *j.impl;
+    j.ran = true;
+    const ReadContext io{j.base, j.scan, j.listed, &j.warnings};
+    Vec<LayerState>& ls = j.layers;
+    uint64_t& t = j.t;
+    t = j.rec.start_ns;
+    size_t from = ls.size();
+    for (size_t i = 0; i < ls.size() && from == ls.size(); ++i)
+        if (im.stale(io, ls[i], j.rec.first_file)) from = i;
+    // A directory at or above the change is listed again if it changed.
+    for (size_t i = from; i < ls.size(); ++i) {
+        Symbol unused;
+        if (ls[i].dir.empty() || (i != from && !im.stale(io, ls[i], unused))) continue;
+        if (auto n = im.relist(io, ls, i); !n) {
+            im.lap(j.rec.scan_ns, t);
+            j.rec.layer = Symbol(ls[i].name);
+            j.rec.outcome = ReloadOutcome::ParseError;
+            j.error = std::move(n).error();
+            return;
+        }
+    }
+    im.lap(j.rec.scan_ns, t);
+    if (from == ls.size()) return;  // nothing changed
+    j.any = true;
+    j.rec.layer = Symbol(ls[from].name);
+    if (auto r = im.reread_stages(io, j.rec, ls, from, t); !r) j.error = std::move(r).error();
+}
+
+ReloadJob Config::begin_reload(const ReloadRequest& request) {
+    ReloadJob job;
+    if constexpr (kShipping) return job;
+    const ReloadRecord rec = impl_->begin(
+        request.trigger.empty() ? trigger_name("reload") : request.trigger, request.origin_ns);
+    job.state_ = detail::create<ReloadJob::State>(impl_->alloc, *impl_, rec);
+    return job;
+}
+
+Expected<ReloadOutcome> Config::finish_reload(ReloadJob job) {
+    if constexpr (kShipping) return ReloadOutcome::Refused;
+    if (job.empty()) return ReloadOutcome::Refused;
+    ReloadJob::State& j = *job.state_;
+    Impl& im = *impl_;
+    // Another Config's job, or one begun before a change to the stack: its reads are of
+    // a stack that is gone.
+    if (j.impl != impl_ || j.commits != im.commits) {
+        j.rec.outcome = ReloadOutcome::Refused;
+        if (j.impl == impl_) im.feed(*this, j.rec, im.finish(*this, j.rec, im.now()));
+        return ReloadOutcome::Refused;
+    }
+    job.run();
+    for (const Error& w : j.warnings)
+        if (im.warn) im.warn(w);
+    uint64_t t = j.t;
+    if (frozen_ && !im.options.live_layers) {
+        j.rec.outcome = ReloadOutcome::Refused;
+        im.feed(*this, j.rec, im.finish(*this, j.rec, t));
+        return ReloadOutcome::Refused;
+    }
+    if (j.error) {
+        im.feed(*this, j.rec, im.finish(*this, j.rec, t));
+        return Unexpected(std::move(*j.error));
+    }
+    if (!j.any) {
+        j.rec.outcome = ReloadOutcome::Unchanged;
+        im.feed(*this, j.rec, im.finish(*this, j.rec, t));
+        return ReloadOutcome::Unchanged;
+    }
+    im.layers = std::move(j.layers);
+    im.commit(*this, j.rec, t);
+    im.feed(*this, j.rec, im.finish(*this, j.rec, t));
+    return ReloadOutcome::Ok;
+}
+
+// In place, on this thread: a reload that finds nothing changed allocates nothing, where a
+// ReloadJob copies the stack it reads against.
 Expected<bool> Config::reload(const ReloadRequest& request) {
     if constexpr (kShipping) return false;
     ReloadRecord rec = impl_->begin(

@@ -79,6 +79,23 @@ uint64_t file_clock_now_ns() noexcept {
     return clock_ns(fs::file_time_type::clock::now());
 }
 
+uint64_t file_stamp(std::string_view path, const StampHook& hook) noexcept {
+    FileStamp s;
+    if (!(hook && hook(path, s))) s = disk_stamp(fs::path(path));
+    if (!s.present) return 0;
+    // A file written in the last few seconds has no stamp to trust: two saves of the same
+    // size within the file system's time resolution (two seconds on FAT, coarser than it
+    // looks elsewhere) leave its write time as it was. Unknown, it is read and hashed.
+    constexpr uint64_t kRacyNs = uint64_t{3} * 1000 * 1000 * 1000;
+    const uint64_t now = file_clock_now_ns();
+    if (s.write_ns == 0 || s.write_ns + kRacyNs > now) return 0;
+    uint64_t z = s.write_ns ^ (s.size * 0x9e3779b97f4a7c15ULL);
+    z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
+    z ^= z >> 31;
+    return z == 0 ? 1 : z;  // 0 says unknown
+}
+
 struct Watcher::Impl {
     struct Entry {
         Symbol path;                 // as given
