@@ -77,3 +77,22 @@ Each finding is marked:
 - **Tools:**
   - stamp polling is a 100 ms spike, two syscalls per file;
   - the `t_output` `thread_local` in `SimRun::step` has no fiber note.
+
+## The owner's decisions
+
+- **2, Live's validators:** dev only; in dev they run only when a merge changed something.
+- **5, task frames:** size classes.
+- **8, reads above a pending edit:** merge once and cache it until the next edit.
+- **9, reload:** read and parse off the game thread; the game thread only swaps the result,
+  when the host chooses. Polling uses the stamp check, not `fopen`.
+- **11, shape pushes:** check only the overlay, with cross-record rules indexed by what
+  changed; a held report is not re-checked.
+- **18, console:** a per-frame budget set by the host, and a byte cap per connection.
+- **19 and 20, shipping size:** split tool code out of shipping; bind `config.*` only
+  outside it.
+- **21, image ID columns:** a table keeps one only if its view asks for `find_by_id`;
+  strings are de-duplicated.
+- **25, float results:** widen exactly; convert to the shortest decimal only when printing.
+- **29, curves read from the tree:** the first sample bakes the curve and caches it beside
+  the node until it changes.
+- **30, generated structs:** reorder fields by alignment.
