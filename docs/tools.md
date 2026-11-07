@@ -46,10 +46,9 @@ transport you choose carry Baker's tools: a socket, a pipe, an in-game console.
 and the check report as JSON, `explain`, `layer_effect` and `diff`, the console's
 `config.*` commands, the vocabulary declared from a reference (`DescribedTweaks`,
 `declare_type`, `declare_object`), `script_functions`, `read_structure`, `format_text` and
-`migrate_text`. A tool links it
-directly; a game links it only through the host kit, which uses it. What a game runs on its
-own data stays in the core: `check`, `source`, write-back, the tweaks' JSON (so a data-only
-program can write it), `split_metadata` and `presented_kind`.
+`migrate_text`. A tool links it directly; a game links it only through the host kit, which
+uses it. What a game runs on its own data stays in the core: `check`, `source`, write-back,
+the tweaks' JSON (so a data-only program can write it), `metadata()` and `presented_kind`.
 
 ### Text as a person types it
 
@@ -152,11 +151,11 @@ packaged game), opens the stack, adds the check validator and, when `baker::shap
 built, the shape validator, binds the Config's tools, and runs every layer's `#autorun`.
 `changed` is called after the load, after each change to the stack once `#autorun` has
 run again, and after a live edit, which it applies first (`Config::apply_edits()`), so a
-game that reads whole records or tables from `root()` sees the edit. The Config's clock is the files', so `loop_stats()`
-measures from the save to the frame that showed it. A quiet frame allocates nothing.
-`.console_any_port = true` serves the console on a free port instead, which
-`console_port()` reports: a tool that starts several instances of the game reads each one's
-port from it rather than choosing one first.
+game that reads whole records or tables from `root()` sees the edit. The Config's clock is
+the files', so `loop_stats()` measures from the save to the frame that showed it. A quiet
+frame allocates nothing. `.console_any_port = true` serves the console on a free port instead, which
+`console_port()` reports: a tool that starts several instances of the game reads each one's port
+from it rather than choosing one first.
 
 ### `Watcher`: the files the stack was read from
 
@@ -189,7 +188,8 @@ int main(int argc, char** argv) {
 
 The kit's flags all begin `--baker-`, so they never take a name your game's own flags use:
 any other flag is yours, in `line->rest`, and a `--baker-` flag the kit does not know is an
-error, so a misspelling is caught.
+error, so a misspelling is caught. `--baker-project PATH` names the stack for any command:
+the nearest `baker-project.dta` from PATH.
 
 | Command | What it writes |
 |---|---|
@@ -197,8 +197,8 @@ error, so a misspelling is caught.
 | `reference [--baker-json]` | the script vocabulary as Markdown, or `{"reference", "tweaks", "shapes"}` |
 | `assets` | every asset the merged stack names, as [`baker.assets/1`](assets-json.md), sorted by file, line and path; exit 1 when a file is not there |
 | `eval [--baker-seed N] [--baker-json] "{command}"...` | each command's result on the game reset with the seed; `--baker-json`: one reply line each |
-| `diff [--baker-layer L]` | what layer L (default `agent`) changes, value by value: a verb as `-> #append v`, and `stale` where a row's `(@was ...)` pin no longer names the value below |
-| `promote [--baker-from L] [--baker-to T] [--baker-write \| --baker-patch FILE] [--baker-json]` | what promoting L into T would write; `--baker-write` writes; `--baker-patch` writes a unified diff and nothing else, after a line `# path: note` for each row's `(@note ...)`, which `git apply` skips; `--baker-json` writes the promotion's transaction as [`baker.changes/1`](changes-json.md) (each value it changes, each line it writes), the files untouched unless `--baker-write` is also given |
+| `diff [--baker-layer L] [--baker-rows]` | what layer L (default `agent`) changes, value by value: a verb as `-> #append v`, and `stale` where a row's `(@was ...)` pin no longer names the value below; `--baker-rows` prints each change as a row, `(/a.b 1)`, as a layer file holds it |
+| `promote [--baker-from L] [--baker-to T] [--baker-write \| --baker-patch FILE] [--baker-rows] [--baker-json]` | what promoting L into T (default `default`) would write, as rows with `--baker-rows`; `--baker-write` writes; `--baker-patch` writes a unified diff and nothing else, after a line `# path: note` for each row's `(@note ...)`, which `git apply` skips; `--baker-json` writes the promotion's transaction as [`baker.changes/1`](changes-json.md) (each value it changes, each line it writes), the files untouched unless `--baker-write` is also given |
 | `sim [--baker-scenario NAME]... [--baker-seed N \| --baker-seeds A-B] [--baker-step-hz N] [--baker-json] [--baker-results DIR]` | the project's scenarios run and judged by its objectives ([`baker.sim/1.3`](sim-json.md)); exit 1 when one fails |
 | `compare --baker-before DIR --baker-after DIR` | which objectives broke or were fixed between two `sim --baker-results` ([`baker.compare/1`](sim-json.md)) |
 | `rename OLD NEW [--baker-write]` | the record at path OLD (`weapons.laser`) keyed NEW in the layer that declares it, with `(@aka OLD)` kept and an `(@id ...)` minted if it has none, and every `(key_of ...)` value naming it rewritten in every enabled layer; without `--baker-write`, the edits are listed, one a line, and nothing is written. Refuses, writing nothing, when NEW is a sibling's key or alias, or when an edit cannot be placed in the text (a record a row's path made, a macro's expansion): edit those where they are written. An overlay's own record keeps the old key, which the alias resolves |
@@ -213,13 +213,14 @@ each command's Config, so `check` fails on a record a table cannot read whole;
 caches, its stack image).
 `sim` steps your game with `CommandHooks::step`, and `check` reads the project's scenarios
 and objectives with the data. A game that can only step inside its engine's main loop
-drives a `SimRun` from its frames instead ([how](sim-json.md#a-run-your-own-loop-advances)). `extra_trees` adds other files of your own to `check`. The exit status is 0, 1
-when something failed, 2 when it could not run. In a shipping build, `diff`, `promote` and
-`rename` refuse. A tool reads the commands' standard output as the document itself, so your
-functions and `#autorun` must print nothing there while a command runs. Where that cannot
-be kept clean (an engine prints its own lines), `--baker-output FILE` writes the output to a
-file instead, or `CommandHooks::output` routes it. `CommandHooks::reader` reads the stack
-through your file access, as `Live` does, for files under an engine's own roots.
+drives a `SimRun` from its frames instead
+([how](sim-json.md#a-run-your-own-loop-advances)). `extra_trees` adds other files of your
+own to `check`. The exit status is 0, 1 when something failed, 2 when it could not run. In
+a shipping build, `diff`, `promote` and `rename` refuse. A tool reads the commands' standard output
+as the document itself, so your functions and `#autorun` must print nothing there while a command
+runs. Where that cannot be kept clean (an engine prints its own lines), `--baker-output FILE` writes
+the output to a file instead, or `CommandHooks::output` routes it. `CommandHooks::reader` reads the
+stack through your file access, as `Live` does, for files under an engine's own roots.
 
 ## How an external tool talks to a game
 
