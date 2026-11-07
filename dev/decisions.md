@@ -10811,6 +10811,7 @@ cache) would then take forever over.
 - **Tests.** `test_preprocessor.cpp`: the limit and one past it for a plain macro, a shared
   one counted at every level, and a host's; both bombs refused. The write test that builds a
   2^60-node shared tree to bound `preview` raises the limit to read it.
+
 ## D307. Live's validators: checks only in shipping, and a cheaper ID walk
 
 *From the six-part TD review (`dev/td-review-2026-11.md`, finding 2).* `host::Live` added
