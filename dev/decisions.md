@@ -10778,3 +10778,36 @@ author drives over the remote console, were documented nowhere but in the source
   shipping, as a doc is.
 - **Tests.** `test_reference_json.cpp`: a form's usage in both references, and none in
   shipping; the reference test regenerates the Markdown with the config tools bound.
+
+## D306. A cap on what macros expand to
+
+*From the six-part TD review (`dev/td-review-2026-11.md`, finding 1).* A read counted the
+nodes it built against `ParseLimits::max_nodes`, 2^26, so a macro bomb, each level using
+the one below ten times, was refused only once it had built 67 million nodes: 347 bytes of
+text took 1.6 s and 1.27 GB. And a macro whose body is an array is shared at each use, not
+copied, so the same bomb written with parentheses was not refused at all: it read in
+0.04 ms as a tree of 10^10 nodes in 11 MB, which any walk (a write, a check, a merge, a
+cache) would then take forever over.
+
+- **`ParseLimits::max_macro_nodes`,** 2^20 by default. Each use of a macro counts every node
+  of its body, the arrays in it and what they hold, shared or copied, against it, before
+  the body is spliced; past it the read fails with `ErrorCode::Limit` and names the macro.
+  Uses inside a definition count too: they are where a bomb multiplies.
+- **The count is known at the use.** A body without arrays counts its size. For one with
+  arrays the parser keeps the count beside the session's macros, made at the definition from
+  the nodes it read and what the shared arrays held; a host's macro, or one from a cache, is
+  counted once at its first use by a walk that stops at the limit.
+- **Numbers** (release, this machine):
+
+  | text | before | after |
+  |---|---|---|
+  | 347-byte bomb, copied | 1,600 ms, 1.27 GB, refused at `max_nodes` | 18.8 ms, 22 MB, refused |
+  | 365-byte bomb, shared | read: 10^10 nodes | 0.03 ms, refused |
+  | `tools/count` parse (no macros) | 1,897,732 instructions | 1,898,717 (+0.05%) |
+  | 20k macro uses, half of a body with arrays | 4,432 instructions a line | 4,495 (+1.4%) |
+
+  The last row is a lookup of the body's count, about 31 instructions a use of a macro with
+  arrays; a macro of plain values pays an add and a compare.
+- **Tests.** `test_preprocessor.cpp`: the limit and one past it for a plain macro, a shared
+  one counted at every level, and a host's; both bombs refused. The write test that builds a
+  2^60-node shared tree to bound `preview` raises the limit to read it.

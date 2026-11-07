@@ -84,6 +84,13 @@ struct ParseLimits {
     // seen before costs nothing, so a second read of the same text counts none. Lower it for
     // text you do not trust. Loading a binary cache is not counted.
     uint64_t max_new_symbols = uint64_t{1} << 20;
+    // Nodes a top-level read takes from macros: each use of a macro counts every node of its
+    // body, the arrays in it and what they hold, whether the use copies them or shares them.
+    // Macros that use macros multiply, so a few hundred bytes of text could otherwise ask for
+    // billions of nodes; past this the read fails with ErrorCode::Limit before it builds
+    // them. A project's colors and constants take a few thousand. Lower it for text you do
+    // not trust.
+    uint64_t max_macro_nodes = uint64_t{1} << 20;
 };
 
 // A file that declared itself a pack (above).
