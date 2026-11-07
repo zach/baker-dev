@@ -750,6 +750,12 @@ How a game delivers content after it ships (dev/background/content-updates.md).
   for text you do not trust: at the default, one read can keep about 74 MB of names for the
   rest of the session (about 74 bytes a name). A name already interned costs nothing, so
   reading the same overlay again counts none (D253, D268).
+- **Bound what macros expand to.** A macro that uses a macro multiplies, so ten lines can
+  ask for ten billion nodes. `ParseLimits::max_macro_nodes` caps the nodes a read takes
+  from macros, each use counting all of its body, arrays and what they hold included, so
+  the read fails with `ErrorCode::Limit` before it builds them. The default, 1,048,576,
+  refuses such a text in about 20 ms and 20 MB; a project's colors and constants take a
+  few thousand. For text you do not trust, lower it and `max_nodes` both (D306).
 - **Bound the script it runs** with the
   [budgets for script you did not write](#budgets-for-script-you-did-not-write).
 
