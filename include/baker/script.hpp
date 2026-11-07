@@ -684,11 +684,19 @@ public:
         if constexpr (!kShipping) set_doc(text);
         return *this;
     }
+    // How a special form is written, for the reference in place of the signature its
+    // parameters give (`Args`, `Raw`): the whole call, a line a form, "{wait_for seconds}".
+    // Dropped in shipping, as doc() is.
+    FuncRef& usage(std::string_view text) {
+        if constexpr (!kShipping) set_usage(text);
+        return *this;
+    }
     // `replacement` names what to use instead of a Deprecated function.
     FuncRef& status(Status status, Symbol replacement = {});
 
 private:
     void set_doc(std::string_view text);
+    void set_usage(std::string_view text);
     void* f_;
 };
 

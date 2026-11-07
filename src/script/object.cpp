@@ -684,16 +684,18 @@ void register_object_builtins(Context& ctx) {
     };
     if (auto r = ctx.func("class", define_class))
         r->doc(
-            "`{class Name (method ($params...) body...) ...}`: script handlers. If `Name` is a "
-            "bound C++ type, they apply to its objects and are tried before its C++ methods; "
-            "otherwise `Name` is a script class for `new`. In a handler, `$this` is the "
-            "object and `[name]` its property or parameter.");
+             "`{class Name (method ($params...) body...) ...}`: script handlers. If `Name` is a "
+             "bound C++ type, they apply to its objects and are tried before its C++ methods; "
+             "otherwise `Name` is a script class for `new`. In a handler, `$this` is the "
+             "object and `[name]` its property or parameter.")
+            .usage("{class Name (method ($params...) body...)...}");
     if (auto r = ctx.func("extend", extend_class))
         r->doc(
-            "`{extend Name (method ($params...) body...) ...}`: adds script handlers to a class, "
-            "replacing only those of the same name, so another file (a task pack) can add one. "
-            "`Name` is a `{class}` or a bound C++ type. Run it after the `{class}`: a "
-            "redefinition replaces every handler.");
+             "`{extend Name (method ($params...) body...) ...}`: adds script handlers to a class, "
+             "replacing only those of the same name, so another file (a task pack) can add one. "
+             "`Name` is a `{class}` or a bound C++ type. Run it after the `{class}`: a "
+             "redefinition replaces every handler.")
+            .usage("{extend Name (method ($params...) body...)...}");
 
     // {new Class [name] (param value)...}
     auto make = [](Args a) -> Expected<Node> {
@@ -744,8 +746,9 @@ void register_object_builtins(Context& ctx) {
     };
     if (auto r = ctx.func("new", make))
         r->doc(
-            "`{new Class [name] (param value)...}`: creates an object of a script class or of "
-            "a default-constructible bound type, owned by the Context, and returns it.");
+             "`{new Class [name] (param value)...}`: creates an object of a script class or of "
+             "a default-constructible bound type, owned by the Context, and returns it.")
+            .usage("{new Class [name] (param value)...}");
 
     auto destroy = [](Context& c, Node object) -> Expected<Node> {
         Context::Impl& impl = c.impl();
@@ -762,9 +765,10 @@ void register_object_builtins(Context& ctx) {
     };
     if (auto r = ctx.func("delete", destroy))
         r->doc(
-            "`{delete object}`: removes the object (or the object of that name) when the "
-            "host's eval returns, or at the end of a tick; one `new` created is destroyed. Its "
-            "handles go stale.");
+             "`{delete object}`: removes the object (or the object of that name) when the "
+             "host's eval returns, or at the end of a tick; one `new` created is destroyed. Its "
+             "handles go stale.")
+            .usage("{delete object}");
 }
 
 }  // namespace baker

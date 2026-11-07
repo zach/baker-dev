@@ -112,7 +112,7 @@ def reference(s):
     code, out, _ = s.run("reference", "--baker-json", agent="")
     r = json.loads(out)
     names = [f["name"] for f in r["reference"]["functions"]]
-    expect(code == 0 and r["reference"]["schema"] == "baker.reference/1.5" and "spawn" in names,
+    expect(code == 0 and r["reference"]["schema"] == "baker.reference/1.6" and "spawn" in names,
            "reference --baker-json: the game's functions")
     expect(r["shapes"]["schema"] == "baker.shapes/1.8" and r["tweaks"]["schema"] == "baker.tweaks/1.6",
            "reference --baker-json: tweaks and shapes")
