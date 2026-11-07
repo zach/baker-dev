@@ -12,6 +12,7 @@
 #include "session.hpp"
 #include "table_build.hpp"
 #include "text.hpp"
+#include "tweak_index.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -305,6 +306,9 @@ struct Config::Impl {
     mutable Vec<Str> listed{alloc};  // the same for a directory's listing
     // Every merge's temporaries, reused: a merge allocates only the arrays it keeps (D127).
     mutable detail::MergeScratch merge_scratch{alloc};
+    // The tweaks by path, for a change to rebind only those under what changed (D317);
+    // retune() marks what it binds.
+    mutable detail::TweakIndex tweak_index{alloc};
     // The merged tree as of the last commit or apply_edits: what a per-layer lookup consults
     // for a renamed record's aliases (D286), only while some layer has one.
     Ref<Array> merged_root;

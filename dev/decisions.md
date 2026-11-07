@@ -11230,3 +11230,92 @@ O(tree).
   any_thread validators once, the check's, and the others again. `test_layer_checker.cpp`'s
   held push counted the any_thread validator twice, the check's and the merge's; it now
   counts once.
+
+## D317. Scratch in one pass; a change rebinds what it changed
+
+*From the six-part TD review (`dev/td-review-2026-11.md`, findings 13 and 16).* Two costs of
+a live, tweaked config that grew with the wrong count.
+
+- **Scratch's overlay in one pass** (finding 13). `scratch_root` merged each pending live
+  edit into a growing overlay, one `detail::merge` per entry, each copying the overlay's
+  levels: quadratic, 1.7 ms at 401 entries and 40 ms at 2,000. It now sorts the entries by
+  path and builds each array once: its values, then its keys in the order their paths first
+  appear in scratch. That is the tree the fold gave whenever every entry only sets values,
+  which every edit through `set()` does: Overwrite replaces an array's value run and keeps
+  its keys, a key not yet there goes last, and an empty run changes nothing, so an array's
+  values are those of its own entry (paths are distinct; were they not, the last with
+  values would win, as in the fold), wherever its keys came from. An element edit is
+  already a whole entry with the element replaced (`set` on `a.b.1` puts `a.b`). An entry
+  whose values hold a key (a tagged array), a verb or a pin, or whose path has a metadata
+  segment, would merge as a layer does, so scratch then folds as before; `set()` makes none
+  of these but a tagged array given as a value.
+- **A change rebinds only what it changed** (finding 16). Every commit rebound every tweak:
+  resolve from the root, compare, store. On the review's stack, 2,000 tweaks in one
+  2,000-record table, that was 0.68 ms for a one-value change, 28 times the merge, since
+  each resolve scans the wide table for its record. A `TweakIndex` in the Config
+  (`src/data/tweak_index.cpp`) keeps the tweaks as a tree of their paths' leading names,
+  each node with the array the last pass found there, in the root it holds:
+  - Where the new root has the same array, every tweak below binds as it did (the merge
+    shares what it did not rebuild, and trees do not change in place), and the pass skips
+    the subtree. A changed array's children are found by place when at most eight of its
+    arrays changed: a child at its old place, with no changed array before it that has its
+    tag, is still the first with its tag. Past eight, a table of the new array's tags finds
+    them, sized when the index is built and grown only for a wider array.
+  - The tweaks under a changed array bind in the registry's order, so the tweaks that
+    change, their order of notification, and the warnings are those of binding them all.
+    A tweak whose last bind warned (a malformed path, a value that does not convert) binds
+    at every change, as it warned at every change before.
+  - A tweak bound outside a pass, by a live edit's retune, marks its node and the nodes
+    above it, and the next pass visits them. Attaching or detaching a tweak, or another
+    Config binding the same registry, clears the registry's `binder_`; the next pass then
+    binds every tweak, as before, and indexes them again. `TweakBase` keeps its place in
+    the index (`slot_`, 4 bytes).
+  - Reads are untouched: one relaxed load, `read_consistent` around the pass as before.
+    The pass allocates nothing once the index is built (its lists are reserved for every
+    tweak); building it, after a tweak attaches or detaches, does.
+  - **Costs.** The index holds the root of its last pass, one tree version more while live
+    edits are applied without a commit. A change that touches every tweak pays the walk
+    on top of the binds: about 5 to 20% of that change in the table below.
+- **Numbers** (release, not shipping, this machine; medians of each row's runs, three
+  rounds of main and this commit interleaved; the review's stack: one 2,000-record table,
+  each record a price and a damage):
+
+  | `set()` then `apply_edits()`, scratch entries | main | D317 |
+  |---|---:|---:|
+  | 1 | 39.6 / 40.1 / 36.8 µs | 38.6 / 40.0 / 40.3 µs |
+  | 100 | 191 / 190 / 200 µs | 89 / 93 / 94 µs |
+  | 401 | 1.74 / 1.78 / 1.75 ms | 0.21 / 0.21 / 0.22 ms |
+  | 2,000 | 40.3 / 40.2 / 39.8 ms | 1.06 / 1.03 / 0.95 ms |
+
+  | a layer's text set again, tweaks on the table's prices | main | D317 |
+  |---|---:|---:|
+  | one value, 0 tweaks | 41.7 / 38.3 / 41.9 µs | 41.9 / 45.3 / 42.0 µs |
+  | one value, 200 tweaks | 54.5 / 51.6 / 54.5 µs | 44.3 / 44.5 / 48.2 µs |
+  | one value, 2,000 tweaks | 731 / 731 / 737 µs | 51.6 / 51.2 / 60.0 µs |
+  | every value, 2,000 tweaks | 1.57 / 1.69 / 1.55 ms | 1.62 / 1.83 / 1.93 ms |
+
+  The reload record's `bind_ns` for one value at 2,000 tweaks went from 682–758 µs to
+  7–11 µs (the walk of the wide table's 2,000 children, by place); at 200 tweaks from
+  12.5–15.8 µs to 2.3–2.8 µs. For every value at 2,000 tweaks it was 664–795 µs on main
+  and 747–806 µs here, the walk's table on top of the same binds; the rest of that row's
+  spread is the merge and the notifications, which vary as much between runs. The 0-tweak and 1-entry rows are
+  within this machine's noise. `tools/count_instructions.py --case set merge` (its `set`
+  case registers no tweak):
+
+  | case | main (c909d9c) | D317 | change |
+  |---|---:|---:|---:|
+  | set | 685.0 | 685.0 | +0.00% |
+  | merge | 1,226,059.9 | 1,225,729.8 | -0.03% |
+- **Tests.** `test_config_costs.cpp`:
+  - 300 random edits over few names, four seeds (paths of one to four segments, values and
+    keys at one path, element edits, empty runs, tuples), then the fast path changing
+    scalars in place: the scratch layer's text and the applied root equal the fold's;
+  - a tagged value, which takes the fold, equals it too; 2,000 entries in 40 groups equal
+    the fold;
+  - 160 tweaks (ints that warn and keep their default, and tweaks that read every value as
+    text) through 600 random steps of layer text, live edits, clears, toggles, and tweaks
+    coming and going: after every commit each holds the current value or its default, a
+    text tweak is notified once exactly when its value or binding moved (an int tweak at
+    least then, and never twice), and the warnings are one for each tweak that does not
+    read. Disabling the shadow check, the stale marks, the
+    re-warning, the size test, or the table's first-wins each fails it.

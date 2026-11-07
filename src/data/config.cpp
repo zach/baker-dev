@@ -8,6 +8,7 @@
 #include "image.hpp"
 
 #include <algorithm>
+#include <functional>
 #include <optional>
 
 #if defined(_MSC_VER)
@@ -785,8 +786,103 @@ Expected<void> Config::Impl::reread(const ReadContext& io, Vec<LayerState>& ls, 
     return {};
 }
 
+namespace {
+
+// Whether merging `e` as (p0 (p1 ... (last values...))) only sets the values at its path: no
+// value is a key (a tagged array), nothing holds a verb or a pin, and no segment is
+// metadata. Then the merges of scratch's entries, one after another, give a tree that
+// one pass builds (ScratchTree).
+bool sets_values_only(const ScratchEntry& e) noexcept {
+    if (e.values->has_marker()) return false;  // sticky in set(): at worst, the fold
+    for (size_t i = 1; i < e.values->size(); ++i)
+        if (is_tagged((*e.values)[i])) return false;
+    for (size_t i = 0; i < e.path.size(); ++i)
+        if (e.path[i].name.is_meta()) return false;
+    return true;
+}
+
+// Scratch's overlay as the merges of its entries in order give it, when every entry sets
+// values only, in one pass (D317). An array's children are its values, then its keys in
+// the order their paths first appear in scratch; its values are those of the last entry for
+// its path that has any, as Overwrite replaces values and an empty run changes nothing.
+// The entries sorted by path group each array's; each key is placed by the first entry
+// below it. The arrays are scratch's copies: set() changes an entry's own in place.
+class ScratchTree {
+public:
+    ScratchTree(const Vec<ScratchEntry>& scratch, const Allocator& alloc)
+        : s_(scratch), order_(alloc), keys_(alloc), nodes_(alloc) {}
+
+    Ref<Array> build() {
+        order_.resize(s_.size());
+        for (uint32_t i = 0; i < order_.size(); ++i) order_[i] = i;
+        std::sort(order_.begin(), order_.end(), [this](uint32_t a, uint32_t b) {
+            const Path& x = s_[a].path;
+            const Path& y = s_[b].path;
+            for (size_t i = 0; i < x.size() && i < y.size(); ++i)
+                if (x[i].name != y[i].name) return std::less<>()(x[i].name.id(), y[i].name.id());
+            return x.size() != y.size() ? x.size() < y.size() : a < b;  // a parent first
+        });
+        return array_at(0, static_cast<uint32_t>(order_.size()), 0);
+    }
+
+private:
+    struct Key {
+        uint32_t lo, hi;  // its entries, in order_
+        uint32_t first;   // the earliest of them in scratch
+    };
+
+    // The array at depth `depth` of the entries order_[lo, hi), which share their first
+    // `depth` segments: the overlay itself at depth 0.
+    Ref<Array> array_at(uint32_t lo, uint32_t hi, size_t depth) {
+        const size_t at = nodes_.size();  // this array's nodes, past its parents'
+        const ScratchEntry& any = s_[order_[lo]];
+        if (depth > 0) nodes_.emplace_back(any.path[depth - 1].name);
+        // The entries for this path itself sort first, in scratch's order. Paths are
+        // distinct, but a later entry with values would win over an earlier one, as in the
+        // fold.
+        const ScratchEntry* own = nullptr;
+        uint32_t i = lo;
+        for (; i < hi && s_[order_[i]].path.size() == depth; ++i)
+            if (!own || s_[order_[i]].values->size() > 1) own = &s_[order_[i]];
+        if (own)
+            for (size_t v = 1; v < own->values->size(); ++v) nodes_.push_back((*own->values)[v]);
+        // The keys below, each a run of the entries sharing its segment.
+        const size_t keys_at = keys_.size();
+        while (i < hi) {
+            const Symbol name = s_[order_[i]].path[depth].name;
+            Key k{i, i, order_[i]};
+            for (; k.hi < hi && s_[order_[k.hi]].path[depth].name == name; ++k.hi)
+                k.first = std::min(k.first, order_[k.hi]);
+            keys_.push_back(k);
+            i = k.hi;
+        }
+        std::sort(keys_.begin() + static_cast<ptrdiff_t>(keys_at), keys_.end(),
+                  [](const Key& a, const Key& b) { return a.first < b.first; });
+        for (size_t k = keys_at; k < keys_.size(); ++k) {
+            const Key key = keys_[k];  // by value: the call below grows keys_
+            Ref<Array> child = array_at(key.lo, key.hi, depth + 1);
+            nodes_.emplace_back(std::move(child));
+        }
+        keys_.resize(keys_at);
+        Ref<Array> made = Array::make_from(std::span<Node>(nodes_.data() + at, nodes_.size() - at));
+        nodes_.resize(at);
+        return made;
+    }
+
+    const Vec<ScratchEntry>& s_;
+    Vec<uint32_t> order_;
+    Vec<Key> keys_;
+    Vec<Node> nodes_;
+};
+
+}  // namespace
+
 Ref<Array> Config::Impl::scratch_root() const {
     if (scratch.empty()) return nullptr;
+    if (std::all_of(scratch.begin(), scratch.end(), sets_values_only))
+        return ScratchTree(scratch, alloc).build();
+    // A value that is a key, a verb or a pin merges as a layer's would: the entries merge
+    // one at a time, quadratic in them; set() makes such an entry only for a tagged value.
     Ref<Array> overlay = Array::make(0);
     for (const ScratchEntry& e : scratch) {
         Ref<Array> nest = Array::make_copy(e.values->nodes());
@@ -833,6 +929,7 @@ BAKER_INLINE void Config::Impl::retune(const ScratchEntry& e) const {
         t.bound_ = e.values;
         t.first_ = first;
         t.count_ = static_cast<uint32_t>(v.size());
+        tweak_index.touched(*options.tweaks, t);  // the next commit binds it to the merge
         if (n < 16) {
             few[n++] = &t;
         } else {
@@ -947,9 +1044,7 @@ void Config::Impl::commit(Config& c, ReloadRecord& rec, uint64_t& t) {
     Vec<TweakBase*> moved;
     if (options.tweaks) {
         options.tweaks->begin_change();  // read_consistent waits until every tweak is set
-        options.tweaks->each([&](TweakBase& tw) {
-            if (tw.bind(*c.root_, warn)) moved.push_back(&tw);
-        });
+        tweak_index.rebind(*options.tweaks, c.root_, warn, moved);  // what changed (D317)
         options.tweaks->end_change();
     }
     rec.tweaks_changed = static_cast<uint32_t>(moved.size());
