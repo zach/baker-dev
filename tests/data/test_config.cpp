@@ -22,6 +22,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 #include "dev_only.hpp"
 #include "ok.hpp"
@@ -360,6 +361,73 @@ TEST_CASE("source names a generated file's origin and tool (D91)") {
 }
 
 #if !BAKER_SHIPPING  // reload is inert under BAKER_SHIPPING (tested below)
+TEST_CASE("a reload in parts: read and parsed on another thread, merged on this one (D314)") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer("default", dir.write("default.dta", "(speed 1) (volume 3)\n")));
+    REQUIRE(cfg.push_layer("app", dir.write("app.dta", "(speed 2)\n")));
+    // Nothing changed: Unchanged, and nothing merged.
+    {
+        ReloadJob job = cfg.begin_reload();
+        std::thread([&] { job.run(); }).join();
+        CHECK(job.ran());
+        CHECK(ok(cfg.finish_reload(std::move(job))) == ReloadOutcome::Unchanged);
+    }
+    // A file changed: read on the worker, the game thread's tree untouched until finish.
+    dir.write("app.dta", "(speed 5)\n");
+    const uint64_t epoch = cfg.epoch();
+    ReloadJob job = cfg.begin_reload({.trigger = "worker"});
+    std::thread([&] { job.run(); }).join();
+    CHECK(cfg.get<int>("speed") == 2);
+    CHECK(cfg.epoch() == epoch);
+    // A live edit while the job ran stays: the merge reads scratch as it stands.
+    REQUIRE(cfg.set("volume", 9));
+    CHECK(ok(cfg.finish_reload(std::move(job))) == ReloadOutcome::Ok);
+    CHECK(cfg.get<int>("speed") == 5);
+    CHECK(cfg.get<int>("volume") == 9);
+    CHECK(cfg.last_reload()->trigger == Symbol("worker"));
+    // finish_reload runs a job that was not run.
+    dir.write("app.dta", "(speed 6)\n");
+    CHECK(ok(cfg.finish_reload(cfg.begin_reload())) == ReloadOutcome::Ok);
+    CHECK(cfg.get<int>("speed") == 6);
+}
+
+TEST_CASE("a reload job begun before the stack changed is refused, and nothing changes (D314)") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer("default", dir.write("default.dta", "(speed 1)\n")));
+    dir.write("default.dta", "(speed 4)\n");
+    ReloadJob job = cfg.begin_reload();
+    job.run();
+    REQUIRE(cfg.push_layer_text("patch", "(volume 2)"));  // the stack changes under it
+    CHECK(ok(cfg.finish_reload(std::move(job))) == ReloadOutcome::Refused);
+    CHECK(cfg.get<int>("speed") == 1);
+    CHECK(cfg.get<int>("volume") == 2);
+    // Begun again, it lands.
+    CHECK(ok(cfg.finish_reload(cfg.begin_reload())) == ReloadOutcome::Ok);
+    CHECK(cfg.get<int>("speed") == 4);
+    CHECK(cfg.get<int>("volume") == 2);
+    // A job of another Config is refused too.
+    Config other({.tweaks = nullptr});
+    CHECK(ok(other.finish_reload(cfg.begin_reload())) == ReloadOutcome::Refused);
+    // An empty job.
+    CHECK(ok(cfg.finish_reload(ReloadJob())) == ReloadOutcome::Refused);
+}
+
+TEST_CASE("a reload job's broken edit changes nothing and says where (D314)") {
+    TempDir dir;
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(cfg.push_layer("default", dir.write("default.dta", "(speed 1)\n")));
+    dir.write("default.dta", "(speed 1\n");
+    ReloadJob job = cfg.begin_reload();
+    std::thread([&] { job.run(); }).join();
+    auto r = cfg.finish_reload(std::move(job));
+    REQUIRE_FALSE(r);
+    CHECK(r.error().file().str().find("default.dta") != std::string_view::npos);
+    CHECK(cfg.get<int>("speed") == 1);
+    CHECK(cfg.last_reload()->outcome == ReloadOutcome::ParseError);
+}
+
 TEST_CASE("reload sees a file changed on disk") {
     TempDir dir;
     Config cfg({.tweaks = nullptr});

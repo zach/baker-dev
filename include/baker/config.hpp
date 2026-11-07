@@ -459,6 +459,40 @@ private:
     State* state_ = nullptr;
 };
 
+// A reload in three calls, so the reading and parsing can run off the game's thread
+// (D314): Config::begin_reload on the Config's thread copies what the reload reads against;
+// run() on any thread finds the files that changed and reads and parses them, into the
+// copy, touching nothing of the Config's; Config::finish_reload on the Config's thread
+// merges, binds and notifies, unless the stack changed since begin_reload (a layer pushed,
+// popped or toggled, another reload), when it changes nothing and says Refused: begin
+// again. Live edits meanwhile are fine; the merge reads them as they stand.
+//
+// run() reads through the session's reader and lister, writes caches through the Config's
+// writer, reads its clock, and allocates from its allocator, on the thread that runs it:
+// those must be safe there. Warnings it meets wait for finish_reload, which gives them to
+// the warning handler. The Config must outlive the job; it needs atomic reference counts
+// (the default; D20) to run on another thread. Move-only.
+class ReloadJob {
+public:
+    ReloadJob() noexcept = default;
+    ReloadJob(ReloadJob&& other) noexcept : state_(other.state_) { other.state_ = nullptr; }
+    ReloadJob& operator=(ReloadJob&& other) noexcept;
+    ReloadJob(const ReloadJob&) = delete;
+    ReloadJob& operator=(const ReloadJob&) = delete;
+    ~ReloadJob();
+    // A job begun and not yet finished; empty under BAKER_SHIPPING, where reload does nothing.
+    [[nodiscard]] bool empty() const noexcept { return !state_; }
+    // The scan, the reads and the parses. Once; finish_reload runs it if it was not.
+    void run();
+    [[nodiscard]] bool ran() const noexcept;
+
+    struct State;  // defined in config.cpp
+
+private:
+    friend class Config;
+    State* state_ = nullptr;
+};
+
 namespace detail {
 struct ToolsAccess;  // baker::tools' way to the internals (src/tools/access.hpp)
 struct TableSlot;    // a registered table (src/data/table_build.hpp)
@@ -635,8 +669,15 @@ public:
     [[nodiscard]] uint64_t epoch() const noexcept { return epoch_; }
 
     // --- Hot reload and telemetry. ---
-    // Re-reads changed files; true if anything changed.
+    // Re-reads changed files; true if anything changed. In place, on this thread: one that
+    // finds nothing changed allocates nothing.
     [[nodiscard]] Expected<bool> reload(const ReloadRequest& request = {});
+    // A reload in parts (ReloadJob, above): begun here, run anywhere, finished here. The
+    // outcome is Ok when the stack changed, Unchanged when no file did, and Refused when the
+    // stack changed under the job (begin again) or reloads are refused; a layer that does
+    // not read is the error, and changes nothing.
+    [[nodiscard]] ReloadJob begin_reload(const ReloadRequest& request = {});
+    [[nodiscard]] Expected<ReloadOutcome> finish_reload(ReloadJob job);
     ReloadId on_reload(const Path& group, Callback<void()> rebuild,
                        Callback<Reload()> migrate = {});
     // Called after every change with its finished record (not under BAKER_SHIPPING).
@@ -785,6 +826,7 @@ public:
 private:
     struct Impl;
     friend class TweakBase;
+    friend class ReloadJob;  // runs on its copy through the Impl's reading (D314)
     friend struct detail::ToolsAccess;
 
     void bind(TweakBase& t);
