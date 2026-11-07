@@ -10972,3 +10972,32 @@ generated reader runs at the game's optimization level.
 - **Tests.** `test_table.cpp`: a layer and a live edit elsewhere keep a table whose records
   an upper layer overrides, and an edit to a record rebuilds it; the same records under a
   renamed parent rebuild it.
+
+## D312. The symbol table's homes, seeded
+
+*From the six-part TD review (`dev/td-review-2026-11.md`, finding 7).* The symbol table
+probed from the low bits of a name's hash, and that hash is public and fixed: FNV-1a 64, the
+same in every build, computed at compile time by `_sym` (D246). Text a game does not
+control (an overlay, a mod, a console) can therefore name thousands of symbols that share one
+home: every intern and every lookup of them walks the cluster.
+
+- **A seeded home.** The probe starts at `splitmix64(hash ^ seed) & mask`, where the seed is
+  picked once per process from the table's address and the clock. `symbol_hash`, a symbol's
+  `hash()`, its ID (the order of interning) and the collision report are unchanged; only
+  where an entry sits in the table moves. Names that share a home now take a collision of
+  all 64 bits of the hash, which is the case the collision report exists for.
+- **Numbers** (release, not shipping; 4,000 names whose hashes share their low 16 bits,
+  against 4,000 ordinary ones):
+
+  | | before | after |
+  |---|---:|---:|
+  | intern the crafted names | 16.45 ms | 0.33 ms |
+  | look them all up again | 6.957 ms (147× the ordinary) | 0.089 ms (2×) |
+  | look up one ordinary name, `tools/count` lookup_text | 372 instructions | 377 (+1.3%) |
+  | `tools/count` parse | 1,898,717 instructions | 1,917,091 (+0.97%) |
+
+  The two counted rows are the mix: about five instructions a probe. A run's probe lengths
+  now vary a little with its seed, so a counted row can move by a fraction of a percent from
+  run to run.
+- **Tests.** `test_symbol_hash.cpp`: 300 names whose hashes share their low 12 bits each
+  intern as their own symbol, are found again, and keep the hash they promise.
