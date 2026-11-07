@@ -10811,3 +10811,36 @@ cache) would then take forever over.
 - **Tests.** `test_preprocessor.cpp`: the limit and one past it for a plain macro, a shared
   one counted at every level, and a host's; both bombs refused. The write test that builds a
   2^60-node shared tree to bound `preview` raises the limit to read it.
+
+## D307. Live's validators: checks only in shipping, and a cheaper ID walk
+
+*From the six-part TD review (`dev/td-review-2026-11.md`, finding 2).* `host::Live` added
+four whole-tree validators (check, shape, ID, rules) in every build, and a Config runs its
+validators after every merge, where they can only warn: at 50k records, 8.5 ms of each
+merge in a shipping game, for reports nobody reads. `id_validator` was the largest part,
+building a `Str` for the path of every array and a vector of tags for every table.
+
+- **`ValidatorOptions::checks_only`.** A validator added with it runs in each check of a
+  candidate layer (`check_layer`, `check_layer_text`, a push with a policy, a
+  `LayerChecker`), where it can refuse, and never after a merge. A shipping `Live` adds its
+  four with it, so an overlay is judged as before and a change pays nothing; a development
+  build runs them after every merge as before. The owner chose dev-only first; it would
+  have let a shipping `Live` accept an overlay with a shape error, so this keeps them for
+  checks.
+- **Run only on a change: tried, dropped.** Skipping the validators after a merge whose
+  stack compares equal to the last one judged (the merged tree, each layer's tree, and the
+  shapes and packs declared) was built and tested, then dropped on the owner's call:
+  `reload()` already makes no merge for a file saved with the same text, so the only merges
+  it would skip are edits to comments or layout, and every other merge would pay the
+  compare first, about 1.7 ms on average and 3.4 ms at worst at 50k records.
+- **`id_validator` and `find_by_id`** walk with a path of symbols and indexes, written as
+  text only for an error; the tags of a table are gathered only for one with an `@aka`;
+  and a record's path is found by a second walk only when its ID is a duplicate.
+
+  | 50k records, each with an `@id` (release, best of 15) | before | after |
+  |---|---:|---:|
+  | `id_validator` | 19.19 ms | 8.56 ms (2.2×) |
+
+  What remains is a look at each array's metadata for `@id` and each child's for `@aka`.
+- **Tests.** `test_layer_check.cpp`: a `checks_only` validator runs in a check of an
+  overlay and not after a push. The ID tests are unchanged and pass.

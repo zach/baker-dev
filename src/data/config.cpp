@@ -927,7 +927,8 @@ void Config::Impl::commit(Config& c, ReloadRecord& rec, uint64_t& t) {
     if (logging() && before) record_commit(c, *before, *c.root_, rec.trigger);
     if (!validators.empty()) {
         const ValidatorStack stack{*c.root_, stack_layers(), as_read};
-        for (const Check& v : validators) v.fn(stack, warn);
+        for (const Check& v : validators)
+            if (!v.options.checks_only) v.fn(stack, warn);
     }
     lap(rec.merge_ns, t);
     ++c.epoch_;

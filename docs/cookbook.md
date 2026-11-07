@@ -396,6 +396,11 @@ declares. The same checks run in CI, before the overlay reaches the server.
   `baker::check` against a Context with the game's functions bound: a wrong call is an
   error before a player runs it. `cfg.add_validator(baker::check_validator(ctx))` checks
   every push in a development build.
+- **Checks only, in shipping.** A validator only warns after a merge, so a shipping game
+  that judges overlays can add it with `{.checks_only = true}`: it runs in every check and
+  every push with a policy, where it can refuse, and never after a change, where its
+  whole-tree walk would cost a frame for nothing. `baker::host::Live` does this in shipping
+  (D307).
 - **In CI**, run both over every file under `overlays/`, stacked on the shipped data, on
   every change. An overlay that fails never reaches the server.
 

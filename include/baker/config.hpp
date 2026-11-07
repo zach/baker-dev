@@ -178,6 +178,10 @@ struct ValidatorOptions {
     // at once with the Config's own: a LayerChecker runs it on the thread that checks. A
     // validator without it runs on the Config's thread only.
     bool any_thread = false;
+    // It runs only in checks of a candidate layer (check_layer, a push with a policy), which
+    // it can refuse, never after a merge, where it could only warn: a shipping host keeps
+    // the checks an overlay must pass without paying for them at every change.
+    bool checks_only = false;
 };
 
 struct LayerOptions {
@@ -661,7 +665,7 @@ public:
     // restore) with the stack and the warning handler, to report on the data, and by each
     // check of a candidate layer: baker::shape::validator() checks shapes this way (D84),
     // and baker::check_validator() script calls (D102). Validators run in the order they
-    // were added.
+    // were added; one added with checks_only runs in the checks alone.
     using Validator =
         Callback<void(const ValidatorStack& stack, const Callback<void(const Error&)>& warn)>;
     using ValidatorId = uint32_t;
