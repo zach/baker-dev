@@ -25,6 +25,7 @@ build/game promote --baker-write --baker-json   # written, and the transaction
 
 | Field | Contents |
 |---|---|
+| `schema` | `"baker.changes/1"` |
 | `transactions` | the kept transactions, oldest first; the log keeps the last `n` |
 | `id` | the transaction's sequence number in the session, from 1 |
 | `name` | what made it: `set`, `clear_scratch`, a commit's trigger (`layer`, `reload`, `restore`, `write_back`, `promote`), or the name `begin_transaction` or a console command gave |
@@ -56,5 +57,14 @@ removed and an added record carry one ID or the added one's `(@aka ...)` names t
 key, `reorder` where a parent's common keys come in another order, and `append` or `drop`
 where the layer's row composes a list with a verb.
 
-Versioning follows [`check`'s](check-json.md#stability): a field is added only with a new minor
-version.
+## Stability
+
+- **Order.** Transactions come oldest first, `written` in the order the lines were written, and
+  records in the order found. `time_ns` is read from the Config's clock, so two runs of the
+  same edits differ in it.
+- **Optional field.** `renamed_from` is present on a `rename` record only.
+- **Formatting:** UTF-8, one transaction per line and each record on a line of its own, a
+  newline at the end. Strings escape `"`, `\` and control characters (`\n`, `\t`, `\u00XX`);
+  other characters are written as they are. Numbers are integers.
+- **Versioning** follows [`check`'s](check-json.md#stability): a field is added only with a new
+  minor version, and removed, renamed or changed only with a new major version.
