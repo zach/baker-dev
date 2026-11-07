@@ -311,6 +311,10 @@ struct Config::Impl {
         ValidatorOptions options;
     };
     Vec<Check> validators{alloc};
+    // A merge with the live edits not yet applied, for get() above them, kept until the next
+    // change (by epoch): reads between two edits share one merge (D313).
+    Ref<Array> pending_merge;
+    uint64_t pending_epoch = 0;
     // Baked tables (D293): each registered spec, its current block, and the arrays it was
     // built from, so a change that shares them rebuilds nothing.
     Vec<detail::TableSlot> tables{alloc};

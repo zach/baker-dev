@@ -11001,3 +11001,31 @@ home: every intern and every lookup of them walks the cluster.
   run to run.
 - **Tests.** `test_symbol_hash.cpp`: 300 names whose hashes share their low 12 bits each
   intern as their own symbol, are found again, and keep the hash they promise.
+
+## D313. Reads above a live edit share one merge
+
+*From the six-part TD review (`dev/td-review-2026-11.md`, finding 8; the owner chose to
+merge once and keep it).* `get<T>` of a record or a table above a live edit not yet applied
+reads from a merge with the edits (D224), and made that merge on every such read: 46 µs a
+read on a 122 KB stack, about 2 ms on 2 MB, so a tool or game reading a record each frame
+while a designer drags a value paid a whole merge per read.
+
+- **Kept until the next change.** The Config keeps the merge the first such read makes,
+  with the epoch it was made at; reads at the same epoch read it. Every live edit and every
+  merge moves the epoch, so the next read after a change merges again. `apply_edits()`
+  takes the kept merge if there is one, and a full merge drops it. `get()` runs on the
+  Config's own thread (readers elsewhere take `root()`), so the cache needs no lock.
+- **Costs.** One merged tree held while edits are pending and something has read above
+  them, the tree `apply_edits()` would make anyway.
+- **Numbers** (release, not shipping; the config review's stack, 2,000 records, one live
+  edit; `get<Rec>` of the record above it):
+
+  | | before | after |
+  |---|---:|---:|
+  | a read above the edit, median | 39,645 ns, 14.7 allocations | 106 ns, 1.4 |
+  | the first read after an edit | 48,547 ns | 46,512 ns |
+  | `apply_edits`, one entry, median | 48,294 ns | 48,328 ns |
+
+  The allocations left are the record's own (`Rec`'s strings).
+- **Tests.** `test_config.cpp`: ten reads above an edit after the first allocate nothing;
+  the next edit, and a layer pushed, are seen; `apply_edits` then holds every edit.
