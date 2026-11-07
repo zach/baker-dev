@@ -34,6 +34,7 @@ struct Dep {
     bool present = false;
     uint64_t hash = 0;  // of its text; for a directory, of its listing
     bool directory = false;
+    uint64_t stamp = 0;  // the session's stamper's, when read; 0: none (D314)
 };
 
 // What reading the stack's files uses beyond the Config's settings: the session the stack

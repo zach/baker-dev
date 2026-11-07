@@ -162,6 +162,11 @@ built, the shape, ID and rules validators, binds the Config's tools, and runs ev
 `#autorun`. A development build runs the validators after every change to the stack and
 reports what they find; a shipping build adds them `checks_only`, so they judge every check
 and policy push of an overlay but cost nothing at a change (D307).
+When the watcher sees a save, `begin_frame` reloads. Given `.run_async`, a callback that
+hands work to the game's job system, it reads and parses the changed files there, and a
+later `begin_frame` merges them, so the frame pays only the merge; without it the whole
+reload runs in `begin_frame`. Either way the reload's scan opens only the files whose
+stamp (size and write time) moved (D314).
 `changed` is called after the load, after each change to the stack once `#autorun` has
 run again, and after a live edit, which it applies first (`Config::apply_edits()`), so a
 game that reads whole records or tables from `root()` sees the edit. The Config's clock is

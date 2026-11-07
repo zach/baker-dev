@@ -428,6 +428,41 @@ TEST_CASE("a reload job's broken edit changes nothing and says where (D314)") {
     CHECK(cfg.last_reload()->outcome == ReloadOutcome::ParseError);
 }
 
+TEST_CASE("with a stamper, a reload opens only the files whose stamp moved (D314)") {
+    std::map<std::string, std::string> files{{"a.dta", "(speed 1)\n"}, {"b.dta", "(volume 2)\n"}};
+    std::map<std::string, uint64_t> stamps{{"a.dta", 10}, {"b.dta", 20}};
+    int reads = 0;
+    Config cfg({.tweaks = nullptr});
+    cfg.session().set_reader([&](std::string_view path, TextSink out) {
+        const auto it = files.find(std::string(path));
+        if (it == files.end()) return false;
+        ++reads;
+        out(it->second);
+        return true;
+    });
+    cfg.session().set_stamper([&](std::string_view path) {
+        const auto it = stamps.find(std::string(path));
+        return it == stamps.end() ? uint64_t{0} : it->second;
+    });
+    REQUIRE(cfg.push_layer("a", "a.dta"));
+    REQUIRE(cfg.push_layer("b", "b.dta"));
+    reads = 0;
+    // Nothing moved: no file is opened.
+    CHECK(ok(cfg.reload()) == false);
+    CHECK(reads == 0);
+    // b's stamp moved, its text did not: b alone is read, and nothing changes.
+    stamps["b.dta"] = 21;
+    CHECK(ok(cfg.reload()) == false);
+    CHECK(reads == 1);
+    // a changed: the scan opens it, and the reload reads it and b above it.
+    files["a.dta"] = "(speed 3)\n";
+    stamps["a.dta"] = 11;
+    reads = 0;
+    CHECK(ok(cfg.reload()) == true);
+    CHECK(cfg.get<int>("speed") == 3);
+    CHECK(reads >= 2);
+}
+
 TEST_CASE("reload sees a file changed on disk") {
     TempDir dir;
     Config cfg({.tweaks = nullptr});

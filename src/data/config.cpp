@@ -558,6 +558,7 @@ Expected<void> Config::Impl::read(const ReadContext& io, LayerState& layer,
         }
         // A directory a load lists (#include_dir) is one of its files too.
         const LoadSession::Lister& lister = before.lister();
+        const LoadSession::Stamper& stamper = before.stamper();
         session->set_lister(
             [&](std::string_view dir, const Callback<void(std::string_view)>& entry) {
                 Vec<Str> entries(alloc);
@@ -573,7 +574,8 @@ Expected<void> Config::Impl::read(const ReadContext& io, LayerState& layer,
             const bool ok = detail::read_with(reader, p, io.scan);
             if (read_ns) *read_ns += now() - t0;
             if (p != cache.view())
-                deps.push_back({Str(p, alloc), ok, ok ? detail::content_hash(io.scan) : 0});
+                deps.push_back({Str(p, alloc), ok, ok ? detail::content_hash(io.scan) : 0, false,
+                                stamper ? stamper(p) : 0});
             if (ok) out(io.scan);
             return ok;
         });
@@ -627,6 +629,9 @@ bool Config::Impl::changed(const ReadContext& io, const LayerState& layer, Symbo
             }
             continue;
         }
+        // The same stamp: unchanged, and not opened (D314). A stamp that moved is read and
+        // hashed, so a save of the same text changes nothing.
+        if (d.stamp != 0 && io.base.stamper() && io.base.stamper()(d.path) == d.stamp) continue;
         const bool ok = detail::read_with(io.base.reader(), d.path, io.scan);
         if (ok != d.present || (ok && detail::content_hash(io.scan) != d.hash)) {
             first = Symbol(d.path);

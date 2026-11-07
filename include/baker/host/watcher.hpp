@@ -55,6 +55,11 @@ using DiskPathHook = Callback<bool(std::string_view path, TextSink out)>;
 // share one clock.
 [[nodiscard]] uint64_t file_clock_now_ns() noexcept;
 
+// A file's stamp for LoadSession::set_stamper: its size and last write, mixed into one
+// number, from `hook` if it answers for the path, else from the disk; 0 if it cannot be
+// read. Safe on any thread, if `hook` is (D314).
+[[nodiscard]] uint64_t file_stamp(std::string_view path, const StampHook& hook = {}) noexcept;
+
 class Watcher {
 public:
     Watcher();

@@ -467,7 +467,7 @@ private:
 // popped or toggled, another reload), when it changes nothing and says Refused: begin
 // again. Live edits meanwhile are fine; the merge reads them as they stand.
 //
-// run() reads through the session's reader and lister, writes caches through the Config's
+// run() reads through the session's reader, lister and stamper, writes caches through the Config's
 // writer, reads its clock, and allocates from its allocator, on the thread that runs it:
 // those must be safe there. Warnings it meets wait for finish_reload, which gives them to
 // the warning handler. The Config must outlive the job; it needs atomic reference counts
