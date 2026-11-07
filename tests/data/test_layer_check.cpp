@@ -241,3 +241,14 @@ TEST_CASE("a validator sees the enabled layers, bottom to top, and a candidate l
     CHECK(seen[3] == candidate.get());
     CHECK(bow == 15);
 }
+
+TEST_CASE("a checks_only validator runs in a layer check, never after a merge (D307)") {
+    Config cfg({.tweaks = nullptr});
+    int runs = 0;
+    cfg.add_validator([&](const ValidatorStack&, const Callback<void(const Error&)>&) { ++runs; },
+                      {.checks_only = true});
+    REQUIRE(cfg.push_layer_text("base", "(speed 3)"));
+    CHECK(runs == 0);
+    (void)ok(cfg.check_layer_text("overlay", "(speed 4)"));
+    CHECK(runs == 1);
+}

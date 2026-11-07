@@ -112,11 +112,17 @@ Expected<void> Live::open(const LiveOptions& options) {
             im.problem(r.error());
             return Unexpected(std::move(r).error());
         }
-    im.cfg.add_validator(check_validator(im.ctx, {.packs = &im.cfg.read_session()}));
+    // A shipping build keeps them for the checks an overlay must pass, not after each merge,
+    // where they would only warn (D307).
+    constexpr bool kChecksOnly = kShipping;
+    im.cfg.add_validator(check_validator(im.ctx, {.packs = &im.cfg.read_session()}),
+                         {.checks_only = kChecksOnly});
 #if BAKER_HOST_SHAPE
-    im.cfg.add_validator(shape::validator(), {.any_thread = true});
-    im.cfg.add_validator(id_validator(), {.any_thread = true});  // two records, one @id (D284)
-    im.cfg.add_validator(tools::rules_validator(im.ctx));        // the shapes' rules, in script
+    im.cfg.add_validator(shape::validator(), {.any_thread = true, .checks_only = kChecksOnly});
+    // two records, one @id (D284)
+    im.cfg.add_validator(id_validator(), {.any_thread = true, .checks_only = kChecksOnly});
+    // the shapes' rules, in script
+    im.cfg.add_validator(tools::rules_validator(im.ctx), {.checks_only = kChecksOnly});
 #endif
     auto opened = open_project(im.cfg, *project, options.open);
     if (!opened) {

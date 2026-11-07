@@ -158,7 +158,10 @@ live.end_frame();                  // the frame that shows a reload
 
 `open` finds the nearest `baker-project.dta` (or takes a `Project` built in code, for a
 packaged game), opens the stack, adds the check validator and, when `baker::shape` is
-built, the shape validator, binds the Config's tools, and runs every layer's `#autorun`.
+built, the shape, ID and rules validators, binds the Config's tools, and runs every layer's
+`#autorun`. A development build runs the validators after every change to the stack and
+reports what they find; a shipping build adds them `checks_only`, so they judge every check
+and policy push of an overlay but cost nothing at a change (D307).
 `changed` is called after the load, after each change to the stack once `#autorun` has
 run again, and after a live edit, which it applies first (`Config::apply_edits()`), so a
 game that reads whole records or tables from `root()` sees the edit. The Config's clock is
