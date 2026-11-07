@@ -10707,3 +10707,48 @@ renaming from a change set is deferred.*
   - Fixed: a promotion of a change set spelled by alias or ID writes into the record; a
     stack image's layers keep their aliases.
 
+
+## D304. The shape check's push in wall time: the common field inline again
+
+*Reported by a live-ops host trying 0.8.0.* D275 brought the shape validator's share of a
+push back to within 1% of 0.6.0 in instructions, and 0.8.0's changelog said a push checked
+by the validator costs what it did in 0.6.0. In wall time on the host's workload it did not:
+about 16% above 0.6.0, and 2 to 4% below 0.7.0. D275's driver had shaped records of one
+field each (`bench_layers`' prices); the host's have three ranged fields, which D275 did not
+exercise.
+
+- **Measured.** A driver of the host's workload: a 2,000-entry keyed table declared with a
+  `#shape` of three ranged `int` and `float` fields, an overlay of about 5 KB changing 286
+  values, `push_layer_text` under a policy with every rule on and `allow`, the validator
+  `{.any_thread = true}`, shipping, Release, built against 0.6.0 (a4fd630), 0.7.0
+  (b515446) and main (905423f), each in its own spelling. Cachegrind with its cache and
+  branch simulation, 100 held pushes: 0.6.0 1,244 M instructions, main 1,362 M (+9.5%),
+  with D1 misses (12.5 M against 12.8 M) and mispredicts (8.48 M against 8.53 M) about
+  equal. So the time was instructions after all, in the shape checker: 590 M on 0.6.0
+  (`instance` with `value` inlined, and `walk`), 692 M on main.
+- **Cause.** `Checker::value`, which the curve, key, list and asset checks (D289 among
+  them) have grown, is no longer inlined into `instance`: a call per field, 186 M. And the
+  record's list of fields seen was a `push_back` per field, left out of line, 47 M: the same
+  shape D275 fixed for the chain of tags.
+- **Fix.**
+  - `plain(field)`: the common field, one `int`, `float` or `symbol` of its type within its
+    range and with no `one_of`, is checked inline in `instance`; anything else, and every
+    error, still goes to `value`, out of line.
+  - The fields seen are a stack with a depth, as the chain is: the Vec grows out of line,
+    and noting a field is a store.
+- **Result.** The same 100 pushes: 1,195 M instructions (-12.2% on main, -3.9% on 0.6.0),
+  mispredicts 7.49 M; the checker 525 M against 0.6.0's 590 M. Wall time, medians of 1,500
+  pushes, five interleaved rounds, the four builds side by side:
+
+  | push | 0.6.0 | 0.7.0 | main | D304 |
+  |---|---:|---:|---:|---:|
+  | report held | 0.319 ms | 0.363 | 0.353 | 0.331 |
+  | checks again | 0.750 ms | 0.881 | 0.822 | 0.762 |
+
+  So a push that checks again is within 2% of 0.6.0, one with its report held within 4%;
+  both 6 to 7% faster than 0.8.0. What is left of the held push is outside the validator:
+  without validators, a push here reads 0.118 ms on 0.6.0 and 0.125 ms on main, the text
+  read's regression `baker-gaps.md` 45 records and has not isolated.
+  `tools/count_instructions.py` against main: every case unchanged (none shapes data).
+- **The record.** 0.8.0's changelog line was measured in instructions on a workload that
+  missed this path; a later one says what the wall time is, on this workload.
