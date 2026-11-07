@@ -621,15 +621,18 @@ struct Checker {
     // of line (D275).
     Vec<baker::Symbol> chain;
     size_t depth = 0;
-    Vec<const Shape*> keyed;    // the (@keyed) shapes, which match by place, not by tag
+    // The (@keyed) shapes, which match by place, not by tag, by the length of their (@at ...),
+    // each list in the set's order: an array tests only those of its own depth.
+    Vec<Vec<const Shape*>> keyed_at;
     Vec<const Shape*> by_name;  // by Symbol::index(): the shape of that name (gap 20)
     // Arrays checked already as a field's value, below the instance being walked: a stack,
     // emptied as the walk leaves that instance (D119, gap 20).
     Vec<const Array*> nested;
-    // The fields each instance on the stack has, from its mark: seen[0, seen_n). As the chain,
-    // the Vec only grows, so noting a field is a store, not a push_back (D304).
-    Vec<baker::Symbol> seen;
-    size_t seen_n = 0;
+    // The fields each instance on the stack has, a bit each by its index in the shape: in a
+    // word of instance() for a shape of up to 64 fields, here past that, from the instance's
+    // mark: marks[0, marks_n). As the chain, the Vec only grows (D304).
+    Vec<uint64_t> marks;
+    size_t marks_n = 0;
     // The arrays from the root to the record being checked, the root first: where a key's
     // table is looked up, outward from the record that refers to it. A field's own array is
     // not one: its children are its values.
@@ -654,14 +657,18 @@ struct Checker {
         ++depth;
     }
     BAKER_NOINLINE void grow(baker::Symbol tag) { chain.push_back(tag); }
-    void see(baker::Symbol field) {
-        if (seen_n == seen.size())
-            grow_seen(field);
-        else
-            seen[seen_n] = field;
-        ++seen_n;
+    // An instance's marks past 64 fields: `words` of them, cleared, from marks_n.
+    BAKER_NOINLINE void mark_wide(size_t words) {
+        if (marks.size() < marks_n + words) marks.resize(marks_n + words);
+        std::fill_n(marks.begin() + static_cast<std::ptrdiff_t>(marks_n), words, uint64_t{0});
+        marks_n += words;
     }
-    BAKER_NOINLINE void grow_seen(baker::Symbol field) { seen.push_back(field); }
+    // The index of the field named `tag` among a shape's `n` names, or `n`.
+    static uint32_t find_name(const baker::Symbol* names, uint32_t n, baker::Symbol tag) {
+        uint32_t i = 0;
+        while (i < n && names[i] != tag) ++i;
+        return i;
+    }
 
     // The common field, one number or symbol of its type within its range, checked here and
     // inline; anything else, and every error, is value()'s, out of line (D304).
@@ -687,6 +694,21 @@ struct Checker {
         to.push_back(std::move(e));
     }
 
+    // The keyed shapes that govern the children of the array the walk is at, chain[0, depth):
+    // pushed onto `governing`, from its end, in the set's order.
+    void govern_children() {
+        for (const Shape* s : keyed_at[depth]) {
+            size_t i = 0;
+            while (i < depth && (s->at[i] == names().any_tag || s->at[i] == chain[i])) ++i;
+            if (i < depth) continue;
+            if (governing_n == governing.size())
+                governing.push_back(s);
+            else
+                governing[governing_n] = s;
+            ++governing_n;
+        }
+    }
+
     [[nodiscard]] bool governs(const Shape& s) const {
         if (s.at.empty()) return true;
         if (s.at.size() != depth - 1) return false;  // the last is the array's own tag
@@ -697,10 +719,24 @@ struct Checker {
 
     // `a`'s fields, from `first`, against `s`.
     void instance(const Array& a, const Shape& s, uint32_t first) {
-        if (used) (*used)[static_cast<size_t>(&s - set.shapes().data())] = true;
+        const size_t index = static_cast<size_t>(&s - set.shapes().data());
+        if (used) (*used)[index] = true;
         const Array* const outer = record;
         record = &a;
-        const size_t mark = seen_n;
+        const Fields& fs = fields_of[index];
+        const uint32_t nf = fs.count;
+        const baker::Symbol* const names = field_names.data() + fs.names;
+        // The fields the record has: bits of `mine` up to 64, words of `marks` past that.
+        uint64_t mine = 0;
+        const size_t mark = marks_n;
+        if (nf > 64) mark_wide((nf + 63) / 64);
+        const auto note = [&](size_t k) {
+            if (nf <= 64)
+                mine |= uint64_t{1} << k;
+            else
+                marks[mark + k / 64] |= uint64_t{1} << (k % 64);
+        };
+        uint32_t next = 0;  // the field after the last found: a record in order has it next
         for (uint32_t i = first; i < a.size(); ++i) {
             const Array* f = a[i].try_array();
             // '' is no tag (D125).
@@ -712,9 +748,12 @@ struct Checker {
             }
             if (tag->is_meta()) continue;  // a record's own (@note ...), (@id ...): never a field
             enter_tag(*tag);
-            if (const Field* field = s.field(*tag)) {
-                see(*tag);
-                if (!plain(*f, *field)) value(*f, *field);
+            const uint32_t k = next < nf && names[next] == *tag ? next : find_name(names, nf, *tag);
+            if (k < nf) {
+                next = k + 1;
+                note(k);
+                const Field& field = s.fields[k];
+                if (!plain(*f, field)) value(*f, field);
             } else if (const Field* renamed = s.renamed(*tag)) {
                 // The field under a name the shape renamed (D287): checked as the field, and
                 // listed for `format` to rewrite. With the new name in the record too, the
@@ -732,21 +771,39 @@ struct Checker {
                         warnings, ErrorCode::Syntax,
                         quoted(*tag) + " is now " + quoted(renamed->name) + " (format rewrites it)",
                         *f);
-                see(renamed->name);
+                note(static_cast<size_t>(renamed - s.fields.items().data()));
                 value(*f, *renamed);
             } else {
                 not_a_field(s, *tag, *f);
             }
             --depth;
         }
-        const auto mine = seen.begin() + static_cast<std::ptrdiff_t>(mark);
-        const auto end = seen.begin() + static_cast<std::ptrdiff_t>(seen_n);
-        for (const Field& field : s.fields)
-            if (!field.optional && std::find(mine, end, field.name) == end)
-                report(errors, ErrorCode::NotFound,
-                       quoted(s.name) + " has no " + quoted(field.name), a);
-        seen_n = mark;
+        // The required fields the record lacks: a word's test up to 64 fields.
+        const uint64_t* const required = required_bits.data() + fs.required;
+        if (nf <= 64) {
+            if (nf != 0 && (required[0] & ~mine) != 0) {
+                const uint64_t missing = required[0] & ~mine;
+                lacks(a, s, &missing, nf);
+            }
+        } else {
+            const size_t words = (nf + 63) / 64;
+            bool any = false;
+            for (size_t w = 0; w < words; ++w) {
+                marks[mark + w] = required[w] & ~marks[mark + w];
+                any = any || marks[mark + w] != 0;
+            }
+            if (any) lacks(a, s, marks.data() + mark, nf);
+        }
+        marks_n = mark;
         record = outer;
+    }
+    // An error for each missing required field, in the shape's order: the set bits of
+    // `missing`, a word per 64 of the shape's `n` fields.
+    BAKER_COLD void lacks(const Array& a, const Shape& s, const uint64_t* missing, size_t n) {
+        for (size_t i = 0; i < n; ++i)
+            if (((missing[i / 64] >> (i % 64)) & 1) != 0)
+                report(errors, ErrorCode::NotFound,
+                       quoted(s.name) + " has no " + quoted(s.fields[i].name), a);
     }
 
     // A nested shape's instance, `e`, from `first`: out of line, so that what it adds to the
@@ -946,15 +1003,28 @@ struct Checker {
     }
     // The innermost array that holds the path's first segment, the root last, then the rest
     // of the path below it; none if nothing holds the first, or the rest is missing there.
-    [[nodiscard]] const Array* table_for(const Field& field) const noexcept {
+    [[nodiscard]] const Array* table_for(const Field& field) {
         for (size_t k = arrays.size(); k-- > 0;) {
-            const Array* at = arrays[k]->try_find(field.table[0]);
+            const Array* at = holding(*arrays[k], field.table[0]);
             if (!at) continue;
             for (size_t i = 1; at && i < field.table.size(); ++i) at = at->try_find(field.table[i]);
             return at;
         }
         return nullptr;
     }
+    // `a`'s first child tagged `seg`, as try_find() finds it: a scan of a narrow array, and
+    // remembered for a wide one, which every record below it would otherwise scan as it
+    // looks outward past it for its table.
+    const Array* holding(const Array& a, baker::Symbol seg) {
+        if (a.size() <= kScanHolder) return a.try_find(seg);
+        Vec<std::pair<baker::Symbol, const Array*>>& known = holders[&a];
+        for (const auto& [s, found] : known)
+            if (s == seg) return found;
+        const Array* found = a.try_find(seg);
+        known.emplace_back(seg, found);
+        return found;
+    }
+    static constexpr uint32_t kScanHolder = 16;
     // The table's child tagged `key`, the first as try_find() finds it, or the child that
     // still answers to it, (@aka key) (D286): keys first, then aliases, so a key wins.
     const Array* in(const Array& table, baker::Symbol key) {
@@ -1008,6 +1078,22 @@ struct Checker {
     static constexpr size_t kAll = SIZE_MAX;
     size_t walked = kAll;
     uint32_t linear = 0;  // in(): lookups left that scan a table rather than index it
+    // The keyed shapes that govern the children of each array on the walk's path, the
+    // root's first: governing[0, governing_n), a stack, as the chain is.
+    Vec<const Shape*> governing;
+    size_t governing_n = 0;
+    // Each shape's field names and required fields, by its index in the set, in flat arrays
+    // that instance() reads in place of the Fields: a lookup by name scans names, not Fields.
+    struct Fields {
+        uint32_t names = 0;     // where its names begin in field_names
+        uint32_t required = 0;  // where its bits begin in required_bits, a word per 64 fields
+        uint32_t count = 0;
+    };
+    Vec<Fields> fields_of;
+    Vec<baker::Symbol> field_names;
+    Vec<uint64_t> required_bits;
+    // holding(): each wide array's children found by tag, as keys look outward for tables.
+    HashMap<const Array*, Vec<std::pair<baker::Symbol, const Array*>>> holders;
 
     // `tag` in an instance of `s` that does not declare it.
     void not_a_field(const Shape& s, baker::Symbol tag, const Array& f) {
@@ -1118,6 +1204,9 @@ struct Checker {
     // nothing for it per array.
     template <bool Keys>
     void walk(const Array& a) {
+        const size_t from = governing_n;
+        if (depth < keyed_at.size()) govern_children();
+        const size_t to = governing_n;
         for (const Node& n : a) {
             const Array* c = n.array();
             if (!c) continue;
@@ -1128,14 +1217,14 @@ struct Checker {
             if (tag && std::find(nested.begin(), nested.end(), c) == nested.end()) {
                 const Shape* by_tag = shape_named(*tag);
                 if (by_tag && !by_tag->keyed && governs(*by_tag)) instance(*c, *by_tag, 1);
-                for (const Shape* s : keyed)
-                    if (governs(*s)) instance(*c, *s, 1);
+                for (size_t i = from; i < to; ++i) instance(*c, *governing[i], 1);
             }
             if (c->height() > 1) walk<Keys>(*c);
             nested.resize(mark);  // what this array's instance checked lies below it
             if constexpr (Keys) arrays.pop_back();
             if (tag) --depth;
         }
+        governing_n = from;
     }
 
     // --- A scoped check (D316), its own walk, so that walk() is compiled as it was. ---
@@ -1147,8 +1236,9 @@ struct Checker {
         if (!scope->visited.try_emplace(&c, true).second) return;
         const Shape* by_tag = shape_named(tag);
         if (by_tag && !by_tag->keyed && governs(*by_tag)) instance(c, *by_tag, 1);
-        for (const Shape* s : keyed)
-            if (governs(*s)) instance(c, *s, 1);
+        if (depth - 1 < keyed_at.size())
+            for (const Shape* s : keyed_at[depth - 1])
+                if (governs(*s)) instance(c, *s, 1);
     }
 
     // A step down to `m`, a child of the array the walk is at: `m` checked, then the paths
@@ -1297,18 +1387,21 @@ struct RuleWalker {
             const Array* c = n.array();
             if (!c) continue;
             const auto tag = !c->tag().empty() ? std::optional(c->tag()) : std::nullopt;
+            const size_t len = path.size();
             if (tag) {
                 chain.push_back(*tag);
-                path.clear();
-                for (const baker::Symbol t : chain)
-                    path += (path.empty() ? "" : "/") + Str(t.str());
+                if (!path.empty()) path += '/';
+                path += tag->str();
                 for (const Shape* s : by_tag)
                     if (s->name == *tag && governs(*s)) visit(*c, *s, path);
                 for (const Shape* s : keyed)
                     if (governs(*s)) visit(*c, *s, path);
             }
             if (c->height() > 1) walk(*c);
-            if (tag) chain.pop_back();
+            if (tag) {
+                chain.pop_back();
+                path.resize(len);
+            }
         }
     }
 };
@@ -1329,7 +1422,19 @@ namespace {
 void prepare(Checker& checker, const Array& tree) {
     checker.arrays.push_back(&tree);
     for (const Shape& s : checker.set.shapes()) {
-        if (s.keyed && !s.at.empty()) checker.keyed.push_back(&s);
+        if (s.keyed && !s.at.empty()) {
+            if (checker.keyed_at.size() <= s.at.size()) checker.keyed_at.resize(s.at.size() + 1);
+            checker.keyed_at[s.at.size()].push_back(&s);
+        }
+        const auto n = static_cast<uint32_t>(s.fields.size());
+        const auto bits = static_cast<uint32_t>(checker.required_bits.size());
+        checker.fields_of.push_back({static_cast<uint32_t>(checker.field_names.size()), bits, n});
+        checker.required_bits.resize(bits + (n + 63) / 64, 0);
+        for (uint32_t i = 0; i < n; ++i) {
+            checker.field_names.push_back(s.fields[i].name);
+            if (!s.fields[i].optional)
+                checker.required_bits[bits + i / 64] |= uint64_t{1} << (i % 64);
+        }
         if (s.name.index() >= checker.by_name.size()) checker.by_name.resize(s.name.index() + 1);
         if (!checker.by_name[s.name.index()]) checker.by_name[s.name.index()] = &s;  // as find()
         for (const Field& f : s.fields)
@@ -1344,7 +1449,7 @@ void run(const Array& tree, const Set& shapes, Vec<Error>& errors, Vec<Error>& w
     Checker checker{shapes, errors,   warnings,   {},      0,  {},      {},      {},
                     {},     0,        {},         packs,   {}, false,   used,    {},
                     {},     key_uses, asset_uses, nullptr, {}, nullptr, nullptr, Checker::kAll,
-                    0};
+                    0,      {},       0,          {},      {}, {},      {}};
     prepare(checker, tree);
     if (checker.keys)
         checker.walk<true>(tree);
@@ -1442,7 +1547,7 @@ bool run_scoped(const Array& tree, const Set& shapes, const Scope& scope, Vec<Er
     Checker checker{shapes, errors,  warnings, {},      0,  {},      {},      {},
                     {},     0,       {},       packs,   {}, false,   nullptr, {},
                     {},     nullptr, nullptr,  nullptr, {}, nullptr, nullptr, Checker::kAll,
-                    0};
+                    0,      {},      0,        {},      {}, {},      {}};
     prepare(checker, tree);
     Checker::Visited visited;
     checker.scope = &visited;
@@ -1459,7 +1564,7 @@ bool run_scoped(const Array& tree, const Set& shapes, const Scope& scope, Vec<Er
         Checker finder{shapes, set_aside, also,    {},      0,  {},      {},      {},
                        {},     0,         {},      packs,   {}, false,   nullptr, {},
                        {},     nullptr,   nullptr, nullptr, {}, nullptr, &follow, Checker::kAll,
-                       0};
+                       0,      {},        0,       {},      {}, {},      {}};
         prepare(finder, tree);
         finder.walk<true>(tree);
         size_t from = 0;

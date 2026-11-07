@@ -11319,3 +11319,86 @@ a live, tweaked config that grew with the wrong count.
     least then, and never twice), and the warnings are one for each tweak that does not
     read. Disabling the shadow check, the stale marks, the
     re-warning, the size test, or the table's first-wins each fails it.
+
+## D318. The shape check's costs that grew with the square of the data
+
+*From the six-part TD review (`dev/td-review-2026-11.md`, findings 12, 15, 17 and 32).* Four
+costs of the shape checker grew with a product of two counts where one would do. Each fix
+keeps the findings, their order and their paths as they were.
+
+- **`each_ruled` built each array's path from the whole chain** (finding 12): a fresh `Str`
+  per tag per array, so 851 µs for a walk whose check costs 157. The path is now appended to
+  on the way down and cut back on the way up, the chain's own discipline.
+- **Every array tested every keyed shape** (finding 15). With 16 keyed shapes, each of
+  2,000 records tested 16 paths, and each of their 6,000 fields 16 more, if only to fail on
+  the path's length. The checker keeps
+  the keyed shapes by the length of their `(@at ...)`, and the walk finds, once for an
+  array, the shapes that govern its children: those of the children's depth whose path
+  matches the chain to the array, in the set's order, on a stack as the chain is. A child
+  then runs only those. Which shapes govern a child depends only on the tags above it, so
+  the result is what testing each child gave. The scoped walk of a push (D316) tests the
+  shapes of the array's depth only, as before per array.
+- **Wide records** (finding 17). A record of F fields found each field by a scan of the
+  shape's `Field`s, 200 bytes apart, and then each required field by a `std::find` over the
+  fields seen: twice O(F²).
+  - The checker copies each shape's field names into one flat array at its start, and a
+    record's next field is tried first at the place after the last one found, so a record
+    written in the shape's order finds each field in one compare; one out of order scans 8
+    bytes a name, not 200.
+  - A record notes each field it has as a bit by the field's index, in a word for a shape
+    of up to 64 fields and in a stack of words past that, and the required fields are a
+    mask made at the start: a record of up to 64 fields tests them in one `and`, a wider one
+    a word per 64. Missing fields are still reported in the shape's order.
+  - `Field` is reordered so that what the check reads at a value (name, type, flags, count,
+    range, `one_of`, nested shape) lies in its first 64 bytes, and its flags are packed:
+    184 bytes, against 200. A breaking change only for code that initializes a `Field`
+    positionally.
+  - The walk still visits a record's fields after its instance checked them: a field's
+    array may be governed by the shape of its tag, which only that visit finds. With the
+    keyed shapes found once for the record, the visit costs a tag's store and two lookups.
+- **A key looked for its table through the whole wide table** (finding 32). `table_for`
+  looks outward from the record for the table's first segment, and each record of a wide
+  table scanned that table for it, a miss, before the root: 3.2 s at 100,000 records, 32 ms
+  at 10,000. The first child of an array of more than 16 children with a given tag is now
+  remembered, found or not, per (array, segment); a narrower array is scanned as before.
+  The tree does not change during a check, so the remembered answer is the scan's, and a
+  nearer table still shadows an outer one, since the lookup still goes outward one array
+  at a time.
+- **Numbers** (release, not shipping, this machine; `shape::check`, or `each_ruled`, on one
+  tree, median of each row's runs, three rounds of main and this commit interleaved; the
+  review's stack is keyed records of three ranged `int` fields under one table):
+
+  | | main (6eee387) | D318 |
+  |---|---:|---:|
+  | `each_ruled`, the review's stack (2,000 records, one rule) | 912 / 851 / 844 µs | 121 / 102 / 181 µs |
+  | check, 2,000 records, 1 keyed shape | 163 / 155 / 237 µs | 142 / 132 / 150 µs |
+  | check, the same, 16 keyed shapes | 279 / 285 / 292 µs | 136 / 136 / 133 µs |
+  | check, 10,000 records of 8 fields | 1.89 / 1.89 / 1.89 ms | 1.62 / 1.61 / 1.61 ms |
+  | check, 10,000 records of 64 fields | 24.4 / 23.4 / 22.9 ms | 12.2 / 11.9 / 11.8 ms |
+  | check, 10,000 records of 256 fields | 254 / 247 / 250 ms | 51.9 / 52.3 / 52.9 ms |
+  | check, 10,000 records with a `(key_of weapons)` field | 32.9 / 32.3 / 31.6 ms | 0.89 / 0.77 / 0.77 ms |
+  | check, 100,000 records with it | 3.19 / 3.11 / 3.23 s | 7.63 / 7.71 / 7.68 ms |
+  | check, 100,000 records, the field a `symbol` | 6.13 / 6.44 / 6.34 ms | 5.03 / 5.09 / 5.07 ms |
+
+  A field now costs about 20 ns at 8, 64 or 256 fields a record, where it cost 24, 37 and
+  98. Cachegrind, instructions per call on the same trees: the 1-keyed check 2.24 M against
+  2.00 M (-10.7%), 16 keyed 3.93 M against 2.01 M, `each_ruled` 8.57 M against 1.89 M, 8
+  fields 26.5 M against 22.2 M. So the hot walk (D235, D275, D304) is cheaper, not dearer.
+  `tools/count_instructions.py --case check check_pinned` against main, whose cases check
+  layers and no shapes:
+
+  | case | main (6eee387) | D318 | change |
+  |---|---:|---:|---:|
+  | check | 3,961,605.5 | 3,962,397.5 | +0.02% |
+  | check_pinned | 4,555,065.5 | 4,554,929.8 | -0.00% |
+- **Tests.** `test_shape.cpp`, each stack's findings checked whole, and passing on main as
+  well:
+  - sixteen keyed shapes that govern nothing, at four depths with wildcards, beside keyed
+    shapes at three depths and a shape by tag that do: every error and warning, in order;
+  - a 130-field shape with optional fields and a renamed one, and a 64-field shape: records
+    whole, reversed, missing fields on both sides of a word, under the old name, and bare;
+  - twenty units looking past the wide units table to the root's tables, one holding its
+    own; the same with a table of the units' own, late in the wide array, shadowing the
+    root's; twenty fighters with moves of their own past the wide fighters and a root moves;
+  - `each_ruled` over twenty keyed records, a keyed shape at depth with a wildcard, and a
+    shape by tag at two places: the same records and paths.
