@@ -60,29 +60,31 @@ namespace baker::shape {
 enum class Type : uint8_t { Any, Int, Float, Bool, Symbol, String, List, Shape, Key, Curve, Asset };
 
 struct Field {
+    // What check() reads at every value comes first, within 64 bytes; the rest is for
+    // messages, tools and generated views.
     baker::Symbol name;
     Type type = Type::Any;
-    Type element = Type::Any;   // a List's elements
-    baker::Symbol shape;        // a Shape's, or a List of shapes', name
-    List<baker::Symbol> table;  // a Key's, or a List of keys', table: a path, as written
-    baker::Symbol asset;        // an Asset's, or a List of assets', kind (D289)
+    Type element = Type::Any;  // a List's elements
+    bool optional = false;
+    bool ranged = false;
+    // For a view (D277): whether the field is in the struct ((@view no) leaves it out).
+    bool view = true;
     // How many values a List holds: (list T N) exactly N, (list T N M) N to M; any number
     // when not declared.
     uint32_t min_count = 0, max_count = UINT32_MAX;
-    bool optional = false;
-    bool ranged = false;
     double min = 0, max = 0;
-    double step = 0;  // 0: none
-    baker::Symbol kind;
-    std::string_view desc, note;  // in the declaration, which the Set keeps
     // (@one_of light heavy kick): the symbols a symbol field's value may be, in the order
     // written; a field declared again adds to it. Empty: any symbol.
     List<baker::Symbol> one_of;
-    // For a view (D277): whether the field is in the struct ((@view no) leaves it out), the
-    // member's C++ type when (@cxx T) overrides the default (int8, int16, int32, int64,
-    // uint8, uint16, uint32, uint64 for an int; float, double for a float), and the member's
-    // name when (@cxx_name N) gives one. Empty: the defaults.
-    bool view = true;
+    baker::Symbol shape;        // a Shape's, or a List of shapes', name
+    List<baker::Symbol> table;  // a Key's, or a List of keys', table: a path, as written
+    baker::Symbol asset;        // an Asset's, or a List of assets', kind (D289)
+    double step = 0;            // 0: none
+    baker::Symbol kind;
+    std::string_view desc, note;  // in the declaration, which the Set keeps
+    // For a view (D277): the member's C++ type when (@cxx T) overrides the default (int8,
+    // int16, int32, int64, uint8, uint16, uint32, uint64 for an int; float, double for a
+    // float), and the member's name when (@cxx_name N) gives one. Empty: the defaults.
     baker::Symbol cxx;
     baker::Symbol cxx_name;
     // (@renamed_from old ...): the names the field had (D287). check() warns at a record
