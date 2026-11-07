@@ -11099,3 +11099,31 @@ built from to learn which had changed.
   - `test_live.cpp`: `run_async` with a held queue lands at the frame after the worker
     ran; one that runs at once lands too; a job never run lets `Live` close, and running
     it afterwards does nothing.
+
+## D315. An undeclared field: one warning for its shape
+
+*From the six-part TD review (`dev/td-review-2026-11.md`, finding 10).* A field a shape does
+not declare is allowed, with a warning, and the check built that warning, a message and a
+path, for every record that had the field, on every push: about 560 ns and 9 allocations a
+record. A stack whose records all carry a field the shape leaves out, a table with a
+designer's notes column, say, paid that across the whole table on each change, for
+thousands of copies of one warning.
+
+- **One warning for each shape and field,** at the first record that has it, as before;
+  the check counts the others and, when it ends, adds "; also in N more records" to that
+  warning. A field undeclared in one record reads as it did. Few kinds of undeclared field
+  appear in any stack, so a scan of those found so far finds one.
+- **What a tool loses** is a warning at each later record. An editor that marked every
+  record finds the field's name and the first place in the warning, and the shape says
+  which records to look in.
+- **Numbers** (release, not shipping; `shape::check` over 10,000 keyed records, best of 15):
+
+  | | before | after |
+  |---|---:|---:|
+  | each record with one undeclared field | 6.64 ms, 10,000 warnings | 0.77 ms, 1 warning |
+  | clean records | 0.52 ms | 0.56 ms |
+
+  The clean row compares main with the review's commit, a few steps apart, and its change
+  is within this machine's noise.
+- **Tests.** `test_shape.cpp`: three records with one undeclared field and one with another
+  give two warnings, the first at the first record with the count of the other two.
