@@ -10904,3 +10904,36 @@ hash field; and the file arrived through a buffer grown 64 KB at a time.
   file's bytes, changes who owns the buffer, so it waits for a design note.
 - **Tests.** `test_table.cpp`: an image whose version field reads 1 is refused as
   ErrorCode::Refused, naming both versions; the damaged-image test still holds.
+
+## D310. Task frames in size classes
+
+*From the six-part TD review (`dev/td-review-2026-11.md`, finding 5; the owner chose size
+classes).* Every task took a block of the Scheduler's whole frame budget, 4 KB by default
+(D67), whatever its frame needed: a native task's frame is 64 bytes and a script
+`thread_task`'s 768 (GCC, release), so 10,000 waiting tasks held 42 MB. D67 put the cost
+at four times the memory per live task; it was 16 to 64 times.
+
+- **Classes.** The pool keeps blocks in sizes that double from 128 bytes (header and frame)
+  up to the budget's, which is the last class. A frame takes the smallest block that holds
+  it; each class takes chunks of `chunk` blocks from the Context's allocator and keeps its
+  own free list. `frame_bytes` still bounds a frame and still sets the refusal at spawn; it
+  no longer sets what each task costs.
+- **No header grows.** A coroutine's `operator delete` is given the frame's size, so the
+  block goes back to its class by that size; the 16-byte block header is as it was.
+- **`SchedulerStats::pool_bytes`,** the bytes the pool's blocks take, beside `blocks`.
+- **Numbers** (release, GCC, counted by the allocator under MemoryKind::Tasks):
+
+  | 10,000 live tasks | before | after |
+  |---|---:|---:|
+  | native, a 64-byte frame | 42.50 MB | 2.47 MB |
+  | script `thread_task`, a 768-byte frame | 42.17 MB | 11.41 MB |
+
+  The rest of each is the task table, and for script tasks their captured variables. A
+  768-byte frame takes a 1 KB block: classes a power of two apart waste up to half a block,
+  which finer steps could halve at the cost of more free lists.
+- **Costs.** Finding a class is a scan of at most 24 sizes at spawn and at finish; the tick
+  does not touch the pool. Spawning and stepping a warm pool still allocate nothing (the
+  existing test).
+- **Tests.** `test_tasks.cpp`: a small frame and an 8 KB frame take blocks of two classes,
+  a chunk each; finished, each goes back to its own class, and spawning both again adds no
+  chunk.
