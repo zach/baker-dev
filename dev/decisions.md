@@ -10811,3 +10811,37 @@ cache) would then take forever over.
 - **Tests.** `test_preprocessor.cpp`: the limit and one past it for a plain macro, a shared
   one counted at every level, and a host's; both bombs refused. The write test that builds a
   2^60-node shared tree to bound `preview` raises the limit to read it.
+
+## D309. The stack image: the cache's checksum, and one read buffer
+
+*From the six-part TD review (`dev/td-review-2026-11.md`, finding 4).* A game opened from
+its stack image more slowly than from the text it replaces: a cold open of a 10,240-row
+stack took 26–31 ms from the image and 16–18 ms from text. Of the image load's 112M
+instructions, 77M were its checksum, an FNV byte at a time with a branch per byte for the
+hash field; and the file arrived through a buffer grown 64 KB at a time.
+
+- **The checksum is the cache's** (`detail::content_hash`, four lanes of multiply and
+  rotate): over the header with its hash field zeroed and over the rest, as a cache file's
+  is. The format's version is 2, so a version-1 image is refused as another version, not
+  as damaged.
+- **One buffer.** Read from disk, the image's buffer is reserved at the file's size first,
+  so it is not grown and copied as the file arrives. A host's own reader still appends.
+- **Numbers** (release; the review's stack: 64 fighters × 160 moves, a 9.6 MB image; a
+  local matrix was running on the machine, so the instruction counts are the firm figure):
+
+  | | before | after |
+  |---|---:|---:|
+  | cold open from the image, whole process | 115.9M instructions | 39.8M |
+  | cold open from the image | 26–31 ms | 9.1–14.6 ms |
+  | warm open from the image (best of 3) | 16.5 ms | 3.3 ms |
+  | allocations / peak / live | 92 / 25.3 MB / 8.6 MB | 84 / 18.2 MB / 8.6 MB |
+  | page faults, cold | 8,507 | 4,436 |
+  | open from text, the table built (warm) | | 13.6 ms |
+
+  The image now opens faster than the text, as it should.
+- **Not yet:** each layer section is still copied into an arena of its own and hashed
+  again by the cache's own check, and the table block is copied once more: that is the
+  peak's 18 MB against 8.6 MB kept. Loading them in place, in one arena that owns the
+  file's bytes, changes who owns the buffer, so it waits for a design note.
+- **Tests.** `test_table.cpp`: an image whose version field reads 1 is refused as
+  ErrorCode::Refused, naming both versions; the damaged-image test still holds.

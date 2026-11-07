@@ -320,4 +320,13 @@ TEST_CASE("an image's table that does not match the compiled view is skipped, wi
     auto r = open_project(bad, project);
     REQUIRE_FALSE(r);
     CHECK(text(r.error()).find("damaged") != std::string::npos);
+    // An image of an older version is refused by its version, not as damaged (D309).
+    std::string old = image;
+    old[10] = 1;  // the version, after the ten bytes of magic
+    old[11] = 0;
+    Config older({.tweaks = nullptr, .stack_image = dir.write("old.datb", old)});
+    auto o = open_project(older, project);
+    REQUIRE_FALSE(o);
+    CHECK(o.error().code() == ErrorCode::Refused);
+    CHECK(text(o.error()).find("of version 1; this build reads version 2") != std::string::npos);
 }
