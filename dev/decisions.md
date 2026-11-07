@@ -10937,3 +10937,38 @@ at four times the memory per live task; it was 16 to 64 times.
 - **Tests.** `test_tasks.cpp`: a small frame and an 8 KB frame take blocks of two classes,
   a chunk each; finished, each goes back to its own class, and spawning both again adds no
   chunk.
+
+## D311. Baked tables: a changed source compared by content
+
+*From the six-part TD review (`dev/td-review-2026-11.md`, finding 6).* A Config rebuilds a
+baked table only when the arrays holding its records change, and it told by pointer. A
+merge builds anew every array a layer overrides, so in a stack whose upper layer retunes one
+fighter's moves, any edit anywhere, a volume setting, handed back a new copy of that
+fighter's moves array, equal to the last, and the whole table was rebuilt: 1.45 ms an edit
+at 10,240 rows against 0.002 ms with one layer, and 21 ms in a game built at -O0, where the
+generated reader runs at the game's optimization level.
+
+- **Compared by content.** A source whose pointer changed is compared with the one the
+  table was built from (`structurally_equal`); the slot now holds its sources, so the old
+  arrays are there to compare. Equal, the new array takes the old one's place and the next
+  compare is a pointer test. Records the merge shares with the last tree are pointer tests
+  inside the compare, so it costs about the records a layer overrides.
+- **And by the tags above.** The slot also keeps the tags each `*` of `(@at ...)` stood
+  for: the rows carry them, and an unchanged records array under a renamed parent
+  (`fighters kestrel moves` become `fighters falcon moves`) must rebuild. The pointer
+  compare missed that too, whenever the merge shared the array.
+- **Numbers** (release, not shipping; the review's stack: 64 fighters × 160 moves, the
+  content layer retuning one move):
+
+  | | before | after |
+  |---|---:|---:|
+  | an unrelated edit, two layers, `set` + `apply_edits` | 1.451 ms | 0.008 ms |
+  | an unrelated edit, one layer | 0.002 ms | 0.003 ms |
+  | an edit to one record's field | 1.452 ms | 1.507 ms |
+
+  The last row is the table rebuilt whole, as before: rows are kept in one block whose pool
+  pointers are absolute, so keeping an unchanged parent's rows means relocating them into
+  the new block. That is the next step for this finding, not this one.
+- **Tests.** `test_table.cpp`: a layer and a live edit elsewhere keep a table whose records
+  an upper layer overrides, and an edit to a record rebuilds it; the same records under a
+  renamed parent rebuild it.

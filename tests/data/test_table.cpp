@@ -179,6 +179,40 @@ TEST_CASE("a table is rebuilt when its records change, a held handle keeps the o
     CHECK(text(twice.error()).find("registered already") != std::string::npos);
 }
 
+TEST_CASE("an edit elsewhere keeps a table whose records a layer overrides (D311)") {
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(add_table<Move>(cfg));
+    REQUIRE(cfg.push_layer_text("base", kFighters));
+    // The tune layer overrides kestrel's moves: every merge builds that array anew.
+    REQUIRE(cfg.push_layer_text("tune", "(fighters (kestrel (moves (jab (damage 4)))))"));
+    const Table<Move> tuned = table<Move>(cfg);
+    // A layer that touches nothing below fighters: an equal moves array, the table kept.
+    REQUIRE(cfg.push_layer_text("other", "(volume 3)"));
+    CHECK(table<Move>(cfg).block() == tuned.block());
+    if constexpr (!kShipping) {
+        REQUIRE(cfg.set("volume", 4));
+        cfg.apply_edits();
+        CHECK(table<Move>(cfg).block() == tuned.block());
+        // An edit to a record does rebuild it.
+        REQUIRE(cfg.set("fighters.kestrel.moves.kick.damage", 9));
+        cfg.apply_edits();
+        CHECK(table<Move>(cfg).block() != tuned.block());
+        CHECK(table<Move>(cfg)[2].damage == 9.0f);
+    }
+}
+
+TEST_CASE("a parent renamed above an unchanged records array rebuilds the table (D311)") {
+    Config cfg({.tweaks = nullptr});
+    REQUIRE(add_table<Move>(cfg));
+    REQUIRE(cfg.push_layer_text("base", "(fighters (kestrel (moves (jab (startup 4)))))"));
+    CHECK(table<Move>(cfg).index_of("kestrel.jab") == 0);
+    // The same moves, under another fighter: the rows' tags change with the `*`.
+    REQUIRE(cfg.remove_layer("base"));
+    REQUIRE(cfg.push_layer_text("base", "(fighters (falcon (moves (jab (startup 4)))))"));
+    CHECK_FALSE(table<Move>(cfg).index_of("kestrel.jab"));
+    CHECK(table<Move>(cfg).index_of("falcon.jab") == 0);
+}
+
 TEST_CASE("a field that is not a literal reads as its default, with a located error") {
     Config cfg({.tweaks = nullptr});
     std::vector<std::string> warnings;

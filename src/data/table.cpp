@@ -350,14 +350,30 @@ Expected<void> parse_table_at(const TableSpec& spec, TableSlot& slot) {
     return {};
 }
 
-bool table_sources_unchanged(const TableSlot& slot, const Array& root, const Allocator& alloc) {
+namespace {
+// What a walk found, kept in the slot: the arrays, held, and the tags of each one's `*`s.
+void keep_sources(TableSlot& slot, const Vec<Governed>& found, const Vec<Symbol>& tags) {
+    slot.sources.clear();
+    for (const Governed& g : found) slot.sources.emplace_back(const_cast<Array*>(g.parent));
+    slot.source_tags.assign(tags.begin(), tags.end());
+}
+}  // namespace
+
+bool table_sources_unchanged(TableSlot& slot, const Array& root, const Allocator& alloc) {
     Vec<Governed> found(alloc);
     Vec<Symbol> tags(alloc);
     Walker w{{slot.at.data(), slot.at.size()}, found, tags, Vec<Symbol>(alloc)};
     w.walk(root, 0);
-    if (found.size() != slot.sources.size()) return false;
+    if (found.size() != slot.sources.size() || tags.size() != slot.source_tags.size()) return false;
+    if (!std::equal(tags.begin(), tags.end(), slot.source_tags.begin())) return false;
+    // A merge builds anew an array a layer overrides, so an edit elsewhere hands back an
+    // equal copy: compared by content, its records shared with the last tree's are pointer
+    // tests (D311).
     for (size_t i = 0; i < found.size(); ++i)
-        if (found[i].parent != slot.sources[i]) return false;
+        if (found[i].parent != slot.sources[i].get() &&
+            !structurally_equal(*found[i].parent, *slot.sources[i]))
+            return false;
+    keep_sources(slot, found, tags);
     return true;
 }
 
@@ -373,7 +389,7 @@ Ref<const BakedTable> build_table(TableSlot& slot, const Array& root, const Allo
     Vec<Symbol> wild(alloc);
     Walker w{at, found, wild, Vec<Symbol>(alloc)};
     w.walk(root, 0);
-    slot.sources.clear();
+    keep_sources(slot, found, wild);
     slot.errors.clear();
     struct Record {
         const Array* array;
@@ -381,7 +397,6 @@ Ref<const BakedTable> build_table(TableSlot& slot, const Array& root, const Allo
     };
     Vec<Record> records(alloc);
     for (uint32_t g = 0; g < found.size(); ++g) {
-        slot.sources.push_back(found[g].parent);
         const Array& p = *found[g].parent;
         for (uint32_t i = p.tag().empty() ? 0 : 1; i < p.size(); ++i)
             if (is_record(p[i])) records.push_back({p[i].try_array(), g});
@@ -633,8 +648,7 @@ void record_table_sources(TableSlot& slot, const Array& root, const Allocator& a
     Vec<Symbol> tags(alloc);
     Walker w{{slot.at.data(), slot.at.size()}, found, tags, Vec<Symbol>(alloc)};
     w.walk(root, 0);
-    slot.sources.clear();
-    for (const Governed& g : found) slot.sources.push_back(g.parent);
+    keep_sources(slot, found, tags);
 }
 
 Expected<void> write_table(const BakedTable& table, const TableSpec& spec, Str& out) {
