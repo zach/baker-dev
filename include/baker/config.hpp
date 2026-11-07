@@ -171,6 +171,10 @@ struct ValidatorStack {
     // What the layers' files declared (Config::read_session), with a checked candidate's
     // text read too.
     const LoadSession& session;
+    // What changed (D316): the candidate's own tree when a candidate is checked, the pushed
+    // layer's after a push; null after a reload, a toggle, a restore, a removal, or anything
+    // else that may change the tree anywhere. A validator may judge only what it names.
+    const Array* changed = nullptr;
 };
 
 struct ValidatorOptions {
@@ -208,7 +212,8 @@ struct LayerOptions {
     // name with the same text, or the same tree, on top. Otherwise the push checks, as
     // without it. A tree must not change between the check and the push. A validator that
     // reads something outside the Config (check_validator's Context) is trusted not to have
-    // changed its verdict meanwhile.
+    // changed its verdict meanwhile. A push whose report holds runs no any_thread validator
+    // after its merge: the check that made the report ran them over the same stack (D316).
     const LayerReport* checked = nullptr;
 };
 
@@ -707,7 +712,9 @@ public:
     // restore) with the stack and the warning handler, to report on the data, and by each
     // check of a candidate layer: baker::shape::validator() checks shapes this way (D84),
     // and baker::check_validator() script calls (D102). Validators run in the order they
-    // were added; one added with checks_only runs in the checks alone.
+    // were added; one added with checks_only runs in the checks alone, and an any_thread one
+    // not after the merge of a push whose report held (LayerOptions::checked). The stack's
+    // `changed` says what a check's candidate, or a push, changed (D316).
     using Validator =
         Callback<void(const ValidatorStack& stack, const Callback<void(const Error&)>& warn)>;
     using ValidatorId = uint32_t;

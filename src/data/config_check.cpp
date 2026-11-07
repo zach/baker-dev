@@ -438,7 +438,7 @@ LayerReport run_check(const Basis& b, std::string_view name, const Ref<Array>& c
     Vec<Ref<Array>> layers(alloc);
     layers.assign(b.layers.data(), b.layers.data() + b.layers.size());
     layers.push_back(candidate);
-    const ValidatorStack with{*merged, {layers.data(), layers.size()}, session};
+    const ValidatorStack with{*merged, {layers.data(), layers.size()}, session, &tree};
     for (const Config::Validator* v : b.validators)
         (*v)(with, [&warnings](const Error& e) { warnings.push_back(e); });
 
@@ -498,7 +498,7 @@ LayerReport Config::Impl::check_left_out(const Config& c, const Ref<Array>& cand
                                          const LayerPolicy& policy) const {
     const Ref<Array> merged =
         detail::merge(*c.root(), *candidate, MergePolicy::Overwrite, merge_scratch);
-    const ValidatorStack with{*merged, stack_layers(candidate), session};
+    const ValidatorStack with{*merged, stack_layers(candidate), session, candidate.get()};
     Vec<Error> warnings(alloc);
     for (const Check& v : validators)
         if (!v.options.any_thread)

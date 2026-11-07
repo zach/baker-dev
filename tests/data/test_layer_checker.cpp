@@ -148,7 +148,7 @@ TEST_CASE("a checker's report holds until the Config changes, and the push runs 
     CHECK(any_runs == 1);
     REQUIRE(f.cfg->push_layer_text("hotfix", good, {.policy = &policy, .checked = &r}));
     CHECK(owner_runs == 2);  // the left-out check, then the merge
-    CHECK(any_runs == 2);    // the merge alone
+    CHECK(any_runs == 1);    // not again: the checker's run holds for the merge (D316)
     CHECK(f.cfg->get<int>("shop.item9.price") == 12);
     REQUIRE(f.cfg->remove_layer("hotfix"));
 

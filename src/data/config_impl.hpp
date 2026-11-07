@@ -513,7 +513,15 @@ struct Config::Impl {
                                        std::string_view name, const Ref<Array>& tree,
                                        uint64_t subject, bool on_top,
                                        std::span<const Node> commands, const LoadSession& session,
-                                       std::span<const Error> read_warnings) const;
+                                       std::span<const Error> read_warnings,
+                                       bool* held = nullptr) const;
+    // What the next commit's validators are told (D316): the pushed layer's tree, for a
+    // push (ValidatorStack::changed), and whether the push's report held, when the
+    // any_thread validators do not run again. Set around the push's change(), then cleared.
+    const Array* pushed = nullptr;
+    bool pushed_held = false;
+    // change() for a push of `tree`, whose report held if `held`.
+    void change_pushed(Config& c, const Array* tree, bool held);
     // push_layer by path or text, once the layer is named.
     Expected<void> push_read(Config& c, LayerState&& layer, LayerOptions opts);
     // A pushed layer's options: its condition read (D264), and options.enabled from it.

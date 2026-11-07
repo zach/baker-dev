@@ -46,6 +46,7 @@ Each finding is marked:
 | 29 | Data core | A curve read from the tree costs 5× a baked one | 95 against 20 ns | decide |
 | 30 | Baked | Generated structs keep field order and its padding | `Scalars`: 40 B, could be 32 | decide |
 | 31 | Script | Capture scans globals linearly | linear | fix |
+| 32 | Shapes | A whole shape check with a `(key_of TABLE)` field is quadratic: `Checker::table_for` looks for the table outward from each record, scanning the wide table array each time | 6 s at 100k records, against 13 ms without the field; found while building D316 | fix: remember a miss per (array, segment) |
 
 ## Notes
 

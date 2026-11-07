@@ -11128,6 +11128,109 @@ thousands of copies of one warning.
 - **Tests.** `test_shape.cpp`: three records with one undeclared field and one with another
   give two warnings, the first at the first record with the count of the other two.
 
+## D316. The shape check of a push: what the layer changes, not the tree
+
+*From the six-part TD review (`dev/td-review-2026-11.md`, finding 11); the design and the
+owner's three answers are in `dev/shape-push-scope.md`.* `shape::validator()` checked every
+record of the merged tree each time it ran: in each check of a candidate layer, after every
+merge in a development build, and both for a push whose report still held. So one old
+warning in the base refused every overlay under `warnings_refuse`, and each push cost
+O(tree).
+
+- **`ValidatorStack::changed`.** The candidate's own tree in a check (`run_check`, and the
+  validators a `LayerChecker` left out); the pushed layer's tree in the commit after a push
+  of a tree, or of text or a file on top; null after a reload, a toggle, a restore, a
+  removal, `set_layer_text`, and a file layer placed under others (the layers above read
+  again, and may change anywhere). The Config sets it around the push's commit
+  (`change_pushed`).
+- **`shape::Scope` on `shape::check`.** Given `changed`, the check walks the merged tree only
+  down the paths the changed tree names, each found as the merge found it: the first child
+  with the tag, or, on a miss, the one that answers to it by `(@aka ...)` or `(@id ...)`.
+  Every array met on the way is checked as the whole walk checks it (`instance()` for the
+  shapes that govern it), so a record the layer changes is checked whole, with its fields
+  from below, and a record it does not name is not visited. A tag the layer writes twice (a
+  list of records) checks every merged child with it, whole. The walk is its own function
+  (`walk_named`, `step`, `here`); `Checker::walk`, which the whole check runs, is compiled
+  as it was, and the whole check's only new work is in `enter()` and `key()`, both out of
+  line: a null test each. A few names scan the merged array's tags (`try_find`); past eight,
+  one pass over the merged array finds them all. A scoped check's first 64 key lookups scan
+  the table rather than index it (`in()`), since it makes few.
+- **Removals follow the keys.** Each `(key #remove)` in the changed tree is a removed key
+  of the table its parent is, with the key the record had and its aliases when a layer below
+  holds it (`Scope::below`). The key uses of the merged tree are gathered once per check, by
+  the whole walk's own key path (D288) with its findings set aside, filtered by the removed
+  keys; each record found is then checked as the walk down to it meets it, once. This walk
+  is O(tree): a candidate that removes something costs what the whole check did, plus its
+  scoped walk; what it reports is still only its own (the owner's first answer). A removal
+  of what a key field's table path passes through (the table, or a record that holds it)
+  checks the whole tree.
+- **Shape declarations.** The validator checks the whole tree for a changed tree whose file
+  declared a `#shape` (`ShapeDecl::root`). Shapes change only through a layer's
+  declarations or a reload, both of which take the whole check, so no other "shapes changed
+  since the last full check" test is needed.
+- **A held report.** A push whose report holds (`Holding::Yes`, or `LeftOut`, whose
+  left-out validators run then) runs no `any_thread` validator after its merge; validators
+  not `any_thread` still run, scoped.
+- **What changes for a host.** A candidate's report holds only its own findings: those in
+  the records it names, adds or removes, and in records that name what it removed. After a
+  push in a development build, the warning handler gets the same; after a reload, toggle,
+  restore or removal, the whole tree's. A held push's merge no longer reports the shape
+  validator's findings again. The other validators (`id_validator`, `rules_validator`,
+  `check_validator`) still judge the whole tree; they may read `changed`.
+- **Numbers** (release, not shipping, this machine; median; a candidate over a base of
+  keyed units, each `(hp int (@range ...)) (speed float ...) (weapon ...) (tags (list
+  symbol))`, with 50 weapons; before is the branch's base, 298b040). *validator* is
+  `shape::validator()` called alone over the stack with the candidate on top; *check* is
+  `check_layer` with it as the only validator; *held push* is `push_layer` of a tree with a
+  report that holds. The shape set is built in each run, as before.
+
+  Units with `(weapon symbol)`, no key field (41 runs, two interleaved passes agreed within
+  5%):
+
+  | | validator before | after | check before | after | held push before | after |
+  |---|---:|---:|---:|---:|---:|---:|
+  | 10k units, 1 record | 1,356 µs | 1.7 µs | 1,972 µs | 709 µs | 1,506 µs | 170 µs |
+  | 10k units, 100 records | 1,270 µs | 217 µs | 2,175 µs | 1,178 µs | 1,605 µs | 321 µs |
+  | 10k units, 1 removal | 1,321 µs | 1.5 µs | 1,767 µs | 486 µs | 1,570 µs | 264 µs |
+  | 100k units, 1 record | 13,258 µs | 1.6 µs | 21,471 µs | 8,605 µs | 15,065 µs | 1,883 µs |
+  | 100k units, 100 records | 13,355 µs | 2,011 µs | 24,230 µs | 12,535 µs | 17,150 µs | 3,590 µs |
+  | 100k units, 1 removal | 13,175 µs | 1.5 µs | 19,090 µs | 5,894 µs | 16,285 µs | 2,931 µs |
+
+  Units with `(weapon (key_of weapons))` (21 runs at 10k, 5 at 100k, one pass each):
+
+  | | validator before | after | check before | after | held push before | after |
+  |---|---:|---:|---:|---:|---:|---:|
+  | 10k units, 1 record | 59,237 µs | 5.0 µs | 58,322 µs | 676 µs | 59,475 µs | 164 µs |
+  | 10k units, 100 records | 59,661 µs | 650 µs | 60,560 µs | 1,604 µs | 60,081 µs | 320 µs |
+  | 10k units, 1 removal | 56,627 µs | 32,381 µs | 57,377 µs | 32,724 µs | 58,086 µs | 272 µs |
+  | 100k units, 1 record | 6.40 s | 33 µs | 6.42 s | 8,629 µs | 6.43 s | 2,125 µs |
+  | 100k units, 100 records | 6.24 s | 5,222 µs | 6.14 s | 15,933 µs | 6.36 s | 3,849 µs |
+  | 100k units, 1 removal | 6.16 s | 3.15 s | 6.15 s | 3.17 s | 6.48 s | 5,502 µs |
+
+  - What is left of a check, past the shape walk, is the rest of `run_check`: the merge of
+    the candidate (a 100k-key table is copied), the effect, the folds. A held push is the
+    merge and the binding; the remove between runs is untimed.
+  - The 100-record row's validator time is one pass over the 100k children to find the
+    hundred, and, with the key field, each record's key lookup (below).
+  - **A whole check with a key field is quadratic, before and after (found here, not
+    fixed).** `table_for` looks a key's table up outward from the record with `try_find`,
+    so each `(weapon w3)` in `(units ...)` scans the 100k-wide `units` array for
+    `weapons` before it reaches the root: O(records x width), 6 s at 100k units and 57 ms
+    at 10k against 13 ms and 1.3 ms without the field. A removal's key-use walk is a whole
+    walk, so it pays the same; the scoped walk pays one scan of `units` a record. A
+    remembered miss per (array, segment) would make it linear; it is a separate step,
+    for the review's list.
+- **Tests.** `test_shape.cpp`: a candidate changing one record has none of the base's
+  warnings and passes `warnings_refuse`, a record it names carries its old warning, a broken
+  record and a bad key are refused, a candidate with `#shape` is checked whole; a removal
+  reports the two records naming the removed key, at their lines, and no other, a removal
+  of the table checks the whole, and an alias of the removed record is followed; a scoped
+  `shape::check` alone; after a push (by file, and by tree) the handler gets the pushed
+  record's finding alone, after a reload and a toggle the whole tree's; a held push runs the
+  any_thread validators once, the check's, and the others again. `test_layer_checker.cpp`'s
+  held push counted the any_thread validator twice, the check's and the merge's; it now
+  counts once.
+
 ## D317. Scratch in one pass; a change rebinds what it changed
 
 *From the six-part TD review (`dev/td-review-2026-11.md`, findings 13 and 16).* Two costs of

@@ -281,11 +281,27 @@ struct AssetUse {
 // `assets` command writes (baker.assets/1). Nothing is checked.
 [[nodiscard]] List<AssetUse> asset_uses(const Array& tree, const Set& shapes);
 
-// Checks every array of `tree` that a shape of `shapes` governs, into `report`. With
-// `packs`, a key a harder pack's field names from a softer pack's table is a warning, as the
-// one-way rule warns of a call (D80).
-void check(const Array& tree, const Set& shapes, Report& report,
-           const LoadSession* packs = nullptr);
+// What check() limits itself to (D316): a candidate layer's own tree, merged into `tree`.
+// Given `changed`, the check walks `tree` only down the paths `changed` names, and checks
+// each array there as a whole check would, with what it holds from below; arrays it does not
+// name are not visited, so their findings are not reported. A record `changed` removes,
+// (key #remove), is followed through the keys that name it: each record whose key field
+// names the removed key (or an alias the record had in `below`) is checked too. Removing
+// what a key field's table path passes through (a table, or a record holding one) checks
+// the whole tree. Shapes that `changed` declares are the caller's to see: the validator
+// checks the whole tree for a candidate that declares a #shape.
+struct Scope {
+    const Array* changed = nullptr;  // null: the whole tree
+    // The layers' own trees under `changed`, bottom to top: where a removed record's
+    // (@aka ...) names are found. Empty: a removal follows its key alone.
+    std::span<const Ref<Array>> below = {};
+};
+
+// Checks every array of `tree` that a shape of `shapes` governs, into `report`, or, with a
+// scope, those it names. With `packs`, a key a harder pack's field names from a softer
+// pack's table is a warning, as the one-way rule warns of a call (D80).
+void check(const Array& tree, const Set& shapes, Report& report, const LoadSession* packs = nullptr,
+           const Scope& scope = {});
 // A warning in `report` for each shape of `shapes` that governs no array of `tree`: one whose
 // (@at ...) names a place the data does not have (a keyed shape one level off checks
 // nothing), or whose tag nothing carries. A tool's check, not a validator's: data a stack
@@ -299,7 +315,9 @@ void each_ruled(
     const Callback<void(const Array& record, const Shape& shape, std::string_view path)>& visit);
 // For Config::add_validator: reads the shapes each layer of the stack declares, bottom to
 // top, with the stack's session's packs (so harder packs' shapes hold, D145), and checks the
-// merged root against them, reporting errors and warnings to the warning handler. It reads
+// merged root against them, reporting errors and warnings to the warning handler. Given a
+// stack's `changed` tree (a candidate's, or a pushed layer's), it checks only what that
+// tree names (Scope, D316), unless the tree's file declares a #shape: then the whole. It reads
 // only its stack, so it may run on any thread:
 //   cfg.add_validator(baker::shape::validator(), {.any_thread = true});
 // It does not evaluate rules: add tools::rules_validator(ctx) for them. A build without

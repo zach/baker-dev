@@ -1034,9 +1034,10 @@ void Config::Impl::commit(Config& c, ReloadRecord& rec, uint64_t& t) {
     if (!tables.empty() && !hold_tables) build_tables(*c.root_, false);
     if (logging() && before) record_commit(c, *before, *c.root_, rec.trigger);
     if (!validators.empty()) {
-        const ValidatorStack stack{*c.root_, stack_layers(), as_read};
+        const ValidatorStack stack{*c.root_, stack_layers(), as_read, pushed};
         for (const Check& v : validators)
-            if (!v.options.checks_only) v.fn(stack, warn);
+            // A held report's check ran the any_thread ones over this stack (D316).
+            if (!v.options.checks_only && !(pushed_held && v.options.any_thread)) v.fn(stack, warn);
     }
     lap(rec.merge_ns, t);
     ++c.epoch_;
@@ -1068,6 +1069,14 @@ void Config::Impl::change(Config& c, Symbol trigger) {
     uint64_t t = rec.start_ns;
     commit(c, rec, t);
     finish(c, rec, t);
+}
+
+void Config::Impl::change_pushed(Config& c, const Array* tree, bool held) {
+    pushed = tree;
+    pushed_held = held;
+    change(c, trigger_name("layer"));
+    pushed = nullptr;
+    pushed_held = false;
 }
 
 Expected<void> Config::Impl::may_change(const Config& c) const {
@@ -1184,8 +1193,10 @@ Expected<size_t> Config::Impl::placement(LayerOptions& opts) const {
 Expected<void> Config::Impl::admit(const Config& c, const LayerOptions& opts, std::string_view name,
                                    const Ref<Array>& tree, uint64_t subject, bool on_top,
                                    std::span<const Node> commands, const LoadSession& session,
-                                   std::span<const Error> read_warnings) const {
-    switch (subject ? c.holds(opts, subject, on_top) : Holding::No) {
+                                   std::span<const Error> read_warnings, bool* held) const {
+    const Holding holding = subject ? c.holds(opts, subject, on_top) : Holding::No;
+    if (held) *held = holding != Holding::No;
+    switch (holding) {
         case Holding::Yes: return refuse_unless(*opts.checked);  // its verdict (D165)
         case Holding::LeftOut: return refuse_unless(check_left_out(c, tree, session, *opts.policy));
         case Holding::No: break;
@@ -1272,14 +1283,18 @@ Expected<void> Config::Impl::push_read(Config& c, LayerState&& layer, LayerOptio
             for (const Error& w : found) warn(w);
         }
     }
+    bool held = false;
     if (opts.policy) {
         // A file has no report that holds: no check reads by path.
         const uint64_t subject = layer.text ? text_subject(layer.name, *layer.text) : 0;
         if (auto r = admit(c, opts, layer.name, layer.root, subject, *at == layers.size(),
-                           layer.after->autorun(), *layer.after, read_warnings);
+                           layer.after->autorun(), *layer.after, read_warnings, &held);
             !r)
             return r;
     }
+    // On top, what changed is the layer's own tree (D316); placed lower, the layers above
+    // read again, and may change anywhere.
+    const Array* tree = layer.root.get();
     if (*at == layers.size()) {
         layers.push_back(std::move(layer));
     } else {
@@ -1288,8 +1303,9 @@ Expected<void> Config::Impl::push_read(Config& c, LayerState&& layer, LayerOptio
         placed.insert(placed.begin() + static_cast<ptrdiff_t>(*at), std::move(layer));
         if (auto r = reread(placed, *at + 1); !r) return r;
         layers = std::move(placed);
+        tree = nullptr;
     }
-    change(c, trigger_name("layer"));
+    change_pushed(c, tree, held);
     return {};
 }
 
@@ -1380,9 +1396,10 @@ Expected<void> Config::push_layer(std::string_view name, Ref<Array> overlay, Lay
         return Unexpected(refused("there is already a layer named '" + Str(name) + "'"));
     const auto at = impl_->placement(options);
     if (!at) return Unexpected(at.error());
+    bool held = false;
     if (options.policy)
         if (auto r = impl_->admit(*this, options, name, overlay, tree_subject(name, overlay.get()),
-                                  *at == impl_->layers.size(), {}, impl_->as_read, {});
+                                  *at == impl_->layers.size(), {}, impl_->as_read, {}, &held);
             !r)
             return r;
     LayerState layer(impl_->alloc);
@@ -1395,8 +1412,9 @@ Expected<void> Config::push_layer(std::string_view name, Ref<Array> overlay, Lay
     layer.root = std::move(overlay);
     // An overlay adds no macros, so the layers above need no re-read.
     layer.after = impl_->session_below(impl_->layers, *at);
+    const Array* tree = layer.root.get();
     impl_->layers.insert(impl_->layers.begin() + static_cast<ptrdiff_t>(*at), std::move(layer));
-    impl_->change(*this, trigger_name("layer"));
+    impl_->change_pushed(*this, tree, held);
     return {};
 }
 
