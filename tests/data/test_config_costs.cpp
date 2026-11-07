@@ -38,7 +38,7 @@ struct Model {
     }
 };
 
-// The overlay as scratch built it before D317: each entry merged in turn.
+// The overlay as scratch built it before the one-pass builder: each entry merged in turn.
 Ref<Array> fold(const Model& m) {
     Ref<Array> overlay = Array::make(0);
     for (const auto& [text, values] : m.entries) {

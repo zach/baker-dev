@@ -74,7 +74,7 @@ void TweakIndex::touched(TweakRegistry& reg, const TweakBase& t) noexcept {
         nodes_[n].stale = true;
 }
 
-// Every tweak bound in the registry's order, as before D317, then indexed.
+// Every tweak bound in the registry's order, as a full rebind does, then indexed.
 void TweakIndex::index(TweakRegistry& reg, const Array& root,
                        const Callback<void(const Error&)>& warn, Vec<TweakBase*>& moved) {
     entries_.clear();
