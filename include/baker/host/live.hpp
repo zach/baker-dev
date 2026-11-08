@@ -18,8 +18,8 @@
 //     data sits beside the executable does;
 //   - opens it (open_project, with `open`'s options);
 //   - adds the check validator, and the shape validator when baker::shape is built;
-//   - binds the Config's tools (tools::bind_config_tools), and those that write files only with
-//     `console_write`;
+//   - outside shipping, binds the Config's tools (tools::bind_config_tools), and those that
+//     write files only with `console_write`;
 //   - runs every enabled layer's #autorun commands, then calls `changed`;
 //   - watches the stack's files and the project file, and serves the console on
 //     `console_port` if one is given, or on a free port with `console_any_port`.
@@ -31,11 +31,13 @@
 // The Config's clock is the files' (file_clock_now_ns), so a reload's origin is when its
 // file was saved, and loop_stats() measures from the save to the frame that showed it.
 // A quiet frame allocates nothing. Under BAKER_SHIPPING the watcher and the console are
-// inert; the stack still opens, and takes live-ops overlays as the Config allows.
+// inert and config.* is not bound, so none of the tools' code is linked; the stack still
+// opens, and takes live-ops overlays as the Config allows.
 
 #include <baker/callback.hpp>
 #include <baker/config.hpp>
 #include <baker/expected.hpp>
+#include <baker/host/console.hpp>
 #include <baker/host/watcher.hpp>
 #include <baker/parse.hpp>
 #include <baker/project.hpp>
@@ -76,6 +78,9 @@ struct LiveOptions {
     // with another instance: console_port() then says which.
     bool console_any_port = false;
     bool console_write = false;  // also bind config.write_back and config.promote
+    // The console's budget a frame and its byte cap a client (ConsoleOptions: 0.5 ms and
+    // 1 MB). Its log, if left empty, is `log`.
+    ConsoleOptions console{};
     // After the load, after each change to the stack once #autorun has run, and at the
     // next begin_frame after a live edit (a set(), from the game, a bound tweak, or the
     // console; a clear_scratch(), a write-back, a restore).

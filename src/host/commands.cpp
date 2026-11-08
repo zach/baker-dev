@@ -3,6 +3,7 @@
 #include <baker/host/commands.hpp>
 #include <baker/host/live.hpp>
 #include <baker/image.hpp>
+#include <baker/tools/console.hpp>
 #include <baker/tools/format.hpp>
 #include <baker/tools/layers.hpp>
 #include <baker/tools/reference.hpp>
@@ -63,6 +64,14 @@ struct Loaded {
 bool load(Loaded& l, const CommandLine& line) {
     if (l.hooks.bind) l.hooks.bind(l.ctx);
     l.bound = true;
+    // A shipping Live binds no config.* (D322); the commands are tool code, and eval offers
+    // them in every build. Bound before the open, as Live binds them before #autorun.
+    if constexpr (kShipping)
+        if (auto r = tools::bind_config_tools(l.ctx, l.live.config()); !r) {
+            err(describe(r.error()));
+            err("\n");
+            return false;
+        }
     LiveOptions o;
     o.project = line.project;
     o.built = l.hooks.built;

@@ -158,7 +158,8 @@ live.end_frame();                  // the frame that shows a reload
 
 `open` finds the nearest `baker-project.dta` (or takes a `Project` built in code, for a
 packaged game), opens the stack, adds the check validator and, when `baker::shape` is
-built, the shape, ID and rules validators, binds the Config's tools, and runs every layer's
+built, the shape, ID and rules validators, binds the Config's tools (`config.*`; not in a
+shipping build, so a shipping game links none of their code), and runs every layer's
 `#autorun`. A development build runs the validators after every change to the stack and
 reports what they find; a shipping build adds them `checks_only`, so they judge every check
 and policy push of an overlay but cost nothing at a change (D307).
@@ -186,11 +187,30 @@ on the disk a path is, so it is watched like any other and still reported by you
 
 ### `Console`: one-line requests on loopback
 
-`Console(ctx).listen(port)` serves 127.0.0.1 only; `poll()` once a frame answers each
-complete line. A request, `(ID {command})`, gets one line of
+`Console(ctx).listen(port)` serves 127.0.0.1 only; `poll()` once a frame answers the
+complete lines clients have sent. A request, `(ID {command})`, gets one line of
 [reply JSON](reply-json.md); any other line is evaluated and answered as text. Every reply
 is its lines, then an empty line. A frame's replies go out together, so a tool's batch of
-requests is answered within the frame. `Live` runs one when given a port.
+requests is answered within the frame, up to the frame's budget. `Live` runs one when given
+a port, with `LiveOptions::console`.
+
+What a console may cost a frame is bounded by `ConsoleOptions`:
+
+- **`budget_ns`, 0.5 ms by default.** A poll answers lines until that much of it is spent,
+  read on a steady clock after each line, and leaves the rest, in order, for the next
+  poll. It always answers one, so a backlog moves every frame, and the clients take turns
+  at going first. A poll overruns its budget by at most the line it was answering. 0 answers
+  every complete line in one poll, however long they take.
+- **`max_bytes`, 1 MB by default.** A client holding more than this of unanswered input is
+  dropped, and `log` (Live's `log`, unless you set one) is told. While more than this of a
+  client's replies waits unsent, its further lines wait unanswered, so a client that sends
+  without reading reaches the cap and is dropped; one reply, however large, is sent whole.
+  0 is no cap.
+
+```cpp
+live.open({.project = "data", .console_port = 4555,
+           .console = {.budget_ns = 250'000, .max_bytes = 256 * 1024}});
+```
 
 ### The commands
 
