@@ -11809,6 +11809,116 @@ only outside it.
     `config.get` and `config.set` are bound, and `config.write_back` only with
     `console_write`.
 
+## D323. A curve read from a load bakes at its first sample; float results stay as they are
+
+*Findings 25 and 29 of `dev/td-review-2026-11.md`, and the owner's decisions on them.*
+
+- **Curves (finding 29).** A curve read from a tree sampled its nodes: each key's numbers
+  read through their arrays, about three times a host's points, and `find<Curve>` checked
+  every point at each read. The owner chose that the first sample bake the curve and cache it
+  beside the node until it changes.
+  - **Where the copy lives.** In the load that holds the curve's array: an `Arena` gains an
+    atomic pointer to a `CurveCache`, made at the first sample of one of its curves and freed
+    in `Arena::free` with the load's blocks. The `Array` header, the `Owner` and a solo
+    block are unchanged, so no array pays for it. A copy cannot outlive its nodes, and a
+    later array at the same address belongs to a later load with its own cache.
+  - **Threads.** The cache is a fixed table of 128 slots. A slot is filled once by a
+    compare-and-swap and never emptied before the load is freed, so a reader finds a copy
+    with acquire loads alone, takes no lock, and no copy is freed while a `Curve` may view
+    it. Two threads that bake the same curve at once both bake it; the one whose
+    compare-and-swap loses frees its copy and takes the winner's. Copies come from the
+    default allocator (tagged Trees), which already serves any thread, and not from the
+    load's own allocator, which need not.
+  - **Bounded.** At most 64 copies and 8,192 points a load (about 330 KB at the worst);
+    a curve past either, or one in an array built outside a load (a solo array: a host's
+    `set`, a script's array), samples its nodes, as before. A miss costs one allocation and
+    a read of each point.
+  - **Until it changes.** A changed curve is a new array, from a new load or a layer,
+    and bakes at its own first sample. `Array::set` on an array of a load moves the load's
+    cache to a new epoch, and a copy of an older epoch is passed over, so the curve bakes
+    again; the stale copy keeps its slot until the load is freed.
+  - **The read.** `read_curve` on an array's own values looks for a copy (without baking)
+    and, when it finds one, returns a `Curve` over it without checking the points again:
+    they were checked when it was made, and the load's arrays have not changed since. A
+    `Curve` read from a tree carries the array it was read from, in a union with the points
+    pointer and a flag in its padding, so `sizeof(Curve)` stays 24 and the views' layouts do
+    not change. `Curve::sample` on such a curve finds or makes the copy and samples it.
+  - **Numbers** (release, this machine, 4 cores at 2.1 GHz; main is a worktree of 0509a61,
+    both built with this commit's `bench_lookup.cpp`, five runs a side interleaved; median
+    and range):
+
+    | row (`bench_lookup`) | main | D323 |
+    |---|---:|---:|
+    | curve sample, 4 points monotone, from a load | 63.4 ns (63.1–64.2) | 25.8 ns (25.8–26.4) |
+    | the same, 16 points | 64.9 ns (64.8–109.8) | 26.8 ns (26.7–26.8) |
+    | the same over a host's points, 4 / 16 | 19.9 / 21.1 ns | 20.0 / 21.5 ns |
+    | `find<Curve>` and a sample, 4 points | 93.1 ns (92.3–95.1) | 45.4 ns (45.3–45.6) |
+    | the same, 16 points | 133.7 ns (133.5–219.3) | 46.3 ns (46.1–49.3) |
+
+    The review's 95 ns is the `find<Curve>` row: it is now 45 ns, whatever the points. What
+    is left over a host's curve is the lookup, the check of the leading symbols and the
+    cache's probe.
+  - **A row that moved with layout.** In the same binaries `find_float, avg` and `last`
+    read 9.1 and 11.3 ns on main against 11.6 and 17.1 ns here. Their code is inline and
+    unchanged: `tools/count_instructions.py --case lookup lookup_text call` gives 209.0,
+    377.0 and 312.0 instructions on both sides, and built with main's `bench_lookup.cpp`
+    (no curve rows) the two sides read 8.7–9.2 / 10.8–11.4 ns against 8.5–8.8 / 10.5–11.4
+    ns. The curve rows' inlined code moves the loop in the benchmark's `main`.
+    `tools/bench_compare.py --bench lookup call` (whose base builds main's benchmark file)
+    found every `call` row within its ranges.
+  - **Tests** (`test_curve.cpp`): four curves (monotone, catmull-rom looped, linear with
+    slopes extrapolated, constant) sample to the same bits from the tree's nodes, from the
+    first (baking) sample, from a host's copy of their points, and from a later read, which
+    views the copy with the same mode, extension and points; reading alone bakes nothing. A
+    new tree bakes its own; `Array::set` on a load's point makes the next read unbaked and
+    its sample the new value, then baked again (without the epoch it reads the stale copy);
+    a solo array's curve is never baked. 70 curves in one load: 64 are baked, and all
+    sample right. Four threads read and sample a load's eight curves 400 times each, over
+    four loads, racing to bake them; CI runs it under ThreadSanitizer. The golden-bits test
+    of D245's FMA check now samples baked copies, and passes unchanged.
+
+- **Float results (finding 25): not changed.** The owner chose to widen a native `float`
+  result exactly (`static_cast<double>`) and to print a double with the float's shortest
+  digits when `double(float(d)) == d`. Before applying it, the print rule was measured
+  against existing output, as the brief asked, and it changes output and breaks the
+  writer's promise that text reads back as the same double, so nothing of it is applied
+  here and the owner decides again:
+  - **Read-back.** `format_double` writes the shortest text that reads back as exactly `v`.
+    For 1.1f widened, that rule would print `1.1`, which reads back as the double nearest
+    1.1, not as 1.100000023841858: the value changes on a write and a read. Of 199,254
+    random finite float bit patterns, 4,929 (2.5%) print float digits that read back as the
+    same double; the other 97.5% do not. So "print, then parse, gives the same double" over
+    floats cannot hold under the rule; what can hold is that the parsed double narrows to
+    the same float and prints the same text again.
+  - **Existing output that would change.** `test_write.cpp` pins `Node(0.1f)` as
+    `0.10000000149011612` ("a float widened exactly"), which would print `0.1`. A double
+    that is float-exact but whose shortest text is longer than the float's would print
+    differently and read back as another value: every whole double from about 2^47 up with
+    24 significant bits, such as 2^53, now `9007199254740992`, which would print
+    `9.007199e+15`; and an authored long decimal such as `0.10000000149011612`.
+  - **The corpus.** Of 37,417 numbers in the repository's `.dta`, C++, Markdown, text,
+    JSON and Python files (outside `third_party/` and builds), 34,321 are float-exact, and
+    24 would print differently: none in a `.dta` file of `tests/` or `stacks/`, and all of
+    them integers in C++ (which Baker reads as ints, so they are unaffected) or the cases
+    above: 2^53 in `stacks/base/include/base/rng.hpp` and `tests/data/test_core.cpp`, 2^60
+    and 2^63 as doubles in tests and `node.cpp`, and `0.10000000149011612` in
+    `test_write.cpp` and `dev/syntax-survey.md`.
+  - **What the widening alone gives.** With `to_result` widening (a trial, not committed),
+    `bench_call`'s `{bob grow 0}: native method` went from 52.9 to 25.0 ns (6.0f, which the
+    present code converts at its first digit). A standalone loop over the conversion:
+    58.2 ns a float for authored values of up to four digits, 1,453 ns for random bit
+    patterns (most fall to the `%g` search), against 0.6 ns widened.
+    `std::to_chars(float)` followed by fast_float, a faster exact conversion with the same
+    output for authored values, measured 57.3 and 61.7 ns: no gain where it matters, and it
+    writes large whole floats with their exact digits where the present code rounds them.
+  - **Options for the owner:** the rule as chosen, with `test_write`'s pin changed and
+    read-back promised only to the float (and, to keep whole doubles exact, applied only
+    where the float's digits are no longer than fixed notation would be); widening with
+    exact printing, so logs show `1.100000023841858`; or the present conversion kept.
+  - **The owner kept the present conversion.** A native function's `float` result is still
+    converted through its shortest decimal (1.1f becomes 1.1 exactly), at 25–45 ns a result;
+    every written value reads back as the same double, and no output changes.
+
 ## D324. A table section without relocations, IDs on request, strings once; view members by alignment
 
 *The November review's findings 21 and 30 (`dev/td-review-2026-11.md`), as the owner decided
