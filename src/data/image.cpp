@@ -24,7 +24,9 @@ namespace baker {
 namespace {
 
 constexpr char kMagic[10] = {'M', 'O', 'I', 'R', 'A', '.', 'I', 'M', 'G', '1'};
-constexpr uint16_t kVersion = 2;  // 2: the cache's checksum (D309)
+// 2: the cache's checksum (D309); 3: a table section walked by its view's fix-ups, with no
+// relocation list, and ID columns only for views that look up by ID (D324)
+constexpr uint16_t kVersion = 3;
 constexpr uint32_t kEndian = 0x01020304;
 
 struct Header {

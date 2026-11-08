@@ -786,7 +786,9 @@ layout is written once, in the data, and the code never restates it (D269):
    (on_hit      any (@optional) (@view no)))
 ```
 
-- **`(@view)`** on a shape generates its struct.
+- **`(@view)`** on a shape generates its struct; **`(@view by_id)`** also keeps the records'
+  `(@id ...)` in the shape's table, for looking a row up by its ID. A table without it
+  carries no IDs.
 - **`(@view no)`** on a field keeps it out of the struct; the game reads it from the tree as
   before. An `any` field must be marked so.
 - **`(@cxx T)`** picks a member's C++ type for an `int` (`int8` to `uint64`) or a `float`

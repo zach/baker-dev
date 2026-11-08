@@ -11729,3 +11729,137 @@ Four costs of the path between C++ and script, and of script tasks.
     - re-watching 16,000 paths takes less than 64 times re-watching 1,000; main takes 237
       times.
   - `test_watcher.cpp` and `test_live.cpp` pass unchanged otherwise.
+
+## D324. A table section without relocations, IDs on request, strings once; view members by alignment
+
+*The November review's findings 21 and 30 (`dev/td-review-2026-11.md`), as the owner decided
+them: a table keeps an ID column only if its view asks for lookup by ID, strings are
+de-duplicated, and generated struct fields are reordered by alignment.*
+
+- **`(@view by_id)`: the view asks for lookup by ID** (finding 21). Nothing declared it: a
+  shape says nothing of IDs, which records carry as `(@id ...)` metadata, so every table kept
+  a `RecordId` per row and a sorted `(RecordId, row)` index, 40 bytes a row, whether or not
+  the game ever called `index_of(RecordId)`. The rule chosen is the simplest the owner's
+  words allow: a shape marked `(@view by_id)` in place of `(@view)` keeps both; any other
+  keeps neither. The generator writes `static constexpr bool kById` on every struct,
+  `add_table<T>` passes it as `TableSpec::by_id`, and `BakedTable::by_id()` reports it.
+  Without it, `index_of(RecordId)` is nullopt and `id_of(i)` empty; the tree keeps the IDs
+  for `find_by_id`, `id_validator` and the tools. `by_id` is in the view digest (a header
+  generated without it reads as drift) and is refused on a shape that is not `(@keyed)`.
+  The golden `move` and the content-tables example are `(@view by_id)`; `item` is not. The
+  shape JSON (`baker.shapes/1.8`) does not report it yet.
+- **Each distinct string once** (finding 21). The pool took 16-aligned room for every
+  string of every row. Now strings are aligned to 1, and the measuring pass finds each
+  string's place by its text: first against the last text of the same member (one slot per
+  member offset, which a column of repeated values hits without hashing), then in a
+  `HashMap<std::string_view, size_t>` of the texts so far; the writing pass replays those
+  places in order, copying only the first of each, so no text is looked up twice. Empty
+  strings share one terminating byte. Curve points align to `alignof(CurvePoint)` and a
+  list's elements to the largest power of two dividing the element size, at most 16.
+- **No relocation list** (finding 21). A table section was the block's bytes and then a
+  12-byte record (offset, kind, value) for every pointer and symbol in it: nine a row on the
+  review's stack, 36% of the section. Now the writer copies the block, zeroes its header
+  (which held this process's pointers, so two builds of the same data wrote different
+  images; they now write the same bytes) and writes each pointing slot in a file form in
+  place: a string as (offset, size), a packed list as (offset, size, packed), a curve as
+  (offset, size, mode, extend), a symbol as 1 + its index in the section's names (0 for
+  the empty one); null is `UINTPTR_MAX`. The reader copies the block and walks the same
+  slots the writer did, through the view's fix-up list per row (nested views and list
+  elements included) and then the tags, the key entries' alias symbols and the parents'
+  tags, checking every offset and extent against the block and every array the header
+  places for alignment and size; key, parent and ID entries must name rows that exist. The
+  slots are found by the fix-up list, so the section carries no list of them. The name
+  table is found by a `HashMap<Symbol, uint32_t>`, where it was a linear search per symbol.
+- **The image is version 3** (D309 made it 2): the table section's layout changed. A
+  version-2 image is refused by name ("of version 2; this build reads version 3"), and a
+  section whose `by_id` differs from the compiled view's is refused as "the view's lookup by
+  ID differs", beside the digest, size and fix-up checks.
+- **Members by alignment** (finding 30). The generator kept the shape's field order: the
+  golden `Scalars` was 40 bytes with 33 used, `Move` 104 with a 2-byte and a 7-byte hole.
+  Now `view_members` (`src/shape/view_members.hpp`) orders a view's members by alignment,
+  largest first, in declaration order within one alignment (a stable sort): a pointer and
+  what holds one (`string_view`, `Symbol`, `ListView`, `Curve`) count as 8, `int64`,
+  `uint64` and `double` 8, `int32`, `uint32` and `float` 4, 16-bit ints 2, 8-bit ints and
+  `bool` 1, and a nested view its largest member. On a 32-bit target the pointer members
+  are 4 and the order is still the generated text's, which may leave padding there. Names
+  are unchanged; the struct and its fix-up list follow the order, so the fix-up list's
+  offsets ascend; the reader's cases and its required bits keep the shape's order, so a
+  missing field is still named as before.
+  - **The digest spells the fields in the struct's order**, so it is a digest of the
+    layout: two shapes whose fields differ only in order across alignments make the same
+    struct and the same digest; an order change within one alignment moves it, as does
+    `by_id`. Every golden digest changed. A header the old generator wrote has the old
+    digest: `check_views` reports it, and the image check refuses its sections by digest.
+  - **What depends on member order:** the fix-up lists (generated with the struct, so
+    `fixups_hash` in the image check follows), the digests (above), and aggregate
+    initialization: no code in the repository initializes a generated view by position (the
+    `Vec2{0, 1}` in the tweak tests are their own structs). `docs/cpp.md` says to
+    initialize a view by member name.
+  - Golden headers regenerated by the shape test (`BAKER_UPDATE_GOLDEN=1
+    baker_shape_tests`).
+- **Sizes**, 64-bit:
+
+  | struct | before | after |
+  |---|---:|---:|
+  | golden `Move` | 104 B | 96 B |
+  | golden `Scalars` | 40 B | 32 B |
+  | golden `Item` | 40 B | 40 B (4 bytes of tail padding either way) |
+  | golden `Vec2` | 8 B | 8 B |
+  | the review's `Move` | 64 B | 64 B (no padding either way) |
+
+  The review's stack (64 fighters × 160 moves, 10,240 rows of `Move`, two strings and a
+  symbol list each, not `by_id`), its views regenerated by each side's `baker_bake`:
+
+  | | main (0509a61) | D324 |
+  |---|---:|---:|
+  | the table's block | 1,967,208 B | 1,229,960 B (-37%) |
+  | the image's table section | 3,075,780 B | 1,231,840 B (-60%) |
+  | the image | 9,610,896 B | 7,766,952 B |
+
+  Of the block's 737,248 bytes: 409,600 are the ID column and index (40 B a row) and
+  327,663 the strings (two 16-byte slots a row, now one copy each of the few texts). Of the
+  section's further 1.1 MB, the relocation list was 1,105,920 bytes (nine records a row).
+- **Costs** (release, not shipping, this machine; main is an export of 0509a61 built beside
+  it, the same data and driver):
+  - **Cold open from the image**, the whole process under cachegrind: 40.67M instructions
+    against 37.41M; peak 18.2 MB against 15.7 MB, page faults 4,693 against 4,072. Timed,
+    five interleaved runs: 14.81 / 14.12 / 11.02 / 13.91 / 12.37 ms against 12.64 / 9.70 /
+    9.26 / 9.96 / 10.75 ms. Warm open, best of three, five rounds: 3.63 / 3.59 / 3.64 /
+    3.99 / 3.59 ms against 3.36 / 4.82 / 3.28 / 3.27 / 3.32 ms (the 4.82 a noisy round).
+  - **The table's rebuild after a record-field edit:** per edit under cachegrind, 17.62M
+    instructions against 18.36M (+4%), the same edit without a table 51k against 69k. The
+    measuring pass's lookup and the replay cost about 53 instructions a string; a smaller
+    block saves memset and copy (57.7M against 41.5M memset over 21 builds). A first
+    version looked every string up in the hash map, at +18%; two texts of the review's rows
+    shared one slot of a cache keyed by the text's length and ends, so the cache is keyed
+    by the member's offset. Timed, `set` and `apply_edits` with the table, medians of 40,
+    five interleaved rounds: 1.316 / 1.356 / 1.366 / 1.442 / 1.354 ms against 1.359 /
+    1.377 / 1.382 / 1.376 / 1.351 ms; four more allocations an edit (79 against 83: the
+    map's buckets and node, the places).
+  - `bench_view`'s table rows, golden `move` (`by_id`): by index 0.68 ns, by ID 6.29 ns,
+    as before.
+- **Tests.** Block byte-identity with the two-pass build (D320's test) is no longer the
+  test, since the pool's layout changed. In its place:
+  - `test_table.cpp`:
+    - every row of every table, of the fixtures and of 300 moves and 40 items (strings, ten
+      texts among 225 names, symbol lists, lists of nested views, nested views, curves,
+      aliases, IDs, a record in error), reads back what `ViewReader<T>::read` reads from
+      its record, found by the row's path;
+    - rows with the same name point at the same bytes, empty strings share one, and the
+      same rows with every name distinct take more than 2,600 bytes more;
+    - `Item` (not `by_id`) keeps no IDs: `by_id()` false, `id_of` empty and
+      `index_of(RecordId)` nullopt for a record with an `(@id ...)`; the golden `Move`
+      registered through a `TableSpec` without `by_id` builds a block exactly 300 × (16 + 24)
+      bytes smaller, finds no ID, and reads every row the same;
+    - a section written and read back gives tables whose every row, ID, alias and parent
+      reads as the tree's; two builds write the same bytes (under ASan they did not until
+      `IdEntry` and the curve's file form carried their padding as a zero member, since a
+      struct copied from the stack keeps the stack's padding); a section is refused for a
+      view whose `by_id` differs, and as damaged when truncated or when its row count
+      reaches past the block; a version-2 image is refused naming both versions.
+  - `test_view.cpp`: the golden structs' member offsets follow alignment, `Scalars` is
+    32 bytes and `Move` 96 on 64-bit, and the fix-up list's offsets ascend.
+  - `test_shape.cpp`: the digest's text lists fields in the struct's order; the same
+    fields across alignments in another order hash the same, an order change within one
+    alignment and `by_id` do not; `(@view by_id)` on an unkeyed shape is refused, and on a
+    field is "(@view) or (@view no)".

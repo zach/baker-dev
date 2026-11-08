@@ -51,9 +51,17 @@ an `int` (`int8` to `uint64`) or a `float` (`float`, `double`); `(@cxx_name N)` 
 or the struct when the data's name is not a C++ name. A field marked `(@view no)` stays out of
 the struct and is read from the tree as before; an `any` field must be. An absent `@optional`
 field reads as zero, `false` or empty: views hold no `std::optional`. Beside the digest
-([Drift](#drift)), a struct carries `kAt` (its shape's `(@at ...)`, as written), `kKeyed`, and
-`fixups()`, the members that point outside the struct, which a baked table relocates into its
-own pool ([Tables](#tables-a-keyed-shapes-records-packed)).
+([Drift](#drift)), a struct carries `kAt` (its shape's `(@at ...)`, as written), `kKeyed`,
+`kById` (`(@view by_id)`, below), and `fixups()`, the members that point outside the struct,
+which a baked table relocates into its own pool
+([Tables](#tables-a-keyed-shapes-records-packed)).
+
+The members are declared by alignment, largest first, and in the shape's order within one
+alignment, so the struct has no padding that another order would avoid: pointers and what
+holds them (`std::string_view`, `baker::Symbol`, `ListView`, `Curve`) first, then four-byte
+members, then two- and one-byte ones; a nested struct counts as its largest member. The names
+are the fields'. Initialize a view by member name, `Move m; m.damage = 3;`, rather than by
+position, which follows this order and not the shape's.
 
 ### Reading
 
@@ -103,10 +111,11 @@ for (uint32_t i : moves.children_of("kestrel"_sym)) ...   // one parent's record
 ### One block
 
 The rows, in the merged tree's order and grouped by parent, then a pool the rows' strings,
-lists and curves point into, then the indices: by key (an alias of a renamed record resolves
-too), by `(@id ...)`, and by parent. A `Table<T>` handle keeps the block it was given: a reload
-that rebuilds the table takes nothing from a reader holding the old one. The block comes from
-the Config's allocator.
+lists and curves point into, each distinct string stored once however many rows hold it,
+then the indices: by key (an alias of a renamed record resolves too) and by parent, and, for
+a view marked `(@view by_id)`, the records' `(@id ...)` and an index of them. A `Table<T>`
+handle keeps the block it was given: a reload that rebuilds the table takes nothing from a
+reader holding the old one. The block comes from the Config's allocator.
 
 ### Finding a row
 
@@ -116,6 +125,17 @@ is a contiguous range. `key_of(i)` and `id_of(i)` read back. The text form parse
 on every call: a read that runs every frame holds the `Path`, the `Symbol` or the `RecordId`,
 or better, the index. An index is stable across a reload while the table's set of records is
 unchanged; a record added, removed or reordered renumbers what follows it.
+
+A table keeps the records' IDs only when its shape asks for lookup by ID, so a table that
+never looks a row up by its `(@id ...)` does not carry the IDs:
+
+```dta
+#shape (move (@at fighters * moves) (@keyed) (@view by_id) ...)
+```
+
+Without `by_id`, `index_of(id)` finds nothing and `id_of(i)` is empty, whatever IDs the
+records have; the tree still holds them, for `find_by_id` and the tools. `by_id` is part of
+the view's digest, and is refused on a shape that is not `(@keyed)`.
 
 ### Rebuilt by identity
 
@@ -139,4 +159,6 @@ A table the game no longer compiles alike (another digest, size or fix-up list) 
 a warning and built from the tree. Layers above the contract (mods, overlays) push as today and
 rebuild the tables they touch. Development builds never need the file. An image carries
 the version of its format, and a Baker that reads another refuses it by name: bake it again
-with the game built on the new Baker (D309).
+with the game built on the new Baker (D309). A table's section is its block as built, with
+each pointer written as an offset into the block and each symbol by name; the loader finds
+those slots through the view's `fixups()` and fixes them up in one pass over the rows (D324).
