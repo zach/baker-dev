@@ -557,8 +557,8 @@ bool composes(const LayerEffectEntry& e) {
 // The row of `root` an effect entry was read from: the first with its key, or for a later
 // row that composes (a key's second #append), the one on the entry's line.
 const Array* row_of(const Array* root, const LayerEffectEntry& e) {
-    const Path path(e.path.str());
-    const Array* a = root && path.valid() ? root->try_get(e.path.str()) : nullptr;
+    const Path path(e.path->view());
+    const Array* a = root && path.valid() ? root->try_get(path) : nullptr;
     if (!a || a->line() == e.source.line || path.empty()) return a;
     const Array* parent =
         path.size() == 1 ? root : root->try_get(Path(detail::text_of(path, path.size() - 1)));
@@ -577,7 +577,7 @@ void print_rows(const Config& cfg, std::string_view layer, const List<LayerEffec
     out("; " + Str(heading) + "\n");
     const Ref<Array> root = cfg.layer_root(layer);
     for (const LayerEffectEntry& e : effect) {
-        const std::string_view key = e.path.str();
+        const std::string_view key = e.path->view();
         if (!e.declares.empty()) {  // a declaration is written as itself, not as a row
             out(Str(e.declares.str()) + " " + values_text(e.values) + "\n");
             continue;
@@ -620,7 +620,7 @@ Str notes_of(const Config& cfg, std::string_view layer) {
             if (!text.empty()) text += ' ';
             text += v.try_str() ? Str(*v.try_str()) : detail::text_of(v);
         }
-        out += "# " + Str(e.path.str()) + ": " + text + "\n";
+        out += "# " + Str(e.path->view()) + ": " + text + "\n";
     }
     return out;
 }
@@ -647,7 +647,7 @@ int print_effect(const Config& cfg, std::string_view layer, std::string_view hea
     for (const LayerEffectEntry& e : *effect) {
         const bool verb = !e.op.empty() && e.op != Symbol("#remove");  // #remove is the value
         const Str what = e.declares.empty() ? Str() : Str(e.declares.str()) + " ";
-        out("  " + what + Str(e.path.str()) + "  " +
+        out("  " + what + Str(e.path->view()) + "  " +
             (e.below ? values_text(*e.below, verb) : Str("(new)")) + " -> " +
             (verb ? Str(e.op.str()) + " " : Str()) + values_text(e.values) + "  (" +
             Str(e.source.file.str()) + ":" + detail::decimal(e.source.line) + ")" +

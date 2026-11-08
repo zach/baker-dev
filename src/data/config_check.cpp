@@ -365,14 +365,18 @@ LayerReport run_check(const Basis& b, std::string_view name, const Ref<Array>& c
         return std::nullopt;
     };
     Vec<Node> below;
-    for (const Leaf& leaf : leaves_of(tree)) {
+    const Vec<Leaf> leaves = leaves_of(tree);
+    size_t chars = 0;
+    for (const Leaf& leaf : leaves) chars += leaf.path.size();
+    ReportTexts text(leaves.size(), chars);  // the entries' paths, interned never (D321)
+    for (const Leaf& leaf : leaves) {
         const Path path(leaf.path);
         const bool removal = detail::is_removal(*leaf.holder);
         const bool verb = detail::composes(*leaf.holder);
         const bool exists =
             verb ? finder.list(stack, path, below) : finder.values(stack, path, below);
         LayerEffectEntry e{};
-        e.path = Symbol(leaf.path);
+        e.path = text(leaf.path);
         e.values = RowValues({leaf.values.data(), leaf.values.size()});
         e.folded = leaf.folded;
         e.op = op_of(*leaf.holder);
@@ -419,7 +423,7 @@ LayerReport run_check(const Basis& b, std::string_view name, const Ref<Array>& c
     declarations_of(session, tree.file(), {}, decls);
     for (const Declaration& d : decls) {
         LayerEffectEntry e{};
-        e.path = d.name;
+        e.path = text(d.name.str());
         e.values = RowValues({&d.form, 1});
         e.declares = d.directive;
         e.source = Source{layer, d.file, d.line};

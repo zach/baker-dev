@@ -75,10 +75,14 @@ Expected<List<LayerEffectEntry>> layer_effect(const Config& cfg, std::string_vie
 
     const Source in_scratch{scratch_name()};
     Vec<Node> below;
-    for (const Leaf& leaf : leaves_of(*tree)) {
+    const Vec<Leaf> leaves = leaves_of(*tree);
+    size_t chars = 0;
+    for (const Leaf& leaf : leaves) chars += leaf.path.size();
+    ReportTexts text(leaves.size(), chars);
+    for (const Leaf& leaf : leaves) {
         LayerEffectEntry e{};
         const Path path(leaf.path);
-        e.path = Symbol(leaf.path);
+        e.path = text(leaf.path);
         e.values = list_of(leaf.values);
         e.folded = leaf.folded;
         e.op = op_of(*leaf.holder);
@@ -102,7 +106,7 @@ Expected<List<LayerEffectEntry>> layer_effect(const Config& cfg, std::string_vie
     if (li)
         for (const Declaration& d : declared(impl.layers[*li])) {
             LayerEffectEntry e{};
-            e.path = d.name;
+            e.path = text(d.name.str());
             e.values = one(d.form);
             e.declares = d.directive;
             e.source = Source{Symbol(layer), d.file, d.line};

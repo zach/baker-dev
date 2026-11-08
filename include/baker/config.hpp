@@ -308,7 +308,9 @@ private:
 };
 
 struct LayerEffectEntry {
-    Symbol path;  // dotted, as get<T>() takes it
+    // Dotted, as get<T>() takes it. Text, not a Symbol: a report interns no path, so a
+    // candidate checked again and again, refused or not, adds no names to the program (D321).
+    Ref<String> path;
     // This layer's values, one node each: (aim (0 0)) is one, an array; (aim 0 0) is two. A
     // verb's operands, a record one operand; a removal's #remove.
     RowValues values;

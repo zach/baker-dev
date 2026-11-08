@@ -33,7 +33,7 @@ TEST_CASE("layer_effect names each removal, and what it removed (D143)") {
     const auto effect = ok(tools::layer_effect(cfg, "tu"));
     bool saw = false;
     for (const LayerEffectEntry& e : effect)
-        if (e.path == Symbol("menu.debug_menu")) {
+        if (e.path->view() == "menu.debug_menu") {
             saw = true;
             CHECK(e.values[0].is(Symbol("#remove")));
             REQUIRE(e.below);
@@ -50,7 +50,7 @@ TEST_CASE("layer_effect names a generated file's origin and tool (D91)") {
         cfg.push_layer("default", dir.write("default.dta", "(shop (tax 2))\n#include econ.dta\n")));
     const auto effect = ok(tools::layer_effect(cfg, "default"));
     const auto price = std::find_if(effect.begin(), effect.end(), [](const LayerEffectEntry& e) {
-        return e.path == Symbol("econ.price");
+        return e.path->view() == "econ.price";
     });
     REQUIRE(price != effect.end());
     CHECK(price->source.tool == Symbol("sheets-export"));
@@ -71,19 +71,19 @@ BAKER_DEV_TEST_CASE("layer_effect reports below and shadowed in a three-layer st
     REQUIRE(effect);
     REQUIRE(effect->size() == 3);
     const LayerEffectEntry& a = (*effect)[0];
-    CHECK(a.path == "a");
+    CHECK(a.path->view() == "a");
     CHECK(a.values[0].try_int() == 2);
     REQUIRE(a.below);
     CHECK((*a.below)[0].try_int() == 1);
     CHECK(a.below_source->layer == "base");
     CHECK_FALSE(a.shadowed);
     const LayerEffectEntry& b = (*effect)[1];
-    CHECK(b.path == "b");
+    CHECK(b.path->view() == "b");
     CHECK(b.shadowed);  // top overrides it
     CHECK((*b.below)[0].try_int() == 3);
     CHECK(b.below_source->layer == "top");
     const LayerEffectEntry& e = (*effect)[2];
-    CHECK(e.path == "d.e");
+    CHECK(e.path->view() == "d.e");
     CHECK_FALSE(e.below);  // nothing else sets it
     CHECK_FALSE(e.below_source);
     CHECK(e.source.layer == "mid");
@@ -193,7 +193,7 @@ TEST_CASE("the layer tools list a layer's declarations: effect, diff and explain
     const auto effect = ok(tools::layer_effect(cfg, "mod"));
     REQUIRE(effect.size() == 2);
     CHECK(effect[1].declares == Symbol("#shape"));
-    CHECK(effect[1].path == Symbol("unit"));
+    CHECK(effect[1].path->view() == "unit");
     CHECK(to_string(effect[1].values) == "(unit (hp int (@range 1 99)))");
     REQUIRE(effect[1].below);
     CHECK(to_string(*effect[1].below) == "(unit (hp int (@range 1 10)) (name symbol))");
@@ -201,7 +201,7 @@ TEST_CASE("the layer tools list a layer's declarations: effect, diff and explain
     CHECK(effect[1].source.line == 1);
     const auto base = ok(tools::layer_effect(cfg, "base"));
     CHECK(std::count_if(base.begin(), base.end(), [](const LayerEffectEntry& e) {
-              return e.declares == Symbol("#pack") && e.path == Symbol("core");
+              return e.declares == Symbol("#pack") && e.path->view() == "core";
           }) == 1);
     // diff: the two layers' shapes differ; a pack only the base declares.
     const auto d = ok(tools::diff(cfg, "base", "mod"));
@@ -236,7 +236,7 @@ TEST_CASE("a row's values come one node each, a verb's list below as the list it
     REQUIRE(effect.size() == 3);
     auto entry = [&](const char* path) {
         for (const LayerEffectEntry& e : effect)
-            if (e.path == Symbol(path)) return &e;
+            if (e.path->view() == path) return &e;
         FAIL("no entry for " << path);
         return static_cast<const LayerEffectEntry*>(nullptr);
     };

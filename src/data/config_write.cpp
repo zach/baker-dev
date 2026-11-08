@@ -1,6 +1,7 @@
 // Config's write-back (spec §4): planning an edit of a layer's file, writing it, and promoting
 // scratch. The layer tools (explain, layer_effect, diff) are baker::tools'.
 
+#include "arena.hpp"
 #include "config_impl.hpp"
 
 #include <baker/parse.hpp>
@@ -346,6 +347,18 @@ Vec<Leaf> leaves_of(const Array& root) {
     Vec<Leaf> out;
     collect_leaves(root, 0, "", out);
     return out;
+}
+
+ReportTexts::ReportTexts(size_t count, size_t chars) noexcept
+    : expected_(count * (sizeof(String) + 1 + alignof(Node)) + chars) {}
+
+ReportTexts::~ReportTexts() {
+    if (arena_) const detail::Arena::Handle creator(arena_);  // the strings keep it
+}
+
+Ref<String> ReportTexts::operator()(std::string_view text) {
+    if (!arena_) arena_ = detail::Arena::create(default_allocator(MemoryKind::Config), expected_);
+    return arena_->make_string(text);
 }
 
 bool write_disk_file(std::string_view where, std::string_view text) {
