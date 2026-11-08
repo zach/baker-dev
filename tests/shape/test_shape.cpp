@@ -906,8 +906,10 @@ TEST_CASE("the view words are checked: a flag is (@view) or (@view no), @cxx is 
         return std::any_of(e.begin(), e.end(),
                            [&](const std::string& s) { return s.find(part) != std::string::npos; });
     };
-    CHECK(has(errors("#shape (s (@view yes) (x int))"), "shape 's' is (@view) or (@view no)"));
+    CHECK(has(errors("#shape (s (@view yes) (x int))"),
+              "shape 's' is (@view), (@view by_id) or (@view no)"));
     CHECK(has(errors("#shape (s (x int (@view maybe)))"), "field 'x' is (@view) or (@view no)"));
+    CHECK(has(errors("#shape (s (x int (@view by_id)))"), "field 'x' is (@view) or (@view no)"));
     CHECK(has(errors("#shape (s (x int (@cxx float)))"), "field 'x' (@cxx T): T is int8"));
     CHECK(has(errors("#shape (s (x float (@cxx int32)))"), "field 'x' (@cxx T)"));
     CHECK(has(errors("#shape (s (x symbol (@cxx int32)))"), "field 'x' (@cxx T)"));
@@ -967,8 +969,9 @@ TEST_CASE("a view's digest is symbol_hash of the shape's layout, and of nothing 
         "   (button symbol (@one_of light heavy) (@optional))\n"
         "   (@rule \"m\" {> $damage 0}))",
         "move");
+    // The fields in the struct's order: by alignment, largest first, then as declared.
     CHECK(d ==
-          symbol_hash("move\nkeyed\nstartup\nint\nuint16\ndamage\nfloat\ndouble\nbutton\nsymbol"));
+          symbol_hash("move\nkeyed\ndamage\nfloat\ndouble\nbutton\nsymbol\nstartup\nint\nuint16"));
     // The same layout, without any tuning word, hashes the same.
     CHECK(
         d ==
@@ -976,7 +979,12 @@ TEST_CASE("a view's digest is symbol_hash of the shape's layout, and of nothing 
             "#shape (move (@at m) (@keyed) (startup int (@cxx uint16)) (damage float (@cxx double))"
             " (on_hit any (@view no)) (button symbol))",
             "move"));
-    // What moves it: a type, a name, the order, a @cxx, a field left out, keyed.
+    // Fields of other alignments declared in another order make the same struct.
+    CHECK(d == digest_of("#shape (move (@at m) (@keyed) (damage float (@cxx double)) (startup int"
+                         " (@cxx uint16)) (button symbol))",
+                         "move"));
+    // What moves it: a type, a name, the order within an alignment, a @cxx, a field left
+    // out, keyed, by_id.
     const auto moved = [&](std::string_view text) { return digest_of(text, "move") != d; };
     CHECK(moved(
         "#shape (move (@at m) (@keyed) (startup float (@cxx double)) (damage float (@cxx double))"
@@ -984,9 +992,9 @@ TEST_CASE("a view's digest is symbol_hash of the shape's layout, and of nothing 
     CHECK(
         moved("#shape (move (@at m) (@keyed) (startup int (@cxx uint16)) (dmg float (@cxx double))"
               " (on_hit any (@view no)) (button symbol))"));
-    CHECK(moved(
-        "#shape (move (@at m) (@keyed) (damage float (@cxx double)) (startup int (@cxx uint16))"
-        " (on_hit any (@view no)) (button symbol))"));
+    CHECK(
+        moved("#shape (move (@at m) (@keyed) (startup int (@cxx uint16)) (button symbol)"
+              " (on_hit any (@view no)) (damage float (@cxx double)))"));
     CHECK(moved(
         "#shape (move (@at m) (@keyed) (startup int (@cxx uint32)) (damage float (@cxx double))"
         " (on_hit any (@view no)) (button symbol))"));
@@ -996,6 +1004,9 @@ TEST_CASE("a view's digest is symbol_hash of the shape's layout, and of nothing 
     CHECK(
         moved("#shape (move (startup int (@cxx uint16)) (damage float (@cxx double))"
               " (on_hit any (@view no)) (button symbol))"));
+    CHECK(moved(
+        "#shape (move (@at m) (@keyed) (@view by_id) (startup int (@cxx uint16)) (damage float"
+        " (@cxx double)) (on_hit any (@view no)) (button symbol))"));
     CHECK(shape::view_digest(shape::Set(), Symbol("move")) == 0);
 }
 
@@ -1014,10 +1025,10 @@ TEST_CASE("the digest spells lists, keys and nested shapes canonically") {
     CHECK(shape::view_digest(set, Symbol("vec")) == symbol_hash("vec\nx\nfloat\ny\nfloat"));
     CHECK(shape::view_digest(set, Symbol("unit")) ==
           symbol_hash("unit\nkeyed\npos\nlist(float,3)\ntags\nlist(symbol,1,4)\nnext\n"
-                      "list(key_of(units))\nweapon\nkey_of(items.weapons)\nat\nshape(vec," +
-                      vec + ")\npath\nlist(shape(vec," + vec + "))"));
+                      "list(key_of(units))\nweapon\nkey_of(items.weapons)\npath\nlist(shape(vec," +
+                      vec + "))\nat\nshape(vec," + vec + ")"));
     CHECK(shape::view_digest(set, Symbol("loop")) ==
-          symbol_hash("loop\nself\nshape(loop,cycle)\nn\nint"));
+          symbol_hash("loop\nn\nint\nself\nshape(loop,cycle)"));
 }
 
 TEST_CASE("the contract set holds the named layers' shapes, outside every #ifdef") {
@@ -1071,7 +1082,7 @@ namespace {
 // The shapes the golden headers and the data tests' reader are generated from.
 const char* const kViewShapes =
     "#shape (vec2 (@view) (x float) (y float))\n"
-    "#shape (move (@at fighters * moves) (@keyed) (@view)\n"
+    "#shape (move (@at fighters * moves) (@keyed) (@view by_id)\n"
     "   (startup     int (@range 1 60) (@cxx uint16))\n"
     "   (damage      float (@renamed_from hurt))\n"
     "   (name        string (@optional))\n"
@@ -1155,6 +1166,9 @@ TEST_CASE("view_shapes: the marked and listed shapes and what they nest, sorted;
         has(errors("#shape (boss_phase (@view) (x int))\n#shape (boss__phase (@view) (y int))", {}),
             "shapes 'boss__phase' and 'boss_phase' both generate `BossPhase`"));
     CHECK(has(errors("#shape (a (@view) (x int (@cxx_name int)))", {}), "member `int`"));
+    CHECK(has(errors("#shape (a (@view by_id) (x int))", {}),
+              "shape 'a' is (@view by_id), which only a (@keyed) shape's table can keep"));
+    CHECK(errors("#shape (a (@at as) (@keyed) (@view by_id) (x int))", {}).empty());
 }
 
 TEST_CASE("the generated headers match their golden files (BAKER_UPDATE_GOLDEN=1 rewrites them)") {

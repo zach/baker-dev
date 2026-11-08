@@ -111,7 +111,10 @@ struct Shape {
     bool keyed = false;      // governs every child at `at`, whatever its tag
     List<Field> fields;
     List<Rule> rules;
-    bool view = false;       // (@view): generates a C++ view (D277)
+    bool view = false;  // (@view): generates a C++ view (D277)
+    // (@view by_id): the view looks records up by their (@id ...), so its table keeps an ID
+    // column and an ID index (D324); a table without it keeps neither.
+    bool by_id = false;
     baker::Symbol cxx_name;  // (@cxx_name N): the struct's name; empty: from the shape's
     baker::Symbol file;
     int32_t line = 0;

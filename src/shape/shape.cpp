@@ -7,6 +7,7 @@
 #include "common/containers.hpp"
 #include "data/markers.hpp"
 #include "data/text.hpp"
+#include "shape/view_members.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -30,7 +31,8 @@ struct Names {
     baker::Symbol at{"@at"}, range{"@range"}, step{"@step"}, kind{"@kind"}, desc{"@desc"},
         note{"@note"}, optional{"@optional"}, list{"list"}, any_tag{"*"}, keyed{"@keyed"},
         one_of{"@one_of"}, key_of{"key_of"}, rule{"@rule"}, warn{"@warn"}, view{"@view"},
-        cxx{"@cxx"}, cxx_name{"@cxx_name"}, renamed_from{"@renamed_from"}, no{"no"}, asset{"asset"};
+        cxx{"@cxx"}, cxx_name{"@cxx_name"}, renamed_from{"@renamed_from"}, no{"no"}, asset{"asset"},
+        by_id{"by_id"};
 };
 const Names& names() {
     static const Names n;
@@ -495,14 +497,18 @@ void Set::add(const LoadSession& session, Report& report, baker::Symbol root) {
                     continue;
                 }
                 if (*tag == n.view) {
-                    const auto flag = view_flag(f->values());
-                    if (!flag)
-                        errors.push_back(
-                            make_error(ErrorCode::Syntax,
-                                       "shape " + quoted(*name) + " is (@view) or (@view no)",
-                                       f->file(), f->line()));
-                    else
+                    const Values v = f->values();
+                    const bool by_id = v.size() == 1 && v[0].is(n.by_id);
+                    const auto flag = by_id ? std::optional<bool>(true) : view_flag(v);
+                    if (!flag) {
+                        errors.push_back(make_error(
+                            ErrorCode::Syntax,
+                            "shape " + quoted(*name) + " is (@view), (@view by_id) or (@view no)",
+                            f->file(), f->line()));
+                    } else {
                         s.view = *flag;
+                        s.by_id = by_id;
+                    }
                     continue;
                 }
                 if (*tag == n.cxx_name) {
@@ -1610,14 +1616,74 @@ void append_hex16(Str& out, uint64_t v) {
 
 void append_type_text(const Set& set, const Field& f, Str& out, Vec<baker::Symbol>& visiting);
 
+// The alignment of a view's member, as the generator orders them: a pointer, and what
+// holds one, counts as 8; a nested view as its largest member. `visiting` stops a shape
+// that nests itself, which view_shapes refuses.
+uint32_t member_align(const Set& set, const Field& f, Vec<baker::Symbol>& visiting) {
+    switch (f.type) {
+        case Type::Int: {
+            const std::string_view c = f.cxx.str();
+            if (c == "int8" || c == "uint8") return 1;
+            if (c == "int16" || c == "uint16") return 2;
+            if (c == "int64" || c == "uint64") return 8;
+            return 4;
+        }
+        case Type::Float: return f.cxx.str() == "double" ? 8 : 4;
+        case Type::Bool: return 1;
+        case Type::Shape: {
+            const Shape* nested = set.find(f.shape);
+            if (!nested || std::find(visiting.begin(), visiting.end(), f.shape) != visiting.end())
+                return 1;
+            visiting.push_back(f.shape);
+            uint32_t align = 1;
+            for (const Field& g : nested->fields)
+                if (g.view) align = std::max(align, member_align(set, g, visiting));
+            visiting.pop_back();
+            return align;
+        }
+        case Type::Symbol:
+        case Type::Key:
+        case Type::String:
+        case Type::Asset:
+        case Type::Curve:
+        case Type::List:
+        case Type::Any: return 8;
+    }
+    return 8;
+}
+
+}  // namespace
+
+Vec<const Field*> view_members(const Set& set, const Shape& s) {
+    Vec<const Field*> members;
+    Vec<uint32_t> aligns;
+    Vec<baker::Symbol> visiting{s.name};
+    for (const Field& f : s.fields) {
+        if (!f.view) continue;
+        members.push_back(&f);
+        aligns.push_back(member_align(set, f, visiting));
+    }
+    // A stable insertion sort: a shape has a handful of fields.
+    for (size_t i = 1; i < members.size(); ++i)
+        for (size_t j = i; j > 0 && aligns[j - 1] < aligns[j]; --j) {
+            std::swap(aligns[j - 1], aligns[j]);
+            std::swap(members[j - 1], members[j]);
+        }
+    return members;
+}
+
+namespace {
+
 // The canonical text view_digest hashes, or empty for a shape the set lacks. `visiting`
 // holds the shapes being spelled, so a shape that nests itself ends as `shape(NAME,cycle)`.
+// The fields are spelled in the struct's order, so the digest is of the struct's layout.
 void digest_text(const Set& set, const Shape& s, Str& out, Vec<baker::Symbol>& visiting) {
     visiting.push_back(s.name);
     out += s.name.str();
     if (s.keyed) out += "\nkeyed";
-    for (const Field& f : s.fields) {
-        if (!f.view) continue;
+    if (s.by_id) out += "\nby_id";
+    for (const Field* fp : view_members(set, s)) {
+        const Field& f = *fp;
         out += '\n';
         out += f.name.str();
         out += '\n';
