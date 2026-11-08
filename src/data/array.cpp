@@ -102,9 +102,16 @@ void Array::finish(int verb) noexcept {
     // A verb stands in the first value slot, which the parser knows; a pin is metadata.
     if (verb < 0) verb = size_ >= 2 && data()[1].type() == Type::Symbol ? -1 : 0;
     if (verb || first_meta) below = static_cast<uint16_t>(below | marker_flag(verb, first_meta));
-    // sort_for_lookup() runs this again, so the old boundary goes first.
-    flags_ = static_cast<uint16_t>((flags_ & kFlagBits) | (below & kHasMarker) |
+    // sort_for_lookup() runs this again, so the old boundary goes first; so does sorted
+    // mode, whose run keys these are not (sort_for_lookup() sets it again after).
+    flags_ = static_cast<uint16_t>((flags_ & kFlagBits & ~kSortedForLookup) | (below & kHasMarker) |
                                    (std::min(first_meta, kMetaFar) << kMetaShift));
+}
+
+void Array::unsort() noexcept {
+    flags_ = static_cast<uint16_t>(flags_ & ~kSortedForLookup);
+    uint32_t* tags = tag_run();
+    for (uint32_t i = 0; i < size_; ++i) tags[i] = tag_key(data()[i]);
 }
 
 #if defined(_MSC_VER)
@@ -128,7 +135,8 @@ void Array::set(size_t i, Node node) noexcept {
     assert(i < size_);
     const uint16_t h = above(child_height(node));
     if (h > height_) height_ = h;
-    flags_ = static_cast<uint16_t>(flags_ & ~kSortedForLookup);
+    if (flags_ & kSortedForLookup) [[unlikely]]
+        unsort();
     // A verb or a pin made here is flagged as finish() flags one.
     if (const Array* a = node.array()) {
         const bool pin = i > 0 && node.type() == Type::Array && a->tag().is_meta() &&

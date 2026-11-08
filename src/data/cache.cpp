@@ -28,7 +28,11 @@ struct CacheLayout {
     static constexpr size_t kBlock = offsetof(Array, block_);
     static constexpr size_t kLine = offsetof(Array, line_);
     static const Node* slots(const Array& a) noexcept { return a.data(); }
-    static uint32_t tag_key(const Node& n) noexcept { return Array::tag_key(n); }
+    // The key `n` takes in the run of `parent`, whose header is in place: a sorted array's
+    // run holds its own keys (D320).
+    static uint32_t run_key(const char* parent, const Node& n) noexcept {
+        return reinterpret_cast<const Array*>(parent)->run_key(n);
+    }
 };
 
 namespace {
@@ -561,7 +565,7 @@ Expected<Ref<Array>> load(char* file, size_t bytes, std::string_view name, const
                 }
                 std::memcpy(n, &target, 8);
                 if (t != Type::String) {  // the parent's tag run, now the child's tag is set
-                    const uint32_t key = L::tag_key(*reinterpret_cast<const Node*>(n));
+                    const uint32_t key = L::run_key(parent, *reinterpret_cast<const Node*>(n));
                     std::memcpy(parent + sizeof(Array) + size_t{i} * 4, &key, 4);
                 }
                 ++i;
