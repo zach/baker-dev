@@ -11836,3 +11836,6 @@ Four costs of the path between C++ and script, and of script tasks.
     read-back promised only to the float (and, to keep whole doubles exact, applied only
     where the float's digits are no longer than fixed notation would be); widening with
     exact printing, so logs show `1.100000023841858`; or the present conversion kept.
+  - **The owner kept the present conversion.** A native function's `float` result is still
+    converted through its shortest decimal (1.1f becomes 1.1 exactly), at 25–45 ns a result;
+    every written value reads back as the same double, and no output changes.
