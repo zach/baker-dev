@@ -166,8 +166,10 @@ void Array::set(size_t i, Node node) noexcept {
         return;
     }
     // Arena nodes count nothing: the old node is dropped as it is, and the arena counts
-    // the new one's owner if it is another (D64).
-    detail::Arena::of(owner).adopt(data() + i, std::move(node), false);
+    // the new one's owner if it is another (D64). Curves baked from the load bake again.
+    detail::Arena& arena = detail::Arena::of(owner);
+    arena.changed();
+    arena.adopt(data() + i, std::move(node), false);
 }
 
 void detail::ArrayFill::fill(Array& a, const Node& first, const Node& second,
