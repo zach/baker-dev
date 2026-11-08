@@ -228,15 +228,17 @@ TEST_CASE("formatting is linear in the text") {
         return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0)
             .count();
     };
-    // The best of five of each, interleaved, so that a busy machine slows both alike.
+    // The best of seven of each, interleaved, so that a busy machine slows both alike. The
+    // bound is ten: a loaded machine has measured 9.3 for linear code, and a layout that
+    // looked back over the text gives sixteen.
     const std::string small = text_of_size(500'000), large = text_of_size(2'000'000);
     double one = 1e30, four = 1e30;
-    for (int run = 0; run < 5; ++run) {
+    for (int run = 0; run < 7; ++run) {
         one = std::min(one, ms(small));
         four = std::min(four, ms(large));
     }
     MESSAGE("0.5 MB in " << one << " ms, 2 MB in " << four << " ms");
-    CHECK(four < 8 * one);
+    CHECK(four < 10 * one);
 }
 
 TEST_CASE("a project names its layout with (format ...)") {
