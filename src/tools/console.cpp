@@ -227,7 +227,9 @@ Expected<void> bind_config_tools(Context& ctx, Config& cfg, const ConfigToolOpti
             Vec<Node> out;
             for (const LayerEffectEntry& e : *effect) {
                 Vec<Node> f;
-                f.push_back(tagged("path", Node(e.path)));
+                // A symbol, as the console writes paths: a layer the stack holds, its names
+                // already interned.
+                f.push_back(tagged("path", Node(Symbol(e.path->view()))));
                 if (!e.declares.empty()) f.push_back(tagged("declares", Node(e.declares)));
                 f.push_back(tagged("value", e.values));
                 if (!e.op.empty()) f.push_back(tagged("op", Node(e.op)));

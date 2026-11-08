@@ -11499,3 +11499,118 @@ Four costs of the path between C++ and script, and of script tasks.
     sets and reads captures;
   - 300 globals: those a task names are read live, a variable captured, a global named
     twice keeps the second doc.
+
+## D321. A layer check interns no path; the Watcher calls the system, and lists files by hash
+
+*From the six-part TD review (`dev/td-review-2026-11.md`, findings 27 and 28).*
+
+- **A check's paths are text** (finding 27). `Config::check_layer`, `check_layer_text`,
+  `LayerChecker` and `tools::layer_effect` interned each changed leaf's dotted path as a
+  `Symbol` for `LayerEffectEntry::path`, and symbols live until the program ends: a candidate
+  from outside, refused and sent again with other paths, grew the table without a bound,
+  past what `ParseLimits::max_new_symbols` bounds for the read. 1,000 different refused
+  candidates, each one path of names the stack has, added 999 symbols; the first check of
+  a 400-row overlay added 401.
+  - **Breaking: `LayerEffectEntry::path` is a `Ref<String>`,** the dotted text, as a
+    declaration's name is. Its callers in the repository read `path->view()` (the host
+    commands, the harness and live-ops examples, the tests). The console's `config.effect`
+    still writes the path as a symbol, interning it there: it reports a layer the stack
+    holds, whose names were read already, and its output does not change.
+  - **One arena for a report's texts.** A solo `String` per entry, the rule for anything that
+    is not a load (D64), cost 3.7% more instructions than interning (a `malloc` and a `free`
+    per entry); the report's texts go into one arena instead (`ReportTexts`), from the
+    default allocator as `List`'s items are, sized from the leaves' paths so that a check
+    allocates its first block once. Each `Ref<String>` counts the arena, which goes with the
+    last entry.
+  - **What is left.** The candidate's own names are interned by its read, as before, and
+    bounded by `max_new_symbols`; the layer's name is interned once. The check still parses
+    each leaf's path into a `Path` (finding the tags it names, not adding any): with
+    `leaves_of` building each path's text, that is most of what remains of a check.
+    `tools::diff` keeps a `Symbol` path: it compares two layers the stack has read.
+- **The Watcher** (finding 28).
+  - **Stamps from the system.** `file_stamp`, a reload's scan's stamper (D314), and each
+    poll's stamp of a file without a watched directory went through `std::filesystem`
+    (`last_write_time` and `file_size`, two calls, and a `path` built from the string, two
+    allocations a stamp). Now one `stat` on POSIX, one `GetFileAttributesExW` (an entry's
+    stored path) or `GetFileAttributesExA` (`file_stamp`'s string, in the code page
+    `std::filesystem::path` converts with) on Windows, and nothing allocated: a path under 512
+    bytes is terminated on the stack, as for `fopen`. The stamp reports what it did: the write time on
+    `file_clock_now_ns`'s clock, the size of a regular file (0 for a directory), present if
+    the call succeeds. On POSIX the write time is `st_mtim` as nanoseconds since 1970, what
+    libstdc++'s file clock gave converted; under libc++ it no longer carries the conversion's
+    few microseconds of drift. On Windows the FILETIME goes through `std::chrono::file_clock`,
+    which counts the same 100 ns ticks from 1601, and the same `clock_cast` as before, so
+    stamps and `file_clock_now_ns()` agree as they did. One difference: the Windows call does
+    not follow a symbolic link, where `std::filesystem` did.
+  - **`watch()` is linear.** It scanned the files listed so far for each file, the files
+    listed before for each file, and the directories kept for each file. It now finds each
+    in an open-addressing index by hash (`Index`), built once a call.
+  - **Its state on Baker's allocator,** `default_allocator(MemoryKind::Tools)`: the entries,
+    the directories, the change list, and the entries' disk paths and file names, which
+    are offsets into one buffer of the system's characters (UTF-16 on Windows) in place
+    of a `std::filesystem::path` and a `std::string` an entry.
+  - **What is left.** `watch()` still normalizes each path with
+    `std::filesystem::path::lexically_normal` and takes its file name and parent through it,
+    about ten allocations a file on the global heap; a normal form of our own would have to
+    match it on Windows (root names, both separators), which no test here can run. `watch()`
+    runs when the stack's list of files changes, never in a frame.
+- **Numbers** (release, not shipping, this machine, a 4-core Xeon at 2.1 GHz; main is a
+  worktree of 201d369, and the two binaries ran interleaved):
+
+  | the layer check, `bench_layers` (122 KB stack, 9.8 KB overlay), best of its runs | main | D321 |
+  |---|---:|---:|
+  | `check_layer` (tree), five rounds | 305.9 / 307.3 / 303.5 / 307.5 / 352.9 µs | 286.4 / 291.8 / 283.9 / 287.4 / 335.2 µs |
+  | `check_layer_text` | 438.8 / 373.9 / 368.4 / 387.2 / 380.7 µs | 356.2 / 352.5 / 352.5 / 380.9 / 414.7 µs |
+  | `LayerChecker::check_text` | 443.1 / 383.1 / 381.4 / 383.3 / 440.4 µs | 357.2 / 358.8 / 357.1 / 381.6 / 415.2 µs |
+
+  | symbols a check adds (`Symbol::table_size`, 2,000-item stack, `existing_only`) | main | D321 |
+  |---|---:|---:|
+  | the first check of a 400-row overlay | 401 | 1 (the layer's name) |
+  | 100 more checks of it | 0 | 0 |
+  | 1,000 different refused candidates, each one path of names the stack has | 999 | 0 |
+
+  `tools/count_instructions.py --case check check_pinned` (a check of the same 400-row
+  overlay, whose path symbols exist after the first, so this is a lookup each, not a new
+  symbol):
+
+  | case | main (201d369) | D321 | change |
+  |---|---:|---:|---:|
+  | check | 3,960,165.2 | 3,932,918.3 | -0.69% |
+  | check_pinned | 4,554,299.5 | 4,523,956.0 | -0.67% |
+
+  The instructions move less than the time: a symbol lookup is a hash and a probe into a
+  table of every name the program has, a cache miss more than an instruction count. With a
+  solo `String` per entry instead of the arena the same cases were +3.66% and +3.19%.
+  These counts do not show the review's 15%: with the path symbols already made, the
+  dotted path's lookup was about 2% of the `check` run's instructions under callgrind (the
+  symbol constructor, inclusive, 7.8% on main and 5.7% here). The rest of the symbol cost is
+  the tag lookups of each leaf's `Path` (`Path::Path`, 7.6% on both sides), which remain.
+
+  | the Watcher (files in 10 directories; best of 7, three rounds) | main | D321 |
+  |---|---:|---:|
+  | `watch()`, 100 files, first | 217 / 245 / 227 µs, 1,243 allocations | 148 / 152 / 134 µs, 1,050 |
+  | `watch()`, 100 files, again | 202 / 203 / 210 µs, 1,213 allocations | 123 / 122 / 119 µs, 1,010 |
+  | `watch()`, 2,000 files, first | 5,020 / 5,153 / 4,950 µs, 24,047 allocations | 2,641 / 2,754 / 2,622 µs, 20,055 |
+  | `watch()`, 2,000 files, again | 6,160 / 6,112 / 6,156 µs, 24,017 allocations | 2,517 / 2,604 / 2,513 µs, 20,010 |
+  | a poll, 2,000 files by notification and 100 by stamp, stamps not due | 0.40 / 0.43 / 0.35 µs | 0.33 / 0.34 / 0.34 µs |
+  | the same, stamps due | 160.6 / 160.9 / 163.9 µs | 117.5 / 117.2 / 114.0 µs |
+  | `file_stamp`, a file written an hour ago | 928 / 941 / 931 ns, 2 allocations | 400 / 409 / 401 ns, 0 |
+
+  No poll allocated on either side. The test below, with paths that reach no disk, gives
+  the shape: re-watching 1,000 and 16,000 files took 7.3 ms and 1,735 ms on main (debug),
+  237 times for 16 times the files, and 0.25 ms and 5.0 ms here, 20 times.
+- **Tests.**
+  - `test_layer_check.cpp`: a refused candidate whose paths are new combinations of names
+    the stack has adds no symbol at its first check, nor in 1,000 more through
+    `check_layer`, `check_layer_text` and a `LayerChecker`; 1,000 different refused
+    candidates add none. Interning the path again fails it at the first check. The other
+    layer tests read `path->view()`.
+  - `test_watcher.cpp`:
+    - `file_stamp` of a file and of a directory, written an hour before, equals the stamp
+      made from what `std::filesystem` reports of them (through the stamp hook); a missing
+      file has none. It passes on main too: the stamps are the same;
+    - five `file_stamp`s of an unchanged file allocate nothing, nor do five polls that stamp
+      a file whose directory appeared after `watch()`; main allocates 15 times;
+    - re-watching 16,000 paths takes less than 64 times re-watching 1,000; main takes 237
+      times.
+  - `test_watcher.cpp` and `test_live.cpp` pass unchanged otherwise.

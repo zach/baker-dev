@@ -177,6 +177,23 @@ struct Leaf {
     const Array* parent = nullptr;
 };
 
+// The path texts of a layer report (LayerEffectEntry::path), in one arena made at the first:
+// a report interns no path, so a candidate checked again and again leaves the symbol table as
+// it was (D321). From the default allocator, as List's items are: a result outlives whoever
+// made it. `count` texts of `chars` in all size its first block.
+class ReportTexts {
+public:
+    ReportTexts(size_t count, size_t chars) noexcept;
+    ~ReportTexts();
+    ReportTexts(const ReportTexts&) = delete;
+    ReportTexts& operator=(const ReportTexts&) = delete;
+    [[nodiscard]] Ref<String> operator()(std::string_view text);
+
+private:
+    detail::Arena* arena_ = nullptr;
+    size_t expected_;
+};
+
 // What a check was made against (CheckStamp): a layer's name with its text, or with its
 // tree's address; and a policy's rules.
 [[nodiscard]] uint64_t text_subject(std::string_view name, std::string_view text) noexcept;
