@@ -1,7 +1,6 @@
 // Live (host/live.hpp): a Config, its stack opened from the project file, reloaded when a
 // watched file is saved.
 
-#include <baker/host/console.hpp>
 #include <baker/host/live.hpp>
 #include <baker/tools/console.hpp>
 
@@ -200,9 +199,13 @@ Expected<void> Live::open(const LiveOptions& options) {
     Vec<Error> problems;  // a layer that did not read, with go_on: kept past autorun's reset
     for (const ProjectProblem& p : *opened) problems.push_back(p.error);
 
-    if (auto r = tools::bind_config_tools(im.ctx, im.cfg, {.allow_write = options.console_write});
-        !r)
-        im.log(r.error());
+    // Tool code: a shipping game neither binds config.* nor links it (D322).
+    if constexpr (!kShipping) {
+        if (auto r =
+                tools::bind_config_tools(im.ctx, im.cfg, {.allow_write = options.console_write});
+            !r)
+            im.log(r.error());
+    }
     im.autorun();
     for (const Error& e : problems) im.problem(e);
 
@@ -212,7 +215,9 @@ Expected<void> Live::open(const LiveOptions& options) {
             im.rewatch();
         }
         if (options.console_port || options.console_any_port) {
-            im.console = Own<Console>::make(default_allocator(MemoryKind::Tools), im.ctx);
+            ConsoleOptions console = options.console;
+            if (!console.log) console.log = options.log;
+            im.console = Own<Console>::make(default_allocator(MemoryKind::Tools), im.ctx, console);
             if (!im.console->listen(options.console_any_port ? 0 : options.console_port)) {
                 im.log(make_error(ErrorCode::Io, "the console cannot listen on 127.0.0.1:" +
                                                      detail::decimal(options.console_port)));

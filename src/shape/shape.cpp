@@ -7,6 +7,7 @@
 #include "common/containers.hpp"
 #include "data/markers.hpp"
 #include "data/text.hpp"
+#include "shape/impl.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -50,23 +51,6 @@ Type type_named(baker::Symbol s) {
     return Type::Shape;
 }
 
-std::string_view type_text(Type t) {
-    switch (t) {
-        case Type::Int: return "int";
-        case Type::Float: return "float";
-        case Type::Bool: return "bool";
-        case Type::Symbol: return "symbol";
-        case Type::String: return "string";
-        case Type::List: return "list";
-        case Type::Shape: return "shape";
-        case Type::Key: return "key";
-        case Type::Any: return "any";
-        case Type::Curve: return "curve";
-        case Type::Asset: return "asset";
-    }
-    return "any";
-}
-
 // The segments of a path written as symbols, each perhaps dotted: `bosses.*.phases` and
 // `bosses * phases` both name a path.
 void path_of(Values v, Vec<baker::Symbol>& out) {
@@ -103,6 +87,39 @@ bool key_of(const Array& a, List<baker::Symbol>& table) {
 }
 
 }  // namespace
+
+namespace impl {
+
+std::string_view type_text(Type t) {
+    switch (t) {
+        case Type::Int: return "int";
+        case Type::Float: return "float";
+        case Type::Bool: return "bool";
+        case Type::Symbol: return "symbol";
+        case Type::String: return "string";
+        case Type::List: return "list";
+        case Type::Shape: return "shape";
+        case Type::Key: return "key";
+        case Type::Any: return "any";
+        case Type::Curve: return "curve";
+        case Type::Asset: return "asset";
+    }
+    return "any";
+}
+
+Str table_path(const Field& f) {
+    Str out;
+    for (const baker::Symbol seg : f.table) {
+        if (!out.empty()) out += '.';
+        out += seg.str();
+    }
+    return out;
+}
+
+}  // namespace impl
+
+using impl::table_path;
+using impl::type_text;
 
 const Field* Shape::field(baker::Symbol field_name) const noexcept {
     for (const Field& f : fields)
@@ -578,16 +595,6 @@ void Set::add(const LoadSession& session, Report& report, baker::Symbol root) {
 }
 
 namespace {
-
-// A key field's table as written, dotted; empty for any other field.
-Str table_path(const Field& f) {
-    Str out;
-    for (const baker::Symbol seg : f.table) {
-        if (!out.empty()) out += '.';
-        out += seg.str();
-    }
-    return out;
-}
 
 // The keys a scoped check's candidate removes (D316), and the records that name one: a walk
 // notes each key field's value against them, and keeps, for each record found, the path of
@@ -1442,10 +1449,12 @@ void prepare(Checker& checker, const Array& tree) {
     }
 }
 
+}  // namespace
+
+namespace impl {
 void run(const Array& tree, const Set& shapes, Vec<Error>& errors, Vec<Error>& warnings,
-         const LoadSession* packs, Vec<bool>* used, Vec<baker::Symbol>* aliases_used = nullptr,
-         Vec<Renamed>* renames = nullptr, Vec<KeyUse>* key_uses = nullptr,
-         Vec<AssetUse>* asset_uses = nullptr) {
+         const LoadSession* packs, Vec<bool>* used, Vec<baker::Symbol>* aliases_used,
+         Vec<Renamed>* renames, Vec<KeyUse>* key_uses, Vec<AssetUse>* asset_uses) {
     Checker checker{shapes, errors,   warnings,   {},      0,  {},      {},      {},
                     {},     0,        {},         packs,   {}, false,   used,    {},
                     {},     key_uses, asset_uses, nullptr, {}, nullptr, nullptr, Checker::kAll,
@@ -1461,21 +1470,7 @@ void run(const Array& tree, const Set& shapes, Vec<Error>& errors, Vec<Error>& w
                              checker.aliases_used.end());
     if (renames) renames->insert(renames->end(), checker.renames.begin(), checker.renames.end());
 }
-}  // namespace
-
-List<AssetUse> asset_uses(const Array& tree, const Set& shapes) {
-    Vec<Error> errors, warnings;
-    Vec<AssetUse> uses;
-    run(tree, shapes, errors, warnings, nullptr, nullptr, nullptr, nullptr, nullptr, &uses);
-    return List<AssetUse>({uses.data(), uses.size()});
-}
-
-List<KeyUse> key_uses(const Array& tree, const Set& shapes) {
-    Vec<Error> errors, warnings;
-    Vec<KeyUse> uses;
-    run(tree, shapes, errors, warnings, nullptr, nullptr, nullptr, nullptr, &uses);
-    return List<KeyUse>({uses.data(), uses.size()});
-}
+}  // namespace impl
 
 namespace {
 
@@ -1590,7 +1585,7 @@ void check(const Array& tree, const Set& shapes, Report& report, const LoadSessi
     Vec<Renamed> renames(report.renames.begin(), report.renames.end());
     if (!scope.changed ||
         !run_scoped(tree, shapes, scope, errors, warnings, packs, aliases_used, renames))
-        run(tree, shapes, errors, warnings, packs, nullptr, &aliases_used, &renames);
+        impl::run(tree, shapes, errors, warnings, packs, nullptr, &aliases_used, &renames);
     report.errors = List<Error>({errors.data(), errors.size()});
     report.aliases_used = List<baker::Symbol>({aliases_used.data(), aliases_used.size()});
     report.renames = List<Renamed>({renames.data(), renames.size()});
@@ -1729,27 +1724,6 @@ Set contract_set(const LoadSession& session, std::span<const baker::Symbol> root
     return set;
 }
 
-void unused(const Array& tree, const Set& shapes, Report& report) {
-    Vec<Error> errors, warnings(report.warnings.begin(), report.warnings.end()), ignored;
-    Vec<bool> used(shapes.shapes().size(), false);
-    run(tree, shapes, errors, ignored, nullptr, &used);
-    for (size_t i = 0; i < used.size(); ++i) {
-        if (used[i]) continue;
-        const Shape& s = shapes.shapes()[i];
-        Str where = "no array is tagged " + quoted(s.name);
-        if (!s.at.empty()) {
-            Str at;
-            for (const baker::Symbol t : s.at) at += (at.empty() ? "" : "/") + Str(t.str());
-            where = s.keyed ? "no array is a child of " + at
-                            : "no array tagged " + quoted(s.name) + " is in " + at;
-        }
-        warnings.push_back(make_error(ErrorCode::NotFound,
-                                      "shape " + quoted(s.name) + " governs nothing: " + where,
-                                      s.file, s.line));
-    }
-    report.warnings = List<Error>({warnings.data(), warnings.size()});
-}
-
 Config::Validator validator() {
     return [](const ValidatorStack& stack, const Callback<void(const Error&)>& warn) {
         Set set;
@@ -1785,85 +1759,6 @@ Config::Validator validator() {
                                 " rules, and this build has no baker::script to check them"));
 #endif
     };
-}
-
-void write_json(const Set& shapes, TextSink text) {
-    Vec<const Shape*> ss;
-    for (const Shape& sh : shapes.shapes()) ss.push_back(&sh);
-    std::sort(ss.begin(), ss.end(),
-              [](const Shape* a, const Shape* b) { return a->name.str() < b->name.str(); });
-    Str out = "{\n  \"schema\": \"baker.shapes/1.8\",\n  \"shapes\": [";
-    for (size_t i = 0; i < ss.size(); ++i) {
-        const Shape& sh = *ss[i];
-        out += i ? ",\n    {\"name\": " : "\n    {\"name\": ";
-        detail::json_string(out, sh.name.str());
-        out += ", \"at\": ";
-        detail::json_names(out, sh.at.items());
-        out += Str(", \"keyed\": ") + (sh.keyed ? "true" : "false") +
-               ", \"view\": " + (sh.view ? "true" : "false") + ", \"cxx_name\": ";
-        detail::json_string(out, sh.cxx_name.str());
-        out += ", \"file\": ";
-        detail::json_string(out, sh.file.str());
-        out += ", \"line\": " + detail::decimal(sh.line) + ", \"fields\": [";
-        for (size_t j = 0; j < sh.fields.size(); ++j) {
-            const Field& f = sh.fields[j];
-            out += j ? ",\n      {\"name\": " : "\n      {\"name\": ";
-            detail::json_string(out, f.name.str());
-            out += ", \"type\": ";
-            detail::json_string(out, type_text(f.type));
-            out += ", \"element\": ";
-            detail::json_string(out, f.type == Type::List ? type_text(f.element) : "");
-            out += ", \"count\": ";
-            if (f.type == Type::List && (f.min_count != 0 || f.max_count != UINT32_MAX))
-                out +=
-                    "[" + detail::decimal(f.min_count) + ", " + detail::decimal(f.max_count) + "]";
-            else
-                out += "null";
-            out += ", \"shape\": ";
-            detail::json_string(out, f.shape.str());
-            out += ", \"table\": ";
-            detail::json_string(out, table_path(f));
-            out += ", \"asset\": ";
-            detail::json_string(out, f.asset.str());
-            out += Str(", \"optional\": ") + (f.optional ? "true" : "false") + ", \"range\": ";
-            if (f.ranged)
-                out +=
-                    "[" + detail::text_of(Node(f.min)) + ", " + detail::text_of(Node(f.max)) + "]";
-            else
-                out += "null";
-            out += ", \"step\": " + detail::text_of(Node(f.step)) + ", \"kind\": ";
-            detail::json_string(out, f.kind.str());
-            out += ", \"desc\": ";
-            detail::json_string(out, f.desc);
-            out += ", \"note\": ";
-            detail::json_string(out, f.note);
-            out += ", \"one_of\": ";
-            detail::json_names(out, f.one_of.items());
-            out += Str(", \"view\": ") + (f.view ? "true" : "false") + ", \"cxx\": ";
-            detail::json_string(out, f.cxx.str());
-            out += ", \"cxx_name\": ";
-            detail::json_string(out, f.cxx_name.str());
-            out += ", \"renamed_from\": ";
-            detail::json_names(out, f.renamed_from.items());
-            out += ", \"file\": ";
-            detail::json_string(out, f.file.str());
-            out += ", \"line\": " + detail::decimal(f.line) + "}";
-        }
-        out += sh.fields.empty() ? "], \"rules\": [" : "\n    ], \"rules\": [";
-        for (size_t j = 0; j < sh.rules.size(); ++j) {
-            const Rule& r = sh.rules[j];
-            out += j ? ",\n      {\"message\": " : "\n      {\"message\": ";
-            detail::json_string(out, r.message);
-            out += ", \"expression\": ";
-            detail::json_string(out, detail::text_of(r.expression));
-            out += Str(", \"warn\": ") + (r.warn ? "true" : "false") + ", \"file\": ";
-            detail::json_string(out, r.file.str());
-            out += ", \"line\": " + detail::decimal(r.line) + "}";
-        }
-        out += sh.rules.empty() ? "]}" : "\n    ]}";
-    }
-    out += ss.empty() ? "]\n}\n" : "\n  ]\n}\n";
-    text(out);
 }
 
 }  // namespace baker::shape

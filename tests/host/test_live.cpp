@@ -106,7 +106,14 @@ TEST_CASE("Live opens the stack its project file describes, and runs #autorun") 
                        .changed = [&](const Config&) { ++changed; }}));
     CHECK(live.project_file() == Symbol(st.dir.path("baker-project.dta")));
     CHECK(live.config().get<int>("speed") == 3);
-    CHECK(eval_int(ctx, "{speed_twice}") == 6);  // #autorun ran, with the Config's tools bound
+    if constexpr (!kShipping) {
+        CHECK(eval_int(ctx, "{speed_twice}") == 6);  // #autorun ran, with the Config's tools bound
+    } else {
+        // #autorun ran; a shipping Live binds no config.* (D322), so the call it makes fails.
+        auto r = ctx.eval("{speed_twice}");
+        REQUIRE_FALSE(r);
+        CHECK(std::string(to_string(r.error())).find("config.get") != std::string::npos);
+    }
     CHECK(changed == 1);
     CHECK(live.load_errors().empty());
     CHECK(live.config().layers().size() == 3);  // default, the missing local, scratch
@@ -369,6 +376,32 @@ TEST_CASE("Live serves the console, writing files only when asked") {
     }
 }
 
+TEST_CASE("Live gives the console its options, and its log") {
+    if constexpr (!kShipping) {
+        Stack st;
+        Context ctx;
+        Live live(ctx);
+        std::string logged;
+        REQUIRE(
+            live.open({.project = st.dir.path("data"),
+                       .console_any_port = true,
+                       .console = {.max_bytes = 1024},
+                       .log = [&logged](const Error& e) { logged += std::string(e.message()); }}));
+        net::socket_t s = socket(AF_INET, SOCK_STREAM, 0);
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        addr.sin_port = htons(live.console_port());
+        REQUIRE(connect(s, reinterpret_cast<sockaddr*>(&addr), sizeof addr) == 0);
+        const std::string flood(5000, 'x');  // past the cap, with no line end
+        (void)send(s, flood.data(), static_cast<int>(flood.size()), 0);
+        CHECK(frames_until(live,
+                           [&] { return logged.find("dropped a client") != std::string::npos; }));
+        net::close_socket(s);
+        CHECK(request(live, "{+ 1 2}") == "=> 3");
+    }
+}
+
 TEST_CASE("the console on a free port, which console_port() reports (D216)") {
     if constexpr (!kShipping) {
         Stack st;
@@ -429,5 +462,21 @@ TEST_CASE("under BAKER_SHIPPING the stack opens, with no watcher and no console"
         REQUIRE(live.open({.project = st.dir.path("data"), .console_port = 4999}));
         CHECK(live.config().get<int>("speed") == 3);
         CHECK(live.console_port() == 0);
+        // The tools' commands are not bound, so their code is not linked (D322).
+        CHECK_FALSE(ctx.has_func("config.get"));
+        CHECK_FALSE(ctx.has_func("config.layers"));
+        CHECK_FALSE(ctx.has_func("config.explain"));
+    }
+}
+
+TEST_CASE("outside BAKER_SHIPPING Live binds the config tools") {
+    if constexpr (!kShipping) {
+        Stack st;
+        Context ctx;
+        Live live(ctx);
+        REQUIRE(live.open({.project = st.dir.path("data")}));
+        CHECK(ctx.has_func("config.get"));
+        CHECK(ctx.has_func("config.set"));
+        CHECK_FALSE(ctx.has_func("config.write_back"));  // only with console_write
     }
 }

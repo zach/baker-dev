@@ -186,7 +186,7 @@ endif()
 # --- baker::shape: shapes declared in data, checked at load (spec §6, D84). Depends only
 #     on baker::data.
 if(BAKER_BUILD_SHAPE)
-  add_library(baker_shape src/shape/shape.cpp src/shape/views.cpp)
+  add_library(baker_shape src/shape/shape.cpp src/shape/shape_tools.cpp src/shape/views.cpp)
   add_library(baker::shape ALIAS baker_shape)
   baker_configure_library(baker_shape)
   target_link_libraries(baker_shape PUBLIC baker::data)

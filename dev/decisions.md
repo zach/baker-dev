@@ -11729,3 +11729,82 @@ Four costs of the path between C++ and script, and of script tasks.
     - re-watching 16,000 paths takes less than 64 times re-watching 1,000; main takes 237
       times.
   - `test_watcher.cpp` and `test_live.cpp` pass unchanged otherwise.
+
+## D322. The console's budget and byte cap; tool code out of a shipping Live
+
+*From the six-part TD review (`dev/td-review-2026-11.md`, findings 18, 19 and 20).* The
+console answered every queued line in one poll, 1,000 requests in 1.74 ms of one frame, and
+kept whatever a client sent or would not read. A shipping build linking `host::Live` carried
+the console's `config.*` commands and what they reach, and bound them; the shape validator
+carried the shape library's tool code. The owner chose a per-frame budget set by the host
+and a byte cap per connection, and to split tool code out of shipping, binding `config.*`
+only outside it.
+
+- **`ConsoleOptions`** (`Console(ctx, options)`, and `LiveOptions::console`, whose log is
+  Live's unless set):
+  - `budget_ns`, 0.5 ms by default. A poll answers lines until that much of it is spent and
+    leaves the rest, in order, for the next poll. The clock (`steady_now`) is read when the
+    poll answers its first line and after each line, never in a quiet poll, so a poll
+    overruns by at most one line and always answers one. The budget is the poll's, shared
+    by every client; the client answered first turns each poll, so a busy client cannot
+    keep the others waiting. 0 answers everything, as before.
+  - `max_bytes`, 1 MB by default. A client holding more than the cap of unanswered input is
+    dropped and `log` told. Output is capped by holding the client's lines unanswered while
+    more than the cap of its replies waits unsent, not by dropping: one reply may be larger
+    than the cap (the 4 MB reply the console's tests send, or a reference written as JSON),
+    and a tool that sent one request must get it. A client that sends without reading
+    stops being answered, then fills its input and is dropped. 0 is no cap.
+- **A shipping `Live` binds no `config.*`,** so `tools::bind_config_tools` and `layers.cpp`
+  (`diff`, `layer_effect`) are not linked. The commands are tool code a game links on
+  purpose, and `eval {config.get ...}` is tested in shipping, so under `kShipping`
+  `run_command`'s load binds them itself before the open, where Live binds them before
+  `#autorun` elsewhere. A shipping `Console::poll()` is empty, and `Watcher::Impl::watch`,
+  which only a development build calls, is inline, so neither is emitted.
+- **The shape library's tool code is its own file,** `src/shape/shape_tools.cpp`:
+  `write_json`, `unused`, `asset_uses` and `key_uses`. The check's walk, `type_text` and
+  `table_path` are shared through `src/shape/impl.hpp`. A static library links an object
+  only for a symbol it needs, so a game that adds only `shape::validator()` no longer
+  carries them. Still in `shape.cpp`, because the views code beside it is being changed
+  elsewhere: `view_digest` and its helpers and `contract_set`, about 5 KB.
+- **Sizes** (GCC, Release, `BAKER_SHIPPING=ON`, this machine; bytes of text from `size`, and
+  the stripped file):
+
+  | program | main (0509a61) | D322 | change |
+  |---|---:|---:|---:|
+  | opens a `Live` (with the four validators), three frames: text | 1,779,179 | 1,621,251 | -157,928 |
+  | the same, stripped | 1,797,232 | 1,633,040 | -164,192 |
+  | adds `shape::validator()` to a Config and loads: text | 1,155,275 | 1,141,715 | -13,560 |
+  | the same, stripped | 1,166,096 | 1,153,808 | -12,288 |
+  | `examples/host` (the commands too), stripped | 2,247,712 | 2,239,520 | -8,192 |
+
+  By object, in the first program: `tools/console.cpp` 40.8 KB and `tools/layers.cpp`
+  60.0 KB gone, `host/watcher.cpp` 20.2 to 2.2 KB, `host/console.cpp` 9.7 to 0.8 KB; and
+  `shape.cpp` 152.5 to 138.9 KB in the second. The review's 420 KB was not reproduced here:
+  in this build what a shipping Live linked that only tools use came to about 130 KB, now
+  gone. What remains is not tool code by this measure: `rules.cpp` is the rules validator,
+  which a shipping Live keeps for the checks of an overlay (D307), and `config_write.cpp`
+  (72 KB) is reached from `config.cpp` through a shared helper; splitting that is a
+  question for the core.
+- **Console timing** (Release, not shipping, this machine; 1,000 queued `(I {+ I 1})`
+  requests from one client, five rounds):
+
+  | | main (0509a61) | D322 |
+  |---|---|---|
+  | polls that answered | 1 | 4, then 2 in each later round |
+  | the slowest poll | 1.64 to 1.91 ms | 0.546 to 0.562 ms |
+  | all 1,000 answered, total | 1.64 to 1.91 ms | 0.90 to 1.79 ms |
+
+- **Tests.**
+  - `test_console.cpp`: 1,000 requests of 10 µs each are answered once each, in order, each
+    reply its request's, over at least 20 polls, the slowest under 50 ms (0.54 ms here); a
+    budget of 1 ns answers exactly one line a poll, and 0 answers more than 100 of 500
+    10 µs requests in one poll; a client
+    sending 10,000 bytes with no line end past a 4 KB cap is dropped with a log line while
+    another is served; a client that does not read, sending 100 requests of 400 KB replies
+    past a 64 KB cap, stops being answered and is kept, then reading gets all 100 in order.
+  - `test_live.cpp`: Live passes `console` and its log to the console (a client past the
+    cap is logged, the next request answered); under `kShipping`, `config.get`,
+    `config.layers` and `config.explain` are not bound, and the first test's `#autorun`
+    function, which calls `config.get`, fails there and returns 6 elsewhere; outside it,
+    `config.get` and `config.set` are bound, and `config.write_back` only with
+    `console_write`.

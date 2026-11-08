@@ -419,8 +419,9 @@ void Watcher::watch(std::span<const StackFile> files, std::span<const std::strin
     }
 }
 
-void Watcher::Impl::watch(std::span<const StackFile> files,
-                          std::span<const std::string_view> more) {
+// Inline, so a shipping build, which never calls it, does not emit it.
+inline void Watcher::Impl::watch(std::span<const StackFile> files,
+                                 std::span<const std::string_view> more) {
     // A file that stays in the list keeps what was last seen of it, so an edit since the
     // last poll is still reported; a file new to the list is stamped as now.
     const Vec<Entry> before = std::move(entries);
