@@ -11,6 +11,8 @@
 
 #include <algorithm>
 #include <cstring>
+#include <new>
+#include <type_traits>
 
 namespace baker {
 
@@ -138,8 +140,11 @@ struct Relocator {
         if (!p) return;
         auto* points = reinterpret_cast<CurvePoint*>(p);
         for (uint32_t i = 0; i < n; ++i) points[i] = c.point(i);
-        const Curve moved(std::span<const CurvePoint>(points, n), c.mode(), c.extend());
-        std::memcpy(at, &moved, sizeof(Curve));
+        // Made in zeroed bytes, so the block's copy has zero padding, not the stack's (D320).
+        alignas(Curve) unsigned char moved[sizeof(Curve)] = {};
+        static_assert(std::is_trivially_destructible_v<Curve>);
+        new (moved) Curve(std::span<const CurvePoint>(points, n), c.mode(), c.extend());
+        std::memcpy(at, moved, sizeof(Curve));
     }
 
     void list(char* at, const ViewFixup& f) {
@@ -403,17 +408,39 @@ Ref<const BakedTable> build_table(TableSlot& slot, const Array& root, const Allo
     }
     const auto rows = static_cast<uint32_t>(records.size());
 
-    // Pass 1: each row read into temp, its pool bytes measured.
-    Vec<char> row_temp(alloc), elem_temp(alloc);
-    row_temp.resize(spec.row_size);
+    // Each row read once (D320), into a zeroed buffer laid out as the block's rows, so its
+    // bytes, padding included, are what reading it in place would leave; its pool bytes
+    // measured from the row as read. The rows move into the block once it is sized.
+    const size_t rows_bytes = size_t{rows} * spec.row_size;
+    const size_t row_align = std::max<size_t>(spec.row_align, kPoolAlign);
+    struct RowsBuffer {
+        const Allocator& alloc;
+        size_t bytes;
+        char* data;
+        ~RowsBuffer() {
+            if (data) detail::deallocate(alloc, data, bytes);
+        }
+    } read_rows{
+        alloc, rows_bytes,
+        rows_bytes ? static_cast<char*>(detail::allocate(alloc, rows_bytes, row_align)) : nullptr};
+    if (rows_bytes) std::memset(read_rows.data, 0, rows_bytes);
+    Vec<char> elem_temp(alloc);
     size_t pool_bytes = 0;
     {
         Pool measure(nullptr);
         Relocator r{measure, elem_temp};
-        for (const Record& rec : records) {
-            spec.init(row_temp.data());
-            (void)spec.read(*rec.array, row_temp.data(), nullptr);
-            r.run(row_temp.data(), spec.fixups);
+        for (uint32_t i = 0; i < rows; ++i) {
+            const Record& rec = records[i];
+            char* row = read_rows.data + size_t{i} * spec.row_size;
+            spec.init(row);
+            Error err;
+            if (!spec.read(*rec.array, row, &err)) {
+                const Symbol* wild_tags = wild.data() + found[rec.governed].first_tag;
+                err.set_path(record_path(at, wild_tags, rec.array->tag()).view());
+                slot.errors.push_back(err);
+                if (warn) warn(err);
+            }
+            r.run(row, spec.fixups);
         }
         pool_bytes = measure.used();
     }
@@ -425,9 +452,8 @@ Ref<const BakedTable> build_table(TableSlot& slot, const Array& root, const Allo
                 alias_count += static_cast<uint32_t>(aka->values().size());
 
     // The block: the header, the rows, the pool, the tags, the ids, the three indices.
-    const size_t rows_at =
-        aligned(sizeof(BakedTable), std::max<size_t>(spec.row_align, kPoolAlign));
-    const size_t pool_at = aligned(rows_at + size_t{rows} * spec.row_size, kPoolAlign);
+    const size_t rows_at = aligned(sizeof(BakedTable), row_align);
+    const size_t pool_at = aligned(rows_at + rows_bytes, kPoolAlign);
     const size_t tags_at = aligned(pool_at + pool_bytes, alignof(Symbol));
     const size_t tags_n = size_t{rows} * (wildcards + 1);
     const size_t ids_at = aligned(tags_at + tags_n * sizeof(Symbol), alignof(RecordId));
@@ -440,9 +466,9 @@ Ref<const BakedTable> build_table(TableSlot& slot, const Array& root, const Allo
                                       alignof(BakedTable::ParentEntry));
     const size_t parents_n = wildcards ? found.size() : 0;
     const size_t bytes = parents_at + parents_n * sizeof(BakedTable::ParentEntry);
-    char* block = static_cast<char*>(
-        detail::allocate(alloc, bytes, std::max<size_t>(spec.row_align, kPoolAlign)));
+    char* block = static_cast<char*>(detail::allocate(alloc, bytes, row_align));
     std::memset(block, 0, bytes);
+    if (rows_bytes) std::memcpy(block + rows_at, read_rows.data, rows_bytes);
     BakedTable* table = BakedTable::Layout::place(block, bytes, alloc);
     auto* tags = reinterpret_cast<Symbol*>(block + tags_at);
     auto* ids = reinterpret_cast<RecordId*>(block + ids_at);
@@ -450,22 +476,13 @@ Ref<const BakedTable> build_table(TableSlot& slot, const Array& root, const Allo
     auto* idx = reinterpret_cast<BakedTable::IdEntry*>(block + idx_at);
     auto* parents = reinterpret_cast<BakedTable::ParentEntry*>(block + parents_at);
 
-    // Pass 2: the rows in place, relocated into the pool; the tags, ids and keys.
+    // The rows, relocated into the pool in place; the tags, ids and keys.
     Pool pool(block + pool_at);
     Relocator r{pool, elem_temp};
     uint32_t key_count = 0, id_count = 0;
     for (uint32_t i = 0; i < rows; ++i) {
         const Record& rec = records[i];
-        char* row = block + rows_at + size_t{i} * spec.row_size;
-        spec.init(row);
-        Error err;
-        if (!spec.read(*rec.array, row, &err)) {
-            const Symbol* wild_tags = wild.data() + found[rec.governed].first_tag;
-            err.set_path(record_path(at, wild_tags, rec.array->tag()).view());
-            slot.errors.push_back(err);
-            if (warn) warn(err);
-        }
-        r.run(row, spec.fixups);
+        r.run(block + rows_at + size_t{i} * spec.row_size, spec.fixups);
         Symbol* row_tags = tags + size_t{i} * (wildcards + 1);
         for (uint32_t k = 0; k < wildcards; ++k)
             row_tags[k] = wild[found[rec.governed].first_tag + k];

@@ -13,8 +13,12 @@
 #include "item_read.hpp"
 #include "move_read.hpp"
 #include "ok.hpp"
+#include "table_build.hpp"
 #include "temp_dir.hpp"
 
+#include <algorithm>
+#include <cstring>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -39,6 +43,156 @@ const char* const kFighters =
 
 std::string text(const Error& e) {
     return std::string(to_string(e));
+}
+
+// The build as it was before each row was read once (D320), replayed over a built block at
+// the block's own addresses: the rows and the pool zeroed, then each row read in place and
+// relocated into the pool, in row order. A block the single read built must come out of it
+// byte for byte, padding included.
+class TwoPassReplay {
+public:
+    explicit TwoPassReplay(char* base) : base_(base) {}
+
+    void replay(const detail::TableSlot& slot) {
+        const TableSpec& spec = slot.spec;
+        const BakedTable& t = *slot.built;
+        std::string section;
+        {
+            Str out;
+            REQUIRE(detail::write_table(t, spec, out));
+            section.assign(out.data(), out.size());
+        }
+        uint32_t rows_at = 0, tags_at = 0;  // the layout's first two offsets, after 32 bytes
+        std::memcpy(&rows_at, section.data() + 32, 4);
+        std::memcpy(&tags_at, section.data() + 36, 4);
+        std::memset(base_ + rows_at, 0, tags_at - rows_at);
+        used_ = rows_at + size_t{t.size()} * spec.row_size;
+        uint32_t i = 0;
+        for (const Ref<Array>& parent : slot.sources)
+            for (uint32_t k = parent->tag().empty() ? 0 : 1; k < parent->size(); ++k) {
+                const Array* rec = (*parent)[k].try_array();
+                if (!rec || rec->tag().empty() || rec->tag().is_meta()) continue;
+                char* row = base_ + rows_at + size_t{i++} * spec.row_size;
+                spec.init(row);
+                (void)spec.read(*rec, row, nullptr);
+                run(row, spec.fixups);
+            }
+        CHECK(i == t.size());
+    }
+
+private:
+    struct RawList {
+        const void* data;
+        uint32_t size;
+        uint32_t packed;
+    };
+    char* take(size_t bytes) {
+        used_ = (used_ + 15) & ~size_t{15};
+        char* p = base_ + used_;
+        used_ += bytes;
+        return p;
+    }
+    void run(char* row, std::span<const ViewFixup> fixups) {
+        for (const ViewFixup& f : fixups) {
+            char* at = row + f.offset;
+            switch (f.kind) {
+                case ViewFixupKind::Symbol: break;
+                case ViewFixupKind::String: string(at); break;
+                case ViewFixupKind::Curve: curve(at); break;
+                case ViewFixupKind::Struct: run(at, f.nested_fixups()); break;
+                case ViewFixupKind::List: list(at, f); break;
+            }
+        }
+    }
+    void string(char* at) {
+        std::string_view s;
+        std::memcpy(&s, at, sizeof s);
+        char* p = take(s.size() + 1);
+        if (!s.empty()) std::memcpy(p, s.data(), s.size());
+        p[s.size()] = '\0';
+        const std::string_view moved(p, s.size());
+        std::memcpy(at, &moved, sizeof moved);
+    }
+    void curve(char* at) {
+        Curve c;
+        std::memcpy(&c, at, sizeof c);
+        auto* points = reinterpret_cast<CurvePoint*>(take(c.size() * sizeof(CurvePoint)));
+        for (size_t i = 0; i < c.size(); ++i) points[i] = c.point(i);
+        alignas(Curve) unsigned char moved[sizeof(Curve)] = {};
+        new (moved) Curve(std::span<const CurvePoint>(points, c.size()), c.mode(), c.extend());
+        std::memcpy(at, moved, sizeof moved);
+    }
+    void list(char* at, const ViewFixup& f) {
+        RawList raw{};
+        std::memcpy(&raw, at, sizeof raw);
+        if (raw.packed || !raw.data) return;
+        const Values v = static_cast<const Array*>(raw.data)->values();
+        char* elements = take(size_t{raw.size} * f.element_size);
+        for (uint32_t i = 0; i < raw.size; ++i) {
+            char* e = elements + size_t{i} * f.element_size;
+            switch (f.element) {
+                case ViewFixup::Element::Int32: {
+                    const auto x = static_cast<int32_t>(v[i].try_int().value_or(0));
+                    std::memcpy(e, &x, sizeof x);
+                    break;
+                }
+                case ViewFixup::Element::Float: {
+                    const auto x = static_cast<float>(v[i].try_float().value_or(0));
+                    std::memcpy(e, &x, sizeof x);
+                    break;
+                }
+                case ViewFixup::Element::Bool: {
+                    bool x = false;
+                    (void)v.read(i, x);
+                    std::memcpy(e, &x, sizeof x);
+                    break;
+                }
+                case ViewFixup::Element::Symbol: {
+                    const Symbol x = v[i].try_sym().value_or(Symbol());
+                    std::memcpy(e, &x, sizeof x);
+                    break;
+                }
+                case ViewFixup::Element::String: {
+                    const std::string_view x = v[i].try_str().value_or(std::string_view());
+                    std::memcpy(e, &x, sizeof x);
+                    string(e);
+                    break;
+                }
+                case ViewFixup::Element::Curve: {
+                    Curve x;
+                    if (const Array* ea = v[i].try_array()) (void)read_curve(ea->values(), x);
+                    std::memcpy(e, &x, sizeof x);
+                    curve(e);
+                    break;
+                }
+                case ViewFixup::Element::Struct: {
+                    if (f.init) f.init(e);
+                    if (const Array* ea = v[i].try_array(); ea && f.read)
+                        (void)f.read(*ea, e, nullptr);
+                    run(e, f.nested_fixups());
+                    break;
+                }
+            }
+        }
+        const RawList moved{elements, raw.size, 1};
+        std::memcpy(at, &moved, sizeof moved);
+    }
+
+    char* base_;
+    size_t used_ = 0;
+};
+
+// Every table of `cfg` is what the two-pass build made of the same tree, byte for byte.
+void check_two_pass(const Config& cfg) {
+    const std::span<const detail::TableSlot> slots = detail::table_slots(cfg);
+    REQUIRE_FALSE(slots.empty());
+    for (const detail::TableSlot& slot : slots) {
+        REQUIRE(slot.built);
+        auto* base = reinterpret_cast<char*>(const_cast<BakedTable*>(slot.built.get()));
+        const std::string built(base, slot.built->block_bytes());
+        TwoPassReplay(base).replay(slot);
+        CHECK(std::memcmp(base, built.data(), built.size()) == 0);
+    }
 }
 
 }  // namespace
@@ -89,6 +243,59 @@ TEST_CASE("a table holds the records of a keyed shape, packed, with their string
     CHECK(items[0].sizes[2] == 3);
     CHECK(items[1].tag.empty());
     CHECK(items[1].sizes.empty());
+}
+
+TEST_CASE("a table reads each record once, into the block the two-pass build made (D320)") {
+    SUBCASE("the fixtures") {
+        Config cfg({.tweaks = nullptr});
+        REQUIRE(add_table<Move>(cfg));
+        REQUIRE(add_table<Item>(cfg));
+        REQUIRE(cfg.push_layer_text("base", kFighters));
+        check_two_pass(cfg);
+    }
+    SUBCASE("strings, lists and nested views, with aliases, IDs and a record in error") {
+        std::string fighters = "(fighters\n";
+        for (int f = 0; f < 6; ++f) {
+            fighters += " (f" + std::to_string(f) + " (moves\n";
+            for (int m = 0; m < 50; ++m) {
+                const std::string i = std::to_string(f * 50 + m);
+                fighters += "  (m" + std::to_string(m) + (m % 9 == 0 ? " (@aka old" + i + ")" : "");
+                fighters += " (startup " + std::to_string(m % 60 + 1) + ") (damage " + i + ".5)";
+                if (m % 4) fighters += " (name \"move number " + i + "\")";
+                if (m % 3) fighters += " (cancel_into m1 m2 m" + std::to_string(m % 7) + ")";
+                fighters += " (hitbox (x " + i + ") (y 2))";
+                for (int p = 0; p < m % 4; ++p) fighters += p ? "" : " (points";
+                for (int p = 0; p < m % 4; ++p)
+                    fighters += " (p (x " + std::to_string(p) + ") (y " + i + "))";
+                if (m % 4) fighters += ")";
+                if (m % 5 == 0) fighters += " (ramp (0 0) (1 " + i + ") (2 1))";
+                if (m == 17) fighters += " (armored maybe)";  // not a bool: an error, located
+                fighters += ")\n";
+            }
+            fighters += " ))\n";
+        }
+        fighters += ")\n(items";
+        for (int k = 0; k < 40; ++k) {
+            fighters += " (it" + std::to_string(k) + " (price " + std::to_string(k) + ")";
+            if (k % 2) fighters += " (tag \"" + std::string(static_cast<size_t>(k), 'x') + "\")";
+            if (k % 3) fighters += " (sizes 1 2 " + std::to_string(k) + ")";
+            fighters += ")";
+        }
+        fighters += ")\n";
+        Config cfg({.tweaks = nullptr});
+        std::vector<std::string> warnings;
+        cfg.set_warning_handler([&](const Error& e) { warnings.push_back(text(e)); });
+        REQUIRE(add_table<Move>(cfg));
+        REQUIRE(add_table<Item>(cfg));
+        REQUIRE(cfg.push_layer_text("base", fighters));
+        REQUIRE(table<Move>(cfg).size() == 300);
+        CHECK(table<Item>(cfg).size() == 40);
+        // The record in error is reported once each build, from its one read.
+        CHECK(std::count_if(warnings.begin(), warnings.end(), [](const std::string& w) {
+                  return w.find("armored") != std::string::npos;
+              }) == 6);
+        check_two_pass(cfg);
+    }
 }
 
 TEST_CASE("a table is read by key, by path, by ID, by alias and by parent") {

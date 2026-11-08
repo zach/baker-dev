@@ -11500,6 +11500,121 @@ Four costs of the path between C++ and script, and of script tasks.
   - 300 globals: those a task names are read live, a variable captured, a global named
     twice keeps the second doc.
 
+## D320. Sorted lookup reads only the tag run; a table reads each record once
+
+*The November review's findings 14 and 22 (`dev/td-review-2026-11.md`), both marked fix.*
+
+- **Sorted mode missed cache at every probe.** D28's binary search was a `partition_point`
+  over the nodes: each probe loaded a node, the child it points at, and the child's tag
+  symbol to compare hashes and text, three dependent misses a probe, so cold it lost to
+  the linear scan at every size the review tried. D77's tag run did not help it: its keys
+  are pointer bits, in no order the sort knows.
+- **Now a sorted array's run holds keys in the sort's order:** the metadata bit, the top
+  30 bits of the tag's hash, then 1 (`Array::sorted_key`). Untagged children are 0, the
+  other tags ascend by hash, metadata's follow with the top bit set, so the run ascends as
+  D28's order does, and the order itself, by hash then text, is unchanged: printing and
+  `at(i)` after a sort are what they were. `find_sorted` is a branchless lower bound over
+  the run, then confirms each child whose key equals the one asked, by its tag, as the
+  scan does (two tags can share 30 bits; the first one confirmed is the first of its
+  duplicates). It loads the query's symbol entry for its hash, which the old search did
+  too, and one child.
+- **What keeps the run right.** `sort_for_lookup` writes the sorted keys after `finish()`,
+  which now clears the sorted flag, since the keys it writes are identity keys. `set()`
+  on a sorted array turns sorting off and first writes the whole run back to identity
+  keys (`Array::unsort`), an O(n) step only at that transition, so the scan that follows
+  finds every child; D77's rule for a child re-tagged in place holds in both modes.
+  `meta()` scans with whichever key the array holds. A cache keeps the sorted flag in the
+  header, and its loader writes each child's key as its parent's run takes it
+  (`Array::run_key`); the format is unchanged, since a cache stores no run.
+- **The threshold.** Sorting stays opt-in: it reorders the children, which is not only a
+  speed choice. Cold, sorted now ties linear at 16 to 20 children and wins from 100 up;
+  at 8 it is still about 35 ns slower (130 against 96 ns), with the same cache misses
+  under cachegrind and about 45 more instructions. A scan of the sorted run below 17
+  children was tried: 10 to 15 ns better cold at 8, but twice the warm cost there (20
+  against 10 ns) and 12 ns worse cold at 16, so the search stays one loop. Warm, sorted is
+  faster than linear from 8 children on.
+- **A table read every record twice** (finding 22). `build_table` read each record into a
+  scratch row to measure the pool, then read it again into the block. Now each record is
+  read once, into a zeroed buffer from the Config's allocator laid out as the block's
+  rows, its pool measured from the row as read and its errors reported then; once the
+  block is sized the rows are copied in and relocated in place, in the same order, so the
+  block is byte for byte what it was, padding included. The buffer is the rows' size
+  (655 KB at the review's 10,240 rows of 64 bytes), held for the build. A list of nested
+  views still reads each element twice, once to measure and once in place: the review's
+  stack has none, and keeping read elements would need a growable store whose pointers
+  move under the recursion.
+- **A curve's padding came from the stack.** The relocator built a moved `Curve` on the
+  stack and copied the whole object into the block, so its two padding bytes were whatever
+  the stack held: under ASan the test below saw `53 57` where the build had left 0, in
+  the two-pass build as much as this one. The moved curve is now made in zeroed bytes, so
+  a block, and the image written from it, no longer varies there from build to build.
+- **Numbers, lookup** (release, not shipping, this machine, a 4-core Xeon at 2.1 GHz):
+  `find_float` by a held Symbol, at a random array and key. Cold: about 4M children in
+  arrays of each size, each read from its own text, far beyond the caches; warm: one
+  array. Median ns of five rounds, main and this commit interleaved, each round the
+  median of five runs of 2M lookups (range in parentheses):
+
+  | children | | linear, main | linear, D320 | sorted, main | sorted, D320 |
+  |---:|---|---:|---:|---:|---:|
+  | 8 | cold | 95.4 (90-104) | 95.6 (88-104) | 315.8 (311-344) | 130.1 (120-135) |
+  | 8 | warm | 18.0 (18-19) | 17.1 (17-18) | 36.1 (36-38) | 10.8 (10-11) |
+  | 20 | cold | 133.6 (122-170) | 136.5 (117-178) | 462.4 (445-494) | 142.0 (120-149) |
+  | 20 | warm | 20.9 (21-22) | 20.6 (20-23) | 46.5 (46-48) | 11.4 (11-12) |
+  | 100 | cold | 225.0 (210-244) | 222.8 (206-241) | 576.2 (500-778) | 147.0 (140-165) |
+  | 100 | warm | 33.6 (33-35) | 34.6 (33-37) | 68.3 (68-72) | 13.2 (13-14) |
+  | 1,000 | cold | 525.1 (508-533) | 516.7 (503-520) | 786.1 (710-856) | 208.5 (199-219) |
+  | 1,000 | warm | 175.1 (171-180) | 181.1 (170-188) | 115.7 (114-119) | 21.1 (21-22) |
+  | 10,000 | cold | 1,978.7 (1,956-2,088) | 1,961.8 (1,951-1,982) | 1,172.7 (1,114-1,273) | 249.1 (247-260) |
+  | 10,000 | warm | 1,546.1 (1,533-1,571) | 1,549.3 (1,545-1,561) | 204.7 (198-211) | 32.3 (31-33) |
+
+  The linear columns are the same code; their differences are this machine's noise.
+  Cachegrind with cache simulation (D1 32 KB, LL 8 MB; cold over 400k children, about
+  four times the LL), per lookup, instructions / D1 read misses / LL read misses, runs of N and
+  2N differenced (the counts include the benchmark's loop and the float conversion):
+
+  | children | | linear (both) | sorted, main | sorted, D320 |
+  |---:|---|---:|---:|---:|
+  | 8 | cold | 215 / 6.0 / 3.76 | 350 / 8.5 / 5.91 | 259 / 6.0 / 3.77 |
+  | 20 | cold | 251 / 6.4 / 3.61 | 397 / 11.9 / 7.57 | 268 / 6.5 / 3.56 |
+  | 100 | cold | 490 / 8.4 / 3.09 | 485 / 18.0 / 8.58 | 285 / 8.5 / 3.11 |
+  | 1,000 | cold | 3,199 / 35.4 / 9.39 | 609 / 31.4 / 12.85 | 314 / 11.2 / 4.54 |
+  | 10,000 | cold | 30,246 / 314 / 2.91 | 742 / 49.1 / 9.97 | 348 / 14.9 / 3.20 |
+  | 1,000 | warm | 3,199 / 2.3 / 0 | 610 / 11.9 / 0 | 313 / 3.4 / 0 |
+  | 10,000 | warm | 30,247 / 93.2 / 0 | 742 / 32.9 / 0 | 349 / 7.7 / 0 |
+
+  Below 1,000 children every warm row misses 0.25 a lookup in D1 and none in the LL, in
+  both modes and commits. `tools/count_instructions.py --case lookup lookup_text` (the
+  linear path, which must not move): lookup 209.0 against 209.0, lookup_text 377.0
+  against 377.0.
+- **Numbers, table build:** the review's stack (10,240 rows of `Move`, 64 bytes, a symbol
+  list and two strings each), the rebuild a record-field `set` and `apply_edits` cause,
+  less the same edit without the table. Median ms of 101 edits (21 at -O0), five rounds
+  interleaved; the -O0 row builds Baker and the game's generated reader at -O0:
+
+  | | main | D320 |
+  |---|---:|---:|
+  | release | 1.503 / 1.493 / 1.517 / 1.507 / 1.531 | 1.362 / 1.374 / 1.342 / 1.421 / 1.365 |
+  | -O0 | 26.00 / 25.17 / 25.45 / 25.42 / 25.22 | 15.95 / 15.92 / 16.03 / 17.16 / 15.92 |
+
+  Medians 1.507 against 1.365 ms (-9%) and 25.42 against 15.95 ms (-37%). Instructions
+  under cachegrind, per edit with and without the table: 21.3M against 17.7M (-17%)
+  release, 275M against 179M (-35%) at -O0. The release time falls by less than the
+  instructions: the copy of the rows and the buffer's first touch cost some of it back.
+- **Tests.**
+  - `test_lookup.cpp`: sorted and linear find agree, and agree with a scan of the nodes,
+    at 0, 1, 2, 8, 20, 100, 1,000 and 10,000 children, with repeated tags, metadata,
+    numbers, symbols, `''`-tagged arrays and tagged commands among them, `meta()` too;
+    through a cache round trip; after three `set()` edits, which turn sorting off; and
+    sorted again. Two names whose hashes share the run's 30 bits, found by hashing until
+    they collide, ordinary and metadata, with duplicates of each interleaved: each finds
+    its first child, and a name absent whose key is present finds nothing.
+  - `test_table.cpp`: every table of the fixtures, and of 300 moves and 40 items with
+    strings, symbol lists, lists of nested views, nested views, curves, aliases and a
+    record in error (reported once per build), is byte for byte the block a replay of the
+    two-pass build writes over it at its own addresses: each row zeroed, read in place
+    and relocated into the pool in row order. Filling the read buffer with 0xAA instead of
+    zero fails it, on the padding, and so did a curve's stack padding under ASan.
+
 ## D321. A layer check interns no path; the Watcher calls the system, and lists files by hash
 
 *From the six-part TD review (`dev/td-review-2026-11.md`, findings 27 and 28).*
