@@ -1654,7 +1654,7 @@ Expected<uint32_t> Config::push_image_layers(std::span<const ProjectLayer> layer
         const detail::ImageSection* s =
             section_named(detail::ImageSection::Kind::Layer, l.name.str());
         if (!s) break;
-        auto tree = read_cache_bytes(s->bytes, l.name.str(), impl_->base);
+        auto tree = detail::read_image_layer(s->bytes, l.name.str(), impl_->base);
         if (!tree) {
             impl_->hold_tables = false;
             return Unexpected(std::move(tree).error());

@@ -12052,3 +12052,34 @@ de-duplicated, and generated struct fields are reordered by alignment.*
     fields across alignments in another order hash the same, an order change within one
     alignment and `by_id` do not; `(@view by_id)` on an unkeyed shape is refused, and on a
     field is "(@view) or (@view no)".
+
+## D325. An image's layer sections trust the image's checksum
+
+*The follow-up the review left after D309: loading the stack image in place.* The owner
+weighed loading the image without copying it, which would make one buffer, shared by every
+layer and table from the image, the owner of their bytes, against what it saves: about 7–8 MB
+of peak memory and 1–2 ms on the review's 8 MB image. The owner chose only the cheap part.
+The copies stay; the second checksum goes.
+
+- **Why there was a second checksum.** `read_image` checks the whole file's checksum (D309)
+  before handing out any section. Each layer section was then read by `read_cache_bytes`,
+  which checked the section's own cache checksum over the same bytes again.
+- **`detail::read_image_layer`** reads a layer section as `read_cache_bytes` does, with the
+  cache's checksum skipped (`load`'s `trusted`). Every structural check still runs: magic,
+  version, platform, sizes, offsets, the symbol table's bounds, the cipher. The public
+  `read_cache_bytes` still checks everything, since its bytes come from anywhere. Someone
+  who can rewrite an image can rewrite both checksums, so nothing is weaker against
+  tampering; a corrupted image is still refused by the image's checksum.
+- **Not done, by the owner's choice:** in-place loading (a shared buffer, sections padded to
+  16, a version-4 format), and a host hook for memory-mapped images.
+- **Numbers** (release, not shipping; the review's stack regenerated for D324's views, a
+  cold open of the image, main against this commit):
+
+  | | main | D325 |
+  |---|---:|---:|
+  | instructions, whole process | 37,418,988 | 34,151,879 (−8.7%) |
+  | cold open, 5 interleaved runs | 13.01 / 13.82 / 14.64 / 14.79 / 17.26 ms | 13.23 / 13.38 / 13.55 / 14.75 / 14.79 ms |
+  | peak memory, allocations, faults | 15.7 MB, 84, 3,805 | 15.7 MB, 84, 3,804 |
+
+- **Tests.** The image tests in `test_table.cpp` pass unchanged, the damaged image among
+  them.
