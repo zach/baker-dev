@@ -329,7 +329,7 @@ void each_ruled(
 // baker::script warns once that the shapes hold rules it cannot check.
 [[nodiscard]] Config::Validator validator();
 
-// The shapes of `shapes` as JSON (schema baker.shapes/1.7, docs/reference-json.md), sorted by
+// The shapes of `shapes` as JSON (schema baker.shapes/1.8, docs/reference-json.md), sorted by
 // name: each shape's place, keyed or not, and its fields with their types, ranges, steps,
 // kinds, documentation, and where they are declared, and its rules. For editors and agents.
 void write_json(const Set& shapes, TextSink out);
