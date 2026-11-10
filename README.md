@@ -94,7 +94,7 @@ restarted.
 
 ```cmake
 include(FetchContent)
-FetchContent_Declare(baker GIT_REPOSITORY https://github.com/zach/baker.git GIT_TAG v0.8.0)
+FetchContent_Declare(baker GIT_REPOSITORY https://github.com/zach/baker.git GIT_TAG v0.9.0)
 FetchContent_MakeAvailable(baker)
 target_link_libraries(game PRIVATE baker::baker)
 ```
@@ -157,7 +157,8 @@ save, see it.
 ### Tools and the pipeline
 
 - **The host kit.** `baker::host` gives a game the loop every host writes the same way:
-  it watches the stack's files and reloads on a save, serves a remote console on loopback,
+  it watches the stack's files and reloads on a save (reading and parsing on the game's job
+  system if it has one), serves a remote console on loopback within a per-frame budget,
   and runs `check`, `reference`, `eval`, `diff`, `promote` and the other tool commands from
   the game's own binary.
   [Baker and your tools](docs/tools.md#the-host-kit), [`examples/host`](examples/host).
@@ -165,7 +166,8 @@ save, see it.
   console, provenance on hover, write-back, and reload telemetry.
   [`examples/harness-imgui`](examples/harness-imgui).
 - **Harness instrumentation.** Edit-to-see time per file and per layer (`loop_stats`), a
-  journal of every live edit and whether it was kept, pack owners and stages, `origin` for
+  journal of every live edit and whether it was kept, a change log with undo and redo,
+  pack owners and stages, `origin` for
   generated files, a repetition report, and `check` output as versioned JSON.
   [Cookbook](docs/cookbook.md#reload-callbacks-migrate-or-punt),
   [language guide](docs/language.md#checking-before-running).
