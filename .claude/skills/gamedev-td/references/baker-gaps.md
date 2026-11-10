@@ -51,6 +51,9 @@ its own D-entries.
 
 ## Gap status
 
+**Status, 2026-11-10: the 2026-11 review's 32 findings are closed or decided (D306–D325);
+items 51–61 below its table are what remains open from it.**
+
 **Status, 2026-10-15: gaps 1–32 are closed; 33–43, from the content-update research
 (`dev/background/content-updates.md`), are decided (D138) and built in its order: D139 closed 33, D140 40, D141 41, D142 36 and 43, D143 35, D144 37, D145 38, D146 39, D147 42, D148 34. Every gap is closed.** D132 closed the
 write-back batch (22–25), D133 gap 29, D134 gap 32, D135 gap 27, D136 gap 28, D137 gap 30. D127 closed gap 31 (the owner's choice in `dev/allocation-review.md`), and
@@ -118,6 +121,70 @@ before fixing (SKILL.md, step 5), and do not fix one without a cost that justifi
 | 41, pack `requires` unchecked | content | Recorded, never checked: a DLC requiring an absent pack loads silently. | **closed**, D141: a located warning once the pack's file is read, and after a cache replay |
 | 42, no content version | content | Nothing lets a package say which base version it needs; a cache format change refuses every shipped DLC cache. | **closed**, D147: `(version "1.2")` and `(requires (name "1.2"))`, compared part by part; cache format 5 |
 | 43, untrusted caches | content | A cache from an untrusted source can point a node anywhere (D71): a PC mod loader must accept text only. Stated limit; worth a guard or a documented rule. | **closed**, D142: `LoadSession::text_only` refuses caches; the cookbook states the rule |
+
+## The 2026-11 review (D306–D325)
+
+A second full review, of Baker in six parts (`dev/td-review-2026-11.md`), found 31 costs and,
+while they were fixed, a 32nd. Each is closed in a D-entry, or decided otherwise by the
+owner; the D-entries hold the measurements.
+
+| Finding | D-entry | Status |
+|---|---|---|
+| 1, a macro bomb expands before it is refused | D306 | **closed**: `ParseLimits::max_macro_nodes` |
+| 2, Live's validators on every merge, in shipping too | D307 | **closed**: `checks_only` in shipping; the ID walk 2.2× |
+| 3, `format` quadratic in `align` | D308 | **closed**: n log n |
+| 4, the stack image loads slower than text | D309, D325 | **closed**: the cache's checksum, one read buffer, no second checksum per section |
+| 5, 4 KB task frames | D310 | **closed**: size classes |
+| 6, a table rebuilt by any change | D311 | **closed** for an edit elsewhere; a record's own edit stays open (51) |
+| 7, crafted symbol collisions | D312 | **closed**: seeded homes |
+| 8, a read above a pending edit merges | D313 | **closed**: one kept merge |
+| 9, reload on the game thread | D314 | **closed**: `ReloadJob`, the stamp hook, `LiveOptions::run_async` |
+| 10, an undeclared field per record per push | D315 | **closed**: one warning per shape and field |
+| 11, the shape check of a push walks the tree | D316 | **closed**: scoped to the overlay |
+| 12, 15, 17, 32, shape check costs | D318 | **closed**: rule paths, keyed shapes by depth, wide records, `key_of` lookups |
+| 13, 16, scratch and tweak rebinding | D317 | **closed**: one-pass scratch, a tweak index |
+| 14, cold sorted lookup | D320 | **closed** from 16 children up; 8 stays open (54) |
+| 18, the console's budget and buffers | D322 | **closed**: 0.5 ms a poll, a 1 MB cap |
+| 19, 20, tool code in shipping | D322 | **closed**: 164 KB out of a shipping Live, 12 KB out of the validator |
+| 21, the image's table section | D324 | **closed**: IDs only for `(@view by_id)`, strings once, no relocation list |
+| 22, `build_table` reads twice | D320 | **closed** |
+| 23, 24, 26, 31, script call and task costs | D319 | **closed** |
+| 25, a `float` result's conversion | D323 | **kept** by the owner: every written value reads back as the same double |
+| 27, a layer check interns paths | D321 | **closed**: paths as text |
+| 28, the Watcher's `std::filesystem` and `watch()` | D321 | **closed** for stamps and polls; normalization stays (55) |
+| 29, a curve read from the tree | D323 | **closed**: baked at the first sample, kept by the load |
+| 30, generated struct padding | D324 | **closed**: members by alignment |
+
+Left open from it, each recorded in its D-entry:
+
+51. **A record's own edit rebuilds its whole table (load, development).** A one-field edit
+   at 10,240 rows rebuilds every row: 1.37 ms in release, 16 ms at -O0 (D311, D320).
+   Keeping an unchanged parent's rows means relocating them into the new block. Lists of
+   nested views are still read twice in a build.
+52. **A change to every tweak is 5–20% slower (load, development).** The tweak index's pass
+   costs a little more than binding every tweak when every tweak changes (D317).
+53. **A push that removes a record walks the tree (tool).** The key index that finds what
+   names a removed record is built by a whole walk, so such a push costs about what the
+   whole check did; the ID, rules and check validators are not scoped yet (D316).
+54. **A cold sorted lookup at 8 children (hot).** About 35 ns slower than a linear one;
+   sorting stays opt-in, and ties linear from 16 children (D320).
+55. **`watch()` normalizes through `std::filesystem` (tool).** About 10 global-heap
+   allocations a file, when the stack's file list changes; on Windows a stamp no longer
+   follows a symbolic link (D321).
+56. **A shipping build still links `config_write.cpp` (size).** 72 KB, through a helper
+   `config.cpp` shares; `view_digest` and its helpers, about 5 KB, stay in the shape
+   library (D322).
+57. **The shapes JSON does not report `by_id`, and a table rebuild costs 4% more
+   instructions with the string pool (tool, load)** (D324).
+58. **`reload()` itself runs on the caller's thread (load, development).** Only the job
+   form moves the work off it; a job copies the stack it reads against (D314).
+59. **A script task's 768-byte frame takes a 1 KB block (memory).** Size classes double
+   from 128 bytes (D310).
+60. **The stack image is copied, not loaded in place (load).** About 7–8 MB of transient
+   peak on an 8 MB image; the owner kept the copies (D325).
+61. **A native `float` result's conversion, 25–45 ns (hot).** Kept by the owner (D323).
+
+The review's "note" items (`dev/td-review-2026-11.md`, Notes) were recorded, not fixed.
 
 ## Already aligned (keep it that way)
 

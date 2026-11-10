@@ -97,3 +97,37 @@ Each finding is marked:
 - **29, curves read from the tree:** the first sample bakes the curve and caches it beside
   the node until it changes.
 - **30, generated structs:** reorder fields by alignment.
+
+## Status, 2026-11-10
+
+Every finding is closed or decided; the D-entries hold the measurements, and the gaps table
+(`.claude/skills/gamedev-td/references/baker-gaps.md`, "The 2026-11 review") lists what each
+left open.
+
+| Finding | D-entry | Status |
+|---|---|---|
+| 1 | D306 | closed |
+| 2 | D307 | closed: checks only in shipping (not dev-only, which would have let a shipping Live accept a bad overlay); the run-on-change skip was tried and dropped |
+| 3 | D308 | closed |
+| 4 | D309, D325 | closed; in-place loading not built, by the owner's choice |
+| 5 | D310 | closed |
+| 6 | D311 | closed for an edit elsewhere; a record's own edit still rebuilds the table |
+| 7 | D312 | closed |
+| 8 | D313 | closed |
+| 9 | D314 | closed |
+| 10 | D315 | closed |
+| 11 | D316 | closed |
+| 12, 15, 17 | D318 | closed |
+| 13, 16 | D317 | closed |
+| 14, 22 | D320 | closed |
+| 18, 19, 20 | D322 | closed |
+| 21, 30 | D324 | closed |
+| 23, 24, 26, 31 | D319 | closed |
+| 25 | D323 | kept: the owner chose the present conversion |
+| 27, 28 | D321 | closed |
+| 29 | D323 | closed |
+| 32 | D318 | closed (found while building D316) |
+
+Of the notes, one no longer holds: "the release flags lack `-fno-rtti`". `CMakeLists.txt`
+compiles with `-fno-rtti` (and `/GR-` on MSVC) unless `BAKER_RTTI` is set. `shape.hpp`'s
+schema comment is corrected with this record. The others stand as recorded.
